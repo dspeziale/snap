@@ -845,6 +845,10 @@ CREATE TABLE IF NOT EXISTS node_web (
     -- (i telefoni IP Cisco ne dichiarano una decina): il dettaglio del nodo le mostra
     -- tutte. Solo il vocabolario riconosciuto, mai il corpo della pagina.
     facts_json   TEXT,
+    -- Tutti i dati del certificato TLS, anche quelli senza colonna propria (numero di
+    -- serie, versione, algoritmo di firma, chiave pubblica, impronte, SAN, usi): dove
+    -- c'e' HTTPS si registra tutto cio' che il certificato dichiara.
+    cert_json    TEXT,
     body_hash    TEXT,
     body_bytes   INTEGER,
     error        TEXT,

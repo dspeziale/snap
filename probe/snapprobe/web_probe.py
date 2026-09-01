@@ -270,6 +270,19 @@ FIRME = [
      "marca": "Eaton", "tipo": "ups", "prodotto": "Eaton UPS"},
     {"chiave": "riello", "dove": ("titolo", "corpo"), "espressione": r"(?i)riello\s*ups",
      "marca": "Riello", "tipo": "ups", "prodotto": "Riello UPS"},
+    # Schede di gestione di rete degli UPS di scuola MGE/Eaton, rivendute da HP, Dell,
+    # Lenovo: la pagina e' un frameset servito da RomPager, con il modello scritto in
+    # grassetto ("HP R5000") nella pagina "Power Source" (ups_prop.htm) e la telemetria
+    # aggiornata via JavaScript. La firma scatta gia' dal titolo "... UPS Network
+    # Module"; il percorso noto porta alla pagina del modello anche quando i frame non
+    # si raggiungono in tempo. Marca e modello si leggono; la posizione e la telemetria
+    # non hanno un'etichetta e cambiano a ogni lettura, quindi non si conservano.
+    {"chiave": "mge-ups", "dove": ("titolo", "corpo", "server"),
+     "espressione": r"(?i)ups network module|mgeweb|/html/synoptic/",
+     "tipo": "ups", "prodotto": "UPS con scheda di gestione di rete (MGE/Eaton)",
+     "modello": r"(?i)(?:HP|HPE|MGE|Eaton|Dell|Lenovo|Riello)\s+"
+                r"([RT]P?\s?\d{3,5}[A-Za-z]{0,3})",
+     "percorsi": ("/ups_prop.htm",)},
 
     # --- automazione industriale ---
     {"chiave": "siemens-s7", "dove": ("titolo", "corpo"), "espressione": r"(?i)simatic|s7-\d{3}|siemens",
@@ -385,36 +398,159 @@ def leggi_certificato(ip: str, port: int, timeout: float = TIMEOUT_CONNESSIONE) 
             "tls_cifrario": (cifrario[0] if cifrario else "") or ""}
     if not grezzo:
         return dati
+    dati.update(dettagli_certificato(grezzo))
+    return dati
 
+
+def dettagli_certificato(grezzo: bytes) -> dict:
+    """Tutti i dati leggibili di un certificato in forma DER.
+
+    Funzione pura, senza rete: prende i byte del certificato e ne ricava nomi (corti e
+    completi), validita', numero di serie, versione, algoritmo di firma, chiave
+    pubblica, impronte, nomi alternativi e usi consentiti. Separata dalla connessione
+    proprio per poterla collaudare su un certificato costruito a tavolino.
+
+    Non solleva: un certificato malformato annota `cert_errore` e nient'altro.
+    """
+    dati = {}
     try:
         from cryptography import x509
         from cryptography.hazmat.primitives.serialization import Encoding
 
         certificato = x509.load_der_x509_certificate(grezzo)
+        # Nomi: la forma corta (CN/O) per la colonna e la tabella, la forma completa
+        # (DN) per chi vuole verificare esattamente chi ha emesso e per chi.
         dati["cert_soggetto"] = _nome_x509(certificato.subject)
         dati["cert_emittente"] = _nome_x509(certificato.issuer)
-        dati["cert_da"] = certificato.not_valid_before_utc.strftime("%Y-%m-%d")
-        dati["cert_a"] = certificato.not_valid_after_utc.strftime("%Y-%m-%d")
-        dati["cert_autofirmato"] = (certificato.subject == certificato.issuer)
+        dati["cert_soggetto_dn"] = _testo(certificato.subject.rfc4514_string(), 300)
+        dati["cert_emittente_dn"] = _testo(certificato.issuer.rfc4514_string(), 300)
+        # Validita': la data per la colonna, l'ora completa per il dettaglio, e i due
+        # esiti operativi (scaduto, giorni residui) che nessun'altra fase calcola.
+        inizio = certificato.not_valid_before_utc
         scadenza = certificato.not_valid_after_utc
-        dati["cert_scaduto"] = scadenza < datetime.now(timezone.utc)
-        dati["cert_giorni_residui"] = (scadenza - datetime.now(timezone.utc)).days
-        alternativi = []
+        dati["cert_da"] = inizio.strftime("%Y-%m-%d")
+        dati["cert_a"] = scadenza.strftime("%Y-%m-%d")
+        dati["cert_valido_da"] = inizio.strftime("%Y-%m-%d %H:%M:%S UTC")
+        dati["cert_valido_a"] = scadenza.strftime("%Y-%m-%d %H:%M:%S UTC")
+        adesso = datetime.now(timezone.utc)
+        dati["cert_autofirmato"] = (certificato.subject == certificato.issuer)
+        dati["cert_non_ancora_valido"] = inizio > adesso
+        dati["cert_scaduto"] = scadenza < adesso
+        dati["cert_giorni_residui"] = (scadenza - adesso).days
+        # Identita' del certificato: numero di serie e versione (v3 quasi ovunque).
+        dati["cert_seriale"] = format(certificato.serial_number, "X")
+        dati["cert_versione"] = getattr(certificato.version, "name", "")
+        # Algoritmo di firma: un certificato ancora firmato in SHA-1 e' un dato di
+        # sicurezza (algoritmo deprecato), non un dettaglio.
         try:
-            estensione = certificato.extensions.get_extension_for_class(
-                x509.SubjectAlternativeName)
-            alternativi = [str(v) for v in estensione.value.get_values_for_type(x509.DNSName)]
-        except x509.ExtensionNotFound:
-            alternativi = []
-        if alternativi:
-            dati["cert_nomi"] = alternativi[:12]
-        dati["cert_impronta"] = hashlib.sha256(
-            certificato.public_bytes(Encoding.DER)).hexdigest()[:32]
+            algoritmo = certificato.signature_hash_algorithm
+            dati["cert_algoritmo_firma"] = getattr(algoritmo, "name", "") or ""
+        except Exception:  # noqa: BLE001 - algoritmo non standard: si tace, non e' fatale
+            pass
+        chiave = _chiave_pubblica(certificato)
+        if chiave:
+            dati["cert_chiave"] = chiave
+        # Impronte per intero: la SHA-256 identifica il certificato in modo univoco
+        # (fissaggio, confronto fra apparati), la SHA-1 e' quella che molti strumenti
+        # ancora mostrano. `cert_impronta` (corta) resta per compatibilita'.
+        der = certificato.public_bytes(Encoding.DER)
+        dati["cert_sha256"] = hashlib.sha256(der).hexdigest()
+        dati["cert_sha1"] = hashlib.sha1(der).hexdigest()
+        dati["cert_impronta"] = dati["cert_sha256"][:32]
+        # Nomi alternativi: DNS e IP dichiarati nel certificato. Sono i nomi per cui il
+        # certificato e' valido, e dicono spesso il vero nome dell'apparato.
+        dns, indirizzi = _nomi_alternativi(certificato)
+        if dns:
+            dati["cert_nomi"] = dns[:20]
+        if indirizzi:
+            dati["cert_nomi_ip"] = indirizzi[:20]
+        usi = _usi_chiave(certificato)
+        if usi:
+            dati["cert_uso"] = usi
+        uso_esteso = _uso_esteso(certificato)
+        if uso_esteso:
+            dati["cert_uso_esteso"] = uso_esteso
     except Exception as errore:  # noqa: BLE001 - certificato malformato: si dichiara
         # Un certificato illeggibile non deve far perdere il resto della lettura: si
         # annota il motivo, che a volte e' esso stesso un'informazione sull'apparato.
         dati["cert_errore"] = str(errore)[:120]
     return dati
+
+
+def _chiave_pubblica(certificato) -> str:
+    """La chiave pubblica in forma leggibile: tipo e dimensione (o curva).
+
+    E' un dato di sicurezza: una RSA a 1024 bit e' debole, una P-256 no. Serve una
+    riga, non l'esponente.
+    """
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
+        pk = certificato.public_key()
+        if isinstance(pk, rsa.RSAPublicKey):
+            return "RSA %d bit" % pk.key_size
+        if isinstance(pk, ec.EllipticCurvePublicKey):
+            return "EC %s (%d bit)" % (pk.curve.name, pk.key_size)
+        nome = type(pk).__name__.replace("PublicKey", "").lstrip("_")
+        dimensione = getattr(pk, "key_size", None)
+        return "%s%s" % (nome, " %d bit" % dimensione if dimensione else "")
+    except Exception:  # noqa: BLE001 - chiave di tipo inatteso: non e' fatale
+        return ""
+
+
+def _nomi_alternativi(certificato):
+    """I SAN del certificato: nomi DNS e indirizzi IP per cui e' valido."""
+    from cryptography import x509
+
+    try:
+        san = certificato.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName).value
+    except x509.ExtensionNotFound:
+        return [], []
+    dns = [_testo(v, 120) for v in san.get_values_for_type(x509.DNSName)]
+    indirizzi = [str(v) for v in san.get_values_for_type(x509.IPAddress)]
+    return [d for d in dns if d], indirizzi
+
+
+def _usi_chiave(certificato) -> list:
+    """Gli usi consentiti dalla chiave (KeyUsage), in forma leggibile."""
+    from cryptography import x509
+
+    try:
+        ku = certificato.extensions.get_extension_for_class(x509.KeyUsage).value
+    except x509.ExtensionNotFound:
+        return []
+    coppie = [
+        (ku.digital_signature, "firma digitale"),
+        (ku.content_commitment, "non ripudio"),
+        (ku.key_encipherment, "cifratura chiave"),
+        (ku.data_encipherment, "cifratura dati"),
+        (ku.key_agreement, "accordo chiave"),
+        (ku.key_cert_sign, "firma certificati"),
+        (ku.crl_sign, "firma CRL"),
+    ]
+    return [nome for attivo, nome in coppie if attivo]
+
+
+def _uso_esteso(certificato) -> list:
+    """Gli usi estesi (ExtendedKeyUsage): server TLS, client TLS, firma codice..."""
+    from cryptography import x509
+
+    try:
+        eku = certificato.extensions.get_extension_for_class(
+            x509.ExtendedKeyUsage).value
+    except x509.ExtensionNotFound:
+        return []
+    nomi = {
+        "serverAuth": "autenticazione server", "clientAuth": "autenticazione client",
+        "codeSigning": "firma codice", "emailProtection": "protezione posta",
+        "timeStamping": "marca temporale", "OCSPSigning": "firma OCSP",
+    }
+    fuori = []
+    for oid in eku:
+        grezzo = getattr(oid, "_name", None) or oid.dotted_string
+        fuori.append(nomi.get(grezzo, grezzo))
+    return fuori
 
 
 def _nome_x509(nome) -> str:

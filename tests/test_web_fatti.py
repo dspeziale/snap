@@ -529,6 +529,44 @@ def test_del_telefono_cisco_non_si_conserva_il_corpo(rete_cisco_phone):
     assert "Serviceability" not in testo, "i collegamenti del menu non sono un dato"
 
 
+@pytest.fixture()
+def rete_hp_ups(monkeypatch):
+    """Uno UPS HP con scheda di gestione MGE/Eaton: la radice e' un frameset servito da
+    RomPager, il modello ("HP R5000") sta in grassetto nella pagina Power Source."""
+    import snapprobe.web_probe as lettore
+
+    pagine = {
+        "/": pagina("web_hp_ups_radice.html"),
+        "/ups_prop.htm": pagina("web_hp_ups_prop.html"),
+    }
+
+    def falso_scarica(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        corpo = pagine.get(urlsplit(indirizzo).path)
+        if corpo is None:
+            return RispostaFinta(404, "non trovato"), b"", None
+        risposta = RispostaFinta(200, corpo)
+        risposta.headers["Server"] = "Allegro-Software-RomPager/4.01"
+        return risposta, corpo.encode("utf-8"), None
+
+    monkeypatch.setattr(lettore, "_scarica", falso_scarica)
+
+
+def test_lo_ups_hp_si_riconosce_e_ne_esce_marca_e_modello(rete_hp_ups):
+    """Il modello e' scritto in grassetto senza etichetta, e la radice e' un frameset:
+    la firma scatta dal titolo e il percorso noto porta alla pagina del modello."""
+    from snapprobe.web_probe import leggi_pagina
+
+    esito = leggi_pagina("10.0.0.7", 80, False)
+
+    assert esito["marca"] == "HP"
+    assert esito["modello"] == "R5000"
+    assert esito["tipo_probabile"] == "ups"
+    assert esito["firma"] == "mge-ups"
+    assert "/ups_prop.htm" in [p["percorso"] for p in esito["pagine"]]
+
+
 def test_la_codifica_dichiarata_viene_rispettata():
     """Un apparato letto con la codifica sbagliata restituisce un fatto illeggibile, e
     quello finirebbe nell'inventario."""

@@ -369,6 +369,65 @@ def _fatti_aggiuntivi(facts_json: str | None) -> list[dict]:
     return aggiuntivi
 
 
+# Etichette leggibili per i dati del certificato TLS, nell'ordine in cui si leggono
+# davanti a un certificato: chi, chi lo ha emesso, per quanto e' valido, com'e' fatto.
+_ETICHETTE_CERT = (
+    ("cert_soggetto_dn", "Soggetto"),
+    ("cert_emittente_dn", "Emittente"),
+    ("cert_valido_da", "Valido dal"),
+    ("cert_valido_a", "Valido fino al"),
+    ("cert_giorni_residui", "Giorni residui"),
+    ("cert_seriale", "Numero di serie"),
+    ("cert_versione", "Versione"),
+    ("cert_algoritmo_firma", "Algoritmo di firma"),
+    ("cert_chiave", "Chiave pubblica"),
+    ("cert_uso", "Usi consentiti"),
+    ("cert_uso_esteso", "Usi estesi"),
+    ("cert_nomi", "Nomi alternativi (DNS)"),
+    ("cert_nomi_ip", "Nomi alternativi (IP)"),
+    ("cert_sha256", "Impronta SHA-256"),
+    ("cert_sha1", "Impronta SHA-1"),
+    ("tls_versione", "Protocollo TLS"),
+    ("tls_cifrario", "Cifrario"),
+    ("cert_errore", "Errore di lettura"),
+)
+# Chiavi da rendere in monospazio (impronte, seriale) e chiavi-elenco (liste).
+_CERT_MONOSPAZIO = frozenset(("cert_seriale", "cert_sha256", "cert_sha1"))
+_CERT_ELENCHI = frozenset(("cert_uso", "cert_uso_esteso", "cert_nomi", "cert_nomi_ip"))
+
+
+def _certificato_leggibile(cert_json: str | None) -> dict:
+    """Il certificato TLS come struttura pronta per il dettaglio.
+
+    Restituisce `{"righe": [...], "autofirmato": bool, "scaduto": bool, ...}` oppure un
+    dizionario vuoto se non c'e' un certificato. Le righe sono coppie (etichetta,
+    valore) in ordine di lettura; gli esiti di sicurezza (autofirmato, scaduto, non
+    ancora valido) restano separati perche' meritano un'evidenza, non una riga."""
+    if not cert_json:
+        return {}
+    try:
+        cert = json.loads(cert_json)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(cert, dict) or not cert:
+        return {}
+    righe = []
+    for chiave, etichetta in _ETICHETTE_CERT:
+        valore = cert.get(chiave)
+        if valore in (None, "", [], {}):
+            continue
+        if chiave in _CERT_ELENCHI and isinstance(valore, list):
+            valore = ", ".join(str(v) for v in valore)
+        righe.append({"etichetta": etichetta, "valore": str(valore),
+                      "monospazio": chiave in _CERT_MONOSPAZIO})
+    return {
+        "righe": righe,
+        "autofirmato": bool(cert.get("cert_autofirmato")),
+        "scaduto": bool(cert.get("cert_scaduto")),
+        "non_ancora_valido": bool(cert.get("cert_non_ancora_valido")),
+    }
+
+
 @bp.get("/nodes/<int:node_id>")
 @login_required
 def node(node_id: int):
@@ -407,14 +466,16 @@ def node(node_id: int):
         " brand, model, product, version, device_type, signature, cert_subject,"
         " cert_issuer, cert_expires, cert_selfsigned, tls_version, login_form,"
         " device_name, location, host_name, serial, firmware, contact,"
-        " pages_read, facts_locked, facts_json,"
+        " pages_read, facts_locked, facts_json, cert_json,"
         " body_bytes, error, collected_at FROM node_web"
         " WHERE tenant_id = ? AND node_id = ? ORDER BY port", (tenant_id, node_id))]
     # I fatti che l'apparato dichiara e che non hanno una colonna propria (l'interno e i
     # carichi di un telefono IP, per esempio) diventano una lista leggibile mostrata nel
-    # dettaglio, accanto ai campi principali.
+    # dettaglio, accanto ai campi principali. Lo stesso per il certificato TLS: dove c'e'
+    # HTTPS, si mostra tutto cio' che dichiara.
     for pagina in pagine_web:
         pagina["extra"] = _fatti_aggiuntivi(pagina.pop("facts_json", None))
+        pagina["cert"] = _certificato_leggibile(pagina.pop("cert_json", None))
 
     # Letture SNMP: dove la 161 risponde, e' la fonte piu' ricca sull'apparato.
     letture = [dict(r) for r in query(

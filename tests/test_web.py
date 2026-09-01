@@ -80,6 +80,9 @@ def test_una_porta_tcpwrapped_su_porta_web_si_legge_lo_stesso():
     ({"titolo": "Cisco Systems, Inc.",
       "fatti": {"modello": "CP-7962G", "nome_host": "SEP001122334455"}},
      {"marca": "Cisco", "tipo_probabile": "voip_phone", "modello": "CP-7962G"}),
+    # UPS HP con scheda MGE/Eaton: il genere si riconosce gia' dal titolo (il modello,
+    # scritto in grassetto nel corpo, e' coperto dalla prova di lettura completa).
+    ({"titolo": "HP UPS Network Module"}, {"tipo_probabile": "ups"}),
     ({"server": "Microsoft-IIS/10.0"},
      {"prodotto": "Microsoft IIS", "versione": "10.0"}),
     ({"server": "nginx/1.24.0"}, {"prodotto": "nginx", "versione": "1.24.0"}),
@@ -137,6 +140,84 @@ def test_le_redirezioni_verso_altri_host_non_si_seguono():
         "http://10.0.0.1/login"
     assert _redirezione_interna("http://10.0.0.1/", "https://10.0.0.1/x", "10.0.0.1")
     assert _redirezione_interna("http://10.0.0.1/", "https://esempio.invalido/", "10.0.0.1") is None
+
+
+# --------------------------------------------------------------------------- #
+# Il certificato TLS
+# --------------------------------------------------------------------------- #
+def _certificato_di_prova(scaduto=False):
+    """Un certificato autofirmato costruito a tavolino, come DER."""
+    import datetime
+    import ipaddress
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.hazmat.primitives.serialization import Encoding
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+
+    chiave = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    nome = x509.Name([
+        x509.NameAttribute(NameOID.COMMON_NAME, "device.local"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Acme SpA"),
+    ])
+    ora = datetime.datetime.now(datetime.timezone.utc)
+    fine = ora - datetime.timedelta(days=1) if scaduto else ora + datetime.timedelta(days=100)
+    cert = (x509.CertificateBuilder().subject_name(nome).issuer_name(nome)
+            .public_key(chiave.public_key()).serial_number(0x1234ABCD)
+            .not_valid_before(ora - datetime.timedelta(days=10)).not_valid_after(fine)
+            .add_extension(x509.SubjectAlternativeName([
+                x509.DNSName("device.local"),
+                x509.IPAddress(ipaddress.ip_address("10.0.0.5"))]), False)
+            .add_extension(x509.KeyUsage(
+                digital_signature=True, content_commitment=False, key_encipherment=True,
+                data_encipherment=False, key_agreement=False, key_cert_sign=False,
+                crl_sign=False, encipher_only=False, decipher_only=False), True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), False)
+            .sign(chiave, hashes.SHA256()))
+    return cert.public_bytes(Encoding.DER)
+
+
+def test_di_un_certificato_https_si_leggono_tutte_le_informazioni():
+    """Dove c'e' HTTPS si registra tutto cio' che il certificato dichiara: non solo chi
+    e per quanto, ma numero di serie, algoritmo di firma, chiave, impronte, nomi
+    alternativi e usi -- e gli esiti di sicurezza (autofirmato, scaduto)."""
+    from snapprobe.web_probe import dettagli_certificato
+
+    d = dettagli_certificato(_certificato_di_prova())
+
+    assert d["cert_soggetto"] == "device.local"
+    assert "O=Acme SpA" in d["cert_soggetto_dn"]
+    assert d["cert_autofirmato"] is True
+    assert d["cert_scaduto"] is False
+    assert d["cert_seriale"] == "1234ABCD"
+    assert d["cert_versione"] == "v3"
+    assert d["cert_algoritmo_firma"] == "sha256"
+    assert d["cert_chiave"] == "RSA 2048 bit"
+    assert len(d["cert_sha256"]) == 64 and len(d["cert_sha1"]) == 40
+    assert "device.local" in d["cert_nomi"]
+    assert d["cert_nomi_ip"] == ["10.0.0.5"]
+    assert "firma digitale" in d["cert_uso"] and "cifratura chiave" in d["cert_uso"]
+    assert d["cert_uso_esteso"] == ["autenticazione server"]
+
+
+def test_un_certificato_scaduto_e_dichiarato_tale():
+    from snapprobe.web_probe import dettagli_certificato
+
+    d = dettagli_certificato(_certificato_di_prova(scaduto=True))
+
+    assert d["cert_scaduto"] is True
+    assert d["cert_giorni_residui"] < 0
+
+
+def test_un_certificato_malformato_non_solleva():
+    """I byte illeggibili non devono far perdere il resto della lettura: si annota
+    l'errore e basta."""
+    from snapprobe.web_probe import dettagli_certificato
+
+    d = dettagli_certificato(b"non e' un certificato")
+
+    assert "cert_errore" in d
 
 
 # --------------------------------------------------------------------------- #
@@ -538,6 +619,67 @@ def test_la_pagina_del_telefono_cisco_ne_decide_il_tipo(server_app):
     assert verdetto["confidence"] >= 93
     motivi = " ".join(prova["prova"] for prova in verdetto["evidence"])
     assert "CP-7962G" in motivi
+
+
+LETTURA_HTTPS = {
+    "port": 443, "scheme": "https", "stato": 200, "titolo": "iDRAC9",
+    "marca": "Dell", "prodotto": "Dell iDRAC", "firma": "idrac",
+    "tipo_probabile": "server", "modulo_accesso": True,
+    "corpo_impronta": "aa11", "corpo_byte": 2048,
+    # I campi del certificato come li produce la sonda.
+    "tls_versione": "TLSv1.3", "tls_cifrario": "TLS_AES_256_GCM_SHA384",
+    "cert_soggetto": "idrac-XYZ.local", "cert_emittente": "Dell CA",
+    "cert_soggetto_dn": "CN=idrac-XYZ.local,O=Dell",
+    "cert_emittente_dn": "CN=Dell CA,O=Dell",
+    "cert_a": "2027-01-01", "cert_valido_da": "2025-01-01 00:00:00 UTC",
+    "cert_valido_a": "2027-01-01 00:00:00 UTC", "cert_autofirmato": True,
+    "cert_scaduto": False, "cert_giorni_residui": 400, "cert_seriale": "1A2B3C",
+    "cert_versione": "v3", "cert_algoritmo_firma": "sha256", "cert_chiave": "RSA 2048 bit",
+    "cert_sha256": "a" * 64, "cert_sha1": "b" * 40,
+    "cert_nomi": ["idrac-XYZ.local", "10.6.9.40"], "cert_uso": ["firma digitale"],
+    "cert_uso_esteso": ["autenticazione server"],
+    "pagine": [{"percorso": "/", "origine": "radice", "stato": 200}],
+}
+
+
+def test_di_un_https_si_conservano_tutti_i_dati_del_certificato(server_app):
+    """Dove c'e' HTTPS si registra tutto: i pochi campi con colonna vanno in colonna,
+    tutti gli altri (serie, algoritmo, chiave, impronte, SAN, usi) nel campo del
+    certificato, cosi' il dettaglio li puo' mostrare."""
+    import json
+
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.40")
+    _applica_web(server_app, tenant_id, "10.6.9.40", [LETTURA_HTTPS])
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        riga = query("SELECT cert_subject, cert_expires, cert_selfsigned, tls_version,"
+                     " cert_json FROM node_web WHERE node_id = ?", (node_id,), one=True)
+    assert riga["cert_subject"] == "idrac-XYZ.local"
+    assert riga["cert_selfsigned"] == 1
+    assert riga["tls_version"] == "TLSv1.3"
+    cert = json.loads(riga["cert_json"])
+    assert cert["cert_seriale"] == "1A2B3C"
+    assert cert["cert_algoritmo_firma"] == "sha256"
+    assert cert["cert_chiave"] == "RSA 2048 bit"
+    assert cert["cert_sha256"] == "a" * 64
+    assert cert["cert_uso_esteso"] == ["autenticazione server"]
+
+
+def test_il_certificato_completo_compare_nel_dettaglio(logged_client, server_app):
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.41")
+    _applica_web(server_app, tenant_id, "10.6.9.41", [LETTURA_HTTPS])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    pagina = logged_client.get("/inventory/nodes/%d" % node_id).get_data(as_text=True)
+
+    assert "Certificato TLS" in pagina
+    assert "Numero di serie" in pagina and "1A2B3C" in pagina
+    assert "Algoritmo di firma" in pagina and "sha256" in pagina
+    assert "RSA 2048 bit" in pagina
+    assert "autofirmato" in pagina, "l'esito di sicurezza va visto a colpo d'occhio"
 
 
 def test_una_pagina_protetta_si_conserva_come_tale(server_app):

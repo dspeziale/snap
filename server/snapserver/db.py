@@ -200,6 +200,9 @@ MIGRATIONS = [
     # propria (i telefoni IP Cisco ne dichiarano una decina): il dettaglio del nodo le
     # mostra tutte. Solo il vocabolario riconosciuto, mai il corpo della pagina.
     ("node_web", "facts_json", "TEXT"),
+    # Tutti i dati del certificato TLS, anche quelli senza colonna (serie, versione,
+    # algoritmo di firma, chiave, impronte, SAN, usi): dove c'e' HTTPS si registra tutto.
+    ("node_web", "cert_json", "TEXT"),
     # Avvisi sui termini di comunicazione ad ACN (vedi acn_watch).
     # Incidenti registrati a mano (vedi acn.registra_incidente).
     ("check_incidents", "origin", "TEXT NOT NULL DEFAULT 'check'"),

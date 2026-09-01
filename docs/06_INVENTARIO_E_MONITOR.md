@@ -1149,6 +1149,29 @@ marca e modello letti dalla pagina. Sono tutte etichette tecniche: il corpo dell
 pagina non si conserva, e il numero interno e' un identificativo di apparato, non di
 persona.
 
+Fra le famiglie coperte c'e' anche lo **UPS con scheda di gestione MGE/Eaton**
+(rivenduto da HP, Dell, Lenovo): la pagina e' un frameset servito da RomPager con il
+modello scritto in grassetto (*HP R5000*) nella pagina "Power Source" e la telemetria
+aggiornata via JavaScript. La firma scatta gia' dal titolo *... UPS Network Module* e un
+percorso noto porta alla pagina del modello anche quando i frame non si raggiungono in
+tempo; marca, modello e genere (`ups`, che classifica il nodo come gruppo di
+continuita') si leggono. La posizione e la telemetria non hanno un'etichetta e cambiano
+a ogni lettura, quindi non si conservano.
+
+### 14.3-ter-cert Il certificato TLS, per intero
+
+Dove un apparato risponde in **HTTPS** si registra tutto cio' che il certificato
+dichiara, non solo chi e per quanto e' valido. Oltre a soggetto ed emittente (in forma
+corta per la tabella e completa, DN, per la verifica) si conservano: numero di serie,
+versione, **algoritmo di firma** (un certificato ancora firmato in SHA-1 e' un dato di
+sicurezza, non un dettaglio), **chiave pubblica** (tipo e dimensione: una RSA a 1024 bit
+e' debole, una P-256 no), impronte SHA-256 e SHA-1 per intero, nomi alternativi (DNS e
+IP), usi consentiti (KeyUsage) ed estesi (ExtendedKeyUsage). Gli esiti operativi che
+nessun'altra fase calcola -- **autofirmato, scaduto, non ancora valido, giorni residui**
+-- restano in evidenza. Nulla di tutto questo richiede credenziali: e' cio' che
+l'apparato presenta a chiunque apra la porta. Il certificato completo sta in
+`node_web.cert_json` e il dettaglio del nodo lo mostra sotto *Certificato TLS*.
+
 ### 14.3-bis Quando i dati ci sono ma sono chiusi
 
 Alcuni apparati mostrano i propri dati solo dopo l'accesso. La sonda non ha credenziali
