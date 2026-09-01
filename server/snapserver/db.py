@@ -196,6 +196,10 @@ MIGRATIONS = [
     ("node_web", "contact", "TEXT"),
     ("node_web", "pages_read", "INTEGER NOT NULL DEFAULT 0"),
     ("node_web", "facts_locked", "INTEGER NOT NULL DEFAULT 0"),
+    # Tutte le etichette che l'apparato dichiara di se', anche quelle senza una colonna
+    # propria (i telefoni IP Cisco ne dichiarano una decina): il dettaglio del nodo le
+    # mostra tutte. Solo il vocabolario riconosciuto, mai il corpo della pagina.
+    ("node_web", "facts_json", "TEXT"),
     # Avvisi sui termini di comunicazione ad ACN (vedi acn_watch).
     # Incidenti registrati a mano (vedi acn.registra_incidente).
     ("check_incidents", "origin", "TEXT NOT NULL DEFAULT 'check'"),

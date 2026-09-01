@@ -324,6 +324,50 @@ _FOGLI_STAMPA = {
     "a3-portrait": {"css": "A3 portrait", "label": "A3 verticale"},
 }
 
+# Etichette leggibili per i fatti che l'apparato dichiara di se' e che non hanno una
+# colonna propria nel dettaglio (nome, modello, posizione, host, serie, firmware e
+# contatto sono gia' mostrati sopra). Chi non e' in elenco non si mostra: e' l'unico
+# modo di tenere il dettaglio pulito e di non far comparire chiavi tecniche grezze.
+_ETICHETTE_FATTI_WEB = {
+    "mac": "Indirizzo MAC",
+    "numero_interno": "Numero interno",
+    "carico_software": "Carico software (app)",
+    "carico_avvio": "Carico di avvio (boot)",
+    "revisione_hw": "Revisione hardware",
+    "gestore_chiamate": "Gestore chiamate (CUCM)",
+    "server_tftp": "Server TFTP",
+}
+# Fatti gia' esposti come campo dedicato: non vanno ripetuti fra i "dati aggiuntivi".
+_FATTI_WEB_GIA_MOSTRATI = frozenset((
+    "nome_dispositivo", "modello", "posizione", "nome_host", "seriale", "firmware",
+    "contatto", "marca_dichiarata",
+))
+
+
+def _fatti_aggiuntivi(facts_json: str | None) -> list[dict]:
+    """I fatti dichiarati dall'apparato che non hanno gia' un campo dedicato.
+
+    Restituisce coppie (etichetta leggibile, valore) in un ordine stabile, saltando i
+    fatti gia' mostrati e le chiavi che non sono nel vocabolario di presentazione: un
+    telefono IP Cisco dichiara interno, carichi, revisione hardware, gestore chiamate e
+    server TFTP, e questi altrimenti resterebbero solo nel dato grezzo.
+    """
+    if not facts_json:
+        return []
+    try:
+        fatti = json.loads(facts_json)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(fatti, dict):
+        return []
+    aggiuntivi = []
+    for chiave, etichetta in _ETICHETTE_FATTI_WEB.items():
+        valore = fatti.get(chiave)
+        if chiave in _FATTI_WEB_GIA_MOSTRATI or not valore:
+            continue
+        aggiuntivi.append({"etichetta": etichetta, "valore": str(valore)})
+    return aggiuntivi
+
 
 @bp.get("/nodes/<int:node_id>")
 @login_required
@@ -363,9 +407,14 @@ def node(node_id: int):
         " brand, model, product, version, device_type, signature, cert_subject,"
         " cert_issuer, cert_expires, cert_selfsigned, tls_version, login_form,"
         " device_name, location, host_name, serial, firmware, contact,"
-        " pages_read, facts_locked,"
+        " pages_read, facts_locked, facts_json,"
         " body_bytes, error, collected_at FROM node_web"
         " WHERE tenant_id = ? AND node_id = ? ORDER BY port", (tenant_id, node_id))]
+    # I fatti che l'apparato dichiara e che non hanno una colonna propria (l'interno e i
+    # carichi di un telefono IP, per esempio) diventano una lista leggibile mostrata nel
+    # dettaglio, accanto ai campi principali.
+    for pagina in pagine_web:
+        pagina["extra"] = _fatti_aggiuntivi(pagina.pop("facts_json", None))
 
     # Letture SNMP: dove la 161 risponde, e' la fonte piu' ricca sull'apparato.
     letture = [dict(r) for r in query(

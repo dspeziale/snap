@@ -78,27 +78,37 @@ html.snap-layout-wide .app-content-header > .container-fluid {
 .snap-kpi-secondary { border-left-color: var(--bs-secondary); }
 
 /* --- Indicatori nella barra superiore --------------------------------- */
-.snap-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: .3rem;
-  padding: .2rem .55rem;
-  margin-right: .3rem;
-  border: 1px solid var(--bs-border-color);
-  border-radius: 2rem;
-  font-size: .78rem;
+/* --- Ricerca nella barra superiore ------------------------------------ */
+.snap-ricerca { width: 100%; max-width: 30rem; }
+.snap-ricerca .input-group-text {
+  background: var(--bs-body-bg);
+  border-right: 0;
   color: var(--bs-secondary-color);
+}
+.snap-ricerca .form-control {
+  border-left: 0;
+  background: var(--bs-body-bg);
+}
+.snap-ricerca .form-control:focus {
+  box-shadow: none;
+  border-color: var(--bs-border-color);
+}
+/* Sotto md la barra e' stretta: la ricerca passa in una riga tutta sua non
+   avrebbe senso, quindi si nasconde e resta la pagina dedicata dal menu. */
+@media (max-width: 575.98px) {
+  .snap-ricerca { display: none; }
+}
+
+/* --- Menu di stato del sistema ---------------------------------------- */
+.snap-stato-menu { min-width: 16rem; }
+.snap-stato-riga {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .25rem .5rem;
+  font-size: .85rem;
   white-space: nowrap;
-}
-.snap-indicator-danger {
-  color: var(--bs-danger);
-  border-color: var(--bs-danger-border-subtle);
-  background: var(--bs-danger-bg-subtle);
-}
-.snap-indicator-warning {
-  color: var(--bs-warning-text-emphasis);
-  border-color: var(--bs-warning-border-subtle);
-  background: var(--bs-warning-bg-subtle);
 }
 
 /* --- Barre di distribuzione ------------------------------------------- */

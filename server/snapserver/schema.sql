@@ -841,6 +841,10 @@ CREATE TABLE IF NOT EXISTS node_web (
     -- dietro una richiesta di credenziali (che la sonda non ha e non tenta).
     pages_read   INTEGER NOT NULL DEFAULT 0,
     facts_locked INTEGER NOT NULL DEFAULT 0,
+    -- Tutte le etichette dichiarate dall'apparato, anche quelle senza colonna propria
+    -- (i telefoni IP Cisco ne dichiarano una decina): il dettaglio del nodo le mostra
+    -- tutte. Solo il vocabolario riconosciuto, mai il corpo della pagina.
+    facts_json   TEXT,
     body_hash    TEXT,
     body_bytes   INTEGER,
     error        TEXT,

@@ -174,6 +174,11 @@ MARCHE = (
     (r"proxmox", "Proxmox"),
     (r"idrac|poweredge", "Dell"),
     (r"\bilo\b|integrated lights-?out|proliant", "HP"),
+    # Vertiv (gia' Emerson Network Power): web card IntelliSlot e unita' Liebert
+    # (UPS e raffreddamento di precisione, i "gruppi frigo" dei datacenter).
+    (r"vertiv|emerson network power|intellislot|is-?unity|liebert", "Vertiv"),
+    (r"\bcarel\b", "CAREL"),
+    (r"\bdanfoss\b", "Danfoss"),
 )
 
 # Modelli riconoscibili senza etichetta: la sigla stessa dice l'apparato.
@@ -186,6 +191,9 @@ MODELLI = (
     r"e-?STUDIO\s?[\w\-]{2,12}",                            # Toshiba
     r"imageRUNNER(?:\s?ADVANCE)?\s?[\w\-]{2,14}",           # Canon
     r"(?:MX|BP)-[\w]{3,10}",                                # Sharp
+    r"IntelliSlot(?:\s+(?:Unity|Web\s+Card|IS-?UNITY))?",   # Vertiv/Emerson web card
+    r"IS-?UNITY(?:[-_][\w.]{1,20})?",                       # Vertiv IntelliSlot Unity
+    r"CP-\d{3,4}[A-Z]{0,2}",                                # Cisco Unified IP Phone
 )
 
 # --------------------------------------------------------------------------- #
@@ -202,6 +210,11 @@ RE_JS_LOCATION = re.compile(
     r"""(?is)(?:(?:window\s*\.\s*)?location\s*(?:\.\s*href\s*)?=|"""
     r"""location\s*\.\s*(?:replace|assign)\s*\()\s*["']([^"'\s]{1,300})["']""")
 RE_FRAME = re.compile(r"""(?is)<(?:i?frame)[^>]+src\s*=\s*["']?([^"'\s>]{1,300})""")
+# Alcune famiglie scrivono la versione del firmware in una variabile JavaScript invece
+# che in un'etichetta: i web card Vertiv/Emerson IntelliSlot espongono
+# `var fwLabel = "IS-UNITY_5.0.0.0_91932"`. Si riconosce la forma, non si esegue nulla.
+RE_FW_LABEL = re.compile(
+    r"""(?i)fwLabel\s*=\s*["'](IS-?UNITY[_-][\d.]+)_(\d{3,})["']""")
 RE_ANCORA = re.compile(
     r"""(?is)<a[^>]+href\s*=\s*["']?([^"'\s>]{1,300})["']?[^>]*>(.{0,120}?)</a>""")
 
@@ -209,20 +222,23 @@ RE_ANCORA = re.compile(
 # collegamento. Ma la prudenza va calibrata, altrimenti diventa cecita': la prima
 # versione di questo elenco conteneva "start" e scartava `Start_Wlm.htm`, che e' la
 # pagina iniziale delle Kyocera -- si perdevano modello e posizione di decine di
-# apparati per una parola.
+# apparati per una parola. Stesso caso con "initialize": `web/initialize.htm` e' la
+# landing page dei web card Vertiv/Emerson IntelliSlot (un redirect, non un'azione), e
+# scartarla lasciava il gruppo frigo classificato come un generico server Linux.
 #
 # Quindi due elenchi:
 # * VERBI_DISTRUTTIVI: mai, in nessuna forma. Sono azioni che si riconoscono dal nome
 #   e non esistono come pagine da consultare;
 # * VERBI_CON_EFFETTO: solo se l'indirizzo ha dei parametri. `settings.htm` e' una
-#   pagina, `cgi?set=1` e' un comando -- e la differenza sta nella coda.
+#   pagina, `cgi?set=1` e' un comando -- e la differenza sta nella coda. "initialize"
+#   sta qui: `initialize.htm` (senza coda) e' una pagina, `initialize?...` un comando.
 VERBI_DISTRUTTIVI = re.compile(
     r"(?i)(reboot|restart|shutdown|poweroff|power_?off|halt|format|erase|wipe|"
     r"delete|remove|purge|factory|firmware.?up|upgrade|logout|logoff|signout|"
-    r"sign_?out|shred|initiali[sz]e|clear_?(?:log|all|counter)|reset)")
+    r"sign_?out|shred|clear_?(?:log|all|counter)|reset)")
 VERBI_CON_EFFETTO = re.compile(
     r"(?i)(enable|disable|apply|commit|save|set_?|write|cancel|abort|install|update|"
-    r"start|stop|test_?print|print_?test|calibrat|unlock|reboot|restart)")
+    r"start|stop|test_?print|print_?test|calibrat|unlock|reboot|restart|initiali[sz]e)")
 # Nome conservato per compatibilita' con chi lo importa: vale il caso distruttivo.
 VERBI_PERICOLOSI = VERBI_DISTRUTTIVI
 
@@ -365,6 +381,12 @@ def fatti(pagina: str) -> dict:
     for chiave, valore in fatti_xml(pagina).items():
         trovati.setdefault(chiave, valore)
 
+    if "firmware" not in trovati:
+        fw = RE_FW_LABEL.search(pagina)
+        if fw:
+            trovati["firmware"] = "%s (build %s)" % (fw.group(1).replace("_", " "),
+                                                     fw.group(2))
+
     return dict(list(trovati.items())[:MAX_FATTI])
 
 
@@ -374,14 +396,23 @@ def fatti(pagina: str) -> dict:
 TAG_XML = {
     "makeandmodel": "modello", "model": "modello", "modelname": "modello",
     "productname": "modello", "devicemodel": "modello", "printermodel": "modello",
+    "modelnumber": "modello",
     "devicename": "nome_dispositivo", "hostname": "nome_host",
     "devicehostname": "nome_host", "systemname": "nome_dispositivo",
     "serialnumber": "seriale", "serialnum": "seriale", "productserialnumber": "seriale",
     "firmwareversion": "firmware", "fwversion": "firmware", "version": "firmware",
-    "softwareversion": "firmware", "devicelocation": "posizione",
+    "versionid": "firmware", "softwareversion": "firmware",
+    "devicelocation": "posizione",
     "location": "posizione", "syslocation": "posizione", "contact": "contatto",
     "syscontact": "contatto", "macaddress": "mac", "manufacturer": "marca_dichiarata",
     "make": "marca_dichiarata", "vendor": "marca_dichiarata",
+    # Telefoni IP Cisco: gli endpoint /DeviceInformationX e /NetworkConfigurationX
+    # dichiarano in XML tutto cio' che serve a inventariare l'apparato. Sono etichette
+    # tecniche (nessun dato personale): l'interno e' un numero di apparato, non di
+    # persona, e vale come identificativo del terminale.
+    "phonedn": "numero_interno", "apploadid": "carico_software",
+    "bootloadid": "carico_avvio", "hardwarerevision": "revisione_hw",
+    "callmanager1": "gestore_chiamate", "tftpserver1": "server_tftp",
 }
 RE_TAG_VALORE = re.compile(
     r"(?is)<(?:\w+:)?([A-Za-z][\w\-\.]{2,40})\s*>\s*([^<>]{1,160}?)\s*</")

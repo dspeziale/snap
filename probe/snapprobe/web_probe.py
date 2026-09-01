@@ -114,6 +114,25 @@ FIRME = [
     # Sulla rete reale una ventina di apparati si presenta come "IP Phone" e
     # nient'altro: la pagina di stato chiede le credenziali, che non abbiamo. La marca
     # resta ignota, ma il genere no -- e per un inventario e' cio' che conta di piu'.
+    # Telefoni IP Cisco Unified (79xx e successivi). La radice e' un menu HTML che si
+    # presenta da solo ("Cisco Unified IP Phone CP-7962G ( SEP... )") e rimanda a due
+    # endpoint XML di sola lettura -- /NetworkConfigurationX e /DeviceInformationX --
+    # che dichiarano una montagna di dati tecnici: MAC, nome host, interno, carichi
+    # software e di avvio, revisione hardware, numero di serie, modello, gestore
+    # chiamate e server TFTP. Sta prima della firma generica "cisco" (che sarebbe uno
+    # switch) e della "telefono-ip" (che non darebbe la marca). I percorsi si leggono
+    # nell'ordine dato: prima la configurazione di rete, che da sola non e' "abbastanza"
+    # e non ferma la navigazione, poi le informazioni del dispositivo che la completano
+    # -- cosi' entrambe le pagine vengono lette.
+    # `voip_phone` e' la chiave esatta della classe nel catalogo del riconoscimento
+    # (fingerprint): dichiararla qui fa scattare la regola decisiva, e il nodo si
+    # classifica come "Telefono VoIP" citando marca e modello letti dalla pagina.
+    {"chiave": "cisco-ip-phone", "dove": ("titolo", "corpo", "fatti"),
+     "espressione": r"(?i)cisco[\s\S]{0,40}ip phone|\bCP-\d{3,4}[A-Z]{0,2}\b"
+                    r"|\bSEP[0-9A-F]{12}\b",
+     "marca": "Cisco", "tipo": "voip_phone", "prodotto": "Cisco Unified IP Phone",
+     "modello": r"(?i)(CP-\d{3,4}[A-Z]{0,2})",
+     "percorsi": ("/NetworkConfigurationX", "/DeviceInformationX")},
     {"chiave": "telefono-ip", "dove": ("titolo", "server", "intestazioni"),
      "espressione": r"(?i)\bip[ -]?phone\b|\bvoip\b|\bsip phone\b"
                     r"|phone web (?:user )?interface|telefono ip",
@@ -211,8 +230,23 @@ FIRME = [
     {"chiave": "veeam", "dove": ("titolo", "corpo"), "espressione": r"(?i)veeam",
      "marca": "Veeam", "tipo": "server", "prodotto": "Veeam"},
 
+    # Web card Vertiv (gia' Emerson Network Power) IntelliSlot: interfaccia di gestione
+    # di UPS e unita' di raffreddamento Liebert -- i "gruppi frigo" dei datacenter. Sta
+    # qui, prima delle telecamere, perche' la sua pagina e' fatta di frame e JavaScript
+    # e la vecchia firma hikvision (`dvr.*web`) la agganciava per sbaglio ("web"
+    # abbonda). La pagina redirige a web/initialize.htm e dichiara il firmware in
+    # `fwLabel`.
+    {"chiave": "vertiv-intellislot", "dove": ("titolo", "corpo", "fatti"),
+     "espressione": r"(?i)intellislot|emerson network power|is-?unity|\bliebert\b",
+     "marca": "Vertiv", "tipo": "building_automation",
+     "prodotto": "Vertiv/Emerson IntelliSlot (gestione UPS o raffreddamento)",
+     "modello": r"(?i)(IntelliSlot[\w \-]{0,20}|IS-?UNITY[\w.\-]{0,14})"},
+
     # --- videosorveglianza, telefonia, controllo accessi ---
-    {"chiave": "hikvision", "dove": ("titolo", "corpo"), "espressione": r"(?i)hikvision|\bdvr\b.*web|ivms",
+    # `dvr.*web` con distanza illimitata agganciava pagine che nulla c'entrano con una
+    # telecamera (bastava un "dvr" e un "web" lontani): la distanza e' ora limitata.
+    {"chiave": "hikvision", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)hikvision|\bdvr\b[\s\S]{0,30}web|ivms",
      "marca": "Hikvision", "tipo": "camera", "prodotto": "Hikvision"},
     {"chiave": "dahua", "dove": ("titolo", "corpo"), "espressione": r"(?i)dahua|\bnvr\b\s*web",
      "marca": "Dahua", "tipo": "camera", "prodotto": "Dahua"},
@@ -812,7 +846,12 @@ def porte_web(porte_aperte) -> list[tuple]:
                  or "http" in prodotto)
         # Un servizio dichiarato non-web su una porta del catalogo non si legge: e'
         # il caso di un SSH spostato sulla 8080, e una GET la' non serve a nessuno.
-        if servizio and not any(s in servizio for s in ("http", "www", "ssl", "unknown")):
+        # "tcpwrapped" NON e' una dichiarazione: e' il modo in cui nmap dice "la porta
+        # apre e chiude subito, non so cosa sia" -- tipico degli apparati che limitano i
+        # tentativi (un telefono IP Cisco, per dire, espone la 80 come "tcpwrapped").
+        # Trattarlo come un servizio non-web faceva saltare la lettura di quella pagina.
+        if servizio and not any(s in servizio
+                                for s in ("http", "www", "ssl", "unknown", "tcpwrapped")):
             e_web = e_web and numero not in PORTE_HTTP and numero not in PORTE_HTTPS
         if e_web:
             scelte.append((numero, cifrata))

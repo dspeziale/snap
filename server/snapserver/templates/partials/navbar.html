@@ -7,7 +7,7 @@
 #}
 <nav class="app-header navbar navbar-expand bg-body">
   <div class="container-fluid">
-    <ul class="navbar-nav align-items-center">
+    <ul class="navbar-nav align-items-center flex-grow-1 me-2">
       <li class="nav-item">
         <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button" aria-label="Menu">
           <i class="bi bi-list fs-4"></i>
@@ -22,37 +22,62 @@
       </li>
       {% endif %}
 
-      {# Area indicatori: stato sintetico sempre visibile #}
-      {% if indicators.available %}
-      <li class="nav-item d-none d-lg-block ms-2">
-        <span class="snap-indicator" title="Sonde attive sul totale censito">
-          <i class="bi bi-broadcast-pin"></i>
-          <span>{{ indicators.probes_online }}/{{ indicators.probes_total }}</span>
-        </span>
-        <span class="snap-indicator {% if indicators.probes_pending %}snap-indicator-warning{% endif %}"
-              title="Sonde in attesa di registrazione">
-          <i class="bi bi-key"></i>
-          <span>{{ indicators.probes_pending }}</span>
-        </span>
-        <span class="snap-indicator {% if indicators.events_today %}snap-indicator-danger{% endif %}"
-              title="Eventi di audit rilevanti nelle ultime 24 ore">
-          <i class="bi bi-journal-text"></i>
-          <span>{{ indicators.events_today }}</span>
-        </span>
-        <span class="snap-indicator {% if indicators.pending_commands %}snap-indicator-warning{% endif %}"
-              title="Comandi in attesa di consegna alle sonde">
-          <i class="bi bi-hourglass-split"></i>
-          <span>{{ indicators.pending_commands }}</span>
-        </span>
-        <span class="snap-indicator" title="Ultimo conferimento ricevuto">
-          <i class="bi bi-cloud-arrow-down"></i>
-          <span>{{ indicators.last_sync_at|ago }}</span>
-        </span>
+      {# Ricerca nella base dati: stessa interrogazione della pagina dedicata
+         (operations.search). Form GET puro, funziona anche senza JavaScript. #}
+      <li class="nav-item flex-grow-1 ms-2 ms-lg-3">
+        <form class="snap-ricerca" method="get" action="{{ url_for('operations.search') }}" role="search">
+          <div class="input-group input-group-sm">
+            <span class="input-group-text" aria-hidden="true"><i class="bi bi-search"></i></span>
+            <input type="search" name="q" class="form-control"
+                   placeholder="Ricerca nella base dati (indirizzo, host, MAC, costruttore...)"
+                   aria-label="Ricerca nella base dati" autocomplete="off" minlength="2"
+                   value="{{ request.args.get('q', '') if request.endpoint == 'operations.search' else '' }}">
+          </div>
+        </form>
       </li>
-      {% endif %}
     </ul>
 
     <ul class="navbar-nav ms-auto align-items-center">
+      {# Stato sintetico del sistema: spostato dalla barra in un menu dedicato,
+         cosi' la barra ospita la ricerca. Un pallino segnala se c'e' qualcosa
+         che merita attenzione (sonde in attesa, eventi, comandi pendenti). #}
+      {% if indicators.available %}
+      <li class="nav-item dropdown">
+        <a class="nav-link position-relative" data-bs-toggle="dropdown" href="#"
+           title="Stato del sistema" aria-label="Stato del sistema">
+          <i class="bi bi-activity fs-5"></i>
+          {% if indicators.probes_pending or indicators.events_today or indicators.pending_commands %}
+          <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
+            <span class="visually-hidden">Elementi che richiedono attenzione</span>
+          </span>
+          {% endif %}
+        </a>
+        <div class="dropdown-menu dropdown-menu-end p-2 snap-stato-menu">
+          <p class="fw-semibold small text-uppercase text-secondary mb-2 px-1">Stato del sistema</p>
+          <div class="snap-stato-riga">
+            <span><i class="bi bi-broadcast-pin me-2"></i>Sonde attive</span>
+            <span class="fw-semibold">{{ indicators.probes_online }}/{{ indicators.probes_total }}</span>
+          </div>
+          <div class="snap-stato-riga {% if indicators.probes_pending %}text-warning{% endif %}">
+            <span><i class="bi bi-key me-2"></i>Sonde in attesa</span>
+            <span class="fw-semibold">{{ indicators.probes_pending }}</span>
+          </div>
+          <div class="snap-stato-riga {% if indicators.events_today %}text-danger{% endif %}">
+            <span><i class="bi bi-journal-text me-2"></i>Eventi (24h)</span>
+            <span class="fw-semibold">{{ indicators.events_today }}</span>
+          </div>
+          <div class="snap-stato-riga {% if indicators.pending_commands %}text-warning{% endif %}">
+            <span><i class="bi bi-hourglass-split me-2"></i>Comandi pendenti</span>
+            <span class="fw-semibold">{{ indicators.pending_commands }}</span>
+          </div>
+          <div class="snap-stato-riga">
+            <span><i class="bi bi-cloud-arrow-down me-2"></i>Ultimo conferimento</span>
+            <span class="fw-semibold">{{ indicators.last_sync_at|ago }}</span>
+          </div>
+        </div>
+      </li>
+      {% endif %}
+
       {# Preferenze di visualizzazione #}
       <li class="nav-item dropdown">
         <a class="nav-link" data-bs-toggle="dropdown" href="#" title="Preferenze di visualizzazione">

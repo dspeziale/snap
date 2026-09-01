@@ -211,6 +211,59 @@ def test_un_comando_con_parametri_resta_escluso():
                     True) == []
 
 
+def test_la_landing_page_initialize_si_apre_ma_non_il_comando():
+    """`web/initialize.htm` e' la landing page dei web card Vertiv/Emerson IntelliSlot,
+    non un'azione: si segue il redirect JavaScript. Con dei parametri, invece, diventa
+    un comando e resta escluso -- come "start"."""
+    from snapprobe.web_facts import bersagli
+
+    pagina = '<script>document.location = "web/initialize.htm";</script>'
+    assert [p["url"] for p in bersagli(pagina, "http://10.112.9.24/")] == [
+        "http://10.112.9.24/web/initialize.htm"]
+    con_coda = '<script>document.location = "web/initialize.htm?do=factory";</script>'
+    assert bersagli(con_coda, "http://10.112.9.24/") == []
+
+
+def test_il_web_card_vertiv_intellislot_si_riconosce():
+    """Il gruppo frigo (unita' Liebert) espone un web card Vertiv/Emerson IntelliSlot:
+    dal titolo si ricava marca e modello, e la versione dalla variabile `fwLabel`."""
+    from snapprobe.web_facts import fatti, marca_e_modello
+
+    titolo = "Emerson Network Power IntelliSlot Web Card"
+    esito = marca_e_modello({}, titolo, "Apache/2.4.4 (Unix)")
+    assert esito["marca"] == "Vertiv"
+    assert "IntelliSlot" in esito["modello"]
+
+    fw = fatti('<script>var fwLabel = "IS-UNITY_5.0.0.0_91932";</script>')
+    assert fw.get("firmware") == "IS-UNITY 5.0.0.0 (build 91932)"
+
+
+def test_il_telefono_ip_cisco_dichiara_tutto_nei_suoi_xml():
+    """Gli endpoint /DeviceInformationX e /NetworkConfigurationX di un telefono IP Cisco
+    dichiarano in XML una montagna di dati: interno, carichi, revisione hardware,
+    numero di serie, modello, gestore chiamate, server TFTP. E' il caso reale del
+    CP-7962G, con MAC, host e interno sostituiti."""
+    from snapprobe.web_facts import fatti, marca_e_modello
+
+    dev = fatti(pagina("web_cisco_phone_deviceinfo.xml"))
+    assert dev["modello"] == "CP-7962G"
+    assert dev["nome_host"] == "SEP001122334455"
+    assert dev["seriale"] == "ABC1234567X"
+    assert dev["firmware"] == "*SCCP42.9-4-2SR3-1S*"
+    assert dev["numero_interno"] == "1000"
+    assert dev["carico_software"] == "jar42sccp.9-4-2ES26.sbn"
+    assert dev["carico_avvio"] == "tnp62.8-3-1-21a.bin"
+    assert dev["revisione_hw"] == "13.0"
+
+    net = fatti(pagina("web_cisco_phone_netconfig.xml"))
+    assert net["server_tftp"] == "10.0.0.101"
+    assert net["gestore_chiamate"] == "10.0.0.101 Attivo"
+
+    # Cisco arriva dal titolo/nome dispositivo, non dalla sigla del modello.
+    assert marca_e_modello(dev, "Cisco Systems, Inc.")["marca"] == "Cisco"
+    assert marca_e_modello(dev, "Cisco Systems, Inc.")["modello"] == "CP-7962G"
+
+
 def test_i_collegamenti_si_seguono_solo_se_promettono_informazioni():
     from snapprobe.web_facts import bersagli
 
@@ -414,6 +467,66 @@ def test_un_anello_di_redirezioni_non_gira_a_vuoto(monkeypatch):
     esito = lettore.leggi_pagina("10.0.0.1", 80, False)
 
     assert esito["pagine_lette"] <= lettore.MAX_PAGINE_PER_PORTA
+
+
+@pytest.fixture()
+def rete_cisco_phone(monkeypatch):
+    """Un telefono IP Cisco come risponde davvero: la radice e' un menu HTML che si
+    presenta, e i dati stanno nei due XML di sola lettura /NetworkConfigurationX e
+    /DeviceInformationX."""
+    import snapprobe.web_probe as lettore
+
+    pagine = {
+        "/": pagina("web_cisco_phone_radice.html"),
+        "/DeviceInformationX": pagina("web_cisco_phone_deviceinfo.xml"),
+        "/NetworkConfigurationX": pagina("web_cisco_phone_netconfig.xml"),
+    }
+
+    def falso_scarica(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        corpo = pagine.get(urlsplit(indirizzo).path)
+        if corpo is None:
+            return RispostaFinta(404, "non trovato"), b"", None
+        return RispostaFinta(200, corpo), corpo.encode("utf-8"), None
+
+    monkeypatch.setattr(lettore, "_scarica", falso_scarica)
+
+
+def test_la_lettura_del_telefono_cisco_passa_dai_due_xml(rete_cisco_phone):
+    """Dalla radice, che non dichiara nulla di macchina, si arriva ai due endpoint XML
+    documentati: entrambi vengono letti (la configurazione di rete da sola non basta a
+    fermare la navigazione), e il verdetto e' un telefono VoIP Cisco CP-7962G."""
+    from snapprobe.web_probe import leggi_pagina
+
+    esito = leggi_pagina("10.0.0.139", 80, False)
+
+    assert esito["marca"] == "Cisco"
+    assert esito["modello"] == "CP-7962G"
+    assert esito["prodotto"] == "Cisco Unified IP Phone"
+    # La chiave e' quella esatta della classe: fa scattare la regola decisiva.
+    assert esito["tipo_probabile"] == "voip_phone"
+    assert esito["firma"] == "cisco-ip-phone"
+
+    fatti = esito["fatti"]
+    assert fatti["seriale"] == "ABC1234567X"
+    assert fatti["numero_interno"] == "1000"
+    assert fatti["gestore_chiamate"].startswith("10.0.0.101")
+    assert fatti["server_tftp"] == "10.0.0.101"
+    percorsi = [p["percorso"] for p in esito["pagine"]]
+    assert "/NetworkConfigurationX" in percorsi and "/DeviceInformationX" in percorsi
+
+
+def test_del_telefono_cisco_non_si_conserva_il_corpo(rete_cisco_phone):
+    """Solo le etichette riconosciute: nessun frammento di pagina finisce nel dato."""
+    import json
+
+    from snapprobe.web_probe import leggi_pagina
+
+    testo = json.dumps(leggi_pagina("10.0.0.139", 80, False), ensure_ascii=False)
+
+    assert "<html" not in testo.lower()
+    assert "Serviceability" not in testo, "i collegamenti del menu non sono un dato"
 
 
 def test_la_codifica_dichiarata_viene_rispettata():

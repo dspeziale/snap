@@ -1133,6 +1133,22 @@ presenta come "IP Phone" e nient'altro, con la pagina dei dati protetta da crede
 La marca resta ignota, ma il **genere** no -- e per un inventario "telefono VoIP" vale
 molto piu' di "sconosciuto".
 
+All'estremo opposto stanno i **telefoni IP Cisco Unified** (serie 79xx e successive):
+la radice e' un menu HTML che si presenta da solo (*Cisco Unified IP Phone CP-7962G (
+SEP... )*) e rimanda a due endpoint XML di sola lettura -- `/NetworkConfigurationX` e
+`/DeviceInformationX` -- che dichiarano una montagna di dati tecnici. La firma li legge
+entrambi (prima la configurazione di rete, che da sola non basta a fermare la
+navigazione, poi le informazioni del dispositivo) e ne ricava marca, modello, numero di
+serie, firmware, nome host, indirizzo MAC, numero interno, carichi software e di avvio,
+revisione hardware, gestore chiamate (CUCM) e server TFTP. I campi che hanno una colonna
+propria (modello, host, serie, firmware) vi finiscono; **tutti gli altri** restano fra i
+fatti dichiarati (`node_web.facts_json`) e il dettaglio del nodo li mostra sotto
+*Dichiarato dall'apparato*. La firma emette la chiave di classe esatta `voip_phone`,
+cosi' la regola decisiva scatta e il nodo si classifica come telefono VoIP citando
+marca e modello letti dalla pagina. Sono tutte etichette tecniche: il corpo della
+pagina non si conserva, e il numero interno e' un identificativo di apparato, non di
+persona.
+
 ### 14.3-bis Quando i dati ci sono ma sono chiusi
 
 Alcuni apparati mostrano i propri dati solo dopo l'accesso. La sonda non ha credenziali

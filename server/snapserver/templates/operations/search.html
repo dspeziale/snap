@@ -94,7 +94,19 @@
                    class="font-monospace">{{ r.ip }}</a>
               </td>
               <td class="small font-monospace">{{ r.mac or '-' }}</td>
-              <td class="small">{{ r.mac_vendor or '-' }}</td>
+              <td class="small">
+                {# Prima il costruttore che l'apparato dichiara di se' (piu' autorevole
+                   del MAC, che dice chi ha fatto la scheda di rete). #}
+                {% if r.web_vendor %}
+                {{ r.web_vendor }}
+                {% if r.web_model %}<div class="text-body-secondary">{{ r.web_model }}</div>{% endif %}
+                <span class="text-body-secondary" title="Dichiarato dall'apparato nella sua pagina di gestione">
+                  <i class="bi bi-patch-check"></i>
+                </span>
+                {% elif r.mac_vendor %}
+                {{ r.mac_vendor }}
+                {% else %}-{% endif %}
+              </td>
               <td class="small">{{ r.os_name or '-' }}</td>
               <td class="small">{{ r.device_label or 'non identificato' }}</td>
               <td class="small font-monospace">{{ r.subnet_cidr or '-' }}</td>

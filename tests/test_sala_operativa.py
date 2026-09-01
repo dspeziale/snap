@@ -260,6 +260,35 @@ def test_la_ricerca_libera_guarda_in_piu_generi_di_dato(server_app):
     assert esito["totale"] >= 1
 
 
+def test_la_ricerca_trova_e_mostra_il_costruttore_dichiarato_dall_apparato(server_app):
+    """Il brand che l'apparato dichiara nella sua pagina (piu' autorevole del MAC) deve
+    comparire fra i dati del nodo ed essere cercabile: un gruppo frigo Vertiv si trova
+    cercando 'Vertiv', anche senza MAC nel proprio segmento."""
+    from snapserver.searchdb import global_search
+
+    tenant_id = _tenant_id(server_app)
+    node_id = _nodo(server_app, tenant_id, "10.9.0.24", [("tcp", 80)])
+    with server_app.app_context():
+        from snapserver.db import execute, utc_now_str
+
+        execute(
+            "INSERT INTO node_web (tenant_id, node_id, port, scheme, status_code,"
+            " brand, model, collected_at) VALUES (?, ?, 80, 'http', 200,"
+            " 'Vertiv', 'IntelliSlot Web Card', ?)",
+            (tenant_id, node_id, utc_now_str()))
+
+    with server_app.app_context():
+        per_marca = global_search(tenant_id, "Vertiv")
+        per_modello = global_search(tenant_id, "IntelliSlot")
+
+    nodi = next(g for g in per_marca["generi"] if g["chiave"] == "nodi")["righe"]
+    assert nodi and nodi[0]["ip"] == "10.9.0.24", "cercando 'Vertiv' si trova il nodo"
+    assert nodi[0]["web_vendor"] == "Vertiv", "il costruttore dichiarato e' fra i dati"
+    assert nodi[0]["web_model"] == "IntelliSlot Web Card"
+    assert next(g for g in per_modello["generi"]
+                if g["chiave"] == "nodi")["righe"], "anche il modello si cerca"
+
+
 def test_una_ricerca_troppo_corta_non_restituisce_mezzo_inventario(server_app):
     from snapserver.searchdb import global_search
 

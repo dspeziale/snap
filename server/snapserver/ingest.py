@@ -763,9 +763,9 @@ def _apply_web(ctx, record: dict) -> None:
             " device_type, signature, cert_subject, cert_issuer, cert_expires,"
             " cert_selfsigned, tls_version, login_form, device_name, location,"
             " host_name, serial, firmware, contact, pages_read, facts_locked,"
-            " body_hash, body_bytes, error, details_json, collected_at)"
+            " facts_json, body_hash, body_bytes, error, details_json, collected_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(tenant_id, node_id, port) DO UPDATE SET"
             " scheme = excluded.scheme, status_code = excluded.status_code,"
             " title = excluded.title, server_header = excluded.server_header,"
@@ -781,6 +781,7 @@ def _apply_web(ctx, record: dict) -> None:
             " host_name = excluded.host_name, serial = excluded.serial,"
             " firmware = excluded.firmware, contact = excluded.contact,"
             " pages_read = excluded.pages_read, facts_locked = excluded.facts_locked,"
+            " facts_json = excluded.facts_json,"
             " body_hash = excluded.body_hash, body_bytes = excluded.body_bytes,"
             " error = excluded.error, details_json = excluded.details_json,"
             " collected_at = excluded.collected_at",
@@ -813,6 +814,11 @@ def _apply_web(ctx, record: dict) -> None:
              _fatto(pagina, "contatto", 160),
              _intero(pagina.get("pagine_lette")) or 0,
              1 if pagina.get("fatti_protetti") else 0,
+             # Tutte le etichette riconosciute, non solo quelle con una colonna: sono
+             # gia' un vocabolario chiuso (nessun corpo di pagina), quindi si conservano
+             # per intero e il dettaglio del nodo le mostra.
+             (json.dumps(pagina["fatti"], ensure_ascii=False)[:MAX_WEB_DETAILS]
+              if isinstance(pagina.get("fatti"), dict) and pagina["fatti"] else None),
              _clean(pagina.get("corpo_impronta"), maximum=64),
              _intero(pagina.get("corpo_byte")),
              _clean(pagina.get("errore"), maximum=120),

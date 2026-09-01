@@ -54,12 +54,32 @@ def test_un_servizio_dichiarato_non_web_su_porta_web_non_si_legge():
     assert scelte == []
 
 
+def test_una_porta_tcpwrapped_su_porta_web_si_legge_lo_stesso():
+    """"tcpwrapped" non e' una dichiarazione di servizio: e' nmap che dice "apre e
+    chiude, non so cosa sia". Sugli apparati che limitano i tentativi -- un telefono IP
+    Cisco espone cosi' la 80 -- trattarlo come non-web faceva saltare la lettura."""
+    from snapprobe.web_probe import porte_web
+
+    scelte = porte_web([{"protocol": "tcp", "port": 80, "state": "open",
+                         "service_name": "tcpwrapped"}])
+
+    assert (80, False) in scelte
+
+
 @pytest.mark.parametrize("dichiarazione,attesi", [
     ({"titolo": "HP LaserJet MFP M428 Series"},
      {"marca": "HP", "tipo_probabile": "printer"}),
     ({"titolo": "FortiGate - login"}, {"marca": "Fortinet", "tipo_probabile": "firewall"}),
     ({"titolo": "Synology DiskStation"}, {"marca": "Synology", "tipo_probabile": "nas"}),
     ({"titolo": "iDRAC9 - Dell"}, {"marca": "Dell", "tipo_probabile": "server"}),
+    # Web card Vertiv/Emerson IntelliSlot del gruppo frigo: e' infrastruttura di
+    # alimentazione/raffreddamento, non una telecamera.
+    ({"titolo": "Emerson Network Power IntelliSlot Web Card"},
+     {"marca": "Vertiv", "tipo_probabile": "building_automation"}),
+    # Telefono IP Cisco: la marca dal titolo/corpo, la classe esatta voip_phone.
+    ({"titolo": "Cisco Systems, Inc.",
+      "fatti": {"modello": "CP-7962G", "nome_host": "SEP001122334455"}},
+     {"marca": "Cisco", "tipo_probabile": "voip_phone", "modello": "CP-7962G"}),
     ({"server": "Microsoft-IIS/10.0"},
      {"prodotto": "Microsoft IIS", "versione": "10.0"}),
     ({"server": "nginx/1.24.0"}, {"prodotto": "nginx", "versione": "1.24.0"}),
@@ -81,6 +101,22 @@ def test_una_pagina_muta_non_produce_verdetti():
     from snapprobe.web_probe import riconosci
 
     assert riconosci({"stato": 200}) == {}
+
+
+def test_il_web_card_vertiv_non_e_scambiato_per_una_telecamera():
+    """La vecchia firma hikvision (`dvr.*web` a distanza illimitata) agganciava pagine
+    piene di JavaScript dove "web" abbonda: un gruppo frigo Vertiv finiva 'telecamera'.
+    La firma Vertiv, piu' specifica, viene prima; e la distanza di hikvision e' limitata."""
+    from snapprobe.web_probe import riconosci
+
+    corpo = ('var fwLabel = "IS-UNITY_5.0.0.0_91932"; '
+             'redirect to default.html for UMS device; dvr not related here ... '
+             + "web " * 40)
+    trovato = riconosci({"titolo": "Emerson Network Power IntelliSlot Web Card"},
+                        corpo=corpo)
+    assert trovato["firma"] == "vertiv-intellislot"
+    assert trovato["tipo_probabile"] == "building_automation"
+    assert trovato["marca"] == "Vertiv"
 
 
 def test_la_versione_estratta_e_quella_che_rende_attribuibile_una_cve():
@@ -427,6 +463,81 @@ def test_il_riconoscimento_cita_il_nome_che_l_apparato_dichiara(server_app):
     assert verdetto["confidence"] >= 95
     motivi = " ".join(prova["prova"] for prova in verdetto["evidence"])
     assert "RICOH MP C4504ex" in motivi
+
+
+LETTURA_CISCO_PHONE = {
+    "port": 80, "scheme": "http", "stato": 200, "titolo": "Cisco Systems, Inc.",
+    "marca": "Cisco", "modello": "CP-7962G", "prodotto": "Cisco Unified IP Phone",
+    "firma": "cisco-ip-phone", "tipo_probabile": "voip_phone", "pagine_lette": 3,
+    "corpo_impronta": "cf01", "corpo_byte": 900,
+    "fatti": {"mac": "001122334455", "nome_host": "SEP001122334455",
+              "numero_interno": "1000", "carico_software": "jar42sccp.9-4-2ES26.sbn",
+              "carico_avvio": "tnp62.8-3-1-21a.bin", "firmware": "*SCCP42.9-4-2SR3-1S*",
+              "revisione_hw": "13.0", "seriale": "ABC1234567X", "modello": "CP-7962G",
+              "gestore_chiamate": "10.0.0.101 Attivo", "server_tftp": "10.0.0.101"},
+    "pagine": [{"percorso": "/", "origine": "radice", "stato": 200},
+               {"percorso": "/NetworkConfigurationX", "origine": "percorso noto",
+                "stato": 200},
+               {"percorso": "/DeviceInformationX", "origine": "percorso noto",
+                "stato": 200}],
+}
+
+
+def test_del_telefono_cisco_si_conservano_tutte_le_etichette(server_app):
+    """L'apparato dichiara una decina di dati tecnici: quelli con una colonna vanno in
+    colonna, tutti gli altri (interno, carichi, gestore chiamate, server TFTP) restano
+    nel campo dei fatti, cosi' il dettaglio li puo' mostrare."""
+    import json
+
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.30")
+    _applica_web(server_app, tenant_id, "10.6.9.30", [LETTURA_CISCO_PHONE])
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        riga = query("SELECT model, host_name, serial, firmware, facts_json"
+                     " FROM node_web WHERE node_id = ?", (node_id,), one=True)
+    assert riga["model"] == "CP-7962G"
+    assert riga["host_name"] == "SEP001122334455"
+    assert riga["serial"] == "ABC1234567X"
+    assert riga["firmware"] == "*SCCP42.9-4-2SR3-1S*"
+    fatti = json.loads(riga["facts_json"])
+    assert fatti["numero_interno"] == "1000"
+    assert fatti["gestore_chiamate"].startswith("10.0.0.101")
+    assert fatti["carico_software"] == "jar42sccp.9-4-2ES26.sbn"
+
+
+def test_i_dati_del_telefono_cisco_compaiono_nel_dettaglio(logged_client, server_app):
+    """Nel dettaglio del nodo, oltre a modello e serie, si vedono i dati aggiuntivi che
+    non hanno una colonna propria: l'interno, i carichi, il gestore chiamate."""
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.31")
+    _applica_web(server_app, tenant_id, "10.6.9.31", [LETTURA_CISCO_PHONE])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    pagina = logged_client.get("/inventory/nodes/%d" % node_id).get_data(as_text=True)
+
+    assert "Numero interno" in pagina and "1000" in pagina
+    assert "Gestore chiamate (CUCM)" in pagina
+    assert "Carico software (app)" in pagina
+
+
+def test_la_pagina_del_telefono_cisco_ne_decide_il_tipo(server_app):
+    """La firma emette la chiave esatta della classe (voip_phone): la regola decisiva
+    scatta e il nodo si classifica come Telefono VoIP citando marca e modello."""
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.32")
+    _applica_web(server_app, tenant_id, "10.6.9.32", [LETTURA_CISCO_PHONE])
+
+    with server_app.app_context():
+        from snapserver.fingerprint import identify
+        from snapserver.ingest import build_evidence
+
+        verdetto = identify(build_evidence(tenant_id, node_id))
+
+    assert verdetto["device_type"] == "voip_phone"
+    assert verdetto["confidence"] >= 93
+    motivi = " ".join(prova["prova"] for prova in verdetto["evidence"])
+    assert "CP-7962G" in motivi
 
 
 def test_una_pagina_protetta_si_conserva_come_tale(server_app):

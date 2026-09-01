@@ -283,6 +283,34 @@ def _menu(client) -> str:
     return corpo[corpo.index("app-sidebar"):corpo.index("</aside>")]
 
 
+def _barra(client) -> str:
+    """La barra superiore: da app-header alla fine della sua <nav>."""
+    corpo = client.get("/").data.decode("utf-8")
+    inizio = corpo.index("app-header")
+    return corpo[inizio:corpo.index("</nav>", inizio)]
+
+
+def test_la_barra_ospita_la_ricerca_nella_base_dati(admin_client):
+    """Accanto al tenant c'e' il campo di ricerca, che porta alla stessa
+    interrogazione della pagina dedicata (operations.search, su /ops/search)."""
+    barra = _barra(admin_client)
+
+    assert 'class="snap-ricerca"' in barra
+    assert 'action="/ops/search"' in barra
+    assert 'name="q"' in barra
+    assert 'method="get"' in barra
+
+
+def test_gli_indicatori_lasciano_la_barra_per_il_menu_di_stato(admin_client):
+    """Gli indicatori non stanno piu' distesi sulla barra (dove ora c'e' la
+    ricerca) ma raccolti nel menu di stato del sistema."""
+    barra = _barra(admin_client)
+
+    assert "snap-indicator" not in barra, "i vecchi riquadri non sono piu' sulla barra"
+    assert "snap-stato-menu" in barra, "lo stato del sistema ha il suo menu"
+    assert "Sonde attive" in barra
+
+
 def test_il_menu_contiene_solo_le_voci_previste(admin_client):
     """Il menu laterale elenca dashboard, rete, controlli, sicurezza, report, sonde e
     amministrazione."""

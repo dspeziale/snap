@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DeviceInformation><MACAddress>001122334455</MACAddress><HostName>SEP001122334455</HostName><phoneDN>1000</phoneDN><appLoadID>jar42sccp.9-4-2ES26.sbn</appLoadID><bootLoadID>tnp62.8-3-1-21a.bin</bootLoadID><versionID>*SCCP42.9-4-2SR3-1S*</versionID><addonModule1></addonModule1><addonModule2></addonModule2><hardwareRevision>13.0</hardwareRevision><serialNumber>ABC1234567X</serialNumber><modelNumber>CP-7962G</modelNumber><MessageWaiting>No</MessageWaiting><udi>phone
+Cisco Unified IP Phone 7962G, Global
+CP-7962G
+V11
+ABC1234567X
+</udi><time>15:09:31</time><timezone>Europe/Rome</timezone><date>01/09/26</date><systemFreeMemory>6517408</systemFreeMemory><fipsModeEnabled>No</fipsModeEnabled></DeviceInformation>

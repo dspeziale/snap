@@ -60,15 +60,26 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
     modello = _like(cercato)
     generi = []
 
+    # Il costruttore dichiarato dall'apparato nella propria pagina di gestione (brand)
+    # e il modello: sono la fonte piu' autorevole -- e' l'apparato che parla di se' --
+    # e vanno mostrati e resi cercabili qui come nell'inventario. Senza, un gruppo
+    # frigo Vertiv non si trovava cercando "Vertiv", ne' compariva fra i suoi dati.
     nodi = [dict(r) for r in query(
         "SELECT n.id, n.ip, n.hostname, n.mac, n.mac_vendor, n.os_name,"
-        " n.device_label, n.status, s.cidr AS subnet_cidr"
+        " n.device_label, n.status, s.cidr AS subnet_cidr,"
+        " (SELECT w.brand FROM node_web w WHERE w.node_id = n.id"
+        "   AND COALESCE(w.brand, '') <> '' ORDER BY w.port LIMIT 1) AS web_vendor,"
+        " (SELECT w.model FROM node_web w WHERE w.node_id = n.id"
+        "   AND COALESCE(w.model, '') <> '' ORDER BY w.port LIMIT 1) AS web_model"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE n.tenant_id = ? AND (n.ip LIKE ? OR n.hostname LIKE ?"
         "   OR n.mac LIKE ? OR n.mac_vendor LIKE ? OR n.os_name LIKE ?"
-        "   OR n.device_label LIKE ?)"
+        "   OR n.device_label LIKE ?"
+        "   OR EXISTS (SELECT 1 FROM node_web w WHERE w.node_id = n.id"
+        "     AND (COALESCE(w.brand, '') LIKE ? OR COALESCE(w.model, '') LIKE ?)))"
         " ORDER BY n.ip LIMIT ?",
-        (tenant_id, modello, modello, modello, modello, modello, modello, limit))]
+        (tenant_id, modello, modello, modello, modello, modello, modello,
+         modello, modello, limit))]
     generi.append({"chiave": "nodi", "titolo": "Dispositivi", "icona": "bi-hdd-network",
                    "righe": nodi})
 
