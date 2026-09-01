@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -sV -p 443,445 --script ssl-heartbleed,smb-vuln-ms17-010 192.0.2.51" start="1787822300" version="7.99" xmloutputversion="1.05">
+<host starttime="1787822301" endtime="1787822360"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.51" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="https" method="probed" conf="10"/>
+<script id="ssl-heartbleed" output="&#xa;  VULNERABLE:&#xa;  The Heartbleed Bug is a serious vulnerability in the popular OpenSSL cryptographic software library. It allows for stealing information intended to be protected by SSL/TLS encryption.&#xa;    State: VULNERABLE&#xa;    Risk factor: High&#xa;    References:&#xa;      https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-0160&#xa;"/>
+</port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="microsoft-ds" method="probed" conf="10"/>
+<script id="smb-vuln-ms17-010" output="&#xa;  VULNERABLE:&#xa;  Remote Code Execution vulnerability in Microsoft SMBv1 servers (ms17-010)&#xa;    State: VULNERABLE&#xa;    IDs:  CVE:CVE-2017-0143&#xa;    Risk factor: HIGH&#xa;    A critical remote code execution vulnerability exists in Microsoft SMBv1 servers (ms17-010).&#xa;    References:&#xa;      https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2017-0143&#xa;"/>
+</port>
+</ports>
+</host>
+<runstats><finished time="1787822360" elapsed="60" summary="1 host up" exit="success"/><hosts up="1" down="0" total="1"/></runstats>
+</nmaprun>

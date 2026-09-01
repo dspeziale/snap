@@ -1,0 +1,341 @@
+{#
+  snap server - Impostazioni: dimensione dell'archivio, conservazione, copie, ripristino.
+
+  Tre cose insieme perche' sono la stessa domanda in tre momenti: quanto occupa cio' che
+  conservo, per quanto devo conservarlo, come lo riporto in vita se lo perdo.
+
+  Copie, ripristino e durate sono riservati all'amministratore di sistema: riguardano
+  l'archivio nel suo insieme, tutti i tenant compresi.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% import 'partials/tabs.html' as schede %}
+
+{# Gli indicatori restano fuori dalle schede: sono la risposta breve, e chi apre questa
+   pagina la cerca prima di scegliere che cosa fare. #}
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('ARCHIVIO', (database.file_byte / 1048576)|round(2)|string + ' MB',
+       'bi-database', 'primary'),
+      ('RIUTILIZZABILE', (database.riutilizzabile_byte / 1048576)|round(2)|string + ' MB',
+       'bi-recycle', 'warning' if database.riutilizzabile_byte > 5242880 else 'secondary'),
+      ('REGISTRO WAL', (database.wal_byte / 1048576)|round(2)|string + ' MB',
+       'bi-journal', 'secondary'),
+      ('RIGHE TOTALI', database.righe_totali, 'bi-list-ol', 'secondary'),
+      ('DISCO LIBERO', (disk.libero / 1073741824)|round(1)|string + ' GB', 'bi-hdd',
+       'danger' if disk.libero < database.file_byte * 3 else 'success')] %}
+  <div class="col-6 col-xl">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0" style="font-size:1.05rem">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{{ schede.barra([
+    ('arch-dimensione', 'Dimensione', 'bi-hdd-stack', none),
+    ('arch-conservazione', 'Conservazione', 'bi-hourglass-split', retention|length),
+    ('arch-copie', 'Copie e ripristino', 'bi-shield-check', backups|length),
+], classe='nav-pills mb-3') }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-arch-dimensione" role="tabpanel"
+     aria-labelledby="tab-arch-dimensione">
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-hdd-stack me-1"></i> Dimensione per tabella
+    </h3>
+    <small class="text-body-secondary">
+      {{ database.pagine }} pagine da {{ database.pagina_byte }} byte,
+      {{ database.pagine_libere }} libere
+      {%- if not database.dettaglio_byte %}; occupazione per tabella non disponibile in
+      questa build di SQLite{% endif %}
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead><tr><th>TABELLA</th><th>RIGHE</th><th>OCCUPAZIONE</th></tr></thead>
+        <tbody>
+          {% for t in database.tabelle %}
+          <tr>
+            <td class="font-monospace small">{{ t.tabella }}</td>
+            <td class="text-end">{{ t.righe }}</td>
+            <td class="text-end">
+              {% if t.byte is not none %}{{ (t.byte / 1024)|round(0)|int }} kB
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="pane-arch-conservazione" role="tabpanel"
+     aria-labelledby="tab-arch-conservazione">
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-hourglass-split me-1"></i> Conservazione per genere di dato
+    </h3>
+    <small class="text-body-secondary">0 = non scade. Vale per tutti i tenant</small>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      La durata non e' unica per tutti i dati: i campioni di raggiungibilita' sono
+      migliaia al giorno e valgono giorni, il registro delle azioni vale anni perche' e'
+      cio' che si mostra a un auditor (GDPR art. 5(1)(e), NIS2).
+    </p>
+    <form method="post" action="{{ url_for('admin.save_retention') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-3" data-snap-table
+               data-page-size="20" data-no-search="true" data-no-sort="GIORNI">
+          <thead>
+            <tr><th>GENERE DI DATO</th><th>GIORNI</th><th>RIGHE</th><th>OLTRE SOGLIA</th>
+                <th>PIU' VECCHIO</th><th>PERCHE' QUESTA DURATA</th></tr>
+          </thead>
+          <tbody>
+            {% for r in retention %}
+            <tr>
+              <td>
+                {{ r.etichetta }}
+                <div class="font-monospace text-body-secondary" style="font-size:.72rem">
+                  {{ r.tabella }}
+                </div>
+              </td>
+              <td style="width:7rem">
+                {% if is_superadmin %}
+                <input type="number" name="retention_{{ r.chiave }}"
+                       class="form-control form-control-sm" min="0" max="3650"
+                       value="{{ r.giorni }}">
+                {% else %}
+                {{ r.giorni if r.giorni else 'non scade' }}
+                {% endif %}
+              </td>
+              <td class="text-end">{{ r.righe }}</td>
+              <td class="text-end">
+                {% if r.scaduti %}<span class="text-warning">{{ r.scaduti }}</span>
+                {% else %}0{% endif %}
+              </td>
+              <td class="small text-nowrap">
+                {{ r.piu_vecchio|dt if r.piu_vecchio else '-' }}
+              </td>
+              <td class="small text-body-secondary">{{ r.motivo }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if is_superadmin %}
+      <div class="d-flex flex-wrap gap-2">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-save me-1"></i> Salvare le durate
+        </button>
+        <button type="submit" class="btn btn-outline-secondary" name="simula" value="1"
+                formaction="{{ url_for('admin.apply_retention_plan') }}">
+          <i class="bi bi-calculator me-1"></i> Simulare l'applicazione
+        </button>
+        <button type="submit" class="btn btn-outline-warning"
+                formaction="{{ url_for('admin.apply_retention_plan') }}"
+                data-confirm="Eliminare definitivamente i dati oltre la conservazione dichiarata? L'operazione non si annulla: conviene fare prima una copia.">
+          <i class="bi bi-eraser me-1"></i> Applicare adesso
+        </button>
+        <button type="submit" class="btn btn-outline-secondary"
+                formaction="{{ url_for('admin.compact_database') }}"
+                data-confirm="Compattare l'archivio? Riscrive l'intero file e su un archivio grande dura alcuni minuti.">
+          <i class="bi bi-arrows-collapse me-1"></i> Compattare l'archivio
+        </button>
+      </div>
+      <p class="form-text mb-0">
+        Eliminare i dati <strong>non</strong> riduce il file: lo spazio resta dentro
+        l'archivio e viene riusato. Per restituirlo al disco serve la compattazione.
+      </p>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="pane-arch-copie" role="tabpanel"
+     aria-labelledby="tab-arch-copie">
+{% if is_superadmin %}
+<div class="row g-3">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-shield-check me-1"></i> Copie di sicurezza
+        </h3>
+        <small class="text-body-secondary">{{ backups|length }} copie conservate</small>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          La copia usa l'API di backup di SQLite e non la copia del file: un file copiato
+          mentre il server scrive puo' essere incoerente. Ogni copia viene verificata
+          appena prodotta e contiene <strong>tutti i tenant</strong>, gli indirizzi di
+          rete e le credenziali di servizio: va trattata come l'archivio stesso.
+        </p>
+        <form method="post" action="{{ url_for('admin.create_backup') }}"
+              class="row g-2 align-items-end mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12 col-md-8">
+            <label class="form-label small">NOTA (facoltativa)</label>
+            <input type="text" name="nota" class="form-control form-control-sm"
+                   maxlength="200" placeholder="prima dell'aggiornamento">
+          </div>
+          <div class="col-12 col-md-4">
+            <button type="submit" class="btn btn-primary btn-sm w-100">
+              <i class="bi bi-shield-plus me-1"></i> Creare una copia adesso
+            </button>
+          </div>
+        </form>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-sort="AZIONI">
+            <thead>
+              <tr><th>COPIA</th><th>CREATA</th><th>DIMENSIONE</th><th>AZIONI</th></tr>
+            </thead>
+            <tbody>
+              {% for b in backups %}
+              <tr>
+                <td class="font-monospace small">{{ b.nome }}</td>
+                <td class="small text-nowrap">{{ b.creata|dt }}</td>
+                <td class="text-end">{{ (b.byte / 1048576)|round(2) }} MB</td>
+                <td>
+                  <div class="d-flex gap-1">
+                    <a href="{{ url_for('admin.download_backup', nome=b.nome) }}"
+                       class="btn btn-sm btn-outline-primary" title="scaricare">
+                      <i class="bi bi-download"></i>
+                    </a>
+                    <form method="post" action="{{ url_for('admin.restore_database') }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <input type="hidden" name="nome" value="{{ b.nome }}">
+                      <input type="hidden" name="conferma" value="RIPRISTINA">
+                      <input type="hidden" name="solo_verifica" value="1">
+                      <button type="submit" class="btn btn-sm btn-outline-secondary"
+                              title="verificare senza ripristinare">
+                        <i class="bi bi-patch-check"></i>
+                      </button>
+                    </form>
+                    <form method="post"
+                          action="{{ url_for('admin.remove_backup', nome=b.nome) }}">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger"
+                              data-confirm="Eliminare la copia {{ b.nome }}?"
+                              title="eliminare">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not backups %}
+        <p class="small text-body-secondary mb-0 mt-2">
+          Nessuna copia. Una copia che non esiste e' l'unico guasto che non si puo'
+          riparare.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-5">
+    <div class="card h-100 border-danger">
+      <div class="card-header">
+        <h3 class="card-title mb-0 text-danger">
+          <i class="bi bi-arrow-counterclockwise me-1"></i> Ripristino
+        </h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Il ripristino riversa il contenuto di una copia dentro l'archivio in esercizio,
+          in una transazione: le connessioni aperte continuano a vedere dati validi.
+          <strong>Sostituisce i dati di tutti i tenant.</strong> Prima di procedere viene
+          salvata da se' una copia dello stato corrente: un ripristino sbagliato non deve
+          essere l'ultima operazione possibile.
+        </p>
+        <p class="small text-body-secondary">
+          Torna indietro anche il <strong>registro delle azioni</strong>: gli eventi
+          successivi alla copia non ci saranno piu'. L'unica traccia che resta e' quella
+          del ripristino stesso, scritta subito dopo.
+        </p>
+        <form method="post" action="{{ url_for('admin.restore_database') }}"
+              enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label small">COPIA GIA' PRESENTE</label>
+            <select name="nome" class="form-select form-select-sm">
+              <option value="">-- oppure caricare un file --</option>
+              {% for b in backups %}
+              <option value="{{ b.nome }}">
+                {{ b.nome }} ({{ (b.byte / 1048576)|round(2) }} MB)
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">FILE DA CARICARE</label>
+            <input type="file" name="file" class="form-control form-control-sm"
+                   accept=".sqlite3,.sqlite,.db">
+            <div class="form-text">
+              Oltre il limite di caricamento del server il file viene rifiutato: in quel
+              caso si copia nella cartella delle copie e si ripristina dall'elenco.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label small">CONFERMA</label>
+            <input type="text" name="conferma" class="form-control form-control-sm"
+                   placeholder="digitare RIPRISTINA" autocomplete="off">
+            <div class="form-text">
+              Conferma digitata: e' l'operazione piu' distruttiva del prodotto, e un clic
+              per errore non deve poterla avviare.
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-outline-secondary btn-sm"
+                    name="solo_verifica" value="1">
+              <i class="bi bi-patch-check me-1"></i> Solo verificare
+            </button>
+            <button type="submit" class="btn btn-danger btn-sm"
+                    data-confirm="Ripristinare l'archivio? I dati attuali di TUTTI i tenant vengono sostituiti. Lo stato corrente viene salvato in una copia.">
+              <i class="bi bi-arrow-counterclockwise me-1"></i> Ripristinare
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-light border">
+  <i class="bi bi-info-circle me-1"></i>
+  Le copie di sicurezza, il ripristino e le durate di conservazione sono riservati
+  all'<strong>amministratore di sistema</strong>: riguardano l'archivio nel suo insieme,
+  tutti i tenant compresi.
+</div>
+{% endif %}
+</div>
+</div>

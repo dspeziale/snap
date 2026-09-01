@@ -1,0 +1,305 @@
+"""
+snap server - Menu Report: resoconto quotidiano e report NOC.
+
+Il resoconto viene spedito dal pianificatore del server senza intervento di nessuno.
+Questa pagina serve a tre cose: vedere che cosa e' stato spedito, leggere in anteprima
+il resoconto di un giorno senza spedirlo, e chiederne la spedizione o la generazione
+del PDF fuori orario.
+
+Permessi: consultazione a tutto il tenant; spedizione e generazione agli analisti;
+configurazione agli amministratori di tenant (in Amministrazione).
+
+remarks: Autore: Daniele Speziale - Data: 2026-08-28
+copyright: (c) 2024-26 DS Consulting
+license: MIT
+"""
+
+from __future__ import annotations
+
+from flask import (
+    Blueprint,
+    abort,
+    flash,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
+from flask import redirect
+
+from ..audit import log_event
+from ..channels import available_channels
+from ..db import query
+from ..reports import KIND_DAILY, KIND_NOC, REPORT_KINDS
+from ..reports import daily as resoconto
+from ..reports import storage
+from ..reports.render_pdf import font_status
+from ..reports.windows import WindowError, zone_of
+from ..security import (
+    ROLE_ANALYST,
+    ROLE_TENANT_ADMIN,
+    has_role,
+    login_required,
+    role_required,
+)
+from ..tenancy import current_tenant_id
+
+bp = Blueprint("reports", __name__, url_prefix="/reports")
+
+
+def _tenant():
+    tenant_id = current_tenant_id()
+    riga = query("SELECT id, code, name, timezone, contact_email FROM tenants"
+                 " WHERE id = ?", (tenant_id,), one=True)
+    if riga is None:
+        abort(404)
+    return dict(riga)
+
+
+def _current_user_id():
+    from flask import g
+
+    utente = getattr(g, "user", None)
+    if utente is None:
+        return None
+    try:
+        return int(utente["id"])
+    except (KeyError, TypeError, IndexError):
+        return getattr(utente, "id", None)
+
+
+@bp.get("/")
+@login_required
+def index():
+    from ..reports import REPORT_CATALOG
+    from ..reports.generate import allowed_days, default_days
+
+    tenant = _tenant()
+    impostazioni = resoconto.settings()
+    zona = zone_of(tenant)
+    catalogo = [
+        dict(voce, chiave=chiave, titolo=REPORT_KINDS[chiave],
+             periodi=allowed_days(chiave), predefinito=default_days(chiave))
+        for chiave, voce in REPORT_CATALOG.items()
+    ]
+    incidenti_recenti = [dict(r) for r in query(
+        "SELECT i.id, i.severity, i.status, i.opened_at, c.name AS controllo,"
+        " t.address FROM check_incidents i JOIN checks c ON c.id = i.check_id"
+        " JOIN check_targets t ON t.id = c.target_id WHERE i.tenant_id = ?"
+        " ORDER BY i.id DESC LIMIT 30", (int(tenant["id"]),))]
+    return render_template(
+        "reports/index.html",
+        tenant=tenant,
+        settings=impostazioni,
+        catalog=catalogo,
+        incidents=incidenti_recenti,
+        kinds=REPORT_KINDS,
+        reports=storage.recent(int(tenant["id"]), limit=200),
+        footprint=storage.footprint(int(tenant["id"])),
+        channels=available_channels(),
+        fonts=font_status(),
+        recipients=resoconto.recipients_for(tenant, impostazioni, "email"),
+        # Ieri e' il giorno predefinito di ogni azione: e' quello di cui si conoscono
+        # tutti gli eventi.
+        default_day=resoconto.yesterday_local(zona).isoformat(),
+        zone=zona.key if hasattr(zona, "key") else str(zona),
+    )
+
+
+@bp.get("/daily/preview")
+@login_required
+def preview():
+    """Anteprima del resoconto di un giorno. Non spedisce nulla."""
+    tenant = _tenant()
+    try:
+        giorno = resoconto.parse_requested_day(request.args.get("day"), tenant)
+    except WindowError as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("reports.index"))
+
+    composto = resoconto.build(tenant, giorno)
+    formato = (request.args.get("format") or "html").strip().lower()
+    if formato == "text":
+        return render_template("reports/preview.html", tenant=tenant, day=giorno,
+                               composed=composto, as_text=True)
+    return render_template("reports/preview.html", tenant=tenant, day=giorno,
+                           composed=composto, as_text=False)
+
+
+@bp.post("/daily/send")
+@role_required(ROLE_ANALYST)
+def send_daily():
+    """Spedizione a richiesta, fuori orario. Ripete anche un resoconto gia' spedito."""
+    tenant = _tenant()
+    try:
+        giorno = resoconto.parse_requested_day(request.form.get("day"), tenant)
+    except WindowError as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("reports.index"))
+
+    esito = resoconto.send_for(tenant, giorno, requested_by=_current_user_id(),
+                               force=True)
+    if esito["inviato"]:
+        flash("Resoconto del %s accodato (%d questioni aperte). La spedizione avviene"
+              " entro il giro successivo della coda."
+              % (giorno.strftime("%d/%m/%Y"), esito["questioni"]), "success")
+    else:
+        flash("Resoconto non accodato: %s"
+              % esito.get("motivo", "nessun canale configurato o destinatario mancante"),
+              "warning")
+    return redirect(url_for("reports.index"))
+
+
+@bp.post("/noc")
+@role_required(ROLE_ANALYST)
+def generate_noc():
+    """Genera il report NOC in PDF per un giorno."""
+    tenant = _tenant()
+    try:
+        giorno = resoconto.parse_requested_day(request.form.get("day"), tenant)
+    except WindowError as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("reports.index"))
+
+    try:
+        percorso = resoconto.generate_noc(tenant, giorno,
+                                          requested_by=_current_user_id())
+    except OSError as errore:
+        # Un errore di scrittura non deve restare senza spiegazione: la cartella dei
+        # report puo' essere piena o non scrivibile.
+        flash("Report non generato: %s" % errore, "danger")
+        return redirect(url_for("reports.index"))
+
+    flash("Report NOC del %s generato." % giorno.strftime("%d/%m/%Y"), "success")
+    return redirect(url_for("reports.index", generato=percorso))
+
+
+@bp.post("/generate")
+@role_required(ROLE_ANALYST)
+def generate():
+    """Genera un report del catalogo: esecutivo, inventario, NOC, SOC, conformita'.
+
+    I report per la direzione e il fascicolo di conformita' richiedono
+    l'amministratore di tenant: contengono valutazioni destinate a circolare fuori dal
+    gruppo operativo.
+    """
+    from ..reports import REPORT_CATALOG, REPORT_KINDS
+    from ..reports.generate import ReportError, generate as produci
+
+    tenant = _tenant()
+    genere = (request.form.get("kind") or "").strip()
+    voce = REPORT_CATALOG.get(genere)
+    if voce is None:
+        flash("Genere di report non previsto.", "warning")
+        return redirect(url_for("reports.index", scheda="catalogo"))
+    if voce["ruolo"] == "tenant_admin" and not has_role(ROLE_TENANT_ADMIN):
+        flash("Il report \"%s\" e' riservato agli amministratori di tenant: contiene"
+              " valutazioni destinate a circolare fuori dal gruppo operativo."
+              % REPORT_KINDS[genere], "warning")
+        return redirect(url_for("reports.index", scheda="catalogo"))
+
+    try:
+        giorno = resoconto.parse_requested_day(request.form.get("day"), tenant)
+        percorso = produci(genere, tenant, giorno, request.form.get("days"),
+                           requested_by=_current_user_id())
+    except (WindowError, ReportError) as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("reports.index", scheda="catalogo"))
+    except OSError as errore:
+        flash("Report non generato: %s" % errore, "danger")
+        return redirect(url_for("reports.index", scheda="catalogo"))
+
+    from pathlib import Path
+
+    flash("%s generato: %s" % (REPORT_KINDS[genere], Path(percorso).name), "success")
+    return redirect(url_for("reports.index"))
+
+
+@bp.post("/incident/<int:incident_id>")
+@role_required(ROLE_ANALYST)
+def generate_incident(incident_id: int):
+    """Rapporto di un incidente: base per un post-mortem e per la notifica NIS2."""
+    from ..reports.generate import ReportError, generate_incident as produci
+
+    tenant = _tenant()
+    try:
+        percorso = produci(tenant, incident_id, requested_by=_current_user_id())
+    except ReportError as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("checks.incident_list"))
+
+    from pathlib import Path
+
+    flash("Rapporto dell'incidente #%d generato: %s"
+          % (incident_id, Path(percorso).name), "success")
+    return redirect(url_for("reports.index"))
+
+
+@bp.post("/device/<int:node_id>")
+@role_required(ROLE_ANALYST)
+def generate_device_sheet(node_id: int):
+    """Scheda PDF di un singolo apparato, chiesta dalla sua pagina."""
+    from pathlib import Path
+    from ..reports.generate import ReportError, generate_device
+
+    tenant = _tenant()
+    try:
+        percorso = generate_device(tenant, node_id, requested_by=_current_user_id())
+    except ReportError as errore:
+        flash(str(errore), "warning")
+        return redirect(url_for("inventory.node", node_id=node_id))
+    flash("Scheda dell'apparato prodotta: %s. E' nell'archivio dei report."
+          % Path(percorso).name, "success")
+    return redirect(url_for("reports.index"))
+
+
+@bp.get("/download/<int:report_id>")
+@login_required
+def download(report_id: int):
+    tenant = _tenant()
+    percorso = storage.report_file(int(tenant["id"]), report_id)
+    if percorso is None:
+        flash("Il file del report non e' piu' disponibile.", "warning")
+        return redirect(url_for("reports.index"))
+    log_event("report.downloaded", "Report scaricato: %s" % percorso.name,
+              tenant_id=int(tenant["id"]), severity="info", entity="report",
+              entity_id=report_id)
+    return send_file(percorso, as_attachment=True, download_name=percorso.name,
+                     mimetype="application/pdf")
+
+
+@bp.post("/<int:report_id>/delete")
+@role_required(ROLE_ANALYST)
+def delete(report_id: int):
+    """Elimina un report dall'archivio, file compreso."""
+    tenant = _tenant()
+    esito = storage.remove(int(tenant["id"]), report_id)
+    if esito is None:
+        abort(404)
+    if esito.get("errore"):
+        flash("Il file del report non e' stato cancellato (%s): la riga resta"
+              " nell'archivio, che continua a dire il vero." % esito["errore"],
+              "danger")
+        return redirect(url_for("reports.index"))
+
+    log_event("report.deleted",
+              "Report eliminato: %s (%s)" % (esito.get("nome_file")
+                                             or esito.get("file_path") or report_id,
+                                             esito.get("kind")),
+              tenant_id=int(tenant["id"]), severity="warning", entity="report",
+              entity_id=report_id)
+    flash("Report eliminato dall'archivio%s."
+          % (" con il suo file" if esito["file_rimosso"] else ""), "success")
+    return redirect(url_for("reports.index"))
+
+
+@bp.post("/run-scheduler")
+@role_required(ROLE_ANALYST)
+def run_scheduler():
+    """Esegue subito un giro del pianificatore. Serve a verificare la configurazione."""
+    esito = resoconto.run_once()
+    flash("Pianificatore eseguito: %d spediti, %d saltati, %d errori.%s"
+          % (esito.get("spediti", 0), esito.get("saltati", 0), esito.get("errori", 0),
+             " " + "; ".join(esito.get("dettagli", [])) if esito.get("dettagli") else ""),
+          "info" if not esito.get("errori") else "warning")
+    return redirect(url_for("reports.index"))

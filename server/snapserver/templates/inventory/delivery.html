@@ -1,0 +1,114 @@
+{#
+  snap server - Contenuto di un lotto conferito.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Lotto {{ batch.batch_uid[:12] }}{% endblock %}
+{% block page_icon %}bi-file-earmark-code{% endblock %}
+{% block page_title %}Contenuto del Lotto{% endblock %}
+{% block page_subtitle %}
+  Conferito dalla sonda {{ batch.probe_code or '-' }} il {{ batch.received_at|dtz }}
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('inventory.deliveries') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i> Elenco
+</a>
+{% endblock %}
+
+{% block content %}
+{{ schede.barra([
+    ('lotto', 'Lotto e tipi di record', 'bi-info-circle', none),
+    ('record', 'Record conferiti', 'bi-braces', none),
+] + ([('fasi', 'Fasi contenute', 'bi-radar', runs|length)] if runs else [])) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-lotto" role="tabpanel"
+     aria-labelledby="tab-lotto">
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-info-circle me-1"></i> Lotto</h3></div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5">Identificativo</dt><dd class="col-7 font-monospace">{{ batch.batch_uid }}</dd>
+          <dt class="col-5">Sonda</dt><dd class="col-7">{{ batch.probe_code }} - {{ batch.probe_name }}</dd>
+          <dt class="col-5">Ricevuto</dt><dd class="col-7">{{ batch.received_at|dtz }}</dd>
+          <dt class="col-5">Record</dt><dd class="col-7">{{ batch.record_count }}</dd>
+          <dt class="col-5">Dimensione sul filo</dt><dd class="col-7">{{ batch.payload_bytes|bytes }} (cifrati)</dd>
+          <dt class="col-5">Esito</dt><dd class="col-7">{{ batch.status }}</dd>
+          <dt class="col-5">Conservazione</dt>
+          <dd class="col-7">
+            {% if batch.records_truncated %}estratto (lotto troppo grande){% else %}integrale{% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-list-ol me-1"></i> Record per tipo</h3></div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" data-snap-table data-page-size="10" data-no-search="true">
+          <thead><tr><th>TIPO</th><th>QUANTITA'</th></tr></thead>
+          <tbody>
+            {% for tipo, quanti in counters.items() %}
+            <tr><td class="small">{{ tipo }}</td><td class="small">{{ quanti }}</td></tr>
+            {% else %}
+            <tr><td colspan="2" class="small text-body-secondary">Nessun conteggio disponibile.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+{% if runs %}
+<div class="tab-pane fade" id="pane-fasi" role="tabpanel" aria-labelledby="tab-fasi">
+<div class="card">
+  <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-radar me-1"></i> Fasi contenute nel lotto</h3></div>
+  <div class="card-body p-0">
+    <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="10">
+      <thead><tr><th>FASE</th><th>BERSAGLIO</th><th>HOST ATTIVI</th><th>DURATA</th><th>COMANDO</th></tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="small">{{ r.stage }}</td>
+          <td class="small">{{ r.target }}</td>
+          <td class="small">{{ r.hosts_up }} / {{ r.hosts_total }}</td>
+          <td class="small">{% if r.duration_ms %}{{ (r.duration_ms / 1000)|round(1) }} s{% else %}-{% endif %}</td>
+          <td class="small font-monospace">{{ r.nmap_args or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+{% endif %}
+
+<div class="tab-pane fade" id="pane-record" role="tabpanel" aria-labelledby="tab-record">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-braces me-1"></i> Record conferiti</h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Questo e' il contenuto che la sonda ha inviato, dopo l'apertura della busta cifrata.
+      La chiave di autenticazione non viene conservata.
+    </p>
+    <pre class="snap-documento bg-body-tertiary p-3 rounded small mb-0"
+         style="max-height: 32rem; overflow: auto;">{{ pretty }}</pre>
+  </div>
+</div>
+</div>
+</div>
+{% endblock %}

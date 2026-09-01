@@ -1,0 +1,41 @@
+{#
+  snap server - Storico degli incidenti dei controlli.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Incidenti dei controlli{% endblock %}
+{% block page_icon %}bi-exclamation-triangle{% endblock %}
+{% block page_title %}Incidenti dei Controlli{% endblock %}
+{% block page_subtitle %}
+  Un controllo che fallisce per il numero dichiarato di volte consecutive apre un incidente.
+  Quelli dei controlli autonomi si chiudono al ritorno alla normalita'; gli altri attendono un operatore.
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('checks.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Controlli
+  </a>
+  <div class="btn-group btn-group-sm">
+    {% for chiave, etichetta in [('aperti', 'Aperti e in carico'), ('resolved', 'Risolti'), ('tutti', 'Tutti')] %}
+    <a href="{{ url_for('checks.incident_list', status=chiave) }}"
+       class="btn btn-outline-secondary {{ 'active' if selected == chiave }}">{{ etichetta }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-check me-1"></i> {{ incidents|length }} incidenti
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    {% include 'checks/_incidents_table.html' %}
+  </div>
+</div>
+{% endblock %}

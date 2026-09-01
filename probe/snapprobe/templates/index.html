@@ -1,0 +1,595 @@
+{#
+  snap probe - Pagina di stato della sonda.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Stato{% endblock %}
+{% block autorefresh %}1{% endblock %}
+{% block page_icon %}bi-activity{% endblock %}
+{% block page_title %}Stato della sonda{% endblock %}
+{% block page_subtitle %}
+  La sonda raccoglie in autonomia e conferisce i dati al server appena raggiungibile.
+{% endblock %}
+
+{% block page_actions %}
+<form method="post" action="{{ url_for('probe.action_test') }}" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-plug me-1"></i> Verifica server
+  </button>
+</form>
+<form method="post" action="{{ url_for('probe.action_collect') }}" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-radar me-1"></i> Raccogli ora
+  </button>
+</form>
+<form method="post" action="{{ url_for('probe.action_flush') }}" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-primary" {{ 'disabled' if not status.enrolled }}>
+    <i class="bi bi-cloud-arrow-up me-1"></i> Conferisci ora
+  </button>
+</form>
+{% endblock %}
+
+{% block content %}
+
+{% if not status.enrolled %}
+<div class="card border-primary mb-3">
+  <div class="card-body d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <div>
+      <h2 class="h6 mb-1"><i class="bi bi-key me-1"></i> Sonda non registrata</h2>
+      <p class="mb-0 small text-body-secondary">
+        Per attivare il canale cifrato occorre il pacchetto di registrazione emesso
+        dal server. Nel frattempo la raccolta locale e' comunque attiva e i dati
+        restano in coda.
+      </p>
+    </div>
+    <a href="{{ url_for('probe.enroll_form') }}" class="btn btn-primary">
+      <i class="bi bi-shield-plus me-1"></i> Registra la sonda
+    </a>
+  </div>
+</div>
+{% endif %}
+
+{# In cima, prima di ogni altra cosa: quanti nodi la sonda conosce, se sta
+   scansionando, e l'interruttore per fermarla. E' cio' per cui si apre questa
+   pagina, e stava sotto due blocchi. #}
+<div class="card mb-3">
+  <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center flex-wrap gap-2">
+      <span class="badge text-bg-{{ 'warning' if (scan.paused_locally
+                                                  or not scan.enabled_by_server)
+                                    else 'success' }}">
+        <i class="bi bi-radar me-1"></i>
+        {%- if not scan.enabled_by_server %} scansioni disabilitate dal server
+        {%- elif scan.paused_locally %} scansioni sospese in locale
+        {%- else %} scansione in corso{% endif %}
+      </span>
+      <span class="badge text-bg-light border text-body">
+        <i class="bi bi-hdd-network me-1"></i>{{ scan.nodes_confirmed }} confermati
+      </span>
+      <span class="badge text-bg-light border text-body">
+        <i class="bi bi-question-circle me-1"></i>{{ scan.nodes_candidate }} candidati
+      </span>
+      <span class="badge text-bg-light border text-body">
+        <i class="bi bi-hourglass-split me-1"></i>{{ scan.profiles_pending }} profili da completare
+      </span>
+      {% if scan.next_due %}
+      <span class="badge text-bg-light border text-body">
+        <i class="bi bi-arrow-right-circle me-1"></i>prossima: {{ scan.next_due[0] }} su {{ scan.next_due[1] }}
+      </span>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('probe.action_toggle_scan') }}" class="d-inline"
+          {% if not scan.paused_locally %}
+          data-confirm="Sospendere le scansioni di rete? La sonda continuera' a conferire i dati gia' raccolti."
+          {% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit"
+              class="btn btn-sm {{ 'btn-success' if scan.paused_locally else 'btn-outline-warning' }}">
+        <i class="bi bi-{{ 'play-fill' if scan.paused_locally else 'pause-fill' }} me-1"></i>
+        {{ 'Riprendere le scansioni' if scan.paused_locally else 'Sospendere le scansioni' }}
+      </button>
+    </form>
+  </div>
+</div>
+
+{# Riquadri di sintesi nella stessa forma della console del server: etichetta,
+   valore grande, nota sotto, icona colorata secondo lo stato. La tinta non e'
+   decorazione -- verde cio' che va, giallo cio' che attende, rosso cio' che si e'
+   fermato -- e la nota dice sempre da dove viene il numero. #}
+<div class="row g-3 mb-3">
+  {% set riquadri = [
+      ('CANALE VERSO IL SERVER',
+       ('Attivo' if status.online else 'In attesa') if status.enrolled else 'Non registrata',
+       'bi-shield-lock',
+       ('success' if status.online else 'warning') if status.enrolled else 'secondary',
+       settings.get('server_url') or 'server non configurato'),
+      ('CODA LOCALE', status.queue_size, 'bi-inboxes',
+       'warning' if status.queue_size else 'success',
+       ('in attesa dal ' ~ status.oldest_queued_at|dt) if status.oldest_queued_at
+        else 'nessun dato in attesa'),
+      ('RACCOLTA', 'Sospesa' if status.paused else 'Attiva', 'bi-arrow-repeat',
+       'warning' if status.paused else 'success',
+       'ogni ' ~ settings.get('scan_interval_sec', '300') ~ ' secondi'),
+      ('NODI CONFERMATI', scan.nodes_confirmed, 'bi-hdd-network',
+       'info' if scan.nodes_confirmed else 'secondary',
+       '%d candidati, %d profili da completare'|format(scan.nodes_candidate,
+                                                       scan.profiles_pending)),
+      ('SCANSIONE', 'Sospesa' if (scan.paused_locally or not scan.enabled_by_server)
+                    else 'In corso', 'bi-radar',
+       'warning' if (scan.paused_locally or not scan.enabled_by_server) else 'success',
+       ('disabilitata dal server' if not scan.enabled_by_server
+        else ('sospesa in locale' if scan.paused_locally
+              else (scan.next_due[0] ~ ' su ' ~ scan.next_due[1]) if scan.next_due
+              else 'nessuna fase scaduta'))),
+      ('ULTIMO CONFERIMENTO',
+       settings.get('last_sync_at')|ago if settings.get('last_sync_at') else 'mai',
+       'bi-cloud-arrow-up',
+       'success' if settings.get('last_sync_at') else 'secondary',
+       (settings.get('last_sync_at')|dt ~ ' · fuso ' ~ display_timezone)
+        if settings.get('last_sync_at') else 'nessun lotto ancora inviato'),
+  ] %}
+  {% for etichetta, valore, icona, tono, nota in riquadri %}
+  {# Un numero si legge da lontano e resta grande; una frase o una data no: a corpo
+     pieno occuperebbe tutta la riga e schiaccerebbe l'icona contro il bordo. #}
+  {% set testuale = valore|string|length > 10 %}
+  <div class="col-6 col-lg-4 col-xxl-2">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center gap-2">
+          <div class="min-w-0">
+            <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+            <p class="snap-stat-value {{ 'snap-stat-value-testo' if testuale }} mb-0">
+              {{ valore }}
+            </p>
+            <p class="snap-stat-foot mb-0">{{ nota }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# Destinazione dei dati e andamento dei conferimenti sulla stessa riga: sono la
+   stessa domanda -- dove vanno i dati e se ci stanno arrivando -- e due fasce
+   separate facevano scorrere la pagina per nulla. #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-7">
+<div class="card border-primary h-100">
+  <div class="card-body py-3">
+    <div class="row align-items-center g-3">
+      <div class="col-12 col-md-auto">
+        <span class="snap-stat-icon text-bg-primary"><i class="bi bi-building"></i></span>
+      </div>
+      <div class="col-12 col-md">
+        <p class="snap-stat-label mb-1">I DATI VENGONO CONFERITI AL TENANT</p>
+        <p class="h4 mb-1">
+          {{ settings.get('tenant_name') or settings.get('tenant_code') or 'nessuno: sonda non registrata' }}
+        </p>
+        <p class="small text-body-secondary mb-0">
+          {% if settings.get('tenant_code') %}
+          codice <code>{{ settings.get('tenant_code') }}</code> &middot;
+          fuso orario {{ settings.get('tenant_timezone') or 'UTC' }} &middot;
+          {% endif %}
+          server <code>{{ settings.get('server_url') or 'non configurato' }}</code>
+        </p>
+      </div>
+      <div class="col-12 col-md-auto text-md-end">
+        <span class="badge text-bg-{{ 'success' if status.online else 'secondary' }}">
+          {{ 'canale attivo' if status.online else 'server non raggiungibile' }}
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+  </div>
+
+  {# Il grafico e' piccolo di proposito: serve a vedere se la sonda sta consegnando
+     o si e' fermata, non a leggere il valore di ogni lotto -- quello sta nella
+     scheda dei conferimenti. Un tracciato alto quanto una fascia direbbe la stessa
+     cosa occupando cinque volte lo spazio. #}
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-baseline mb-1">
+          <span class="snap-stat-label mb-0">
+            <i class="bi bi-graph-up me-1"></i> Record conferiti
+          </span>
+          <small class="text-body-secondary">
+            {% if conferimenti_punti %}
+            ultimi {{ conferimenti_punti|length }} lotti &middot;
+            {{ conferimenti_punti|sum(attribute=1) }} record
+            {% else %}nessun lotto{% endif %}
+          </small>
+        </div>
+        {% if conferimenti_punti %}
+        <div class="text-primary" data-snap-grafico data-altezza="86" data-compatto="1"
+             data-etichetta="record per lotto"
+             data-punti='{{ conferimenti_punti|tojson }}'></div>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          Nessun conferimento ancora: il grafico compare con il primo lotto.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-scansione" data-bs-toggle="tab"
+            data-bs-target="#pane-scansione" type="button" role="tab"
+            aria-controls="pane-scansione" aria-selected="true">
+      <i class="bi bi-radar me-1"></i> Scansione della rete
+      <span class="badge text-bg-secondary ms-1">{{ scan.states|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-conferimenti" data-bs-toggle="tab"
+            data-bs-target="#pane-conferimenti" type="button" role="tab"
+            aria-controls="pane-conferimenti" aria-selected="false">
+      <i class="bi bi-cloud-arrow-up me-1"></i> Conferimenti
+      <span class="badge text-bg-secondary ms-1">{{ syncs|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-identita" data-bs-toggle="tab"
+            data-bs-target="#pane-identita" type="button" role="tab"
+            aria-controls="pane-identita" aria-selected="false">
+      <i class="bi bi-shield-lock me-1"></i> Identita' e canale
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-diario" data-bs-toggle="tab"
+            data-bs-target="#pane-diario" type="button" role="tab"
+            aria-controls="pane-diario" aria-selected="false">
+      <i class="bi bi-journal-text me-1"></i> Diario recente
+      <span class="badge text-bg-secondary ms-1">{{ events|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+<div class="tab-pane fade show active" id="pane-scansione" role="tabpanel"
+     aria-labelledby="tab-scansione">
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-radar me-1"></i> Scansione della rete</h2>
+  </div>
+  <div class="card-body">
+    {# Indicatore di attivita': dice cosa la sonda sta facendo adesso, e si
+       aggiorna da se' ogni pochi secondi senza ricaricare la pagina. #}
+    <div class="snap-attivita mb-3" data-snap-stato>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-1">
+        <div class="d-flex align-items-center gap-2">
+          <span class="snap-spia" data-spia></span>
+          <strong data-stato-testo>in attesa</strong>
+          <span class="text-body-secondary small" data-stato-dettaglio></span>
+        </div>
+        <div class="text-body-secondary small">
+          <span data-thread></span>
+          <span data-aggiornato class="ms-2"></span>
+        </div>
+      </div>
+
+      {# Barra di attivita': animata solo mentre nmap sta lavorando. #}
+      <div class="progress mb-3" style="height: .5rem" data-barra-attivita hidden>
+        <div class="progress-bar progress-bar-striped progress-bar-animated"
+             style="width: 100%"></div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="d-flex justify-content-between small">
+            <span>Perimetro esplorato</span>
+            <span data-perimetro-testo>-</span>
+          </div>
+          <div class="progress" style="height: .75rem">
+            <div class="progress-bar bg-info" data-perimetro-barra
+                 role="progressbar" style="width: 0%"></div>
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="d-flex justify-content-between small">
+            <span>Profili completati</span>
+            <span data-profili-testo>-</span>
+          </div>
+          <div class="progress" style="height: .75rem">
+            <div class="progress-bar bg-success" data-profili-barra
+                 role="progressbar" style="width: 0%"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <dl class="row small mb-3">
+      <dt class="col-5 col-md-3">Perimetro ricevuto</dt>
+      <dd class="col-7 col-md-9">
+        {% if scan.perimeter %}
+        {% set indirizzi = scan.perimeter | sum(attribute='hosts') %}
+        <details class="snap-perimetro">
+          <summary>
+            <strong>{{ scan.perimeter | length }}</strong>
+            subnet{{ '' if scan.perimeter | length == 1 else '' }},
+            <strong>{{ '{:,}'.format(indirizzi).replace(',', '.') }}</strong> indirizzi
+            <span class="text-body-secondary">
+              &mdash;
+              {% for s in scan.perimeter[:3] %}{{ s.cidr }}{% if not loop.last %}, {% endif %}{% endfor %}
+              {%- if scan.perimeter | length > 3 %} e altre {{ scan.perimeter | length - 3 }}{% endif %}
+            </span>
+          </summary>
+          {# Elenco in forma compatta: un badge per subnet significherebbe
+             centinaia di elementi su una pagina che si ricarica da sola. #}
+          <div class="snap-perimetro-elenco mt-2 font-monospace">
+            {{ scan.perimeter | map(attribute='cidr') | join(', ') }}
+          </div>
+        </details>
+        {% else %}
+          <span class="text-warning">nessuna subnet: il server non ha dichiarato un perimetro</span>
+        {% endif %}
+      </dd>
+      <dt class="col-5 col-md-3">nmap</dt>
+      <dd class="col-7 col-md-9">
+        {% if scan.capabilities.get('available') %}
+          versione {{ scan.capabilities.get('nmap_version') or 'n.d.' }} &middot;
+          {{ scan.capabilities.get('detail') }}
+        {% else %}
+          <span class="text-danger">non disponibile: nessuna scansione possibile</span>
+        {% endif %}
+      </dd>
+      <dt class="col-5 col-md-3">Stato</dt>
+      <dd class="col-7 col-md-9">
+        {% if scan.scanning_allowed %}
+          <span class="badge text-bg-success">scansioni attive</span>
+        {% else %}
+          <span class="badge text-bg-warning">sospese</span>
+          <span class="text-body-secondary">{{ scan.suspended_reason }}</span>
+        {% endif %}
+      </dd>
+      <dt class="col-5 col-md-3">Sforzo</dt>
+      <dd class="col-7 col-md-9">
+        <form method="post" action="{{ url_for('probe.action_scan_effort') }}"
+              class="d-inline-flex align-items-center gap-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <select name="effort" class="form-select form-select-sm" style="width:auto">
+            {% for valore, testo in [('min', 'minimo (1 thread)'), ('med', 'medio (2 thread)'),
+                                     ('max', 'massimo (4 thread)')] %}
+            <option value="{{ valore }}" {% if scan.effort == valore %}selected{% endif %}>
+              {{ testo }}
+            </option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
+        </form>
+        <div class="small text-body-secondary mt-1">
+          {{ scan.effort_label }} &middot; {{ scan.workers }} thread su {{ scan.max_workers }}
+          {% if scan.effort_from_server and scan.effort_from_server != scan.effort %}
+          &middot; <span class="text-warning">il server chiede
+            <strong>{{ scan.effort_from_server }}</strong>: vale la scelta fatta qui fino al
+            prossimo cambio deciso dal server</span>
+          {% endif %}
+          {% if scan.running_scans %}
+          &middot; <span class="text-primary">{{ scan.running_scans }} scansioni in corso</span>
+          {% endif %}
+        </div>
+      </dd>
+      <dt class="col-5 col-md-3">Censimento</dt>
+      <dd class="col-7 col-md-9">
+        Il perimetro viene ricensito ogni <strong>{{ scan.discovery_days }}</strong> giorni.
+        <span class="text-body-secondary">
+          Deciso dal server. Fra un censimento e l'altro i cambiamenti sui nodi noti sono
+          colti dal monitoraggio e dalle ri-ispezioni.
+        </span>
+      </dd>
+      <dt class="col-5 col-md-3">Tempo per host</dt>
+      <dd class="col-7 col-md-9">
+        <form method="post" action="{{ url_for('probe.action_host_timeout') }}"
+              class="d-inline-flex align-items-center gap-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <select name="host_timeout" class="form-select form-select-sm" style="width:auto">
+            <option value="" {% if not scan.host_timeout_chosen %}selected{% endif %}>
+              dal profilo ({{ scan.host_timeout }})
+            </option>
+            {% for valore in scan.host_timeout_choices %}
+            <option value="{{ valore }}"
+                    {% if scan.host_timeout_chosen == valore %}selected{% endif %}>{{ valore }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
+        </form>
+        <div class="small text-body-secondary mt-1">
+          In uso: <strong>{{ scan.host_timeout }}</strong> per host.
+          Le fasi di servizi, sistema operativo e approfondimento usano almeno
+          <strong>{{ scan.host_timeout_floor }}</strong>: con meno tempo nmap abbandona l'host
+          e la fase non produce nulla.
+          {% if scan.host_timeout_from_server is not none
+                and scan.host_timeout_from_server != (scan.host_timeout_chosen or '') %}
+          <span class="text-warning">Il server chiede
+            {{ scan.host_timeout_from_server or 'quello del profilo' }}: vale la scelta fatta
+            qui fino al prossimo cambio deciso dal server.</span>
+          {% endif %}
+          Scoperta e monitoraggio conservano tempi brevi: sono verifiche di
+          raggiungibilita' su interi intervalli.
+        </div>
+      </dd>
+      <dt class="col-5 col-md-3">Prossima fase</dt>
+      <dd class="col-7 col-md-9">
+        {% if scan.next_due %}
+          <span class="badge text-bg-primary">{{ scan.next_due[0] }}</span>
+          su {{ scan.next_due[1] }}
+        {% else %}
+          nessuna fase scaduta
+        {% endif %}
+      </dd>
+      <dt class="col-5 col-md-3">Nodi da approfondire</dt>
+      <dd class="col-7 col-md-9">{{ scan.uncertain }}</dd>
+    </dl>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="10">
+        <thead><tr><th>BERSAGLIO</th><th>FASE</th><th>ULTIMA ESECUZIONE</th><th>ESITO</th>
+                   <th>DETTAGLIO</th><th>PASSATE</th></tr></thead>
+        <tbody>
+          {% for s in scan.states %}
+          <tr>
+            <td class="small">{{ s.target }}</td>
+            <td class="small"><span class="badge text-bg-secondary">{{ s.stage }}</span></td>
+            <td class="small">{{ s.last_run_at|dt }}</td>
+            <td class="small">{{ s.last_status or '-' }}</td>
+            <td class="small">{{ s.last_detail or '-' }}</td>
+            <td class="small">{{ s.runs }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-body-secondary py-3">
+            Nessuna fase ancora eseguita.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-conferimenti" role="tabpanel"
+     aria-labelledby="tab-conferimenti">
+
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-cloud-arrow-up me-1"></i> Ultimi conferimenti</h2>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0" data-snap-table data-page-size="10">
+            <thead>
+              <tr><th>ISTANTE</th><th>LOTTO</th><th class="text-end">RECORD</th>
+                  <th>ESITO</th></tr>
+            </thead>
+            <tbody>
+              {% for sync in syncs %}
+              <tr>
+                <td class="small">{{ sync['created_at']|dt }}</td>
+                <td class="small"><code>{{ sync['batch_uid'][:12] }}</code></td>
+                <td class="text-end">{{ sync['records'] }}</td>
+                <td class="small">
+                  {% if sync['status'] == 'accepted' %}
+                    <span class="badge text-bg-success">accettato</span>
+                  {% elif sync['status'] == 'duplicate' %}
+                    <span class="badge text-bg-info">gia' acquisito</span>
+                  {% elif sync['status'] == 'pending' %}
+                    <span class="badge text-bg-warning">rinviato</span>
+                  {% else %}
+                    <span class="badge text-bg-danger">{{ sync['status'] }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-center text-body-secondary py-3">
+                Nessun conferimento effettuato.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+</div>
+
+<div class="tab-pane fade" id="pane-identita" role="tabpanel"
+     aria-labelledby="tab-identita">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-shield-lock me-1"></i> Identita' e canale</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row small mb-0">
+          <dt class="col-6">Codice sonda</dt>
+          <dd class="col-6">
+            {{ settings.get('probe_code', '-') }}
+            {% if status.enrolled %}
+              <a href="{{ url_for('probe.enroll_form') }}" class="ms-1 small"
+                 title="Registrare la sonda con un nuovo pacchetto">sostituisci</a>
+            {% endif %}
+          </dd>
+          <dt class="col-6">Nome assegnato</dt>
+          <dd class="col-6">{{ settings.get('probe_name', '-') }}</dd>
+          <dt class="col-6">Identificativo</dt>
+          <dd class="col-6"><code>{{ (settings.get('probe_uid') or '-')[:16] }}</code></dd>
+          <dt class="col-6">Tenant</dt>
+          <dd class="col-6">{{ settings.get('tenant_name') or settings.get('tenant_code') or '-' }}</dd>
+          <dt class="col-6">Fuso del tenant</dt>
+          <dd class="col-6">
+            {% if display_timezone_known %}
+              {{ display_timezone }} ({{ display_timezone_label }})
+            {% else %}
+              <span class="text-warning">non noto: date in UTC</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6">Registrata il</dt>
+          <dd class="col-6">{{ settings.get('enrolled_at')|dtz }}</dd>
+          <dt class="col-6">Ultimo contatto</dt>
+          <dd class="col-6">{{ settings.get('last_contact_at')|dt }}</dd>
+          <dt class="col-6">Cifratura</dt>
+          <dd class="col-6">
+            {% if settings.get('session_key') %}
+              <span class="text-success">
+                <i class="bi bi-lock-fill"></i> X25519 + AES-256-GCM
+              </span>
+            {% else %}
+              <span class="text-secondary">non stabilita</span>
+            {% endif %}
+          </dd>
+        </dl>
+        {% if status.last_error %}
+        <div class="alert alert-warning small mt-3 mb-0">
+          <i class="bi bi-exclamation-triangle me-1"></i>
+          Ultimo errore: {{ status.last_error }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+</div>
+
+<div class="tab-pane fade" id="pane-diario" role="tabpanel"
+     aria-labelledby="tab-diario">
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h2 class="h6 mb-0"><i class="bi bi-journal-text me-1"></i> Diario recente</h2>
+    <a href="{{ url_for('probe.diary') }}" class="btn btn-sm btn-outline-secondary">
+      Diario completo
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <ul class="list-group list-group-flush">
+      {% for event in events %}
+      <li class="list-group-item d-flex justify-content-between gap-3">
+        <span class="small">
+          {% if event['level'] == 'error' %}
+            <i class="bi bi-x-octagon text-danger me-1"></i>
+          {% elif event['level'] == 'warning' %}
+            <i class="bi bi-exclamation-triangle text-warning me-1"></i>
+          {% else %}
+            <i class="bi bi-info-circle text-primary me-1"></i>
+          {% endif %}
+          {{ event['message'] }}
+        </span>
+        <small class="text-body-secondary text-nowrap">{{ event['created_at']|dt }}</small>
+      </li>
+      {% else %}
+      <li class="list-group-item text-body-secondary small">Nessun evento registrato.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+</div>
+
+</div>
+
+{% endblock %}

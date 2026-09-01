@@ -1,0 +1,279 @@
+{#
+  snap server - Scheda di una sonda: stato, configurazione, comandi, conferimenti.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Sonda {{ probe['code'] }}{% endblock %}
+{% block page_icon %}bi-broadcast-pin{% endblock %}
+{% block page_title %}{{ probe['name'] }}{% endblock %}
+{% block page_subtitle %}Codice {{ probe['code'] }} &middot; {{ probe['site'] or 'sede non indicata' }}{% endblock %}
+
+{% block page_actions %}
+{% if has_role('analyst') %}
+<form method="post" action="{{ url_for('probes.set_discovery_days', probe_id=probe.id) }}"
+      class="d-inline-flex align-items-center gap-1 me-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="small text-body-secondary">Scoperta ogni</label>
+  <input type="number" name="days" min="1" max="90" style="width:5rem"
+         class="form-control form-control-sm"
+         value="{{ probe.scan_discovery_days if probe.scan_discovery_days is defined else 3 }}">
+  <span class="small text-body-secondary">gg</span>
+  <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
+</form>
+<form method="post" action="{{ url_for('probes.set_host_timeout', probe_id=probe.id) }}"
+      class="d-inline-flex align-items-center gap-1 me-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="small text-body-secondary">Tempo/host</label>
+  <select name="host_timeout" class="form-select form-select-sm" style="width:auto">
+    {% set attuale = probe.scan_host_timeout if probe.scan_host_timeout is defined else '' %}
+    <option value="" {% if not attuale %}selected{% endif %}>dal profilo</option>
+    {% for valore in ['30s', '60s', '120s', '180s', '300s', '600s'] %}
+    <option value="{{ valore }}" {% if attuale == valore %}selected{% endif %}>{{ valore }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
+</form>
+<form method="post" action="{{ url_for('probes.set_effort', probe_id=probe.id) }}"
+      class="d-inline-flex align-items-center gap-1 me-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="small text-body-secondary">Sforzo</label>
+  <select name="effort" class="form-select form-select-sm" style="width:auto">
+    {% set corrente = probe.scan_effort if probe.scan_effort is defined else 'med' %}
+    {% for valore, testo in [('min', 'minimo (1 thread)'), ('med', 'medio (2 thread)'),
+                             ('max', 'massimo (4 thread)')] %}
+    <option value="{{ valore }}" {% if corrente == valore %}selected{% endif %}>{{ testo }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
+</form>
+{% endif %}
+{% if has_role('analyst') %}
+<form method="post" action="{{ url_for('probes.toggle_scanning', probe_id=probe.id) }}"
+      class="d-inline"
+      {% if probe.scan_enabled is not defined or probe.scan_enabled %}
+      data-confirm="Disabilitare le scansioni di rete per la sonda {{ probe.code }}? Il conferimento dei dati gia' raccolti prosegue."
+      {% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm {{ 'btn-outline-warning' if (probe.scan_enabled is not defined or probe.scan_enabled) else 'btn-success' }}">
+    <i class="bi bi-{{ 'pause-fill' if (probe.scan_enabled is not defined or probe.scan_enabled) else 'play-fill' }} me-1"></i>
+    {{ 'Sospendere le scansioni' if (probe.scan_enabled is not defined or probe.scan_enabled) else 'Riprendere le scansioni' }}
+  </button>
+</form>
+{% endif %}
+<a href="{{ url_for('probes.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i> Flotta sonde
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-xl-4">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-activity me-1"></i> Stato</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6">Stato registrazione</dt>
+          <dd class="col-6">
+            {% if probe['revoked_at'] %}
+              <span class="badge text-bg-danger">Revocata</span>
+            {% elif probe['status'] == 'pending' %}
+              <span class="badge text-bg-warning">In attesa</span>
+            {% else %}
+              <span class="badge text-bg-success">Registrata</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6">Identificativo</dt>
+          <dd class="col-6"><code>{{ probe['probe_uid'][:16] }}...</code></dd>
+          <dt class="col-6">Versione agente</dt><dd class="col-6">{{ probe['agent_version'] or '-' }}</dd>
+          <dt class="col-6">Registrata il</dt><dd class="col-6">{{ probe['enrolled_at']|dt }}</dd>
+          <dt class="col-6">Ultimo contatto</dt>
+          <dd class="col-6">{{ probe['last_seen_at']|dt }}<div class="text-body-secondary">{{ probe['last_seen_at']|ago }}</div></dd>
+          <dt class="col-6">Ultimo conferimento</dt>
+          <dd class="col-6">{{ probe['last_sync_at']|dt }}<div class="text-body-secondary">{{ probe['last_sync_at']|ago }}</div></dd>
+          <dt class="col-6">Chiave di sessione</dt>
+          <dd class="col-6">
+            {% if probe['session_key'] %}
+              <span class="text-success"><i class="bi bi-lock-fill"></i> attiva (AES-256-GCM)</span>
+            {% else %}
+              <span class="text-warning">non stabilita</span>
+            {% endif %}
+          </dd>
+        </dl>
+      </div>
+      {% if has_role('tenant_admin') %}
+      <div class="card-footer d-flex flex-wrap gap-2">
+        <form method="post" action="{{ url_for('probes.regenerate_token', probe_id=probe['id']) }}"
+              data-confirm="Emettere un nuovo token? La sonda attuale dovra' registrarsi di nuovo.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-key me-1"></i> Nuovo token
+          </button>
+        </form>
+        {% if not probe['revoked_at'] %}
+        <form method="post" action="{{ url_for('probes.revoke', probe_id=probe['id']) }}"
+              data-confirm="Revocare le credenziali della sonda?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-warning">
+            <i class="bi bi-slash-circle me-1"></i> Revoca
+          </button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('probes.delete', probe_id=probe['id']) }}"
+              data-confirm="Eliminare definitivamente la sonda? I dati conferiti restano nell'inventario.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-sm btn-outline-danger">
+            <i class="bi bi-trash me-1"></i> Elimina
+          </button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if has_role('analyst') and probe['status'] != 'pending' %}
+    <div class="card mt-3">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-terminal me-1"></i> Invia comando</h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          I comandi non vengono spinti verso la sonda: restano in coda e sono consegnati
+          al primo contatto che la sonda apre verso il server.
+        </p>
+        <form method="post" action="{{ url_for('probes.send_command', probe_id=probe['id']) }}"
+              class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <select class="form-select form-select-sm" name="command">
+            {% for key, label in available_commands.items() %}
+            <option value="{{ key }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-primary text-nowrap">
+            <i class="bi bi-send me-1"></i> Accoda
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-12 col-xl-8">
+    {% if has_role('tenant_admin') %}
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-sliders me-1"></i> Configurazione</h3>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('probes.update_config', probe_id=probe['id']) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label small" for="name">Nome</label>
+              <input type="text" class="form-control form-control-sm" id="name" name="name"
+                     value="{{ probe['name'] }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="site">Sede</label>
+              <input type="text" class="form-control form-control-sm" id="site" name="site"
+                     value="{{ probe['site'] or '' }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="scan_interval_sec">Intervallo di raccolta (s)</label>
+              <input type="number" class="form-control form-control-sm" id="scan_interval_sec"
+                     name="scan_interval_sec" min="30" max="86400"
+                     value="{{ probe['scan_interval_sec'] }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="description">Descrizione</label>
+              <input type="text" class="form-control form-control-sm" id="description"
+                     name="description" value="{{ probe['description'] or '' }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label small" for="options_json">
+                Opzioni aggiuntive (JSON consegnato alla sonda)
+              </label>
+              <textarea class="form-control form-control-sm font-monospace" id="options_json"
+                        name="options_json" rows="6">{{ options_json }}</textarea>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary mt-3">
+            <i class="bi bi-save me-1"></i> Salva e accoda ricarica
+          </button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="card mt-3">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-cloud-arrow-down me-1"></i> Ultimi conferimenti</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" data-snap-table data-page-size="15">
+            <thead>
+              <tr><th>RICEVUTO</th><th>LOTTO</th><th class="text-end">RECORD</th>
+                  <th class="text-end">BYTE</th><th>ESITO</th></tr>
+            </thead>
+            <tbody>
+              {% for batch in batches %}
+              <tr>
+                <td class="small">{{ batch['received_at']|dt }}</td>
+                <td class="small"><code>{{ batch['batch_uid'][:14] }}</code></td>
+                <td class="text-end">{{ batch['record_count'] }}</td>
+                <td class="text-end">{{ batch['payload_bytes']|bytes }}</td>
+                <td><span class="badge text-bg-success">{{ batch['status'] }}</span></td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-body-secondary py-3">
+                Nessun conferimento ricevuto.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-0">
+      <div class="col-12">
+        <div class="card h-100">
+          <div class="card-header">
+            <h3 class="card-title mb-0"><i class="bi bi-terminal me-1"></i> Comandi</h3>
+          </div>
+          <div class="card-body p-0">
+            <table class="table table-sm mb-0" data-snap-table data-page-size="15">
+              <thead><tr><th>COMANDO</th><th>STATO</th><th>CREATO</th></tr></thead>
+              <tbody>
+                {% for command in commands %}
+                <tr>
+                  <td class="small fw-semibold">{{ command['command'] }}</td>
+                  <td class="small">
+                    {% if command['status'] == 'completed' %}
+                      <span class="badge text-bg-success">eseguito</span>
+                    {% elif command['status'] == 'failed' %}
+                      <span class="badge text-bg-danger">errore</span>
+                    {% elif command['status'] == 'delivered' %}
+                      <span class="badge text-bg-info">consegnato</span>
+                    {% else %}
+                      <span class="badge text-bg-secondary">in coda</span>
+                    {% endif %}
+                  </td>
+                  <td class="small">{{ command['created_at']|dt }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="text-body-secondary small py-3">Nessun comando.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endblock %}

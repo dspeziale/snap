@@ -1,0 +1,88 @@
+{#
+  snap server - Layout principale (AdminLTE 4.3.1 / Bootstrap 5.3).
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% set pref_theme = current_user['pref_theme'] if current_user else 'light' %}
+{% set pref_font = current_user['pref_font_size'] if current_user else 'normal' %}
+{% set pref_layout = current_user['pref_layout'] if current_user else 'wide' %}
+<!doctype html>
+<html lang="it" data-bs-theme="{{ pref_theme }}" class="snap-font-{{ pref_font }} snap-layout-{{ pref_layout }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}{{ app_name }}{% endblock %} &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/adminlte/adminlte.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/awn/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap.css') }}">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+
+  {% include 'partials/navbar.html' %}
+  {% include 'partials/sidebar.html' %}
+
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <div class="row align-items-center">
+          <div class="col-lg-7">
+            <h3 class="mb-0 d-flex align-items-center gap-2">
+              <i class="bi {% block page_icon %}bi-speedometer2{% endblock %} text-primary"></i>
+              {% block page_title %}Dashboard{% endblock %}
+            </h3>
+            <p class="text-secondary mb-0 small">{% block page_subtitle %}{% endblock %}</p>
+          </div>
+          <div class="col-lg-5 text-lg-end mt-2 mt-lg-0">
+            {% block page_actions %}{% endblock %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="app-content">
+      <div class="container-fluid">
+        {% include 'partials/flash.html' %}
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </main>
+
+  <footer class="app-footer">
+    <div class="float-end d-none d-sm-inline">
+      {{ app_subtitle }}
+      {% if current_tenant %}
+        &middot; fuso orario <strong>{{ current_tenant['timezone'] }}</strong>
+      {% endif %}
+    </div>
+    <strong>{{ app_name }}</strong> v{{ app_version }} &mdash;
+    &copy; 2024-26 DS Consulting &middot; licenza MIT
+  </footer>
+</div>
+
+<form id="pref-form" method="post" action="{{ url_for('auth.preferences') }}" class="d-none">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="theme" value="{{ pref_theme }}">
+  <input type="hidden" name="font_size" value="{{ pref_font }}">
+  <input type="hidden" name="layout" value="{{ pref_layout }}">
+</form>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/adminlte/adminlte.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-dialogs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-tables.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-grafici.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

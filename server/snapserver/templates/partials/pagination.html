@@ -1,0 +1,31 @@
+{# snap server - Navigazione dei risultati paginati. Autore: Daniele Speziale - 2026-08-26 - MIT #}
+{% macro render(page, endpoint, filters={}) %}
+  {# Con l'impaginazione lato client questa barra serve solo quando i risultati
+     superano la finestra servita dal server. #}
+  {% if page.pages > 1 %}
+  <nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+    <small class="text-body-secondary">
+      {{ page.total }} risultati &middot; pagina {{ page.page }} di {{ page.pages }}
+    </small>
+    <ul class="pagination pagination-sm mb-0">
+      <li class="page-item {% if not page.has_prev %}disabled{% endif %}">
+        <a class="page-link" href="{{ url_for(endpoint, page=page.page - 1, **filters) }}">
+          <i class="bi bi-chevron-left"></i>
+        </a>
+      </li>
+      {% set start = [1, page.page - 2]|max %}
+      {% set end = [page.pages, start + 4]|min %}
+      {% for number in range(start, end + 1) %}
+      <li class="page-item {% if number == page.page %}active{% endif %}">
+        <a class="page-link" href="{{ url_for(endpoint, page=number, **filters) }}">{{ number }}</a>
+      </li>
+      {% endfor %}
+      <li class="page-item {% if not page.has_next %}disabled{% endif %}">
+        <a class="page-link" href="{{ url_for(endpoint, page=page.page + 1, **filters) }}">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+{% endmacro %}

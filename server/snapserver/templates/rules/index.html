@@ -1,0 +1,307 @@
+{#
+  snap server - Regole di notifica.
+
+  L'operatore dichiara che cosa vuole sapere; la valutazione e' del server. La prova
+  sulla storia fa parte della creazione: attivare una regola senza sapere quante volte
+  avrebbe scattato ieri significa scoprirlo dal numero di messaggi che arrivano.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% import 'rules/_form.html' as maschera %}
+{% block title %}Regole di notifica{% endblock %}
+{% block page_icon %}bi-sliders2{% endblock %}
+{% block page_title %}Regole di Notifica{% endblock %}
+{% block page_subtitle %}
+  Una regola guarda una sorgente di eventi -- variazioni dell'inventario, esiti dei
+  controlli, incidenti, scansioni, conferimenti, registro delle azioni -- e recapita un
+  messaggio quando le condizioni sono soddisfatte. Vale per qualunque cosa il sistema
+  registri.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('REGOLE', summary.regole, 'bi-sliders2', 'primary'),
+      ('ATTIVE', summary.attive, 'bi-check-circle',
+       'success' if summary.attive else 'secondary'),
+      ('CORRISPONDENZE 24H', summary.ultime_24h, 'bi-activity',
+       'warning' if summary.ultime_24h else 'secondary'),
+      ('CORRISPONDENZE TOTALI', summary.corrispondenze, 'bi-graph-up', 'secondary')] %}
+  <div class="col-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if not channels.email.pronto and not channels.telegram.pronto %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    <strong>Nessun canale configurato.</strong> Le regole funzionano e registrano le
+    corrispondenze; i messaggi restano in coda finche' un canale non e' pronto.
+  </div>
+  {% if has_role('tenant_admin') %}
+  <a href="{{ url_for('admin.settings') }}" class="btn btn-sm btn-warning">
+    Configurare posta o Telegram <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{{ schede.barra([
+    ('regole', 'Regole', 'bi-sliders2', rules|length),
+    ('nuova', 'Nuova regola', 'bi-plus-circle', none),
+    ('pronte', 'Regole pronte', 'bi-lightbulb', suggestions|length),
+    ('storia', 'Corrispondenze', 'bi-clock-history', matches|length),
+], apri=request.args.get('scheda')) }}
+
+{% set scheda = request.args.get('scheda') %}
+<div class="tab-content">
+
+{# ------------------------------------------------------------------ regole #}
+<div class="tab-pane fade {{ 'show active' if scheda in (none, '', 'regole') }}"
+     id="pane-regole" role="tabpanel" aria-labelledby="tab-regole">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-sliders2 me-1"></i> Regole definite</h3>
+    {% if has_role('tenant_admin') %}
+    <form method="post" action="{{ url_for('rules.evaluate') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-repeat me-1"></i> Valutare adesso gli eventi nuovi
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>REGOLA</th><th>SORGENTE</th><th>EVENTO</th><th>CONDIZIONI</th>
+              <th>CANALI</th><th>FINESTRA</th><th>CORRISP.</th><th>STATO</th>
+              <th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for r in rules %}
+          <tr>
+            <td>
+              <a href="{{ url_for('rules.rule', rule_id=r.id) }}">{{ r.name }}</a>
+              {% if r.broken %}
+              <span class="badge text-bg-danger">condizioni illeggibili</span>
+              {% endif %}
+              {% if r.digest_only %}
+              <span class="badge text-bg-light border">solo resoconto</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ r.source }}</td>
+            <td class="font-monospace small">{{ r.event_type }}</td>
+            <td class="small">
+              {% if r.conditions %}
+              {% for c in r.conditions %}
+              <span class="font-monospace">{{ c.field }} {{ c.op }} {{ c.value or '' }}</span>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+              {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+            </td>
+            <td class="small">{{ r.channels }}</td>
+            <td class="small text-nowrap">{{ r.max_per_window }} / {{ r.window_seconds }}s</td>
+            <td class="text-end">{{ r.matches_total }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'success' if r.is_enabled else 'secondary' }}">
+                {{ 'attiva' if r.is_enabled else 'sospesa' }}
+              </span>
+            </td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <div class="d-flex gap-1">
+                {# La modifica sta fra le azioni: il nome della regola porta alla stessa
+                   pagina, ma chi cerca "come si cambia" guarda in questa colonna. #}
+                <a href="{{ url_for('rules.rule', rule_id=r.id) }}"
+                   class="btn btn-sm btn-outline-primary" title="modificare">
+                  <i class="bi bi-pencil"></i>
+                </a>
+                <form method="post" action="{{ url_for('rules.toggle', rule_id=r.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary"
+                          title="{{ 'sospendere' if r.is_enabled else 'attivare' }}">
+                    <i class="bi bi-{{ 'pause' if r.is_enabled else 'play' }}"></i>
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('rules.delete', rule_id=r.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger"
+                          data-confirm="Eliminare la regola '{{ r.name }}'? Se ne va anche lo storico delle sue corrispondenze."
+                          title="eliminare">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not rules %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna regola definita: il sistema registra gli eventi ma non avvisa nessuno.
+      La scheda <em>Regole pronte</em> contiene le piu' richieste, da adattare.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------------- nuova #}
+<div class="tab-pane fade {{ 'show active' if scheda == 'nuova' }}"
+     id="pane-nuova" role="tabpanel" aria-labelledby="tab-nuova">
+{% if has_role('tenant_admin') %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-plus-circle me-1"></i> Nuova regola</h3>
+  </div>
+  <div class="card-body">
+    {{ maschera.modulo(url_for('rules.create'), catalog, ops, severities,
+                       channel_labels, channels,
+                       test_action=url_for('rules.test'),
+                       submit_label='Creare la regola') }}
+  </div>
+</div>
+{% else %}
+<p class="text-body-secondary">La creazione delle regole e' riservata agli amministratori
+di tenant: una regola spedisce messaggi a nome dell'organizzazione.</p>
+{% endif %}
+</div>
+
+{# ------------------------------------------------------------------ pronte #}
+<div class="tab-pane fade {{ 'show active' if scheda == 'pronte' }}"
+     id="pane-pronte" role="tabpanel" aria-labelledby="tab-pronte">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-lightbulb me-1"></i> Regole pronte</h3>
+    <small class="text-body-secondary">
+      non vengono create da se': una notifica che nessuno ha chiesto e' rumore
+    </small>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for s in suggestions %}
+      <div class="col-12 col-lg-6">
+        <div class="border rounded p-3 h-100">
+          <div class="d-flex justify-content-between align-items-start gap-2 mb-1">
+            <strong>{{ s.nome }}</strong>
+            <span class="badge text-bg-{{ 'danger' if s.severity == 'critical'
+                                          else ('warning' if s.severity == 'warning' else 'secondary') }}">
+              {{ s.severity }}
+            </span>
+          </div>
+          <p class="small text-body-secondary mb-2">{{ s.descrizione }}</p>
+          <p class="small font-monospace mb-2">
+            {{ s.source }} / {{ s.event_type }}
+            {%- for c in s.conditions %} &middot; {{ c.field }} {{ c.op }} {{ c.value }}{% endfor %}
+          </p>
+          {% if has_role('tenant_admin') %}
+          <form method="post" action="{{ url_for('rules.create') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="name" value="{{ s.nome }}">
+            <input type="hidden" name="description" value="{{ s.descrizione }}">
+            <input type="hidden" name="source" value="{{ s.source }}">
+            <input type="hidden" name="event_type" value="{{ s.event_type }}">
+            <input type="hidden" name="severity" value="{{ s.severity }}">
+            <input type="hidden" name="channels" value="email">
+            <input type="hidden" name="window_seconds" value="{{ s.window_seconds }}">
+            <input type="hidden" name="max_per_window" value="{{ s.max_per_window }}">
+            {% for c in s.conditions %}
+            <input type="hidden" name="condition_field" value="{{ c.field }}">
+            <input type="hidden" name="condition_op" value="{{ c.op }}">
+            <input type="hidden" name="condition_value" value="{{ c.value }}">
+            {% endfor %}
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-plus-lg me-1"></i> Creare questa regola
+            </button>
+            <button type="submit" class="btn btn-sm btn-outline-secondary"
+                    formaction="{{ url_for('rules.test') }}">
+              <i class="bi bi-clipboard-data me-1"></i> Provare prima
+            </button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------------ storia #}
+<div class="tab-pane fade {{ 'show active' if scheda == 'storia' }}"
+     id="pane-storia" role="tabpanel" aria-labelledby="tab-storia">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-clock-history me-1"></i> Corrispondenze registrate
+    </h3>
+    <small class="text-body-secondary">
+      comprese quelle soppresse dall'anti-alluvione: non si perdono, si contano
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>QUANDO</th><th>REGOLA</th><th>EVENTO</th><th>SOGGETTO</th>
+              <th>DETTAGLIO</th><th>ESITO</th></tr>
+        </thead>
+        <tbody>
+          {% for m in matches %}
+          <tr>
+            <td class="small text-nowrap">{{ m.created_at|dt }}</td>
+            <td class="small">{{ m.rule_name }}</td>
+            <td class="font-monospace small">{{ m.event_type }}</td>
+            <td class="font-monospace small">{{ m.subject }}</td>
+            <td class="small">{{ m.detail }}</td>
+            <td class="small">
+              {% if m.notified %}
+              <span class="badge text-bg-success">notificata</span>
+              {% if m.notifica_canale %}<span class="text-body-secondary">{{ m.notifica_canale }}</span>{% endif %}
+              {% elif m.suppressed %}
+              <span class="badge text-bg-warning">soppressa</span>
+              {% else %}
+              <span class="badge text-bg-light border">solo registrata</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not matches %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna corrispondenza. Le regole valgono sugli eventi che accadono da quando sono
+      state create: per sapere che cosa avrebbero fatto ieri, si usa la prova sulla
+      storia.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

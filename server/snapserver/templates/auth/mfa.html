@@ -1,0 +1,64 @@
+{#
+  snap server - Verifica del secondo fattore (TOTP).
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<!doctype html>
+<html lang="it" data-bs-theme="light" class="snap-font-normal snap-layout-wide">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verifica in due passaggi &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/awn/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap.css') }}">
+</head>
+<body>
+<div class="snap-auth-wrapper">
+  <div class="snap-auth-card">
+    <div class="text-center mb-4">
+      <i class="bi bi-shield-lock text-primary" style="font-size:2.4rem"></i>
+      <div class="snap-auth-brand">Verifica in due passaggi</div>
+      <div class="text-body-secondary small">{{ current_user['email'] }}</div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        {% include 'partials/flash.html' %}
+        <p class="text-body-secondary small">
+          Inserire il codice a sei cifre generato dall'applicazione di autenticazione
+          (Google Authenticator o equivalente).
+        </p>
+        <form method="post" action="{{ url_for('auth.mfa_challenge') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+          <div class="mb-4">
+            <label for="code" class="form-label">Codice di verifica</label>
+            <input type="text" class="form-control form-control-lg text-center"
+                   id="code" name="code" inputmode="numeric" autocomplete="one-time-code"
+                   pattern="[0-9 ]{6,9}" maxlength="9" required autofocus
+                   placeholder="000000">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-check2-circle me-1"></i> Verifica e accedi
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('auth.logout') }}" class="mt-3 text-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-link btn-sm text-secondary">
+            Annulla e torna all'accesso
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-dialogs.js') }}"></script>
+</body>
+</html>

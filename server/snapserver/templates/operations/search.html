@@ -1,0 +1,324 @@
+{#
+  snap server - Ricerca nella base dati.
+
+  Due modi, perche' le domande sono di due specie: si cerca cio' che si ha in mano
+  (un indirizzo, un MAC, una CVE, un pezzo di messaggio) oppure si fa una domanda
+  che si ripete, e quella e' gia' scritta.
+
+  Nessun SQL arriva dall'esterno: le interrogazioni pronte sono dichiarate nel
+  codice e la ricerca libera confronta il testo con colonne dichiarate.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Ricerca{% endblock %}
+{% block page_icon %}bi-search{% endblock %}
+{% block page_title %}Ricerca nella base dati{% endblock %}
+{% block page_subtitle %}
+  Si cerca quello che si ha in mano -- un indirizzo, un nome host, un MAC, un
+  prodotto, una CVE, un pezzo di messaggio -- oppure si sceglie una domanda gia'
+  scritta.
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-md-9">
+        <label class="form-label small" for="q">CERCA IN TUTTO</label>
+        <input type="search" name="q" id="q" value="{{ testo }}" autofocus
+               class="form-control"
+               placeholder="10.2.112.17 · stampante-piano2 · CVE-2021-44228 · OpenSSH · 6c:0b:5e">
+      </div>
+      <div class="col-12 col-md-3 d-grid">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-search me-1"></i> Cerca
+        </button>
+      </div>
+    </form>
+    <p class="form-text mb-0">
+      La ricerca guarda dispositivi, servizi e prodotti, riscontri di sicurezza,
+      letture SNMP, controlli, perimetro, registro degli eventi e catalogo delle CVE.
+      Servono almeno due caratteri.
+    </p>
+  </div>
+</div>
+
+{% if risultati %}
+  {% if risultati.troppo_corto %}
+  <div class="alert alert-warning">
+    Con meno di due caratteri la ricerca restituirebbe mezzo inventario: non sarebbe
+    una ricerca, sarebbe un elenco.
+  </div>
+  {% elif not risultati.generi %}
+  <div class="alert alert-secondary">
+    <strong>Nessun risultato per &laquo;{{ risultati.testo }}&raquo;.</strong>
+    Il testo viene cercato per intero dentro i campi: un indirizzo parziale
+    (<code>10.2.112</code>) funziona, una parola con un errore di battitura no.
+  </div>
+  {% else %}
+  <p class="small text-body-secondary">
+    {{ risultati.totale }} risultati per <strong>&laquo;{{ risultati.testo }}&raquo;</strong>
+    in {{ risultati.generi|length }} generi di dato.
+    {% if risultati.troncato %}
+    Alcuni elenchi sono fermati: restringere la ricerca per vederli tutti.
+    {% endif %}
+  </p>
+
+  {% for genere in risultati.generi %}
+  <div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="card-title mb-0">
+        <i class="bi {{ genere.icona }} me-1"></i> {{ genere.titolo }}
+      </h3>
+      <span class="badge text-bg-secondary">{{ genere.righe|length }}</span>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+               data-page-size="10" data-no-search="true">
+          {% if genere.chiave == 'nodi' %}
+          <thead><tr><th>INDIRIZZO</th><th>MAC</th><th>COSTRUTTORE</th>
+                     <th>SISTEMA OPERATIVO</th><th>TIPO</th><th>SUBNET</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td>
+                {% if r.hostname %}
+                <div class="small text-body-secondary">{{ r.hostname }}</div>
+                {% endif %}
+                <a href="{{ url_for('inventory.node', node_id=r.id) }}"
+                   class="font-monospace">{{ r.ip }}</a>
+              </td>
+              <td class="small font-monospace">{{ r.mac or '-' }}</td>
+              <td class="small">{{ r.mac_vendor or '-' }}</td>
+              <td class="small">{{ r.os_name or '-' }}</td>
+              <td class="small">{{ r.device_label or 'non identificato' }}</td>
+              <td class="small font-monospace">{{ r.subnet_cidr or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'servizi' %}
+          <thead><tr><th>INDIRIZZO</th><th>PORTA</th><th>SERVIZIO</th><th>PRODOTTO</th>
+                     <th>VERSIONE</th><th>BANNER</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
+                     class="font-monospace">{{ r.ip }}</a></td>
+              <td class="small font-monospace">{{ r.protocol }}/{{ r.port }}</td>
+              <td class="small">{{ r.service_name or '-' }}</td>
+              <td class="small">{{ r.product or '-' }}</td>
+              <td class="small">{{ r.version or '-' }}</td>
+              <td class="small text-body-secondary">{{ (r.banner or '')[:50] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'riscontri' %}
+          <thead><tr><th>INDIRIZZO</th><th>CLASSE</th><th>GRAVITA'</th><th>RISCONTRO</th>
+                     <th>PRODOTTO</th><th>STATO</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
+                     class="font-monospace">{{ r.ip }}</a></td>
+              <td class="small">{{ r.kind }}</td>
+              <td><span class="badge text-bg-{{ 'danger' if r.severity in ('critical','high')
+                                                else 'secondary' }}">{{ r.severity }}</span></td>
+              <td class="small">
+                {% if r.cve_id %}
+                <a href="{{ url_for('threat.cve', cve_id=r.cve_id) }}">{{ r.cve_id }}</a>
+                {% endif %}
+                {{ r.title }}
+              </td>
+              <td class="small">{{ r.product or '-' }} {{ r.version or '' }}</td>
+              <td class="small">{{ r.status }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'snmp' %}
+          <thead><tr><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>SCRIPT</th>
+                     <th>ESTRATTO</th><th>LETTO</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
+                     class="font-monospace">{{ r.ip }}</a></td>
+              <td class="small">{{ r.device_label or '-' }}</td>
+              <td class="small font-monospace">{{ r.script_id }}</td>
+              <td class="small text-body-secondary">{{ r.estratto|replace('\n', ' ') }}</td>
+              <td class="small text-nowrap">{{ r.collected_at|dt }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'controlli' %}
+          <thead><tr><th>CONTROLLO</th><th>GENERE</th><th>BERSAGLIO</th><th>STATO</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td class="small">
+                <a href="{{ url_for('checks.check', check_id=r.id) }}">{{ r.name }}</a>
+              </td>
+              <td class="small">{{ r.kind }}</td>
+              <td class="small font-monospace">{{ r.address }}</td>
+              <td class="small">
+                <span class="badge text-bg-{{ 'success' if r.is_enabled else 'secondary' }}">
+                  {{ 'attivo' if r.is_enabled else 'sospeso' }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'subnet' %}
+          <thead><tr><th>SUBNET</th><th>ETICHETTA</th><th>INDIRIZZI</th><th>NODI</th>
+                     <th>STATO</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td class="font-monospace small">
+                <a href="{{ url_for('inventory.nodes', subnet=r.id) }}">{{ r.cidr }}</a>
+              </td>
+              <td class="small">{{ r.label or '-' }}</td>
+              <td class="text-end small">{{ r.host_count }}</td>
+              <td class="text-end small">{{ r.nodi }}</td>
+              <td class="small">
+                <span class="badge text-bg-{{ 'success' if r.is_enabled else 'secondary' }}">
+                  {{ 'attiva' if r.is_enabled else 'sospesa' }}
+                </span>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% elif genere.chiave == 'cve' %}
+          <thead><tr><th>CVE</th><th>GRAVITA'</th><th>PUNTEGGIO</th><th>SFRUTTATA</th>
+                     <th>DESCRIZIONE</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td class="small">
+                <a href="{{ url_for('threat.cve', cve_id=r.cve_id) }}">{{ r.cve_id }}</a>
+              </td>
+              <td class="small">{{ r.severity or '-' }}</td>
+              <td class="text-end small">{{ r.cvss_score or '-' }}</td>
+              <td class="small">
+                {% if r.kev %}<span class="badge text-bg-danger">si'</span>{% else %}-{% endif %}
+              </td>
+              <td class="small text-body-secondary">{{ r.descrizione }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+
+          {% else %}
+          <thead><tr><th>QUANDO</th><th>TIPO</th><th>GRAVITA'</th><th>DESCRIZIONE</th>
+                     <th>ATTORE</th></tr></thead>
+          <tbody>
+            {% for r in genere.righe %}
+            <tr>
+              <td class="small text-nowrap">{{ r.created_at|dt }}</td>
+              <td class="small font-monospace">{{ r.event_type }}</td>
+              <td class="small">{{ r.severity }}</td>
+              <td class="small text-body-secondary">{{ (r.description or '')[:90] }}</td>
+              <td class="small">{{ r.actor or '-' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          {% endif %}
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+{% endif %}
+
+{# --- Interrogazioni pronte ------------------------------------------------ #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-lightning-charge me-1"></i> Domande gia' scritte
+    </h3>
+    <small class="text-body-secondary">
+      {{ pronte|length }} interrogazioni, esportabili in CSV
+    </small>
+  </div>
+  <div class="card-body">
+    <div class="row g-2">
+      {% for voce in pronte %}
+      <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ url_for('operations.search', pronta=voce.chiave) }}"
+           class="d-block h-100 text-decoration-none">
+          <div class="card h-100 {{ 'border-primary' if pronta and pronta.chiave == voce.chiave }}">
+            <div class="card-body py-2">
+              <p class="mb-1 fw-semibold small">
+                <i class="bi bi-arrow-right-circle me-1"></i> {{ voce.titolo }}
+              </p>
+              <p class="small text-body-secondary mb-0">{{ voce.domanda }}</p>
+            </div>
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if pronta %}
+<div class="card mt-3 border-primary">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-table me-1"></i> {{ pronta.titolo }}
+      <span class="badge text-bg-secondary ms-1">{{ pronta.righe|length }}</span>
+    </h3>
+    <a href="{{ url_for('operations.export_saved', chiave=pronta.chiave) }}"
+       class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-filetype-csv me-1"></i> Esporta in CSV
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      {{ pronta.domanda }}
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr>{% for c in pronta.colonne %}<th>{{ c|upper }}</th>{% endfor %}</tr>
+        </thead>
+        <tbody>
+          {% for riga in pronta.righe %}
+          <tr>
+            {% for cella in riga %}
+            <td class="small {{ 'font-monospace' if loop.index0 == 0 }}">
+              {{ cella if cella is not none else '-' }}
+            </td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not pronta.righe %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun risultato: e' una risposta anche questa, e vuol dire che quella
+      condizione non si verifica in questa rete.
+    </p>
+    {% endif %}
+    {% if pronta.troncato %}
+    <p class="p-3 mb-0 small text-body-secondary border-top">
+      Elenco fermato a {{ pronta.limite }} righe. L'esportazione in CSV ne porta fino
+      a 5.000: un foglio di calcolo le regge, una pagina no.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

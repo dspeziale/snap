@@ -1,0 +1,407 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.99 scan initiated Thu Aug 27 11:18:20 2026 as: &quot;C:\\Program Files (x86)\\Nmap\\nmap.exe&quot; -sS -sV -&#45;version-intensity 5 -O -&#45;osscan-limit -&#45;max-os-tries 1 -Pn -&#45;top-ports 200 -&#45;host-timeout 120s -oX fase234.xml 192.0.2.1 192.0.2.12 192.0.2.18 192.0.2.22 192.0.2.23 192.0.2.137 192.0.2.139 192.0.2.145 -->
+<nmaprun scanner="nmap" args="&quot;C:\\Program Files (x86)\\Nmap\\nmap.exe&quot; -sS -sV -&#45;version-intensity 5 -O -&#45;osscan-limit -&#45;max-os-tries 1 -Pn -&#45;top-ports 200 -&#45;host-timeout 120s -oX fase234.xml 192.0.2.1 192.0.2.12 192.0.2.18 192.0.2.22 192.0.2.23 192.0.2.137 192.0.2.139 192.0.2.145" start="1787822300" startstr="Thu Aug 27 11:18:20 2026" version="7.99" xmloutputversion="1.05">
+<scaninfo type="syn" protocol="tcp" numservices="200" services="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,113,119,135,139,143-144,179,199,254-255,280,311,389,427,443-445,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1720,1723,1755,1761,1801,1900,1935,1998,2000-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5060,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.1" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="196">
+<extrareasons reason="reset" count="196" proto="tcp" ports="1,3,7,9,13,17,19,21,23,25-26,37,53,79-82,88,100,106,110-111,113,119,135,139,143-144,179,199,254-255,280,311,389,427,443-445,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="22"><state state="open" reason="syn-ack" reason_ttl="243"/><service name="ssh" product="Cisco SSH" version="1.25" extrainfo="protocol 2.0" ostype="IOS" method="probed" conf="10"><cpe>cpe:/a:cisco:ssh:1.25</cpe><cpe>cpe:/o:cisco:ios</cpe></service></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="22"/>
+<portused state="closed" proto="tcp" portid="1"/>
+<osmatch name="Cisco 2811 or 3900 router (IOS 12.X or IOS 15.1)" accuracy="97" line="17808">
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="97"><cpe>cpe:/o:cisco:ios:12.x</cpe></osclass>
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="15.X" accuracy="97"><cpe>cpe:/o:cisco:ios:15.1</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco IOS 15.2 - 15.8" accuracy="96" line="20124">
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="15.X" accuracy="96"><cpe>cpe:/o:cisco:ios:15</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 880 router (IOS 15.1)" accuracy="95" line="19993">
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="15.X" accuracy="95"><cpe>cpe:/o:cisco:ios:15.1</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 870, 2821, 6506, or 7206VXR router (IOS 12.2 - 15.1)" accuracy="94" line="18257">
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="94"><cpe>cpe:/h:cisco:870_router</cpe><cpe>cpe:/h:cisco:2821_router</cpe><cpe>cpe:/h:cisco:6506_router</cpe><cpe>cpe:/h:cisco:7206vxr_router</cpe><cpe>cpe:/o:cisco:ios:12</cpe><cpe>cpe:/o:cisco:ios:15</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 3560G switch (IOS 12.2)" accuracy="92" line="19008">
+<osclass type="switch" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="92"><cpe>cpe:/h:cisco:catalyst_3560g</cpe><cpe>cpe:/o:cisco:ios:12.2</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 3550 switch (IOS 12.2)" accuracy="92" line="18952">
+<osclass type="switch" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="92"><cpe>cpe:/h:cisco:3550_switch</cpe><cpe>cpe:/o:cisco:ios:12.2</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 5300 router (IOS 12.3)" accuracy="90" line="17967">
+<osclass type="router" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="90"><cpe>cpe:/h:cisco:5300_router</cpe><cpe>cpe:/o:cisco:ios:12.3</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 2950, 2960, 3550, 3560, or 3750 switch (IOS 12.1 - 12.2)" accuracy="90" line="18817">
+<osclass type="switch" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="90"><cpe>cpe:/h:cisco:catalyst_2950</cpe><cpe>cpe:/h:cisco:catalyst_2960</cpe><cpe>cpe:/h:cisco:catalyst_3550</cpe><cpe>cpe:/h:cisco:catalyst_3560</cpe><cpe>cpe:/h:cisco:catalyst_3750</cpe><cpe>cpe:/o:cisco:ios:12</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 2960 or 3650 switch" accuracy="90" line="18841">
+<osclass type="switch" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="90"><cpe>cpe:/h:cisco:catalyst_2960</cpe><cpe>cpe:/h:cisco:catalyst_3650</cpe></osclass>
+</osmatch>
+<osmatch name="Cisco 3750 switch (IOS 12.2)" accuracy="89" line="19048">
+<osclass type="switch" vendor="Cisco" osfamily="IOS" osgen="12.X" accuracy="89"><cpe>cpe:/h:cisco:catalyst_3750</cpe><cpe>cpe:/o:cisco:ios:12.2</cpe></osclass>
+</osmatch>
+</os>
+<tcpsequence index="252" difficulty="Good luck!" values="9B915690,D38A7C9C,10AD5A61,EE600F07,E17898DF,BA8695BC"/>
+<ipidsequence class="Randomized" values="1B70,3E38,5E08,7193,9518,4075"/>
+<tcptssequence class="none returned (unsupported)"/>
+<times srtt="7634" rttvar="3143" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.12" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="192">
+<extrareasons reason="reset" count="192" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79,81-82,88,100,106,110-111,113,119,135,139,143-144,179,199,254-255,280,311,389,427,444-445,464-465,497,513-514,543-544,548,554,587,593,625,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="Virata-EmWeb" version="6.2.1" method="probed" conf="10"><cpe>cpe:/a:virata:emweb:6.2.1</cpe></service></port>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="HP LaserJet printer http admin" devicetype="printer" tunnel="ssl" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="515"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="printer" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="631"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="Virata-EmWeb" version="6.2.1" method="probed" conf="10"><cpe>cpe:/a:virata:emweb:6.2.1</cpe></service></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="9100"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="jetdirect" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="80"/>
+<portused state="closed" proto="tcp" portid="1"/>
+<portused state="closed" proto="udp" portid="30476"/>
+<osmatch name="Linux 3.11 - 4.9" accuracy="100" line="67314">
+<osclass type="general purpose" vendor="Linux" osfamily="Linux" osgen="3.X" accuracy="100"><cpe>cpe:/o:linux:linux_kernel:3</cpe></osclass>
+<osclass type="general purpose" vendor="Linux" osfamily="Linux" osgen="4.X" accuracy="100"><cpe>cpe:/o:linux:linux_kernel:4</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="1308514" lastboot="Wed Aug 12 07:52:08 2026"/>
+<distance value="14"/>
+<tcpsequence index="256" difficulty="Good luck!" values="96C38DA1,B5B99CDB,1462DE2C,DBC3608B,2E092A9A,CFDA9A93"/>
+<ipidsequence class="All zeros" values="0,0,0,0,0,0"/>
+<tcptssequence class="other" values="137F9433,137F944D,137F9468,137F9482,137F949A,137F94B7"/>
+<times srtt="15407" rttvar="4179" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.18" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="closed" count="190">
+<extrareasons reason="reset" count="190" proto="tcp" ports="1,3,7,9,13,17,19,22,25-26,37,53,79,81-82,88,100,106,110-111,113,119,135,139,143-144,179,199,254-255,280,311,389,427,444-445,464-465,497,513-514,543-544,548,554,587,593,625,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="21"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="ftp" product="HP LaserJet P4014 printer ftpd" devicetype="printer" method="probed" conf="10"><cpe>cpe:/h:hp:laserjet_p4014</cpe></service></port>
+<port protocol="tcp" portid="23"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="telnet" product="HP JetDirect telnetd" devicetype="printer" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="80"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="Virata-EmWeb" version="6.2.1" extrainfo="HP LaserJet http config" hostname="192.0.2.18" devicetype="printer" method="probed" conf="10"><cpe>cpe:/a:virata:emweb:6.2.1</cpe></service></port>
+<port protocol="tcp" portid="443"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="HP LaserJet printer http admin" devicetype="printer" tunnel="ssl" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="515"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="printer" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="631"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="http" product="Virata-EmWeb" version="6.2.1" extrainfo="HP LaserJet http config" hostname="192.0.2.18" devicetype="printer" method="probed" conf="10"><cpe>cpe:/a:virata:emweb:6.2.1</cpe></service></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="tcpwrapped" method="probed" conf="8"/></port>
+<port protocol="tcp" portid="9100"><state state="open" reason="syn-ack" reason_ttl="52"/><service name="jetdirect" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="21"/>
+<portused state="closed" proto="tcp" portid="1"/>
+<portused state="closed" proto="udp" portid="41613"/>
+<osmatch name="HP LaserJet P3005 printer" accuracy="94" line="37590">
+<osclass type="printer" vendor="HP" osfamily="embedded" accuracy="94"><cpe>cpe:/h:hp:laserjet_p3005</cpe></osclass>
+</osmatch>
+<osmatch name="m0n0wall 1.22 - 1.23b1 firewall (FreeBSD 4.11)" accuracy="92" line="29245">
+<osclass type="firewall" vendor="FreeBSD" osfamily="FreeBSD" osgen="4.X" accuracy="92"><cpe>cpe:/o:freebsd:freebsd:4.11</cpe></osclass>
+</osmatch>
+<osmatch name="Canon imageRUNNER C2380 or C2880i or Xerox Phaser 8860MFP printer" accuracy="92" line="14490">
+<osclass type="printer" vendor="Canon" osfamily="embedded" accuracy="92"><cpe>cpe:/h:canon:imagerunner_c2380</cpe><cpe>cpe:/h:canon:imagerunner_c2880i</cpe><cpe>cpe:/h:xerox:phaser_8860mfp</cpe></osclass>
+</osmatch>
+<osmatch name="AirSpan ProST WiMAX access point" accuracy="91" line="1837">
+<osclass type="WAP" vendor="AirSpan" osfamily="embedded" accuracy="91"/>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="91" line="30158">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="91"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="VxWorks 5.5.1" accuracy="91" line="113534">
+<osclass type="general purpose" vendor="Wind River" osfamily="VxWorks" osgen="5.X" accuracy="91"><cpe>cpe:/o:windriver:vxworks:5.5.1</cpe></osclass>
+</osmatch>
+<osmatch name="Avaya 4000- or 5000-series Ethernet Routing switch" accuracy="91" line="10325">
+<osclass type="switch" vendor="Avaya" osfamily="embedded" accuracy="91"/>
+</osmatch>
+<osmatch name="HP JetDirect J8013E printer" accuracy="91" line="36007">
+<osclass type="printer" vendor="HP" osfamily="embedded" accuracy="91"><cpe>cpe:/h:hp:jetdirect_j8013e</cpe></osclass>
+</osmatch>
+<osmatch name="HP P4014 printer" accuracy="91" line="37808">
+<osclass type="printer" vendor="HP" osfamily="embedded" accuracy="91"><cpe>cpe:/h:hp:p4014</cpe></osclass>
+</osmatch>
+<osmatch name="HP LaserJet P3010 printer" accuracy="91" line="37608">
+<osclass type="printer" vendor="HP" osfamily="embedded" accuracy="91"><cpe>cpe:/h:hp:laserjet_p3010</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="1309212" lastboot="Wed Aug 12 07:40:30 2026"/>
+<distance value="14"/>
+<tcpsequence index="254" difficulty="Good luck!" values="AB8FB7C5,4C90ADC0,1212B85E,BFD1BADB,633441C7,CD56764B"/>
+<ipidsequence class="Incremental" values="C69F,C6A0,C6A1,C6A2,C6A3,C6A4"/>
+<tcptssequence class="1000HZ" values="4E08F8ED,4E08F955,4E08F9C9,4E08FA35,4E08FA99,4E08FAFE"/>
+<times srtt="5885" rttvar="1235" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.22" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="193">
+<extrareasons reason="no-response" count="193" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,119,143-144,179,199,254-255,280,311,389,427,443-444,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="113"><state state="closed" reason="reset" reason_ttl="64"/><service name="ident" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="cisco-sccp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="sip" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="tcp" portid="113"/>
+<osmatch name="Microsoft Windows 11 24H2" accuracy="92" line="76649">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="92"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="91" line="76469">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="91"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="89" line="30158">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="89"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="88" line="75331">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 or 2008 Beta 3" accuracy="88" line="81181">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="88"><cpe>cpe:/o:microsoft:windows_server_2008::beta3</cpe><cpe>cpe:/o:microsoft:windows_server_2008</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="88" line="75707">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="87" line="83174">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Netasq U70 firewall" accuracy="86" line="94565">
+<osclass type="firewall" vendor="Netasq" osfamily="embedded" accuracy="86"><cpe>cpe:/h:netasq:u70</cpe></osclass>
+</osmatch>
+<osmatch name="m0n0wall 1.3b11 - 1.3b15 (FreeBSD 6.3)" accuracy="85" line="29841">
+<osclass type="firewall" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="85"><cpe>cpe:/o:freebsd:freebsd:6.3</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 R2 or Windows 7 SP1" accuracy="85" line="81454">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="85"><cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe></osclass>
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="85"><cpe>cpe:/o:microsoft:windows_7</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="5244" lastboot="Thu Aug 27 09:53:18 2026"/>
+<tcpsequence index="261" difficulty="Good luck!" values="264286A,7CC12BC,3C3E8372,11323622,36FEB4D,9835A87F"/>
+<ipidsequence class="Incremental" values="2750,2751,2752,2753,2754,2755"/>
+<tcptssequence class="1000HZ" values="4FFE81,4FFEEA,4FFF5D,4FFFC8,50002C,500091"/>
+<times srtt="5971" rttvar="3519" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.23" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="193">
+<extrareasons reason="no-response" count="193" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,119,143-144,179,199,254-255,280,311,389,427,443-444,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="113"><state state="closed" reason="reset" reason_ttl="64"/><service name="ident" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="cisco-sccp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="sip" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="tcp" portid="113"/>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="93" line="76469">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="93"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 11 24H2" accuracy="92" line="76649">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="92"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="91" line="30158">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="91"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="88" line="75331">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 or 2008 Beta 3" accuracy="88" line="81181">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="88"><cpe>cpe:/o:microsoft:windows_server_2008::beta3</cpe><cpe>cpe:/o:microsoft:windows_server_2008</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="88" line="75707">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="87" line="83174">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Netasq U70 firewall" accuracy="86" line="94565">
+<osclass type="firewall" vendor="Netasq" osfamily="embedded" accuracy="86"><cpe>cpe:/h:netasq:u70</cpe></osclass>
+</osmatch>
+<osmatch name="m0n0wall 1.3b11 - 1.3b15 (FreeBSD 6.3)" accuracy="85" line="29841">
+<osclass type="firewall" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="85"><cpe>cpe:/o:freebsd:freebsd:6.3</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 R2 or Windows 7 SP1" accuracy="85" line="81454">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="85"><cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe></osclass>
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="85"><cpe>cpe:/o:microsoft:windows_7</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="155224" lastboot="Tue Aug 25 16:13:38 2026"/>
+<tcpsequence index="259" difficulty="Good luck!" values="477846C4,EA4CE1F5,B829A7F2,5222B3AF,669DFF56,336F0179"/>
+<ipidsequence class="Incremental" values="3706,3707,3708,3709,370A,370B"/>
+<tcptssequence class="1000HZ" values="94082B1,9408319,940838E,94083F8,940845C,94084C1"/>
+<times srtt="4821" rttvar="2570" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.137" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="193">
+<extrareasons reason="no-response" count="193" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,119,143-144,179,199,254-255,280,311,389,427,443-444,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="113"><state state="closed" reason="reset" reason_ttl="64"/><service name="ident" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="cisco-sccp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="sip" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="tcp" portid="113"/>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="93" line="76469">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="93"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 11 24H2" accuracy="92" line="76649">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="92"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="91" line="30158">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="91"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="88" line="75331">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 or 2008 Beta 3" accuracy="88" line="81181">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="88"><cpe>cpe:/o:microsoft:windows_server_2008::beta3</cpe><cpe>cpe:/o:microsoft:windows_server_2008</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="88" line="75707">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="87" line="83174">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Netasq U70 firewall" accuracy="86" line="94565">
+<osclass type="firewall" vendor="Netasq" osfamily="embedded" accuracy="86"><cpe>cpe:/h:netasq:u70</cpe></osclass>
+</osmatch>
+<osmatch name="m0n0wall 1.3b11 - 1.3b15 (FreeBSD 6.3)" accuracy="85" line="29841">
+<osclass type="firewall" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="85"><cpe>cpe:/o:freebsd:freebsd:6.3</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 R2 or Windows 7 SP1" accuracy="85" line="81454">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="85"><cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe></osclass>
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="85"><cpe>cpe:/o:microsoft:windows_7</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="534001" lastboot="Fri Aug 21 07:00:41 2026"/>
+<tcpsequence index="261" difficulty="Good luck!" values="63160C46,99787223,FF010512,F0DA46BD,E544F40A,467DF415"/>
+<ipidsequence class="Incremental" values="3ADE,3ADF,3AE0,3AE1,3AE2,3AE3"/>
+<tcptssequence class="1000HZ" values="1FD42EDF,1FD42F47,1FD42FBA,1FD43026,1FD4308B,1FD430F0"/>
+<times srtt="5686" rttvar="2780" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.139" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="193">
+<extrareasons reason="no-response" count="193" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,119,143-144,179,199,254-255,280,311,389,427,443-444,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="113"><state state="closed" reason="reset" reason_ttl="64"/><service name="ident" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="cisco-sccp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="sip" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="tcp" portid="113"/>
+<osmatch name="Microsoft Windows 11 21H2" accuracy="93" line="76469">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="93"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 11 24H2" accuracy="92" line="76649">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="11" accuracy="92"><cpe>cpe:/o:microsoft:windows_11</cpe></osclass>
+</osmatch>
+<osmatch name="FreeBSD 6.2-RELEASE" accuracy="91" line="30158">
+<osclass type="general purpose" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="91"><cpe>cpe:/o:freebsd:freebsd:6.2</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10" accuracy="88" line="75331">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 or 2008 Beta 3" accuracy="88" line="81181">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="88"><cpe>cpe:/o:microsoft:windows_server_2008::beta3</cpe><cpe>cpe:/o:microsoft:windows_server_2008</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1607" accuracy="88" line="75707">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="88"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2022" accuracy="87" line="83174">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2022" accuracy="87"><cpe>cpe:/o:microsoft:windows_server_2022</cpe></osclass>
+</osmatch>
+<osmatch name="Netasq U70 firewall" accuracy="86" line="94565">
+<osclass type="firewall" vendor="Netasq" osfamily="embedded" accuracy="86"><cpe>cpe:/h:netasq:u70</cpe></osclass>
+</osmatch>
+<osmatch name="m0n0wall 1.3b11 - 1.3b15 (FreeBSD 6.3)" accuracy="85" line="29841">
+<osclass type="firewall" vendor="FreeBSD" osfamily="FreeBSD" osgen="6.X" accuracy="85"><cpe>cpe:/o:freebsd:freebsd:6.3</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2008 R2 or Windows 7 SP1" accuracy="85" line="81454">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2008" accuracy="85"><cpe>cpe:/o:microsoft:windows_server_2008:r2</cpe></osclass>
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="7" accuracy="85"><cpe>cpe:/o:microsoft:windows_7</cpe></osclass>
+</osmatch>
+</os>
+<uptime seconds="7103" lastboot="Thu Aug 27 09:22:19 2026"/>
+<tcpsequence index="259" difficulty="Good luck!" values="F9D42A2E,C0884310,F1D2C7B6,C37CFD94,4A1ECFA2,86D35D76"/>
+<ipidsequence class="Incremental" values="3FC6,3FC7,3FC8,3FC9,3FCA,3FCB"/>
+<tcptssequence class="1000HZ" values="6C5D9B,6C5E04,6C5E79,6C5EE4,6C5F47,6C5FAD"/>
+<times srtt="4695" rttvar="2780" to="100000"/>
+</host>
+<host starttime="1787822301" endtime="1787822442"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.145" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports><extraports state="filtered" count="193">
+<extrareasons reason="no-response" count="193" proto="tcp" ports="1,3,7,9,13,17,19,21-23,25-26,37,53,79-82,88,100,106,110-111,119,143-144,179,199,254-255,280,311,389,427,443-444,464-465,497,513-515,543-544,548,554,587,593,625,631,636,646,787,808,873,902,990,993,995,1000,1022,1024-1033,1035-1041,1044,1048-1050,1053-1054,1056,1058-1059,1064-1066,1069,1071,1074,1080,1110,1234,1433,1494,1521,1723,1755,1761,1801,1900,1935,1998,2001-2003,2005,2049,2103,2105,2107,2121,2161,2301,2383,2401,2601,2717,2869,2967,3000-3001,3128,3268,3306,3389,3689-3690,3703,3986,4000-4001,4045,4899,5000-5001,5003,5009,5050-5051,5101,5120,5190,5357,5432,5555,5631,5666,5800,5900-5901,6000-6002,6004,6112,6646,6666,7000,7070,7937-7938,8000,8002,8008-8010,8031,8080-8081,8443,8888,9000-9001,9090,9100,9102,9999-10001,10010,32768,32771,49152-49157,50000"/>
+</extraports>
+<port protocol="tcp" portid="113"><state state="closed" reason="reset" reason_ttl="64"/><service name="ident" method="table" conf="3"/></port>
+<port protocol="tcp" portid="135"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="msrpc" method="table" conf="3"/></port>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="116"/><service name="microsoft-ds" method="table" conf="3"/></port>
+<port protocol="tcp" portid="1720"><state state="open" reason="syn-ack" reason_ttl="249"/><service name="h323q931" method="table" conf="3"/></port>
+<port protocol="tcp" portid="2000"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="cisco-sccp" method="table" conf="3"/></port>
+<port protocol="tcp" portid="5060"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="sip" method="table" conf="3"/></port>
+</ports>
+<os><portused state="open" proto="tcp" portid="135"/>
+<portused state="closed" proto="tcp" portid="113"/>
+<osmatch name="Microsoft Windows 10 1903 - 22H2" accuracy="93" line="76060">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="93"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 22H2" accuracy="91" line="76358">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="91"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows Server 2019" accuracy="88" line="83120">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="2019" accuracy="88"><cpe>cpe:/o:microsoft:windows_server_2019</cpe></osclass>
+</osmatch>
+<osmatch name="Microsoft Windows 10 1809" accuracy="87" line="75980">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows" osgen="10" accuracy="87"><cpe>cpe:/o:microsoft:windows_10</cpe></osclass>
+</osmatch>
+</os>
+<tcpsequence index="254" difficulty="Good luck!" values="5B96DAA3,2D866971,9C495BCB,41BD827A,99396800,6295B344"/>
+<ipidsequence class="Incremental" values="C628,C629,C62A,C62B,C62C,C62D"/>
+<tcptssequence class="none returned (unsupported)"/>
+<times srtt="4488" rttvar="2631" to="100000"/>
+</host>
+<runstats><finished time="1787822442" timestr="Thu Aug 27 11:20:42 2026" summary="Nmap done at Thu Aug 27 11:20:42 2026; 8 IP addresses (8 hosts up) scanned in 142.42 seconds" elapsed="142.42" exit="success"/><hosts up="8" down="0" total="8"/>
+</runstats>
+</nmaprun>

@@ -1,0 +1,489 @@
+{#
+  snap server - Dashboard di controllo.
+
+  Composizione: una striscia di riquadri sintetici sempre visibile, e tutto il
+  resto dentro schede. Con inventario, monitoraggio, sonde, conferimenti ed
+  eventi sulla stessa pagina, l'elenco verticale costringeva a scorrere per
+  metri: le schede tengono la pagina a un solo schermo e lasciano scegliere cosa
+  guardare.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Dashboard di Controllo{% endblock %}
+{% block page_icon %}bi-speedometer2{% endblock %}
+{% block page_title %}Dashboard di Controllo{% endblock %}
+{% block page_subtitle %}
+  Tenant {{ current_tenant['name'] }} &middot; fuso orario {{ current_tenant['timezone'] }}
+  &middot; ultimo conferimento {{ indicators.last_sync_at|ago }}
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('inventory.nodes') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-hdd-network me-1"></i> Inventario
+</a>
+<a href="{{ url_for('monitor.status') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-activity me-1"></i> Stato della rete
+</a>
+{% endblock %}
+
+{% block content %}
+{# --- Cio' che richiede un intervento, prima di tutto il resto ------------- #}
+{% if open_incidents %}
+<div class="card border-danger mb-3">
+  <div class="card-header bg-danger-subtle d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0 text-danger-emphasis">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i>
+      {{ checks.incidents_open }} incidenti aperti sui controlli
+      {% if checks.incidents_unclaimed %}
+      <span class="badge text-bg-danger ms-1">{{ checks.incidents_unclaimed }} da prendere in carico</span>
+      {% endif %}
+    </h3>
+    <a href="{{ url_for('checks.incident_list') }}" class="btn btn-sm btn-danger">
+      Gestire gli incidenti <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>APERTO</th><th>CONTROLLO</th><th>BERSAGLIO</th><th>STATO</th>
+              <th>GESTIONE</th><th>DETTAGLIO</th></tr>
+        </thead>
+        <tbody>
+          {% for i in open_incidents %}
+          <tr>
+            <td class="small">{{ i.opened_at|ago }}</td>
+            <td class="small fw-semibold">
+              <a href="{{ url_for('checks.incident', incident_id=i.id) }}"
+                 class="text-decoration-none">{{ i.check_name }}</a>
+            </td>
+            <td class="small font-monospace">{{ i.address }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if i.status == 'open' else 'warning' }}">
+                {{ 'aperto' if i.status == 'open' else 'in carico' }}
+              </span>
+            </td>
+            <td class="small">
+              {% if i.escalated_at %}
+              <span class="badge text-bg-danger">operatore attivato</span>
+              {% else %}
+              <span class="text-body-secondary">automatico</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ (i.last_detail or i.first_detail or '-')|truncate(70) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# --- Striscia sintetica: sempre visibile, sei numeri e nulla piu' --------- #}
+<div class="row g-2 mb-3">
+  {% set riquadri = [
+      ('NODI', inventory.total, 'bi-hdd-network', 'primary',
+       url_for('inventory.nodes'), '%d attivi'|format(inventory.up)),
+      ('NON RAGGIUNGIBILI', inventory.down, 'bi-x-circle',
+       'danger' if inventory.down else 'secondary',
+       url_for('inventory.nodes', status='down'), 'nel perimetro dichiarato'),
+      ('DA IDENTIFICARE', inventory.uncertain, 'bi-question-circle',
+       'warning' if inventory.uncertain else 'success',
+       url_for('inventory.nodes'), 'tipo incerto'),
+      ('CAMBIAMENTI 24H', inventory.changes_24h, 'bi-arrow-left-right',
+       'warning' if inventory.changes_24h else 'success',
+       url_for('monitor.changes'), 'porte, servizi, stato'),
+      ('SONDE IN CONTATTO', '%d/%d'|format(probes.online, probes.total),
+       'bi-broadcast-pin', 'success' if probes.total and probes.online == probes.total else 'warning',
+       url_for('probes.index'), '%d in attesa'|format(probes.pending)),
+      ('CONFERIMENTI 24H', batches_24h, 'bi-cloud-arrow-down',
+       'info' if batches_24h else 'warning',
+       url_for('inventory.deliveries'), '%d record'|format(records_24h)),
+      ('CONTROLLI ATTIVI', checks.checks_enabled, 'bi-clipboard-check',
+       'info' if checks.checks_enabled else 'secondary',
+       url_for('checks.index'), '%d bersagli'|format(checks.targets)),
+      ('INCIDENTI APERTI', checks.incidents_open, 'bi-exclamation-triangle',
+       'danger' if checks.incidents_open else 'success',
+       url_for('checks.incident_list'),
+       '%d da prendere in carico'|format(checks.incidents_unclaimed)),
+      ('RIUSCITA CONTROLLI 24H',
+       (checks.success_rate_24h ~ '%') if checks.success_rate_24h is not none else '-',
+       'bi-graph-up',
+       'success' if (checks.success_rate_24h or 0) >= 99 else
+         ('warning' if checks.success_rate_24h is not none else 'secondary'),
+       url_for('checks.index'), '%d esiti, %d non superati'|format(
+         checks.results_24h, checks.failures_24h)),
+  ] %}
+  {% for etichetta, valore, icona, tono, collegamento, nota in riquadri %}
+  <div class="col-6 col-lg-4 col-xxl-2">
+    <a href="{{ collegamento }}" class="text-decoration-none">
+      <div class="card snap-stat h-100">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+              <p class="snap-stat-value mb-0">{{ valore }}</p>
+              <p class="snap-stat-foot mb-0">{{ nota }}</p>
+            </div>
+            <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{# --- Andamenti: quattro linee che dicono dove si sta andando ------------- #}
+<div class="row g-3 mb-3">
+  {% set andamenti = [
+      ('Riuscita dei controlli', 'per ora, ultime 24 ore', charts.riuscita,
+       'text-success', 'bi-graph-up',
+       'percentuale di esiti superati; le ore senza esecuzioni restano un vuoto',
+       'percentuale', '%', 'ora'),
+      ('Esiti non superati', 'per ora, ultime 24 ore', charts.falliti,
+       'text-danger', 'bi-x-octagon',
+       'quante esecuzioni non hanno superato la verifica', '', '', ''),
+      ('Incidenti aperti', 'per giorno, ultimi 14 giorni', charts.incidenti,
+       'text-warning', 'bi-exclamation-triangle',
+       'quanti incidenti sono stati aperti ogni giorno', '', '', ''),
+      ('Record conferiti', 'per ora, ultime 24 ore', charts.record,
+       'text-primary', 'bi-cloud-arrow-down',
+       'quanto le sonde hanno consegnato al server', '', '', ''),
+  ] %}
+  {% for titolo, periodo, punti, tono, icona, spiegazione, scala, unita, passo in andamenti %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-baseline flex-wrap gap-1">
+        <h3 class="card-title mb-0"><i class="bi {{ icona }} me-1"></i> {{ titolo }}</h3>
+        <small class="text-body-secondary">{{ periodo }}</small>
+      </div>
+      <div class="card-body">
+        <div class="{{ tono }}" data-snap-grafico data-altezza="150"
+             data-etichetta="{{ titolo }}"
+             {% if scala %}data-scala="{{ scala }}"{% endif %}
+             {% if unita %}data-unita="{{ unita }}"{% endif %}
+             {% if passo %}data-passo="{{ passo }}"{% endif %}
+             data-punti='{{ punti|tojson }}'></div>
+        <p class="small text-body-secondary mb-0 mt-1">{{ spiegazione }}</p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# --- Schede: un solo schermo, si guarda cio' che serve ------------------- #}
+<div class="card">
+  <div class="card-header p-0 border-bottom-0">
+    <ul class="nav nav-tabs card-header-tabs m-0 px-2 pt-2" role="tablist">
+      {% set schede = [
+          ('indicatori', 'Indicatori', 'bi-activity', kpi|length),
+          ('rete', 'Rete', 'bi-diagram-3', distribution|length),
+          ('cambiamenti', 'Cambiamenti', 'bi-clock-history', changes|length),
+          ('sonde', 'Sonde', 'bi-broadcast-pin', fleet|length),
+          ('conferimenti', 'Conferimenti', 'bi-cloud-arrow-down', batches|length),
+          ('eventi', 'Eventi', 'bi-journal-text', events|length),
+      ] %}
+      {% for chiave, titolo, icona, quanti in schede %}
+      <li class="nav-item" role="presentation">
+        <button class="nav-link {% if loop.first %}active{% endif %}"
+                id="tab-{{ chiave }}" data-bs-toggle="tab" data-bs-target="#pane-{{ chiave }}"
+                type="button" role="tab" aria-controls="pane-{{ chiave }}"
+                aria-selected="{{ 'true' if loop.first else 'false' }}">
+          <i class="bi {{ icona }} me-1"></i>{{ titolo }}
+          {% if quanti %}<span class="badge text-bg-secondary ms-1">{{ quanti }}</span>{% endif %}
+        </button>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="tab-content">
+    {# --- Indicatori ---------------------------------------------------- #}
+    <div class="tab-pane fade show active p-3" id="pane-indicatori" role="tabpanel"
+         aria-labelledby="tab-indicatori">
+      <div class="row g-2">
+        {% for item in kpi %}
+        <div class="col-6 col-md-4 col-xxl-2">
+          <div class="snap-kpi snap-kpi-{{ item.tone }}">
+            {# La crocetta compare al passaggio del puntatore e resta raggiungibile
+               da tastiera: un comando visibile sempre su dodici riquadri sarebbe
+               dodici volte lo stesso invito a togliere qualcosa. #}
+            <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
+                  class="snap-kpi-chiudi">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="nascondi" value="{{ item.key }}">
+              <button type="submit" class="btn btn-sm btn-link p-0 text-body-secondary"
+                      title="Nascondi {{ item.label }}"
+                      aria-label="Nascondi l'indicatore {{ item.label }}">
+                <i class="bi bi-x-lg"></i>
+              </button>
+            </form>
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi {{ item.icon }}"></i>
+              <span class="snap-kpi-value">{{ item.value }}</span>
+            </div>
+            <p class="snap-kpi-label mb-0">{{ item.label }}</p>
+            <p class="snap-kpi-hint mb-0">{{ item.hint }}</p>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+
+      {# --- indicatori messi via ------------------------------------------ #}
+      {% if kpi_nascosti %}
+      <div class="border-top mt-3 pt-3">
+        <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
+              class="d-flex flex-wrap align-items-center gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <span class="small text-body-secondary me-1">
+            <i class="bi bi-eye-slash me-1"></i>
+            Nascosti da te ({{ kpi_nascosti|length }}):
+          </span>
+          {# Le caselle spuntate sono quelle che RESTANO nascoste: togliendo la
+             spunta e salvando, l'indicatore torna. #}
+          {% for item in kpi_nascosti %}
+          <div class="form-check form-check-inline me-2">
+            <input class="form-check-input" type="checkbox" name="nascosti"
+                   value="{{ item.key }}" id="kpi-{{ item.key }}" checked>
+            <label class="form-check-label small" for="kpi-{{ item.key }}">
+              <i class="bi {{ item.icon }} me-1"></i>{{ item.label }}
+            </label>
+          </div>
+          {% endfor %}
+          <button type="submit" class="btn btn-sm btn-outline-primary">
+            Applica
+          </button>
+          <button type="submit" name="azione" value="mostra_tutti"
+                  class="btn btn-sm btn-link">
+            Mostra tutti
+          </button>
+        </form>
+        <p class="small text-body-secondary mb-0 mt-2">
+          La scelta e' tua e resta: vale per il tuo utente, su qualunque postazione,
+          e non scade con la sessione. Un indicatore aggiunto da una versione
+          successiva compare comunque.
+        </p>
+      </div>
+      {% endif %}
+    </div>
+
+    {# --- Rete ---------------------------------------------------------- #}
+    <div class="tab-pane fade p-0" id="pane-rete" role="tabpanel" aria-labelledby="tab-rete">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+        <span class="small text-body-secondary">
+          {{ inventory.subnets }} subnet dichiarate, {{ inventory.perimeter_addresses }} indirizzi
+          &middot; copertura {{ inventory.coverage_pct }}%
+        </span>
+        <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-outline-secondary">
+          Perimetro
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10"
+               data-no-search="true">
+          <thead><tr><th>TIPO DI DISPOSITIVO</th><th>NODI</th><th>CONFIDENZA MEDIA</th></tr></thead>
+          <tbody>
+            {% for d in distribution %}
+            <tr>
+              <td class="small">
+                <a href="{{ url_for('inventory.nodes', type=d.type) }}"
+                   class="text-decoration-none">{{ d.label }}</a>
+              </td>
+              <td class="small">{{ d.count }}</td>
+              <td class="small">{{ d.avg_confidence }}%</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="3" class="text-center text-body-secondary py-4">
+                Nessun nodo in inventario.
+                <a href="{{ url_for('inventory.subnets') }}">Dichiarare il perimetro</a>.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# --- Cambiamenti --------------------------------------------------- #}
+    <div class="tab-pane fade p-0" id="pane-cambiamenti" role="tabpanel"
+         aria-labelledby="tab-cambiamenti">
+      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
+        <a href="{{ url_for('monitor.changes') }}" class="btn btn-sm btn-outline-secondary">
+          Tutti i cambiamenti
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
+          <thead><tr><th>QUANDO</th><th>NODO</th><th>CAMBIAMENTO</th><th>OGGETTO</th></tr></thead>
+          <tbody>
+            {% for c in changes %}
+            <tr>
+              <td class="small">{{ c.created_at|dt }}</td>
+              <td class="small">
+                {% if c.node_id %}
+                <a href="{{ url_for('inventory.node', node_id=c.node_id) }}"
+                   class="text-decoration-none">{{ c.ip or c.node_id }}</a>
+                {% else %}-{% endif %}
+              </td>
+              <td class="small">
+                <span class="badge text-bg-{{ 'danger' if c.severity == 'critical' else 'warning' if c.severity == 'warning' else 'secondary' }}">
+                  {{ c.kind }}
+                </span>
+              </td>
+              <td class="small">{{ c.subject or '-' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="4" class="text-center text-body-secondary py-4">
+                Nessun cambiamento registrato: la rete e' stabile.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# --- Sonde --------------------------------------------------------- #}
+    <div class="tab-pane fade p-0" id="pane-sonde" role="tabpanel" aria-labelledby="tab-sonde">
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
+        <span class="small text-body-secondary">
+          Il server non contatta le sonde: ogni scambio e' iniziato dalla sonda.
+        </span>
+        <a href="{{ url_for('probes.index') }}" class="btn btn-sm btn-outline-secondary">
+          Flotta sonde
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
+          <thead>
+            <tr><th>STATO</th><th>CODICE</th><th>NOME</th><th>VERSIONE</th>
+                <th>ULTIMO CONTATTO</th><th>ULTIMO CONFERIMENTO</th></tr>
+          </thead>
+          <tbody>
+            {% for probe in fleet %}
+            <tr>
+              <td class="small">
+                <span class="snap-dot snap-dot-{{ probe.health }}"></span>
+                {% if probe.health == 'online' %}Attiva
+                {% elif probe.health == 'pending' %}In attesa
+                {% elif probe.health == 'revoked' %}Revocata
+                {% else %}Non raggiungibile{% endif %}
+              </td>
+              <td class="small fw-semibold">
+                <a href="{{ url_for('probes.detail', probe_id=probe.id) }}"
+                   class="text-decoration-none">{{ probe.code }}</a>
+              </td>
+              <td class="small">{{ probe.name }}</td>
+              <td class="small">{{ probe.agent_version or '-' }}</td>
+              <td class="small">{{ probe.last_seen_at|dt }}
+                <div class="text-body-secondary">{{ probe.last_seen_at|ago }}</div>
+              </td>
+              <td class="small">{{ probe.last_sync_at|dt }}
+                <div class="text-body-secondary">{{ probe.last_sync_at|ago }}</div>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="text-center text-body-secondary py-4">
+                Nessuna sonda censita per questo tenant.
+                {% if has_role('tenant_admin') %}
+                <a href="{{ url_for('probes.create') }}">Registrare la prima sonda</a>.
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# --- Conferimenti -------------------------------------------------- #}
+    <div class="tab-pane fade p-0" id="pane-conferimenti" role="tabpanel"
+         aria-labelledby="tab-conferimenti">
+      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
+        <a href="{{ url_for('inventory.deliveries') }}" class="btn btn-sm btn-outline-secondary">
+          Tutti i dati dalle sonde
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
+          <thead>
+            <tr><th>RICEVUTO</th><th>SONDA</th><th>RECORD</th><th>BYTE</th>
+                <th>CONTENUTO</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for b in batches %}
+            <tr>
+              <td class="small">{{ b.received_at|dt }}
+                <div class="text-body-secondary">{{ b.received_at|ago }}</div>
+              </td>
+              <td class="small">{{ b.probe_code or '-' }}</td>
+              <td class="small">{{ b.record_count }}</td>
+              <td class="small text-end">{{ b.payload_bytes|bytes }}</td>
+              <td class="small">{{ b.detail or '-' }}</td>
+              <td class="text-end">
+                <a href="{{ url_for('inventory.delivery', batch_id=b.id) }}"
+                   class="btn btn-sm btn-outline-secondary" title="Vedere il contenuto">
+                  <i class="bi bi-eye"></i>
+                </a>
+              </td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="text-center text-body-secondary py-4">
+                Nessun conferimento ricevuto.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {# --- Eventi -------------------------------------------------------- #}
+    <div class="tab-pane fade p-0" id="pane-eventi" role="tabpanel" aria-labelledby="tab-eventi">
+      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
+        <a href="{{ url_for('audit.index') }}" class="btn btn-sm btn-outline-secondary">
+          Audit &amp; Eventi
+        </a>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
+          <thead>
+            <tr><th>QUANDO</th><th>GRAVITA'</th><th>TIPO</th><th>ATTORE</th><th>DESCRIZIONE</th></tr>
+          </thead>
+          <tbody>
+            {% for e in events %}
+            <tr>
+              <td class="small">{{ e.created_at|dt }}</td>
+              <td class="small">
+                <span class="badge text-bg-{{ 'danger' if e.severity == 'critical' else 'warning' if e.severity == 'warning' else 'secondary' }}">
+                  {{ e.severity }}
+                </span>
+              </td>
+              <td class="small">{{ e.event_type }}</td>
+              <td class="small">{{ e.actor }}</td>
+              <td class="small">{{ e.description }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="5" class="text-center text-body-secondary py-4">
+                Nessun evento registrato.
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

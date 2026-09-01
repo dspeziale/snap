@@ -1,0 +1,85 @@
+{#
+  snap server - Deriva: cosa e' cambiato nella rete.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Cambiamenti{% endblock %}
+{% block page_icon %}bi-clock-history{% endblock %}
+{% block page_title %}Cambiamenti della Rete{% endblock %}
+{% block page_subtitle %}
+  Comparse e scomparse, porte che si aprono o si chiudono, servizi e sistemi
+  operativi che cambiano: e' cio' che distingue un inventario da un elenco.
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-funnel me-1"></i> Filtro</h3></div>
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="form-label small">Gravita'</label>
+        <select name="severity" class="form-select form-select-sm">
+          <option value="">tutte</option>
+          <option value="info" {% if selected_severity == 'info' %}selected{% endif %}>informativa</option>
+          <option value="warning" {% if selected_severity == 'warning' %}selected{% endif %}>attenzione</option>
+          <option value="critical" {% if selected_severity == 'critical' %}selected{% endif %}>critica</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100">Applica</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-arrow-left-right me-1"></i> Cambiamenti ({{ changes|length }})</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="50">
+        <thead>
+          <tr><th>QUANDO</th><th>GRAVITA'</th><th>CAMBIAMENTO</th><th>NODO</th><th>OGGETTO</th>
+              <th>PRIMA</th><th>DOPO</th></tr>
+        </thead>
+        <tbody>
+          {% for c in changes %}
+          <tr>
+            <td class="small">{{ c.created_at|dt }}<div class="text-body-secondary">{{ c.created_at|ago }}</div></td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if c.severity == 'critical' else 'warning' if c.severity == 'warning' else 'secondary' }}">
+                {{ c.severity }}
+              </span>
+            </td>
+            <td class="small">{{ labels.get(c.kind, c.kind) }}</td>
+            <td class="small">
+              {% if c.node_id %}
+              <a href="{{ url_for('inventory.node', node_id=c.node_id) }}" class="text-decoration-none">
+                {{ c.ip or c.node_id }}
+              </a>
+              {% if c.hostname %}<div class="text-body-secondary">{{ c.hostname }}</div>{% endif %}
+              {% else %}-{% endif %}
+            </td>
+            <td class="small">{{ c.subject or '-' }}</td>
+            <td class="small">{{ c.before_value or '-' }}</td>
+            <td class="small">{{ c.after_value or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-body-secondary py-5">
+              <i class="bi bi-check2-circle fs-3 d-block mb-2"></i>
+              Nessun cambiamento registrato: la rete e' stabile.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="-sS -Pn -sV" start="1787000000" version="7.99">
+  <host timedout="true" starttime="1787000000" endtime="1787000090">
+    <status state="up" reason="user-set" reason_ttl="0"/>
+    <address addr="192.0.2.61" addrtype="ipv4"/>
+    <hostnames/>
+    <times srtt="18000" rttvar="1000" to="100000"/>
+  </host>
+  <runstats>
+    <finished time="1787000090" elapsed="90.12" exit="success"/>
+    <hosts up="1" down="0" total="1"/>
+  </runstats>
+</nmaprun>

@@ -1,0 +1,142 @@
+{#
+  snap server - Prova di una regola sugli ultimi eventi.
+
+  Non spedisce nulla: dice quante volte la regola avrebbe scattato e su che cosa. E' il
+  solo modo onesto di attivare una regola, perche' l'alternativa e' attivarla e
+  scoprirlo dal numero di messaggi che arrivano.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Prova della regola{% endblock %}
+{% block page_icon %}bi-clipboard-data{% endblock %}
+{% block page_title %}Prova sulla Storia{% endblock %}
+{% block page_subtitle %}
+  {{ definition.name }} &mdash; {{ definition.source }} /
+  <span class="font-monospace">{{ definition.event_type }}</span>.
+  Nessun messaggio e' stato spedito.
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('rules.rule', rule_id=rule.id) if rule else url_for('rules.index', scheda='nuova') }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>
+    {{ 'Torna alla regola' if rule else 'Torna alla maschera' }}
+  </a>
+  {% if not rule and has_role('tenant_admin') %}
+  <form method="post" action="{{ url_for('rules.create') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="name" value="{{ definition.name }}">
+    <input type="hidden" name="description" value="{{ definition.description }}">
+    <input type="hidden" name="source" value="{{ definition.source }}">
+    <input type="hidden" name="event_type" value="{{ definition.event_type }}">
+    <input type="hidden" name="severity" value="{{ definition.severity }}">
+    {% for c in definition.channels %}
+    <input type="hidden" name="channels" value="{{ c }}">
+    {% endfor %}
+    <input type="hidden" name="recipients" value="{{ definition.recipients }}">
+    <input type="hidden" name="telegram_chat_id" value="{{ definition.telegram_chat_id }}">
+    <input type="hidden" name="window_seconds" value="{{ definition.window_seconds }}">
+    <input type="hidden" name="max_per_window" value="{{ definition.max_per_window }}">
+    {% if definition.digest_only %}
+    <input type="hidden" name="digest_only" value="1">
+    {% endif %}
+    {% for c in definition.conditions %}
+    <input type="hidden" name="condition_field" value="{{ c.field }}">
+    <input type="hidden" name="condition_op" value="{{ c.op }}">
+    <input type="hidden" name="condition_value" value="{{ c.value or '' }}">
+    {% endfor %}
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-check2 me-1"></i> Creare la regola cosi' com'e'
+    </button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('EVENTI ESAMINATI', result.esaminati, 'bi-collection', 'secondary'),
+      ('CORRISPONDENTI', result.corrispondenti, 'bi-check2-square',
+       'warning' if result.corrispondenti else 'secondary'),
+      ('MESSAGGI CHE SAREBBERO PARTITI', result.stima_messaggi, 'bi-send',
+       'danger' if result.stima_messaggi >= definition.max_per_window else 'primary')] %}
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if result.corrispondenti and result.corrispondenti > definition.max_per_window %}
+<div class="alert alert-warning">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  Sugli eventi esaminati la regola avrebbe scattato <strong>{{ result.corrispondenti }}</strong>
+  volte, oltre il limite di {{ definition.max_per_window }} messaggi ogni
+  {{ definition.window_seconds }} secondi. Gli eventi in piu' verrebbero registrati come
+  soppressi e contati nel primo messaggio successivo: nessuna perdita, ma vale la pena
+  restringere le condizioni.
+</div>
+{% elif not result.corrispondenti %}
+<div class="alert alert-light border">
+  <i class="bi bi-info-circle me-1"></i>
+  Nessuno degli ultimi {{ result.esaminati }} eventi soddisfa la regola. Non significa
+  che sia sbagliata: puo' riguardare un evento che accade raramente -- ed e' spesso il
+  caso di quelli che contano.
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-check me-1"></i> Eventi che avrebbero fatto scattare la regola
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-search="true">
+        <thead>
+          <tr><th>QUANDO</th><th>EVENTO</th><th>SOGGETTO</th><th>DETTAGLIO</th>
+              <th>ATTRIBUTI</th></tr>
+        </thead>
+        <tbody>
+          {% for e in result.esempi %}
+          <tr>
+            <td class="small text-nowrap">{{ e.occurred_at|dt }}</td>
+            <td class="font-monospace small">{{ e.type }}</td>
+            <td class="font-monospace small">{{ e.subject }}</td>
+            <td class="small">{{ e.detail }}</td>
+            <td class="small">
+              {% for chiave, valore in (e.attributi or {}).items() %}
+              {% if valore not in (none, '', []) %}
+              <span class="font-monospace">{{ chiave }}={{ valore }}</span>{% if not loop.last %} {% endif %}
+              {% endif %}
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if result.corrispondenti > result.esempi|length %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Mostrati {{ result.esempi|length }} esempi su {{ result.corrispondenti }}
+      corrispondenze.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

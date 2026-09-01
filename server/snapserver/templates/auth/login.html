@@ -1,0 +1,78 @@
+{#
+  snap server - Accesso con email e password.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<!doctype html>
+<html lang="it" data-bs-theme="light" class="snap-font-normal snap-layout-wide">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accesso &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/awn/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap.css') }}">
+</head>
+<body>
+<div class="snap-auth-wrapper">
+  <div class="snap-auth-card">
+    <div class="text-center mb-4">
+      <i class="bi bi-diagram-3 text-primary" style="font-size:2.4rem"></i>
+      <div class="snap-auth-brand">{{ app_name }}</div>
+      <div class="text-body-secondary small">{{ app_subtitle }}</div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h5 mb-1">Accesso alla piattaforma</h1>
+        <p class="text-body-secondary small mb-4">
+          Utilizzare l'indirizzo email aziendale associato al proprio tenant.
+        </p>
+
+        {% include 'partials/flash.html' %}
+
+        <form method="post" action="{{ url_for('auth.login') }}" autocomplete="on">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="next" value="{{ request.args.get('next', '') }}">
+
+          <div class="mb-3">
+            <label for="email" class="form-label">Indirizzo email</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+              <input type="email" class="form-control" id="email" name="email"
+                     value="{{ email }}" required autofocus autocomplete="username"
+                     placeholder="nome.cognome@azienda.it">
+            </div>
+          </div>
+
+          <div class="mb-4">
+            <label for="password" class="form-label">Password</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-key"></i></span>
+              <input type="password" class="form-control" id="password" name="password"
+                     required autocomplete="current-password">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-box-arrow-in-right me-1"></i> Accedi
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <p class="text-center text-body-secondary small mt-3 mb-0">
+      Le sessioni sono tracciate nel registro di audit del tenant.<br>
+      {{ app_name }} v{{ app_version }} &middot; &copy; 2024-26 DS Consulting &middot; MIT
+    </p>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-dialogs.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+{#
+  snap server - Maschera di una regola di notifica, condivisa fra creazione e modifica.
+
+  Un solo modulo per le due operazioni: due maschere per la stessa cosa divergono, e
+  la divergenza si scopre quando un campo esiste in una e non nell'altra.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% macro modulo(action, catalog, ops, severities, channel_labels, channels,
+                rule=none, test_action=none, submit_label='Creare la regola') %}
+{% set condizioni = (rule.conditions if rule else []) %}
+<form method="post" action="{{ action }}" id="modulo-regola-{{ rule.id if rule else 'nuova' }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+
+    <div class="col-12 col-md-5">
+      <label class="form-label small">NOME DELLA REGOLA</label>
+      <input type="text" name="name" class="form-control" maxlength="120" required
+             value="{{ rule.name if rule else '' }}"
+             placeholder="Amministrazione remota esposta">
+      <div class="form-text">
+        Compare in ogni messaggio che la regola spedisce: senza il nome, chi lo riceve
+        non sa dove andare per non riceverlo piu'.
+      </div>
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label small">SORGENTE DEGLI EVENTI</label>
+      <select name="source" class="form-select" required data-snap-sorgente>
+        {% for voce in catalog %}
+        <option value="{{ voce.chiave }}"
+                {{ 'selected' if rule and rule.source == voce.chiave }}>
+          {{ voce.etichetta }}
+        </option>
+        {% endfor %}
+      </select>
+      <div class="form-text">
+        {% for voce in catalog %}
+        <span data-snap-descrizione="{{ voce.chiave }}"
+              {% if not (rule and rule.source == voce.chiave) %}hidden{% endif %}>
+          {{ voce.descrizione }}
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-md-3">
+      <label class="form-label small">TIPO DI EVENTO</label>
+      <input type="text" name="event_type" class="form-control" list="tipi-evento"
+             value="{{ rule.event_type if rule else '*' }}" maxlength="80">
+      <datalist id="tipi-evento">
+        <option value="*">tutti gli eventi della sorgente</option>
+        {% for voce in catalog %}{% for tipo in voce.tipi %}
+        <option value="{{ tipo }}">{{ voce.etichetta }}</option>
+        {% endfor %}{% endfor %}
+      </datalist>
+      <div class="form-text">
+        <code>*</code> per tutti; un tipo che finisce con il punto e' un prefisso
+        (<code>port.</code> prende aperture e chiusure).
+      </div>
+    </div>
+
+    <div class="col-12">
+      <label class="form-label small">CONDIZIONI &mdash; TUTTE DEVONO ESSERE SODDISFATTE</label>
+      <div class="form-text mb-2">
+        Gli attributi disponibili dipendono dalla sorgente. Stesso vocabolario delle
+        verifiche sui controlli. Una riga svuotata rimuove la condizione; per una
+        alternativa (questo <em>oppure</em> quello) si creano due regole, che si leggono
+        meglio di un albero di operatori.
+      </div>
+      {% for indice in range(condizioni|length + 2) %}
+      {% set c = condizioni[indice] if indice < condizioni|length else none %}
+      <div class="row g-2 mb-2">
+        <div class="col-12 col-md-4">
+          <input type="text" name="condition_field" class="form-control form-control-sm"
+                 list="attributi-evento" placeholder="port"
+                 value="{{ c.field if c else '' }}">
+        </div>
+        <div class="col-6 col-md-3">
+          <select name="condition_op" class="form-select form-select-sm">
+            {% for chiave, etichetta in ops.items() %}
+            <option value="{{ chiave }}" {{ 'selected' if c and c.op == chiave }}>
+              {{ etichetta }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-5">
+          <input type="text" name="condition_value" class="form-control form-control-sm"
+                 placeholder="3389" value="{{ c.value if c and c.value is not none else '' }}">
+        </div>
+      </div>
+      {% endfor %}
+      <datalist id="attributi-evento">
+        {% for voce in catalog %}{% for attributo in voce.attributi %}
+        <option value="{{ attributo }}">{{ voce.etichetta }}</option>
+        {% endfor %}{% endfor %}
+      </datalist>
+    </div>
+
+    <div class="col-12 col-md-3">
+      <label class="form-label small">GRAVITA' DICHIARATA</label>
+      <select name="severity" class="form-select">
+        {% for s in severities %}
+        <option value="{{ s }}"
+                {{ 'selected' if (rule.severity if rule else 'warning') == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label small">CANALI</label>
+      <div class="d-flex flex-column gap-1 pt-1">
+        {% set scelti = (rule.channel_list if rule else ['email']) %}
+        {% for chiave, etichetta in channel_labels.items() %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="channels"
+                 value="{{ chiave }}" id="canale-{{ chiave }}-{{ rule.id if rule else 'n' }}"
+                 {{ 'checked' if chiave in scelti }}>
+          <label class="form-check-label small"
+                 for="canale-{{ chiave }}-{{ rule.id if rule else 'n' }}">
+            {{ etichetta }}
+            {% if not channels[chiave].pronto %}
+            <span class="text-warning">&mdash; non configurato: {{ channels[chiave].motivo }}</span>
+            {% endif %}
+          </label>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-md-5">
+      <label class="form-label small">DESTINATARI DI POSTA</label>
+      <input type="text" name="recipients" class="form-control"
+             value="{{ rule.recipients if rule else '' }}"
+             placeholder="vuoto: email di riferimento del tenant">
+      <label class="form-label small mt-2">CHAT TELEGRAM</label>
+      <input type="text" name="telegram_chat_id" class="form-control"
+             value="{{ rule.telegram_chat_id if rule else '' }}"
+             placeholder="vuoto: chat predefinita del bot">
+    </div>
+
+    <div class="col-6 col-md-3">
+      <label class="form-label small">FINESTRA (secondi)</label>
+      <input type="number" name="window_seconds" class="form-control" min="60"
+             max="86400" value="{{ rule.window_seconds if rule else 900 }}">
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label small">MESSAGGI PER FINESTRA</label>
+      <input type="number" name="max_per_window" class="form-control" min="1" max="100"
+             value="{{ rule.max_per_window if rule else 5 }}">
+    </div>
+    <div class="col-12 col-md-6 d-flex align-items-center">
+      <div class="form-check form-switch mt-3">
+        <input class="form-check-input" type="checkbox" name="digest_only"
+               id="solo-resoconto-{{ rule.id if rule else 'n' }}"
+               {{ 'checked' if rule and rule.digest_only }}>
+        <label class="form-check-label small"
+               for="solo-resoconto-{{ rule.id if rule else 'n' }}">
+          solo nel resoconto quotidiano, senza messaggio immediato
+        </label>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="alert alert-light border py-2 small mb-0">
+        <i class="bi bi-shield-exclamation me-1"></i>
+        <strong>Anti-alluvione.</strong> La prima passata di scoperta ha prodotto 1851
+        aperture di porta: una regola senza limite avrebbe spedito 1851 messaggi, e il
+        canale sarebbe stato silenziato entro cinque minuti. Gli eventi oltre il limite
+        non si perdono: vengono registrati come soppressi e contati nel primo messaggio
+        successivo.
+      </div>
+    </div>
+
+    <div class="col-12">
+      <label class="form-label small">DESCRIZIONE (facoltativa)</label>
+      <textarea name="description" class="form-control" rows="2" maxlength="500"
+                placeholder="Che cosa fare quando arriva questo messaggio.">{{ rule.description if rule else '' }}</textarea>
+      <div class="form-text">
+        Viene inclusa nel messaggio: e' il posto giusto per l'istruzione operativa.
+      </div>
+    </div>
+
+    <div class="col-12 d-flex flex-wrap gap-2">
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-save me-1"></i> {{ submit_label }}
+      </button>
+      {% if test_action %}
+      <button type="submit" class="btn btn-outline-secondary" formaction="{{ test_action }}">
+        <i class="bi bi-clipboard-data me-1"></i> Provare sugli ultimi eventi
+      </button>
+      {% endif %}
+    </div>
+  </div>
+</form>
+{% endmacro %}

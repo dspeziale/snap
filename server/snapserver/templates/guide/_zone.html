@@ -1,0 +1,132 @@
+{#
+  snap server - Guida: zone di rete, il contesto che qualifica le esposizioni.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<!-- ============================================================= -->
+<h2 id="zone">18. Zone di rete: il contesto che decide</h2>
+<p>
+  La stessa porta aperta significa cose opposte a seconda di dove si trova. SSH su una
+  postazione di lavoro e' una via d'ingresso che nessuno ha chiesto; SSH su un server
+  in un datacenter e' il modo in cui quel server si amministra, dietro un perimetro
+  che qualcuno ha progettato. Un elenco che le segnalasse allo stesso modo
+  costringerebbe a scorrere centinaia di righe &mdash; e chi impara a ignorare un
+  elenco poi ignora anche la riga che contava.
+</p>
+<p>
+  Per questo ogni subnet puo' dichiarare la propria <strong>zona</strong>, in
+  <em>Rete &rarr; Perimetro</em>. Su una rete reale di circa tremila dispositivi la
+  dichiarazione di due zone ha spostato 1.338 esposizioni su 1.448 fra quelle attese,
+  lasciando in evidenza le 110 che contavano davvero.
+</p>
+
+<h3>Le sei zone</h3>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead>
+      <tr><th>Zona</th><th>Che cos'e'</th><th>Vi sono attesi</th><th>Vi sono una violazione</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Rete di utenza</strong><br><span class="small text-body-secondary">predefinita</span></td>
+        <td>Postazioni, stampanti, telefoni</td>
+        <td>nulla</td>
+        <td>banche dati</td>
+      </tr>
+      <tr>
+        <td><strong>Datacenter</strong></td>
+        <td>Server e servizi applicativi, dietro un perimetro progettato</td>
+        <td>SSH, desktop remoto, banche dati, condivisioni, console</td>
+        <td>Telnet, FTP</td>
+      </tr>
+      <tr>
+        <td><strong>DMZ</strong></td>
+        <td>Sistemi raggiungibili da reti non fidate</td>
+        <td>nulla: cio' che e' pubblicato di proposito e' il servizio, non un'esposizione</td>
+        <td>amministrazione, condivisioni, banche dati, console, SNMP</td>
+      </tr>
+      <tr>
+        <td><strong>Rete di gestione</strong></td>
+        <td>La rete fuori banda con cui si amministrano gli apparati</td>
+        <td>SSH, desktop remoto, SNMP, console</td>
+        <td>Telnet</td>
+      </tr>
+      <tr>
+        <td><strong>Rete industriale (OT)</strong></td>
+        <td>Automazione e controllo di processo</td>
+        <td>Telnet, FTP, SNMP: sull'apparato l'alternativa spesso non esiste</td>
+        <td>condivisioni Windows, banche dati</td>
+      </tr>
+      <tr>
+        <td><strong>Rete ospiti</strong></td>
+        <td>Visitatori e dispositivi non gestiti</td>
+        <td>nulla</td>
+        <td>qualunque servizio raggiungibile</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>Che cosa cambia, e che cosa no</h3>
+<ul>
+  <li><strong>Atteso</strong>: il riscontro resta in archivio con la ragione scritta
+      per esteso, ma non conta fra quelli aperti.</li>
+  <li><strong>Normale</strong>: vale la gravita' della regola.</li>
+  <li><strong>Violazione</strong>: la gravita' sale di un livello, perche' in quel
+      contesto quel servizio e' la prova che la segmentazione non tiene.</li>
+</ul>
+<p>
+  La zona <strong>non tocca le vulnerabilita' confermate</strong>: una CVE su un
+  prodotto e' un fatto del prodotto, e stare in un datacenter non rende meno
+  vulnerabile un software non aggiornato. E non cambia la scansione: si scansiona
+  come prima, cambia solo come si legge cio' che si e' trovato.
+</p>
+
+<div class="alert alert-secondary d-flex gap-2">
+  <i class="bi bi-info-circle fs-5"></i>
+  <div>
+    <strong>Nulla viene cancellato.</strong> Un'esposizione attesa resta consultabile
+    con la sua motivazione. Se domani la zona cambia, il riscontro torna aperto da
+    solo alla passata di correlazione successiva: sbagliare una dichiarazione costa un
+    clic per correggerla, non un lavoro perso.
+  </div>
+</div>
+
+<h3>Due regole da tenere a mente</h3>
+<ul>
+  <li><strong>Chi non dichiara non viene premiato.</strong> Una subnet senza zona vale
+      come rete di utenza, che e' il giudizio piu' severo: non descrivere la rete non
+      e' un modo per avere meno riscontri. La pagina del perimetro conta quante subnet
+      sono ancora senza dichiarazione.</li>
+  <li><strong>Una persona conta piu' di una regola.</strong> Se qualcuno ha gia'
+      deciso su un riscontro (accettato, falso positivo), la zona non lo tocca: chi ha
+      guardato quel caso aveva piu' informazioni della regola.</li>
+</ul>
+
+<h3>Dove si vede</h3>
+<ul>
+  <li><em>Rete &rarr; Perimetro</em>: si dichiara la zona e si legge quante subnet non
+      ne hanno una.</li>
+  <li><em>Rete &rarr; Nodi</em>: filtro per zona, accanto agli altri criteri.</li>
+  <li><em>Threat Intelligence</em>: gli attesi contati a parte, mai sommati agli
+      aperti, con la motivazione nel dettaglio del riscontro.</li>
+  <li><em>Sala operativa &rarr; Quadro SOC</em>: la scheda <em>Segmentazione</em>.</li>
+  <li><em>Report</em>: il documento <strong>Segmentazione e zone di rete</strong>, che
+      confronta la rete dichiarata con quella misurata ed e' pensato per essere
+      allegato a una valutazione del rischio (NIS2, art. 21).</li>
+</ul>
+
+<div class="alert alert-warning d-flex gap-2">
+  <i class="bi bi-exclamation-triangle fs-5"></i>
+  <div>
+    <strong>Un limite da conoscere.</strong> snap misura cio' che la sonda vede dalla
+    propria posizione: dice che cosa e' raggiungibile <em>da li'</em>, non da ogni
+    altra zona. Una rete di gestione dichiarata tale ma raggiungibile dagli uffici
+    risulterebbe in ordine. Verificare la separazione fra zone richiede una sonda per
+    zona.
+  </div>
+</div>

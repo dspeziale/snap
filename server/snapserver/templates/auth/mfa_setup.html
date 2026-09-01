@@ -1,0 +1,78 @@
+{#
+  snap server - Configurazione del secondo fattore con Google Authenticator.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Attivazione MFA{% endblock %}
+{% block page_icon %}bi-shield-plus{% endblock %}
+{% block page_title %}Attivazione autenticazione a due fattori{% endblock %}
+{% block page_subtitle %}Associare un dispositivo TOTP all'utenza {{ current_user['email'] }}.{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-qr-code me-1"></i> 1. Acquisire il codice</h3>
+      </div>
+      <div class="card-body text-center">
+        <img src="{{ qr_data_uri }}" alt="QR code per la configurazione MFA"
+             class="img-fluid border rounded p-2 bg-white" style="max-width: 250px">
+        <p class="text-body-secondary small mt-3 mb-2">
+          Inquadrare il codice con Google Authenticator, Microsoft Authenticator,
+          FreeOTP o qualunque applicazione compatibile con lo standard TOTP.
+        </p>
+        <p class="small mb-1 fw-semibold">Inserimento manuale (chiave segreta)</p>
+        <div class="snap-code" id="mfa-secret">{{ secret }}</div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-copy="#mfa-secret">
+          <i class="bi bi-clipboard me-1"></i> Copia chiave
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-check2-square me-1"></i> 2. Confermare l'associazione</h3>
+      </div>
+      <div class="card-body">
+        <p class="text-body-secondary">
+          Digitare il codice a sei cifre mostrato dall'applicazione. La conferma e'
+          necessaria per evitare di attivare un secondo fattore non funzionante.
+        </p>
+        <form method="post" action="{{ url_for('auth.mfa_enable') }}" class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-sm-6">
+            <label for="code" class="form-label">Codice di verifica</label>
+            <input type="text" class="form-control form-control-lg text-center" id="code"
+                   name="code" inputmode="numeric" maxlength="9" required autofocus
+                   placeholder="000000">
+          </div>
+          <div class="col-sm-6">
+            <button type="submit" class="btn btn-success w-100">
+              <i class="bi bi-shield-check me-1"></i> Attiva MFA
+            </button>
+          </div>
+        </form>
+
+        <hr>
+        <h4 class="h6">Nota tecnica</h4>
+        <p class="small text-body-secondary mb-2">
+          Il segreto e' generato con entropia crittografica e conservato sul server
+          in forma riservata. La verifica accetta uno scarto di un intervallo
+          (30 secondi) per tollerare piccoli disallineamenti dell'orologio.
+        </p>
+        <p class="small text-body-secondary mb-0">URI di provisioning:</p>
+        <div class="snap-code mt-1" id="mfa-uri">{{ provisioning_uri }}</div>
+        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" data-copy="#mfa-uri">
+          <i class="bi bi-clipboard me-1"></i> Copia URI
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

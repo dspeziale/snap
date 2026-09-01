@@ -1,0 +1,72 @@
+{#
+  snap server - Barra delle schede, riutilizzabile.
+
+  Perche' un componente e non la marcatura ripetuta in ogni pagina: le schede sono
+  ormai il modo in cui tutte le pagine si organizzano, e sedici copie della stessa
+  marcatura divergono alla prima modifica -- una perderebbe l'attributo di
+  accessibilita', un'altra il conteggio.
+
+  Uso:
+    {% import 'partials/tabs.html' as schede %}
+    {{ schede.barra([
+        ('nodi', 'Nodi', 'bi-hdd-network', nodes|length),
+        ('tipi', 'Distribuzione', 'bi-pie-chart', none),
+    ]) }}
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="pane-nodi" role="tabpanel">...</div>
+      <div class="tab-pane fade" id="pane-tipi" role="tabpanel">...</div>
+    </div>
+
+  Il conteggio e' facoltativo: `none` non mostra alcuna pastiglia. Un conteggio a
+  zero viene mostrato, perche' "zero" e' un'informazione -- "nessun incidente" non e'
+  la stessa cosa di "non lo sappiamo".
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% macro barra(voci, attiva=0, classe='mb-3', apri=none) %}
+{#- `apri` e' la chiave della scheda da mostrare: chi costruisce un collegamento
+    conosce il nome della scheda, non la sua posizione nell'elenco. Una chiave che non
+    esiste non apre nulla di sbagliato: vale la scheda predefinita. -#}
+{% set indice_apri = (voci|map(attribute=0)|list).index(apri) if apri and apri in voci|map(attribute=0)|list else attiva %}
+<ul class="nav nav-tabs {{ classe }}" role="tablist">
+  {% for chiave, titolo, icona, conteggio in voci %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if loop.index0 == indice_apri %}active{% endif %}"
+            id="tab-{{ chiave }}" data-bs-toggle="tab" data-bs-target="#pane-{{ chiave }}"
+            type="button" role="tab" aria-controls="pane-{{ chiave }}"
+            aria-selected="{{ 'true' if loop.index0 == indice_apri else 'false' }}">
+      {% if icona %}<i class="bi {{ icona }} me-1"></i>{% endif %}{{ titolo }}
+      {% if conteggio is not none %}
+      <span class="badge text-bg-secondary ms-1">{{ conteggio }}</span>
+      {% endif %}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}
+
+{% macro barra_collegamenti(voci, attiva=none, classe='mb-3') %}
+{#- Schede che sono COLLEGAMENTI, non pannelli: si usano quando il contenuto non e'
+    gia' nella pagina ma dipende da un filtro applicato dal server. Mostrare
+    cinquecento righe in quattro copie per poterle nascondere con il browser sarebbe
+    una pagina da cinque megabyte; qui la scheda ricarica cio' che serve.
+
+    `voci` e' un elenco di (chiave, titolo, icona, conteggio, indirizzo). -#}
+<ul class="nav nav-tabs {{ classe }}" role="tablist">
+  {% for chiave, titolo, icona, conteggio, indirizzo in voci %}
+  <li class="nav-item" role="presentation">
+    <a class="nav-link {% if chiave == attiva %}active{% endif %}"
+       href="{{ indirizzo }}"
+       {% if chiave == attiva %}aria-current="page"{% endif %}>
+      {% if icona %}<i class="bi {{ icona }} me-1"></i>{% endif %}{{ titolo }}
+      {% if conteggio is not none %}
+      <span class="badge text-bg-secondary ms-1">{{ conteggio }}</span>
+      {% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endmacro %}

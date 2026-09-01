@@ -1,0 +1,253 @@
+{#
+  snap server - Gestione dei tenant (riservata all'amministratore di sistema).
+
+  La tabella e' piatta e interattiva (ordinamento, paginazione, raggruppamento,
+  ricerca per colonna e su tutte le colonne); modifica ed eliminazione avvengono
+  in finestre di dialogo dedicate.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Tenant{% endblock %}
+{% block page_icon %}bi-buildings{% endblock %}
+{% block page_title %}Gestione Tenant{% endblock %}
+{% block page_subtitle %}
+  Ogni tenant e' isolato: dati, utenti, sonde e report non sono mai condivisi.
+{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#nuovo-tenant">
+  <i class="bi bi-plus-lg me-1"></i> Nuovo tenant
+</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-buildings me-1"></i> Tenant censiti ({{ tenants|length }})
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>CODICE</th><th>RAGIONE SOCIALE</th><th>FUSO ORARIO</th>
+              <th class="text-end">UTENTI</th><th class="text-end">SONDE</th>
+              <th class="text-end">CONFERIMENTI</th><th class="text-end">EVENTI</th>
+              <th>STATO</th><th>CONSERVAZIONE</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for tenant in tenants %}
+          <tr>
+            <td class="fw-semibold">{{ tenant['code'] }}</td>
+            <td>{{ tenant['name'] }}</td>
+            <td class="small">{{ tenant['timezone'] }}</td>
+            <td class="text-end">{{ tenant['user_count'] }}</td>
+            <td class="text-end">{{ tenant['probe_count'] }}</td>
+            <td class="text-end">{{ tenant['batch_count'] }}</td>
+            <td class="text-end">{{ tenant['event_count'] }}</td>
+            <td>
+              {% if tenant['is_active'] %}
+                <span class="badge text-bg-success">attivo</span>
+              {% else %}
+                <span class="badge text-bg-secondary">sospeso</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ tenant['retention_days'] }} giorni</td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+                      data-bs-target="#modifica-{{ tenant['id'] }}" title="Modifica il tenant">
+                <i class="bi bi-pencil"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal"
+                      data-bs-target="#elimina-{{ tenant['id'] }}"
+                      title="Elimina il tenant e tutti i suoi dati">
+                <i class="bi bi-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-body-secondary py-4">
+            Nessun tenant censito: crearne uno per iniziare.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# --- Creazione ----------------------------------------------------------- #}
+<div class="modal fade" id="nuovo-tenant" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-plus-square me-1"></i> Nuovo tenant</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <form method="post" action="{{ url_for('admin.create_tenant') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label" for="code">Codice</label>
+              <input type="text" class="form-control" id="code" name="code" required
+                     placeholder="acme" pattern="[a-z0-9][a-z0-9._\-]{1,31}">
+              <div class="form-text">Minuscolo, 2-32 caratteri. Non modificabile.</div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label" for="name">Ragione sociale</label>
+              <input type="text" class="form-control" id="name" name="name" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="timezone">Fuso orario</label>
+              <select class="form-select" id="timezone" name="timezone">
+                {% for zone in timezones %}
+                <option value="{{ zone }}" {{ 'selected' if zone == 'Europe/Rome' }}>{{ zone }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Tutte le date del tenant sono mostrate in questo fuso.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="contact_email">Email di riferimento</label>
+              <input type="email" class="form-control" id="contact_email" name="contact_email">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" for="retention_days">Conservazione</label>
+              <input type="number" class="form-control" id="retention_days"
+                     name="retention_days" value="365" min="30" max="3650">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="notes">Note</label>
+              <textarea class="form-control" id="notes" name="notes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check2 me-1"></i> Crea tenant
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# --- Modifica ed eliminazione per ciascun tenant ------------------------- #}
+{% for tenant in tenants %}
+<div class="modal fade" id="modifica-{{ tenant['id'] }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-pencil-square me-1"></i> {{ tenant['name'] }}
+          <span class="badge text-bg-secondary ms-1">{{ tenant['code'] }}</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <form method="post" action="{{ url_for('admin.update_tenant', tenant_id=tenant['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label" for="name-{{ tenant['id'] }}">Ragione sociale</label>
+              <input type="text" class="form-control" id="name-{{ tenant['id'] }}"
+                     name="name" value="{{ tenant['name'] }}">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="retention-{{ tenant['id'] }}">Conservazione (giorni)</label>
+              <input type="number" class="form-control" id="retention-{{ tenant['id'] }}"
+                     name="retention_days" value="{{ tenant['retention_days'] }}"
+                     min="30" max="3650">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="tz-{{ tenant['id'] }}">Fuso orario</label>
+              <select class="form-select" id="tz-{{ tenant['id'] }}" name="timezone">
+                {% for zone in timezones %}
+                <option value="{{ zone }}" {{ 'selected' if zone == tenant['timezone'] }}>{{ zone }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="email-{{ tenant['id'] }}">Email di riferimento</label>
+              <input type="email" class="form-control" id="email-{{ tenant['id'] }}"
+                     name="contact_email" value="{{ tenant['contact_email'] or '' }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="note-{{ tenant['id'] }}">Note</label>
+              <textarea class="form-control" id="note-{{ tenant['id'] }}" name="notes"
+                        rows="2">{{ tenant['notes'] or '' }}</textarea>
+            </div>
+            <div class="col-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="is_active"
+                       id="active-{{ tenant['id'] }}" {{ 'checked' if tenant['is_active'] }}>
+                <label class="form-check-label" for="active-{{ tenant['id'] }}">
+                  Tenant attivo (se sospeso, i suoi utenti non possono accedere)
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i> Salva modifiche
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="elimina-{{ tenant['id'] }}" tabindex="-1"
+     aria-labelledby="elimina-titolo-{{ tenant['id'] }}" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger-subtle">
+        <h5 class="modal-title" id="elimina-titolo-{{ tenant['id'] }}">
+          <i class="bi bi-exclamation-octagon me-1"></i>
+          Eliminazione del tenant {{ tenant['name'] }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <form method="post" action="{{ url_for('admin.delete_tenant', tenant_id=tenant['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <p class="mb-2">
+            L'operazione e' <strong>irreversibile</strong> ed elimina in modo definitivo:
+          </p>
+          <ul class="mb-3">
+            <li>{{ tenant['user_count'] }} utenze</li>
+            <li>{{ tenant['probe_count'] }} sonde, con le relative credenziali</li>
+            <li>{{ tenant['batch_count'] }} conferimenti ricevuti</li>
+            <li>{{ tenant['event_count'] }} voci del registro di audit</li>
+          </ul>
+          <label class="form-label" for="conferma-{{ tenant['id'] }}">
+            Per procedere digitare il codice del tenant:
+            <code>{{ tenant['code'] }}</code>
+          </label>
+          <input type="text" class="form-control" id="conferma-{{ tenant['id'] }}"
+                 name="confirm_code" autocomplete="off" placeholder="{{ tenant['code'] }}">
+          <p class="small text-body-secondary mt-2 mb-0">
+            Nel registro di audit resta la traccia dell'eliminazione.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+            Annulla
+          </button>
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i> Elimina definitivamente
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

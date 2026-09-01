@@ -1,0 +1,164 @@
+{#
+  snap probe - Layout dell'interfaccia locale della sonda.
+
+  Menu a sinistra come nella console del server: chi amministra passa dall'una
+  all'altra nello stesso pomeriggio, e due impianti diversi costringono a
+  reimparare dove guardare. Tinte chiare: la sonda si usa spesso in sede, su
+  schermi qualunque e alla luce del giorno.
+
+  Sotto il breakpoint lg il menu si chiude in una barra: la sonda si governa anche
+  dal telefono, in piedi davanti a un armadio di rete.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<!doctype html>
+<html lang="it" data-bs-theme="{{ settings.get('ui_theme', 'light') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Sonda{% endblock %} &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/awn/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/probe.css') }}">
+</head>
+<body class="bg-body-tertiary" data-autorefresh="{% block autorefresh %}0{% endblock %}">
+
+{# Barra superiore: c'e' solo sotto lg, dove il menu laterale si chiude. #}
+<nav class="navbar bg-body border-bottom d-lg-none">
+  <div class="container-fluid">
+    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('probe.index') }}">
+      <i class="bi bi-broadcast-pin text-primary fs-4"></i>
+      <span class="fw-bold">snap</span>
+      <span class="badge text-bg-primary">probe</span>
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
+            data-bs-target="#menu-sonda" aria-controls="menu-sonda"
+            aria-expanded="false" aria-label="Menu">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+  </div>
+</nav>
+
+<div class="snap-impianto">
+  {# ----------------------------------------------------------------- menu #}
+  <aside class="snap-menu collapse d-lg-block bg-body border-end" id="menu-sonda">
+    <div class="snap-menu-marchio d-none d-lg-flex">
+      <a href="{{ url_for('probe.index') }}"
+         class="d-flex align-items-center gap-2 text-decoration-none">
+        <i class="bi bi-broadcast-pin text-primary fs-4"></i>
+        <span class="fw-bold">{{ app_name }}</span>
+        <span class="badge text-bg-primary">v{{ app_version }}</span>
+      </a>
+    </div>
+
+    <nav class="nav flex-column p-2" aria-label="Navigazione della sonda">
+      <a class="nav-link {% if request.endpoint == 'probe.index' %}active{% endif %}"
+         href="{{ url_for('probe.index') }}">
+        <i class="bi bi-activity me-2"></i> Stato della sonda
+      </a>
+      <a class="nav-link {% if request.endpoint in ['probe.enroll_form', 'probe.enroll'] %}active{% endif %}"
+         href="{{ url_for('probe.enroll_form') }}">
+        <i class="bi bi-key me-2"></i> Registrazione
+        {% if not agent_status.enrolled %}
+        <span class="badge text-bg-warning ms-1">da fare</span>
+        {% endif %}
+      </a>
+      <a class="nav-link {% if request.endpoint == 'probe.configuration' %}active{% endif %}"
+         href="{{ url_for('probe.configuration') }}">
+        <i class="bi bi-sliders me-2"></i> Configurazione
+      </a>
+      <a class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}"
+         href="{{ url_for('probe.diary') }}">
+        <i class="bi bi-journal-text me-2"></i> Diario locale
+      </a>
+      {# La guida si apre in una finestra nuova: la si legge mentre si opera sulla
+         sonda, non invece di operare. #}
+      <a class="nav-link" href="{{ url_for('probe.guide') }}" target="_blank" rel="noopener">
+        <i class="bi bi-book me-2"></i> Guida
+        <i class="bi bi-box-arrow-up-right small ms-1"></i>
+      </a>
+    </nav>
+
+    {# Stato del canale e della coda: si vedono da ogni pagina, perche' sono la
+       condizione in cui si sta lavorando. #}
+    <div class="snap-menu-stato border-top p-3 small">
+      {% if agent_status.enrolled %}
+        {% if agent_status.online %}
+        <span class="badge text-bg-success d-block mb-2">
+          <i class="bi bi-shield-lock me-1"></i> Canale attivo
+        </span>
+        {% else %}
+        <span class="badge text-bg-warning d-block mb-2">
+          <i class="bi bi-cloud-slash me-1"></i> Server non raggiungibile
+        </span>
+        {% endif %}
+      {% else %}
+        <span class="badge text-bg-secondary d-block mb-2">
+          <i class="bi bi-dash-circle me-1"></i> Non registrata
+        </span>
+      {% endif %}
+      <div class="text-body-secondary">
+        <i class="bi bi-inboxes me-1"></i>
+        Coda locale: <strong>{{ agent_status.queue_size }}</strong> record
+      </div>
+      <div class="text-body-secondary">
+        <i class="bi bi-clock me-1"></i> fuso {{ display_timezone }}
+      </div>
+      {% if accesso_aperto %}
+      {# L'uscita e' un'azione, quindi un modulo: un collegamento si puo' far
+         seguire al posto di chi lo legge. #}
+      <form method="post" action="{{ url_for('auth.logout') }}" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
+          <i class="bi bi-box-arrow-right me-1"></i> Esci
+        </button>
+      </form>
+      {% endif %}
+    </div>
+  </aside>
+
+  {# -------------------------------------------------------------- contenuto #}
+  <div class="snap-contenuto">
+    <main class="container-fluid py-4 px-3 px-lg-4">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+          <h1 class="h4 mb-1">
+            <i class="bi {% block page_icon %}bi-activity{% endblock %} text-primary me-1"></i>
+            {% block page_title %}Stato della sonda{% endblock %}
+          </h1>
+          <p class="text-body-secondary small mb-0">{% block page_subtitle %}{% endblock %}</p>
+        </div>
+        <div>{% block page_actions %}{% endblock %}</div>
+      </div>
+
+      {% include 'flash.html' %}
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="container-fluid py-4 px-3 px-lg-4 text-body-secondary small border-top">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <span>
+          {{ app_name }} v{{ app_version }} &middot; {{ app_subtitle }}
+          &middot; orari nel fuso <strong>{{ display_timezone }}</strong>
+        </span>
+        <span>&copy; 2024-26 DS Consulting &middot; licenza MIT</span>
+      </div>
+    </footer>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-tables.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-dialogs.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-grafici.js') }}"></script>
+<script src="{{ url_for('static', filename='js/probe.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,399 @@
+{#
+  snap server - Zone di rete: elenco, creazione, modifica, eliminazione.
+
+  Il contesto e' un dato del cliente; il modo di giudicarlo resta prodotto. Per
+  questo si scelgono le FAMIGLIE da un elenco chiuso -- sono i titoli delle regole
+  di correlazione -- e non si scrive testo libero: una famiglia inventata non
+  corrisponderebbe a nessuna regola e sembrerebbe attiva senza fare nulla.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+
+{% block page_title %}Zone di rete{% endblock %}
+{% block page_icon %}bi-diagram-3{% endblock %}
+{% block breadcrumb %}Rete &middot; Zone di rete{% endblock %}
+{% block page_subtitle %}
+  Il contesto di una porzione di rete: decide se un servizio raggiungibile e' atteso,
+  normale o fuori posto.
+{% endblock %}
+
+{# --------------------------------------------------------------------------- #}
+{# Modulo di una zona, usato per la creazione e per la modifica: un solo posto  #}
+{# in cui cambiare i campi, cosi' le due forme non divergono.                   #}
+{# --------------------------------------------------------------------------- #}
+{% macro modulo_zona(voce, famiglie, toni, zone=none) %}
+{% if not voce and zone %}
+{# Partire da una zona esistente: chi dichiara "rete di collaudo" ha in mente
+   qualcosa di simile al datacenter, con una differenza o due. Una zona nuova con gli
+   elenchi vuoti non giudica niente: sembra dichiarata e non fa nulla. #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6">
+    <label class="form-label" for="eredita-da">Parti dalle regole di</label>
+    <select class="form-select" name="eredita_da" id="eredita-da"
+            data-zone-eredita>
+      <option value="">nessuna: scelgo io le famiglie</option>
+      {% for altra in zone %}
+      <option value="{{ altra.chiave }}"
+              data-attese="{{ altra.attese|join('|') }}"
+              data-violazioni="{{ altra.violazioni|join('|') }}">
+        {{ altra.nome }}
+        ({{ altra.attese|length }} attese, {{ altra.violazioni|length }} violazioni)
+      </option>
+      {% endfor %}
+    </select>
+    <div class="form-text">
+      Le famiglie vengono spuntate subito e restano modificabili: quello che scegli
+      tu vince sull'ereditarieta'.
+    </div>
+  </div>
+</div>
+{% endif %}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-4">
+    <label class="form-label" for="nome-{{ voce.chiave if voce else 'nuova' }}">Nome</label>
+    <input type="text" class="form-control" name="nome" required maxlength="60"
+           id="nome-{{ voce.chiave if voce else 'nuova' }}"
+           value="{{ voce.nome if voce else '' }}"
+           placeholder="es. Rete di collaudo">
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label" for="tono-{{ voce.chiave if voce else 'nuova' }}">Colore</label>
+    <select class="form-select" name="tono" id="tono-{{ voce.chiave if voce else 'nuova' }}">
+      {% for tono in toni %}
+      <option value="{{ tono }}" {{ 'selected' if voce and voce.tono == tono }}>{{ tono }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-6 col-md-2">
+    <label class="form-label" for="icona-{{ voce.chiave if voce else 'nuova' }}">Icona</label>
+    <input type="text" class="form-control" name="icona" maxlength="40"
+           id="icona-{{ voce.chiave if voce else 'nuova' }}"
+           value="{{ voce.icona if voce else 'bi-diagram-3' }}"
+           pattern="bi-[a-z0-9\-]{1,40}"
+           placeholder="bi-hdd-rack">
+    <div class="form-text">nome Bootstrap Icons</div>
+  </div>
+  <div class="col-12 col-md-4">
+    <label class="form-label" for="descr-{{ voce.chiave if voce else 'nuova' }}">
+      Descrizione
+    </label>
+    <textarea class="form-control" name="descrizione" rows="2" maxlength="600"
+              id="descr-{{ voce.chiave if voce else 'nuova' }}"
+              placeholder="Che cos'e' questa porzione di rete e perche' certi servizi vi sono normali."
+              >{{ voce.descrizione if voce else '' }}</textarea>
+    <div class="form-text">
+      La prima frase diventa la ragione scritta nei riscontri attesi.
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <p class="form-label mb-1">
+      <span class="badge text-bg-secondary">attese</span>
+      Vi appartengono, non contano fra i riscontri aperti
+    </p>
+    <div class="border rounded p-2" style="max-height: 15rem; overflow-y: auto;">
+      {% for famiglia in famiglie %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="attese" value="{{ famiglia }}"
+               id="att-{{ voce.chiave if voce else 'nuova' }}-{{ loop.index }}"
+               {{ 'checked' if voce and famiglia in voce.attese }}>
+        <label class="form-check-label small"
+               for="att-{{ voce.chiave if voce else 'nuova' }}-{{ loop.index }}">
+          {{ famiglia }}
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <p class="form-label mb-1">
+      <span class="badge text-bg-danger">violazioni</span>
+      Qui non dovrebbero esserci: la gravita' sale
+    </p>
+    <div class="border rounded p-2" style="max-height: 15rem; overflow-y: auto;">
+      {% for famiglia in famiglie %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="violazioni" value="{{ famiglia }}"
+               id="vio-{{ voce.chiave if voce else 'nuova' }}-{{ loop.index }}"
+               {{ 'checked' if voce and famiglia in voce.violazioni }}>
+        <label class="form-check-label small"
+               for="vio-{{ voce.chiave if voce else 'nuova' }}-{{ loop.index }}">
+          {{ famiglia }}
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="form-text">
+      Una famiglia spuntata in entrambe le colonne vale come <em>attesa</em>: una
+      regola non puo' contraddire se stessa.
+    </div>
+  </div>
+</div>
+{% endmacro %}
+
+
+{% block content %}
+
+{# --- come funziona: la pagina si spiega da se' ------------------------------ #}
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12 col-lg-8">
+        <p class="mb-2">
+          Ogni subnet puo' dichiarare la propria zona (<em>Rete &rarr; Perimetro</em>).
+          Sulle esposizioni che vi si trovano la zona esprime uno di tre giudizi:
+        </p>
+        <ul class="mb-2">
+          <li><span class="badge text-bg-secondary">attesa</span>
+              il servizio appartiene al contesto: il riscontro resta annotato con la
+              sua ragione e non conta fra quelli aperti;</li>
+          <li><span class="badge text-bg-light text-dark border">normale</span>
+              vale la gravita' della regola;</li>
+          <li><span class="badge text-bg-danger">violazione</span>
+              in quel contesto quel servizio non dovrebbe esserci: la gravita' sale
+              di un livello.</li>
+        </ul>
+        <p class="small text-body-secondary mb-0">
+          Le <strong>vulnerabilita' confermate non cambiano mai</strong>: una CVE e' un
+          fatto del prodotto, non della rete. La zona parla di raggiungibilita'.
+          Nulla viene cancellato: cambiando zona, i riscontri vengono rivalutati alla
+          correlazione successiva.
+        </p>
+      </div>
+      <div class="col-12 col-lg-4">
+        <div class="border rounded p-3 h-100">
+          <p class="snap-stat-label mb-1">Perimetro senza zona</p>
+          <p class="h3 mb-1">{{ senza.subnet }}
+            <span class="fs-6 text-body-secondary">subnet</span></p>
+          <p class="small text-body-secondary mb-0">
+            {{ senza.nodi }} dispositivi. Una subnet senza zona vale come
+            <strong>rete di utenza</strong>, che e' il giudizio piu' severo: il
+            silenzio non fa da giustificazione.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- elenco ---------------------------------------------------------------- #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-diagram-3 me-1"></i> Zone dichiarate ({{ zone|length }})
+    </h3>
+    {% if has_role('tenant_admin') %}
+    <div class="d-flex gap-2">
+      <button class="btn btn-sm btn-primary" data-bs-toggle="collapse"
+              data-bs-target="#nuova-zona">
+        <i class="bi bi-plus-circle me-1"></i> Nuova zona
+      </button>
+      <form method="post" action="{{ url_for('inventory.zone_restore') }}"
+            data-confirm="Riporta le zone predefinite come nascono col prodotto. Le zone create da te non vengono toccate. Procedere?">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-arrow-counterclockwise me-1"></i> Ripristina predefinite
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if has_role('tenant_admin') %}
+  <div class="collapse border-bottom" id="nuova-zona">
+    <div class="card-body bg-body-tertiary">
+      <form method="post" action="{{ url_for('inventory.zone_create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ modulo_zona(none, famiglie, toni, zone) }}
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-plus-circle me-1"></i> Crea zona
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr>
+            <th>ZONA</th><th>ATTESE</th><th>VIOLAZIONI</th>
+            <th class="text-end">SUBNET</th><th class="text-end">DISPOSITIVI</th>
+            <th>AZIONI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for voce in zone %}
+          <tr>
+            <td>
+              <span class="badge text-bg-{{ voce.tono }} me-1">
+                <i class="bi {{ voce.icona }}"></i>
+              </span>
+              <strong>{{ voce.nome }}</strong>
+              {% if voce.predefinita %}
+              <span class="badge text-bg-light text-dark border ms-1" title="Nata col prodotto">
+                predefinita
+              </span>
+              {% endif %}
+              <div class="small text-body-secondary">
+                <code>{{ voce.chiave }}</code>
+                {% if voce.descrizione %} &middot; {{ voce.descrizione|truncate(120) }}{% endif %}
+              </div>
+            </td>
+            <td class="small">
+              {% if voce.attese %}
+              {{ voce.attese|length }}
+              <span class="text-body-secondary">
+                ({{ voce.attese|join(', ')|truncate(70) }})
+              </span>
+              {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+            </td>
+            <td class="small">
+              {% if voce.violazioni %}
+              <span class="text-danger-emphasis">{{ voce.violazioni|length }}</span>
+              <span class="text-body-secondary">
+                ({{ voce.violazioni|join(', ')|truncate(70) }})
+              </span>
+              {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+            </td>
+            <td class="text-end">{{ voce.subnet }}</td>
+            <td class="text-end">{{ voce.nodi|intero }}</td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                        data-bs-target="#zona-{{ voce.chiave }}" title="Modifica">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <form method="post" action="{{ url_for('inventory.zone_move', chiave=voce.chiave) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="verso" value="su">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary" title="Sposta su">
+                    <i class="bi bi-arrow-up"></i>
+                  </button>
+                </form>
+                <form method="post" action="{{ url_for('inventory.zone_move', chiave=voce.chiave) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="verso" value="giu">
+                  <button type="submit" class="btn btn-sm btn-outline-secondary" title="Sposta giu">
+                    <i class="bi bi-arrow-down"></i>
+                  </button>
+                </form>
+                <button class="btn btn-sm btn-outline-danger" data-bs-toggle="collapse"
+                        data-bs-target="#elimina-{{ voce.chiave }}" title="Elimina">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+              {% else %}
+              <span class="small text-body-secondary">sola lettura</span>
+              {% endif %}
+            </td>
+          </tr>
+
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+
+{# I moduli stanno FUORI dalla tabella. Dentro il corpo di una tabella interattiva una
+   riga con una sola cella in `colspan` rompe il modello delle colonne -- difetto
+   segnalato e corretto -- ed e' la stessa ragione per cui le tabelle amministrative
+   sono piatte. #}
+{% if has_role('tenant_admin') %}
+{% for voce in zone %}
+<div class="collapse" id="zona-{{ voce.chiave }}">
+  <div class="card mb-3 border-primary">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="card-title mb-0">
+        <i class="bi {{ voce.icona }} me-1"></i> Modifica: {{ voce.nome }}
+        <span class="font-monospace small text-body-secondary">{{ voce.chiave }}</span>
+      </h3>
+      <button class="btn-close" data-bs-toggle="collapse"
+              data-bs-target="#zona-{{ voce.chiave }}"
+              aria-label="Chiudi"></button>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('inventory.zone_update', chiave=voce.chiave) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {{ modulo_zona(voce, famiglie, toni) }}
+        <button type="submit" class="btn btn-primary mt-3">
+          <i class="bi bi-save me-1"></i> Salva la zona
+        </button>
+        <span class="small text-body-secondary ms-2">
+          I riscontri delle subnet in questa zona vengono rivalutati alla prossima
+          correlazione, oppure subito con <em>Riapplica ai dati raccolti</em>.
+        </span>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="collapse" id="elimina-{{ voce.chiave }}">
+  <div class="card mb-3 border-danger">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <h3 class="card-title mb-0 text-danger-emphasis">
+        <i class="bi bi-trash me-1"></i> Elimina: {{ voce.nome }}
+      </h3>
+      <button class="btn-close" data-bs-toggle="collapse"
+              data-bs-target="#elimina-{{ voce.chiave }}" aria-label="Chiudi"></button>
+    </div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('inventory.zone_delete', chiave=voce.chiave) }}"
+            class="row g-2 align-items-end"
+            data-confirm="Elimina la zona {{ voce.nome }}. {% if voce.subnet %}Le {{ voce.subnet }} subnet che la usano verranno riassegnate.{% endif %} Procedere?"
+            data-confirm-destructive>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="col-12 col-md-5">
+          <label class="form-label small" for="riassegna-{{ voce.chiave }}">
+            Le {{ voce.subnet }} subnet in questa zona passano a
+          </label>
+          <select class="form-select" name="riassegna_a" id="riassegna-{{ voce.chiave }}">
+            <option value="">nessuna zona (giudizio piu' severo)</option>
+            {% for altra in zone if altra.chiave != voce.chiave %}
+            <option value="{{ altra.chiave }}">{{ altra.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-7">
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i> Elimina la zona
+          </button>
+          <span class="small text-body-secondary ms-2">
+            {% if voce.predefinita %}
+            E' una zona predefinita: si potra' riportare indietro con
+            <em>Ripristina predefinite</em>.
+            {% else %}
+            Le esposizioni non si perdono: cambiano giudizio.
+            {% endif %}
+          </span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<p class="small text-body-secondary">
+  Le <strong>famiglie</strong> fra cui scegliere sono i titoli delle regole di
+  correlazione: {{ famiglie|length }} in tutto. Non si possono inventare, perche' una
+  famiglia che non corrisponde a una regola non produrrebbe nessun giudizio pur
+  sembrando attiva. Il dettaglio del modello sta nella guida, capitolo
+  <em>Zone di rete</em>.
+</p>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/snap-zone.js') }}"></script>
+{% endblock %}

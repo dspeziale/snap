@@ -1,0 +1,92 @@
+{#
+  snap server - Stato corrente della rete monitorata.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Stato della rete{% endblock %}
+{% block page_icon %}bi-activity{% endblock %}
+{% block page_title %}Stato della Rete{% endblock %}
+{% block page_subtitle %}
+  Raggiungibilita' e latenza dei nodi noti, con la disponibilita' calcolata sulle ultime 24 ore.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('NODI SORVEGLIATI', summary.total, 'bi-eye', 'primary'),
+      ('RAGGIUNGIBILI', summary.up, 'bi-check-circle', 'success'),
+      ('NON RAGGIUNGIBILI', summary.down, 'bi-x-circle', 'danger'),
+      ('CAMBIAMENTI 24H', summary.changes_24h, 'bi-arrow-left-right', 'warning')] %}
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="snap-stat-label">{{ voce[0] }}</p>
+            <p class="snap-stat-value">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h3 class="card-title mb-0"><i class="bi bi-hdd-network me-1"></i> Nodi ({{ nodes|length }})</h3>
+    <a href="{{ url_for('monitor.changes') }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-clock-history me-1"></i> Cambiamenti
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="50">
+        <thead>
+          <tr><th>STATO</th><th>INDIRIZZO</th><th>TIPO</th><th>SUBNET</th>
+              <th>LATENZA</th><th>MEDIA 24H</th><th>DISPONIBILITA' 24H</th><th>ULTIMO CONTATTO</th></tr>
+        </thead>
+        <tbody>
+          {% for n in nodes %}
+          <tr>
+            <td class="small">
+              <span class="snap-dot snap-dot-{{ 'online' if n.status == 'up' else 'offline' }}"></span>
+              {{ 'attivo' if n.status == 'up' else 'assente' }}
+            </td>
+            <td class="fw-semibold small">
+              {% if n.hostname %}
+              <div class="fw-normal text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ n.ip }}</a>
+            </td>
+            <td class="small">{{ n.device_label }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td class="small">{{ n.subnet_cidr or '-' }}</td>
+            <td class="small">{% if n.latency_ms %}{{ n.latency_ms }} ms{% else %}-{% endif %}</td>
+            <td class="small">{% if n.avg_latency %}{{ n.avg_latency }} ms{% else %}-{% endif %}</td>
+            <td class="small">
+              {% if n.samples_24h %}
+              {{ ((n.ok_24h / n.samples_24h) * 100)|round(1) }}%
+              <div class="text-body-secondary">{{ n.ok_24h }} / {{ n.samples_24h }} verifiche</div>
+              {% else %}<span class="text-body-secondary">nessuna verifica</span>{% endif %}
+            </td>
+            <td class="small">{{ n.last_seen_at|dt }}<div class="text-body-secondary">{{ n.last_seen_at|ago }}</div></td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="text-center text-body-secondary py-5">
+              <i class="bi bi-activity fs-3 d-block mb-2"></i>
+              Nessun nodo sorvegliato: attendere la prima scoperta.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

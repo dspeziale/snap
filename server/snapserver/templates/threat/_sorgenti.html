@@ -1,0 +1,378 @@
+{#
+  snap server - Threat Intelligence: sorgenti del catalogo e aggiornamento.
+
+  Un catalogo di cui non si sa quanto e' vecchio non e' utilizzabile: da qui si vede
+  quando ogni sorgente e' stata aggiornata, che cosa ha portato e che cosa e' andato
+  storto.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% if running %}
+<div class="alert alert-info d-flex align-items-center gap-2">
+  <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+  <div>
+    <strong>Aggiornamento in corso</strong>
+    ({{ running.source }} / {{ running.mode }}, avviato {{ running.started_at|dt }}):
+    {{ running.detail or 'in avvio' }} &mdash; {{ running.items }} voci finora.
+    Ricaricare la pagina per vedere l'avanzamento.
+  </div>
+</div>
+{% endif %}
+
+{# Cinque blocchi lunghi uno sotto l'altro facevano una pagina da scorrere: sono
+   schede, come nelle impostazioni di sistema. La scheda aperta e' quella
+   dell'aggiornamento, che e' l'operazione per cui si viene qui. #}
+{{ schede.barra([
+    ('src-aggiornamento', 'Aggiornare il catalogo', 'bi-cloud-arrow-down', none),
+    ('src-chiave', 'Chiave API della NVD', 'bi-key', none),
+    ('src-importazione', 'Importare da file', 'bi-upload', none),
+    ('src-prodotti', 'Prodotti in inventario', 'bi-box-seam', products|length),
+    ('src-registro', 'Registro', 'bi-clock-history', syncs|length),
+]) }}
+
+<div class="tab-content">
+
+<div class="tab-pane fade show active" id="pane-src-aggiornamento" role="tabpanel"
+     aria-labelledby="tab-src-aggiornamento">
+<div class="card h-100">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-cloud-arrow-down me-1"></i> Aggiornare il catalogo
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      La correlazione lavora <strong>sul catalogo locale</strong>: aggiornarlo e'
+      l'unico momento in cui il server esce verso internet, ed e' un'operazione
+      esplicita e tracciata. Su una rete senza uscita si usa l'importazione da file.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle" data-snap-table
+             data-page-size="10" data-no-search="true" data-no-sort="AZIONE">
+        <thead>
+          <tr><th>SORGENTE</th><th>CHE COSA PORTA</th><th>VOCI IN ARCHIVIO</th>
+              <th>ULTIMO</th><th>AZIONE</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>NVD, prodotti in inventario</td>
+            <td class="small text-body-secondary">
+              Le CVE dei soli prodotti che esistono in rete ({{ products|length }}
+              riconosciuti). Poche richieste, tutto pertinente.
+            </td>
+            <td class="text-end">{{ catalog.cve }}</td>
+            <td class="small text-nowrap">
+              {{ catalog.ultimo_per_sorgente.get('nvd', {}).get('quando')|dt
+                 if catalog.ultimo_per_sorgente.get('nvd') else 'mai' }}
+            </td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <form method="post"
+                    action="{{ url_for('threat.sync', operazione='targeted') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-primary"
+                        {{ 'disabled' if running }}>Aggiornare</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>NVD, finestra temporale</td>
+            <td class="small text-body-secondary">
+              Tutte le CVE modificate negli ultimi giorni: tiene fresco cio' che si
+              ha. Puo' richiedere molte pagine.
+            </td>
+            <td class="text-end">-</td>
+            <td class="small">-</td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <form method="post" class="d-flex gap-1"
+                    action="{{ url_for('threat.sync', operazione='window') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" name="giorni" class="form-control form-control-sm"
+                       value="{{ settings.window_days }}" min="1" max="120"
+                       style="width:5rem">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        {{ 'disabled' if running }}>Aggiornare</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>CISA KEV</td>
+            <td class="small text-body-secondary">
+              Vulnerabilita' <strong>sfruttate attivamente</strong>: il dato piu'
+              azionabile che esista. Un file, poche centinaia di kilobyte.
+            </td>
+            <td class="text-end">{{ catalog.cve_kev }}</td>
+            <td class="small text-nowrap">
+              {{ catalog.ultimo_per_sorgente.get('kev', {}).get('quando')|dt
+                 if catalog.ultimo_per_sorgente.get('kev') else 'mai' }}
+            </td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <form method="post"
+                    action="{{ url_for('threat.sync', operazione='kev') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        {{ 'disabled' if running }}>Aggiornare</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>MITRE CWE</td>
+            <td class="small text-body-secondary">
+              Le 130 classi di debolezza che la NVD usa per classificare le CVE.
+            </td>
+            <td class="text-end">{{ catalog.cwe }}</td>
+            <td class="small text-nowrap">
+              {{ catalog.ultimo_per_sorgente.get('cwe', {}).get('quando')|dt
+                 if catalog.ultimo_per_sorgente.get('cwe') else 'mai' }}
+            </td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <form method="post"
+                    action="{{ url_for('threat.sync', operazione='cwe') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        {{ 'disabled' if running }}>Aggiornare</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <td>MITRE ATT&amp;CK</td>
+            <td class="small text-body-secondary">
+              Tecniche e tattiche: dicono <em>come</em> un'esposizione verrebbe
+              usata. Circa 35 MB.
+            </td>
+            <td class="text-end">{{ catalog.tecniche }}</td>
+            <td class="small text-nowrap">
+              {{ catalog.ultimo_per_sorgente.get('attack', {}).get('quando')|dt
+                 if catalog.ultimo_per_sorgente.get('attack') else 'mai' }}
+            </td>
+            <td>
+              {% if has_role('tenant_admin') %}
+              <form method="post"
+                    action="{{ url_for('threat.sync', operazione='attack') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        {{ 'disabled' if running }}>Aggiornare</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% if has_role('tenant_admin') %}
+    <form method="post" action="{{ url_for('threat.sync', operazione='tutto') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-secondary btn-sm"
+              {{ 'disabled' if running }}
+              data-confirm="Aggiornare tutte le sorgenti? L'operazione dura alcuni minuti e contatta NVD, CISA e MITRE.">
+        <i class="bi bi-cloud-download me-1"></i> Aggiornare tutto
+      </button>
+    </form>
+    <p class="form-text mb-0">
+      La NVD limita a {{ settings.richieste_per_finestra }} richieste ogni 30
+      secondi{{ ' con la chiave API registrata' if settings.has_api_key
+                else ' senza chiave API' }}: l'aggiornamento attende
+      {{ settings.pausa }} secondi fra le richieste, quindi con
+      {{ products|length }} prodotti dura circa
+      {{ ((products|length * settings.pausa) / 60)|round(1) }} minuti.
+      {% if not settings.has_api_key %}
+      Con una chiave scenderebbe a
+      {{ ((products|length * 0.8) / 60)|round(1) }} minuti.
+      {% endif %}
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-src-chiave" role="tabpanel"
+     aria-labelledby="tab-src-chiave">
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-key me-1"></i> Chiave API della NVD
+    </h3>
+    {% if settings.has_api_key %}
+    <span class="badge text-bg-success">registrata</span>
+    {% else %}
+    <span class="badge text-bg-secondary">non registrata</span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Senza chiave la NVD concede <strong>5 richieste ogni 30 secondi</strong>, e
+      l'aggiornamento attende {{ settings.pausa }} secondi fra una richiesta e
+      l'altra. Con la chiave sono <strong>50</strong>: la stessa operazione passa
+      da alcuni minuti a pochi secondi. La chiave e' gratuita e si richiede alla
+      NIST con un indirizzo di posta.
+    </p>
+    <p class="small mb-3">
+      <a href="{{ settings.api_key_url }}" target="_blank" rel="noopener noreferrer">
+        Richiedere una chiave alla NVD <i class="bi bi-box-arrow-up-right"></i>
+      </a>
+    </p>
+    {% if settings.has_api_key %}
+    <p class="small mb-3">
+      Chiave in uso: <span class="font-monospace">{{ settings.api_key_masked }}</span>
+      &mdash; ritmo attuale: {{ settings.richieste_per_finestra }} richieste ogni 30
+      secondi, {{ settings.pausa }} s di attesa fra le richieste.
+    </p>
+    {% endif %}
+    {% if has_role('superadmin') %}
+    <form method="post" action="{{ url_for('threat.save_api_key') }}"
+          class="d-flex gap-2 flex-wrap align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="flex-grow-1">
+        <label class="form-label small" for="api-key">
+          CHIAVE (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+        </label>
+        <input type="password" name="api_key" id="api-key" autocomplete="off"
+               class="form-control form-control-sm font-monospace"
+               placeholder="{{ 'lasciare vuoto per rimuovere la chiave'
+                               if settings.has_api_key else 'incollare la chiave' }}">
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary"
+              {% if settings.has_api_key %}
+              data-confirm="Sostituire la chiave registrata? Un campo vuoto la rimuove e gli aggiornamenti tornano al ritmo senza chiave."
+              {% endif %}>Registrare</button>
+    </form>
+    <p class="form-text mb-0">
+      La chiave e' una credenziale dell'installazione, non di un cliente: vale per
+      tutti i tenant e la registra il solo amministratore di sistema. Non viene mai
+      mostrata per intero ne' scritta nei registri.
+    </p>
+    {% else %}
+    <p class="small text-body-secondary mb-0">
+      La registrazione della chiave e' riservata all'amministratore di sistema: il
+      catalogo delle vulnerabilita' e' unico per tutto il server.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-src-importazione" role="tabpanel"
+     aria-labelledby="tab-src-importazione">
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-upload me-1"></i> Importare da file
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Per le installazioni senza uscita verso internet. Il formato si riconosce dal
+      <strong>contenuto</strong>, non dall'estensione: JSON della NVD, catalogo KEV,
+      pacchetto STIX di ATT&amp;CK, CSV o ZIP delle CWE. Anche compressi con gzip.
+    </p>
+    {% if has_role('tenant_admin') %}
+    <form method="post" action="{{ url_for('threat.import_catalog') }}"
+          enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="flex-grow-1">
+        <label class="form-label small">FILE</label>
+        <input type="file" name="file" class="form-control form-control-sm"
+               accept=".json,.csv,.zip,.gz">
+      </div>
+      <button type="submit" class="btn btn-sm btn-primary">Importare</button>
+    </form>
+    {% else %}
+    <p class="small text-body-secondary mb-0">
+      L'importazione e' riservata agli amministratori di tenant.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-src-prodotti" role="tabpanel"
+     aria-labelledby="tab-src-prodotti">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-box-seam me-1"></i> Prodotti riconosciuti in inventario
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead><tr><th>PRODOTTO (CPE)</th><th>OSSERVAZIONI</th></tr></thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            <td class="font-monospace small">
+              cpe:2.3:{{ p.part }}:{{ p.vendor or '*' }}:{{ p.product }}
+            </td>
+            <td class="text-end">{{ p.osservazioni }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not products %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun prodotto riconoscibile: senza CPE ne' nome di prodotto la correlazione
+      con le CVE non e' possibile, e restano le esposizioni dei servizi.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-src-registro" role="tabpanel"
+     aria-labelledby="tab-src-registro">
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-clock-history me-1"></i> Registro degli aggiornamenti
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>QUANDO</th><th>SORGENTE</th><th>MODO</th><th>ESITO</th><th>VOCI</th>
+              <th>DETTAGLIO</th><th>RICHIESTO DA</th></tr>
+        </thead>
+        <tbody>
+          {% for s in syncs %}
+          <tr>
+            <td class="small text-nowrap">{{ s.started_at|dt }}</td>
+            <td class="small">{{ sources.get(s.source, s.source) }}</td>
+            <td class="small">{{ s.mode }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'success' if s.status == 'ok'
+                                            else ('warning' if s.status in ('running','partial') else 'danger') }}">
+                {{ s.status }}
+              </span>
+            </td>
+            <td class="text-end">{{ s.items }}</td>
+            <td class="small text-body-secondary">{{ s.detail }}</td>
+            <td class="small">{{ s.richiedente or 'server' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not syncs %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun aggiornamento registrato: il catalogo non e' mai stato scaricato.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+</div>

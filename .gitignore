@@ -1,0 +1,32 @@
+# snap - Esclusioni dal controllo di versione.
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.snap-pids.json
+server/data/
+server/instance/
+probe/data/
+probe/instance/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# Promemoria con credenziali in chiaro: non deve essere versionato
+tips.txt
+logs/
+
+# Manuali generati in formato Word
+docs/docx/
+
+# Variabili d'ambiente locali (mai versionate; usare .env.example come riferimento)
+.env
+.env.*
+!.env.example
+
+# Schermate: possono contenere indirizzi reali della rete del cliente
+screenshot.png
+*.screenshot.png
+
+# Log di avvio con percorsi locali
+.snap-run/

@@ -1,0 +1,29 @@
+{#
+  snap server - Messaggi di esito.
+
+  I messaggi sono resi come avvisi nel documento e trasformati in notifiche
+  (Awesome Notifications) dal modulo snap-dialogs.js. In assenza di JavaScript
+  restano visibili come avvisi, senza perdita di informazione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div data-snap-flash>
+    {% for category, message in messages %}
+    {% set categoria = 'danger' if category == 'error' else category %}
+    <div class="alert alert-{{ categoria }} alert-dismissible fade show" role="alert"
+         data-flash-category="{{ categoria }}" data-flash-message="{{ message }}">
+      <i class="bi {% if categoria == 'success' %}bi-check-circle
+        {%- elif categoria == 'danger' %}bi-exclamation-octagon
+        {%- elif categoria == 'warning' %}bi-exclamation-triangle
+        {%- else %}bi-info-circle{% endif %} me-2"></i>
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Chiudi"></button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}

@@ -1,0 +1,285 @@
+{#
+  snap server - Gestione degli utenti del tenant.
+
+  Tabella piatta e interattiva; modifica e operazioni sulle credenziali in
+  finestre di dialogo dedicate.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Utenti{% endblock %}
+{% block page_icon %}bi-people{% endblock %}
+{% block page_title %}Gestione Utenti{% endblock %}
+{% block page_subtitle %}
+  Accesso con sola email e password, secondo fattore TOTP opzionale.
+  Perimetro: {{ current_tenant['name'] }}.
+{% endblock %}
+
+{% block page_actions %}
+<button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#nuovo-utente">
+  <i class="bi bi-person-plus me-1"></i> Nuovo utente
+</button>
+{% endblock %}
+
+{% block content %}
+{{ schede.barra([
+    ('tenant', 'Utenti del tenant', 'bi-people', users|length),
+] + ([('sistema', 'Utenze di sistema', 'bi-shield-lock', system_users|length)]
+     if is_superadmin and system_users else [])) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-tenant" role="tabpanel"
+     aria-labelledby="tab-tenant">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-person-lines-fill me-1"></i> Utenti del tenant ({{ users|length }})
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>EMAIL</th><th>NOME</th><th>RUOLO</th><th>MFA</th><th>STATO</th>
+              <th>ULTIMO ACCESSO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td class="fw-semibold">{{ user['email'] }}</td>
+            <td class="small">{{ user['full_name'] or '-' }}</td>
+            <td class="small">{{ role_labels.get(user['role'], user['role']) }}</td>
+            <td>
+              {% if user['mfa_enabled'] %}
+                <span class="badge text-bg-success">attiva</span>
+              {% else %}
+                <span class="badge text-bg-secondary">non attiva</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if user['locked_until'] %}
+                <span class="badge text-bg-warning">bloccata</span>
+              {% elif user['is_active'] %}
+                <span class="badge text-bg-success">attiva</span>
+              {% else %}
+                <span class="badge text-bg-secondary">disattivata</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ user['last_login_at']|dt }}</td>
+            <td class="text-nowrap">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal"
+                      data-bs-target="#utente-{{ user['id'] }}" title="Gestisci l'utenza">
+                <i class="bi bi-pencil"></i>
+              </button>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="text-center text-body-secondary py-4">
+            Nessun utente censito per questo tenant.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+{% if is_superadmin and system_users %}
+<div class="tab-pane fade" id="pane-sistema" role="tabpanel" aria-labelledby="tab-sistema">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-shield-lock me-1"></i> Utenze di sistema</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm mb-0" data-snap-table data-page-size="10">
+        <thead><tr><th>EMAIL</th><th>NOME</th><th>MFA</th><th>ULTIMO ACCESSO</th></tr></thead>
+        <tbody>
+          {% for user in system_users %}
+          <tr>
+            <td class="fw-semibold">{{ user['email'] }}</td>
+            <td class="small">{{ user['full_name'] }}</td>
+            <td>
+              {% if user['mfa_enabled'] %}
+                <span class="badge text-bg-success">attiva</span>
+              {% else %}
+                <span class="badge text-bg-warning">non attiva</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ user['last_login_at']|dt }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    Le utenze di sistema non appartengono ad alcun tenant e possono commutare il
+    contesto operativo.
+  </div>
+</div>
+</div>
+{% endif %}
+</div>
+
+{# --- Creazione ----------------------------------------------------------- #}
+<div class="modal fade" id="nuovo-utente" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-person-plus me-1"></i> Nuovo utente</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <form method="post" action="{{ url_for('admin.create_user') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="email">Indirizzo email</label>
+              <input type="email" class="form-control" id="email" name="email" required>
+              <div class="form-text">L'accesso avviene con la sola email.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="full_name">Nome e cognome</label>
+              <input type="text" class="form-control" id="full_name" name="full_name">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="role">Ruolo</label>
+              <select class="form-select" id="role" name="role">
+                {% for role in roles %}
+                <option value="{{ role }}">{{ role_labels.get(role, role) }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="password">Password</label>
+              <input type="text" class="form-control" id="password" name="password"
+                     autocomplete="off">
+              <div class="form-text">
+                Se lasciata vuota viene generata e mostrata una volta.
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-check2 me-1"></i> Crea utente
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# --- Gestione di ciascuna utenza ----------------------------------------- #}
+{% for user in users %}
+<div class="modal fade" id="utente-{{ user['id'] }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">
+          <i class="bi bi-person-gear me-1"></i> {{ user['email'] }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" action="{{ url_for('admin.update_user', user_id=user['id']) }}"
+              id="modifica-utente-{{ user['id'] }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="nome-{{ user['id'] }}">Nome e cognome</label>
+              <input type="text" class="form-control" id="nome-{{ user['id'] }}"
+                     name="full_name" value="{{ user['full_name'] }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="ruolo-{{ user['id'] }}">Ruolo</label>
+              <select class="form-select" id="ruolo-{{ user['id'] }}" name="role">
+                {% for role in roles %}
+                <option value="{{ role }}" {{ 'selected' if user['role'] == role }}>
+                  {{ role_labels.get(role, role) }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="is_active"
+                       id="attiva-{{ user['id'] }}" {{ 'checked' if user['is_active'] }}>
+                <label class="form-check-label" for="attiva-{{ user['id'] }}">
+                  Utenza attiva
+                </label>
+              </div>
+            </div>
+          </div>
+        </form>
+
+        <hr>
+        <h6 class="mb-2">Credenziali</h6>
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" action="{{ url_for('admin.reset_password', user_id=user['id']) }}"
+                data-confirm="Generare una password provvisoria per {{ user['email'] }}? Quella attuale non sara' piu' valida."
+                data-confirm-ok="Genera">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-key me-1"></i> Reimposta password
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('admin.reset_mfa', user_id=user['id']) }}"
+                data-confirm="Azzerare il secondo fattore di {{ user['email'] }}? L'utente dovra' riconfigurarlo."
+                data-confirm-ok="Azzera">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-warning"
+                    {{ 'disabled' if not user['mfa_enabled'] }}>
+              <i class="bi bi-shield-slash me-1"></i> Azzera MFA
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('admin.delete_user', user_id=user['id']) }}"
+                data-confirm="Eliminare definitivamente l'utenza {{ user['email'] }}?"
+                data-confirm-ok="Elimina" data-confirm-destructive>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-danger">
+              <i class="bi bi-trash me-1"></i> Elimina utenza
+            </button>
+          </form>
+        </div>
+
+        <hr>
+        <dl class="row small mb-0">
+          <dt class="col-5">Secondo fattore</dt>
+          <dd class="col-7">
+            {% if user['mfa_enabled'] %}
+              attivo dal {{ user['mfa_confirmed_at']|dt }}
+            {% else %}
+              non attivo
+            {% endif %}
+          </dd>
+          <dt class="col-5">Ultimo accesso</dt>
+          <dd class="col-7">{{ user['last_login_at']|dtz }}</dd>
+          <dt class="col-5">Tentativi falliti</dt>
+          <dd class="col-7">{{ user['failed_logins'] }}</dd>
+          {% if user['locked_until'] %}
+          <dt class="col-5 text-warning">Bloccata fino al</dt>
+          <dd class="col-7">{{ user['locked_until']|dtz }}</dd>
+          {% endif %}
+          <dt class="col-5">Password provvisoria</dt>
+          <dd class="col-7">{{ 'si' if user['must_change_pwd'] else 'no' }}</dd>
+        </dl>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Chiudi</button>
+        <button type="submit" form="modifica-utente-{{ user['id'] }}" class="btn btn-primary">
+          <i class="bi bi-save me-1"></i> Salva modifiche
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

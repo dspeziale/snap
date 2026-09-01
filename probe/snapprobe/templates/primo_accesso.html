@@ -1,0 +1,102 @@
+{#
+  snap probe - Prima apertura: scelta della password dell'interfaccia.
+
+  Non esiste una password di fabbrica: una credenziale predefinita, per quanto ben
+  documentata, e' la prima cosa che si prova su un dispositivo trovato in rete. La
+  prima scelta si fa dalla postazione della sonda, perche' se l'interfaccia e' gia'
+  aperta alla rete non deve poterla scegliere il primo che arriva.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}<!doctype html>
+<html lang="it" data-bs-theme="{{ settings.get('ui_theme', 'light') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prima apertura - {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/probe.css') }}">
+</head>
+<body class="bg-body-tertiary">
+<main class="container py-5" style="max-width: 34rem;">
+
+  <div class="text-center mb-4">
+    <i class="bi bi-broadcast-pin text-primary" style="font-size: 2.6rem;"></i>
+    <h1 class="h4 mt-2 mb-1">{{ app_name }}</h1>
+    <p class="text-body-secondary small mb-0">Prima apertura dell'interfaccia</p>
+  </div>
+
+  {% include 'flash.html' %}
+
+  {% if solo_locale %}
+  <div class="card border-warning shadow-sm">
+    <div class="card-body">
+      <h2 class="h6 text-uppercase text-body-secondary mb-3">
+        <i class="bi bi-shield-exclamation me-1"></i> Impostazione consentita solo in locale
+      </h2>
+      <p>
+        Questa sonda non ha ancora una password e la richiesta arriva da
+        <code>{{ indirizzo }}</code>, che non e' la postazione su cui la sonda gira.
+      </p>
+      <p>
+        La prima password si scegle <strong>dal dispositivo stesso</strong>. E' la
+        condizione perche' la sonda appartenga a chi l'ha installata e non al primo
+        che la trova in rete.
+      </p>
+      <a class="btn btn-primary w-100" href="{{ indirizzo_locale }}">
+        <i class="bi bi-box-arrow-up-right me-1"></i>
+        Apri {{ indirizzo_locale }}
+      </a>
+      <p class="small text-body-secondary mt-3 mb-0">
+        Il collegamento funziona <strong>se questo browser gira sulla postazione
+        della sonda</strong>: in quel caso stai solo usando l'indirizzo di rete al
+        posto di quello locale, e basta cambiarlo. Se invece sei su un altro
+        computer, la password va scelta accedendo al dispositivo -- da remoto non si
+        puo', di proposito.
+      </p>
+    </div>
+  </div>
+  {% else %}
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h2 class="h6 text-uppercase text-body-secondary mb-3">
+        <i class="bi bi-key me-1"></i> Scegliere la password dell'interfaccia
+      </h2>
+      <p class="small text-body-secondary">
+        Protegge la configurazione della sonda: registrazione presso il server,
+        intervallo di raccolta, sospensione delle scansioni. Non esiste una password
+        predefinita, e non c'e' un modo di recuperarla da remoto: si reimposta dal
+        dispositivo.
+      </p>
+
+      <form method="post" action="{{ url_for('auth.primo_accesso') }}" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label" for="password">Password</label>
+          <input type="password" class="form-control" id="password" name="password"
+                 required autofocus>
+          <div class="form-text">
+            Almeno 10 caratteri, con una maiuscola, una minuscola e una cifra.
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="conferma">Ripetere la password</label>
+          <input type="password" class="form-control" id="conferma" name="conferma" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="bi bi-shield-check me-1"></i> Imposta e entra
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <footer class="text-center text-body-secondary small mt-4">
+    &copy; 2024-26 DS Consulting &middot; licenza MIT &middot; v{{ app_version }}
+  </footer>
+</main>
+</body>
+</html>

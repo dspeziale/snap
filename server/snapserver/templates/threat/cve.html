@@ -1,0 +1,225 @@
+{#
+  snap server - Dettaglio di una CVE del catalogo locale, con i nodi interessati.
+
+  La domanda a cui la pagina risponde non e' "che cos'e' questa CVE" -- per quello
+  bastano i riferimenti -- ma "riguarda qualcosa che ho, e perche' lo penso".
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}{{ cve.cve_id }}{% endblock %}
+{% block page_icon %}bi-shield-exclamation{% endblock %}
+{% block page_title %}{{ cve.cve_id }}{% endblock %}
+{% block page_subtitle %}
+  {{ cve.severity or 'gravita non dichiarata' }}
+  {%- if cve.cvss_score %}, punteggio {{ cve.cvss_score }} (CVSS {{ cve.cvss_version }})
+  {%- endif %}
+  {%- if cve.kev %} &mdash; <strong>sfruttata attivamente</strong> secondo il catalogo
+  CISA KEV{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('threat.index', scheda='catalogo') }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Catalogo CVE
+  </a>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="https://nvd.nist.gov/vuln/detail/{{ cve.cve_id }}" target="_blank"
+       rel="noopener" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-box-arrow-up-right me-1"></i> Scheda NVD
+    </a>
+    <a href="https://www.cve.org/CVERecord?id={{ cve.cve_id }}" target="_blank"
+       rel="noopener" class="btn btn-sm btn-outline-primary">
+      <i class="bi bi-box-arrow-up-right me-1"></i> Scheda MITRE
+    </a>
+  </div>
+</div>
+
+{% if cve.kev %}
+<div class="alert alert-danger">
+  <i class="bi bi-fire me-1"></i>
+  <strong>Sfruttata attivamente.</strong> Inserita nel catalogo CISA il
+  {{ cve.kev_added_at|giorno }}{% if cve.kev_due_at %}, scadenza per la correzione
+  {{ cve.kev_due_at|giorno }}{% endif %}{% if cve.kev_ransomware %}; risulta usata in campagne
+  di ransomware{% endif %}. Fra due vulnerabilita' con lo stesso punteggio, questa va
+  prima.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-file-text me-1"></i> Descrizione</h3>
+      </div>
+      <div class="card-body">
+        <p class="mb-3">{{ cve.description or 'Nessuna descrizione nel catalogo locale.' }}</p>
+        <dl class="row mb-0 small">
+          <dt class="col-4">Pubblicata</dt>
+          {# Istanti pubblicati da NVD in UTC: si convertono come tutti gli
+             altri, con il fuso indicato. #}
+          <dd class="col-8">{{ cve.published_at|dtz }}</dd>
+          <dt class="col-4">Ultima modifica</dt>
+          <dd class="col-8">{{ cve.modified_at|dtz }}</dd>
+          <dt class="col-4">Vettore CVSS</dt>
+          <dd class="col-8 font-monospace">{{ cve.cvss_vector or '-' }}</dd>
+          <dt class="col-4">Sorgente in archivio</dt>
+          <dd class="col-8">{{ cve.source }}</dd>
+          <dt class="col-4">Importata</dt>
+          <dd class="col-8">{{ cve.imported_at|dt }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-diagram-3 me-1"></i> Classi di debolezza (CWE)
+        </h3>
+      </div>
+      <div class="card-body">
+        {% if cve.cwe %}
+        <ul class="mb-0 small">
+          {% for w in cve.cwe %}
+          <li>
+            <a href="{{ w.url }}" target="_blank" rel="noopener">{{ w.cwe_id }}</a>
+            <strong>{{ w.name }}</strong>
+            <div class="text-body-secondary">{{ (w.description or '')[:220] }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+        {% elif cve.cwe_ids %}
+        <p class="small mb-0">
+          Dichiarate: <span class="font-monospace">{{ cve.cwe_ids }}</span>. Il catalogo
+          CWE non e' stato importato, quindi non c'e' il nome della classe.
+        </p>
+        {% else %}
+        <p class="small text-body-secondary mb-0">Nessuna CWE dichiarata.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-hdd-network me-1"></i> Nodi interessati ({{ affected|length }})
+    </h3>
+    <small class="text-body-secondary">
+      con il motivo per cui sono stati collegati a questa CVE
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>NODO</th><th>SERVIZIO</th><th>CLASSE</th><th>PRODOTTO</th>
+              <th>VERSIONE</th><th>PERCHE'</th><th>CONF.</th><th>STATO</th></tr>
+        </thead>
+        <tbody>
+          {% for a in affected %}
+          <tr>
+            <td>
+              <a href="{{ url_for('inventory.node', node_id=a.node_id) }}"
+                 class="font-monospace">{{ a.ip }}</a>
+              {% if a.hostname %}
+              <div class="small text-body-secondary">{{ a.hostname }}</div>{% endif %}
+            </td>
+            <td class="small font-monospace">
+              {% if a.port %}{{ a.protocol }}/{{ a.port }}{% else %}-{% endif %}
+            </td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if a.kind == 'confirmed'
+                                            else 'warning' }}">
+                {{ kinds[a.kind] }}
+              </span>
+            </td>
+            <td class="small">{{ a.product or '-' }}</td>
+            <td class="small">{{ a.version or 'non rilevata' }}</td>
+            <td class="small text-body-secondary">{{ a.evidence }}</td>
+            <td class="text-end small">{{ a.confidence }}%</td>
+            <td class="small">{{ statuses[a.status] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not affected %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun nodo collegato a questa CVE. Non significa che la rete non sia interessata:
+      significa che nell'inventario non c'e' un prodotto che corrisponda
+      all'applicabilita' dichiarata, il che dipende anche da quante versioni le sonde
+      riescono a rilevare.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-check2-square me-1"></i> Applicabilita' dichiarata dalla NVD
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="15" data-no-search="true">
+        <thead>
+          <tr><th>CPE</th><th>PARTE</th><th>VENDOR</th><th>PRODOTTO</th><th>DA</th>
+              <th>A</th><th>VULNERABILE</th></tr>
+        </thead>
+        <tbody>
+          {% for c in cve.cpe %}
+          <tr>
+            <td class="font-monospace small">{{ c.criteria }}</td>
+            <td class="small">{{ c.part }}</td>
+            <td class="small">{{ c.vendor }}</td>
+            <td class="small">{{ c.product }}</td>
+            <td class="small">
+              {{ c.version_start or c.version or '-' }}
+              {%- if c.version_start %} ({{ 'inclusa' if c.version_start_incl else 'esclusa' }}){% endif %}
+            </td>
+            <td class="small">
+              {{ c.version_end or '-' }}
+              {%- if c.version_end %} ({{ 'inclusa' if c.version_end_incl else 'esclusa' }}){% endif %}
+            </td>
+            <td class="small">{{ 'sì' if c.vulnerable else 'no' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not cve.cpe %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna applicabilita' in archivio: la CVE e' arrivata dal catalogo KEV, che non
+      la contiene. Un aggiornamento dalla NVD la completa.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{% set riferimenti = cve.references_json|from_json if cve.references_json else [] %}
+{% if riferimenti %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-link-45deg me-1"></i> Riferimenti</h3>
+  </div>
+  <div class="card-body">
+    <ul class="mb-0 small">
+      {% for url in riferimenti %}
+      <li><a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,208 @@
+{#
+  snap server - Impostazioni: canali di recapito e resoconto quotidiano.
+
+  Partial della pagina delle impostazioni. Sta a se' perche' settings.html e' gia'
+  lungo, e perche' i canali sono un argomento con una propria completezza.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% import 'partials/tabs.html' as schede %}
+
+{# Schede interne: la pagina delle impostazioni ha quattro argomenti e ciascuno ne ha
+   due o tre. Senza un secondo livello si scorre per tre schermate. #}
+{{ schede.barra([
+    ('can-telegram', 'Bot Telegram', 'bi-send', none),
+    ('can-resoconto', 'Resoconto quotidiano', 'bi-alarm', none),
+], classe='nav-pills mb-3') }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-can-telegram" role="tabpanel"
+     aria-labelledby="tab-can-telegram">
+<div class="row g-3">
+
+  <div class="col-12">
+    <div class="card" id="telegram">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0"><i class="bi bi-send me-1"></i> Bot Telegram</h3>
+        <span class="badge text-bg-{{ 'success' if channels.telegram.pronto else 'secondary' }}">
+          {{ 'pronto' if channels.telegram.pronto else 'non configurato' }}
+        </span>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Una notifica in una casella viene letta quando qualcuno apre la casella. Un
+          incidente alle tre di notte ha bisogno di un canale che suoni. Il bot e' anche
+          il modo di raggiungere un turno che cambia persona: si cambia il gruppo, non i
+          recapiti.
+        </p>
+        <ol class="small text-body-secondary">
+          <li>Su Telegram, parlare con <span class="font-monospace">@BotFather</span>,
+              comando <span class="font-monospace">/newbot</span>: restituisce il token.</li>
+          <li>Aggiungere il bot al gruppo (o avviare una chat con lui) e mandare un
+              messaggio qualunque.</li>
+          <li>L'identificativo della chat si legge da
+              <span class="font-monospace">api.telegram.org/bot&lt;token&gt;/getUpdates</span>;
+              per un gruppo comincia con il segno meno.</li>
+        </ol>
+        {% if has_role('tenant_admin') %}
+        <form method="post" action="{{ url_for('admin.save_telegram_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label small">TOKEN DEL BOT</label>
+              <input type="password" name="telegram_bot_token" class="form-control"
+                     autocomplete="new-password"
+                     placeholder="{{ telegram_token_masked or 'non impostato' }}">
+              <div class="form-text">
+                Il token e' una credenziale: si sostituisce solo indicandone uno nuovo e
+                non viene mai rimandato alla pagina.
+                {% if telegram.token %}
+                Bot configurato: <span class="font-monospace">{{ telegram_token_masked }}</span>.
+                {% endif %}
+              </div>
+            </div>
+            <div class="col-12 col-md-7">
+              <label class="form-label small">CHAT PREDEFINITA</label>
+              <input type="text" name="telegram_chat_id" class="form-control"
+                     value="{{ telegram.chat_id }}" placeholder="-1001234567890">
+            </div>
+            <div class="col-12 col-md-5 d-flex align-items-center">
+              <div class="form-check form-switch mt-4">
+                <input class="form-check-input" type="checkbox" name="telegram_enabled"
+                       id="telegram-attivo" {{ 'checked' if telegram.enabled }}>
+                <label class="form-check-label small" for="telegram-attivo">
+                  canale attivo
+                </label>
+              </div>
+            </div>
+            <div class="col-12 d-flex flex-wrap gap-2">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i> Salvare
+              </button>
+              <button type="submit" class="btn btn-outline-secondary"
+                      formaction="{{ url_for('admin.test_telegram') }}">
+                <i class="bi bi-send-check me-1"></i> Mandare un messaggio di prova
+              </button>
+              {% if telegram.token %}
+              <button type="submit" class="btn btn-outline-danger"
+                      name="telegram_token_clear" value="1"
+                      data-confirm="Rimuovere il token del bot? Le notifiche su Telegram resteranno in coda.">
+                <i class="bi bi-trash me-1"></i> Rimuovere il token
+              </button>
+              {% endif %}
+            </div>
+          </div>
+        </form>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          La configurazione dei canali e' riservata agli amministratori di tenant.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-can-resoconto" role="tabpanel"
+     aria-labelledby="tab-can-resoconto">
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card" id="resoconto">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-alarm me-1"></i> Resoconto quotidiano
+        </h3>
+        <span class="badge text-bg-{{ 'success' if report_settings.enabled else 'secondary' }}">
+          {{ report_settings.time if report_settings.enabled else 'sospeso' }}
+        </span>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Il server compone e spedisce il resoconto del giorno precedente all'ora
+          indicata, nel fuso di ciascun tenant, senza che nessuno sia collegato. Un solo
+          resoconto per giorno, anche a fronte di riavvii. Se non c'e' nulla da segnalare
+          viene spedito comunque, in forma breve: il silenzio non si distingue da un
+          guasto del reporting.
+        </p>
+        {% if has_role('tenant_admin') %}
+        <form method="post" action="{{ url_for('admin.save_report_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-6 col-md-3">
+              <label class="form-label small">ORA LOCALE</label>
+              <input type="time" name="report_daily_time" class="form-control"
+                     value="{{ report_settings.time }}">
+            </div>
+            <div class="col-6 col-md-3">
+              <label class="form-label small">TENDENZE (giorni)</label>
+              <input type="number" name="report_daily_trend_days" class="form-control"
+                     min="2" max="92" value="{{ report_settings.trend_days }}">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label small">CANALI</label>
+              <div class="d-flex gap-3 pt-1">
+                {% for chiave, etichetta in {'email': 'posta', 'telegram': 'Telegram'}.items() %}
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox"
+                         name="report_daily_channels" value="{{ chiave }}"
+                         id="resoconto-{{ chiave }}"
+                         {{ 'checked' if chiave in report_settings.channels }}>
+                  <label class="form-check-label small" for="resoconto-{{ chiave }}">
+                    {{ etichetta }}
+                  </label>
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label small">DESTINATARI DI POSTA</label>
+              <input type="text" name="report_daily_recipients" class="form-control"
+                     value="{{ report_settings.recipients|join(', ') }}"
+                     placeholder="vuoto: email di riferimento del tenant">
+            </div>
+            <div class="col-12">
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="report_daily_enabled"
+                       id="resoconto-attivo" {{ 'checked' if report_settings.enabled }}>
+                <label class="form-check-label small" for="resoconto-attivo">
+                  spedizione attiva
+                </label>
+              </div>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="report_daily_attach"
+                       id="resoconto-allegato" {{ 'checked' if report_settings.attach }}>
+                <label class="form-check-label small" for="resoconto-allegato">
+                  allegare il report NOC in PDF
+                </label>
+              </div>
+              <div class="form-text">
+                L'allegato e' spento per difetto: un inventario di rete che finisce in
+                una casella esterna e' un problema di riservatezza, non di comodita'.
+              </div>
+            </div>
+            <div class="col-12 d-flex flex-wrap gap-2">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i> Salvare
+              </button>
+              <a href="{{ url_for('reports.index') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-file-earmark-pdf me-1"></i> Report e resoconti
+              </a>
+            </div>
+          </div>
+        </form>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          La configurazione del resoconto e' riservata agli amministratori di tenant.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>

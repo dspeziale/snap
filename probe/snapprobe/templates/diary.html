@@ -1,0 +1,68 @@
+{# snap probe - Diario locale. Autore: Daniele Speziale - 2026-08-26 - MIT #}
+{% extends 'base.html' %}
+{% block title %}Diario locale{% endblock %}
+{% block page_icon %}bi-journal-text{% endblock %}
+{% block page_title %}Diario locale della sonda{% endblock %}
+{% block page_subtitle %}
+  Eventi e conferimenti registrati sul dispositivo, con orari nel fuso
+  {{ display_timezone }}{% if not display_timezone_known %} (sonda non registrata: fuso del tenant non noto){% endif %}.
+{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-list-ul me-1"></i> Eventi ({{ events|length }})</h2>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" data-snap-table data-page-size="25">
+          <thead><tr><th>ISTANTE</th><th>LIVELLO</th><th>MESSAGGIO</th></tr></thead>
+          <tbody>
+            {% for event in events %}
+            <tr>
+              <td class="small text-nowrap">{{ event['created_at']|dt }}</td>
+              <td>
+                {% if event['level'] == 'error' %}
+                  <span class="badge text-bg-danger">errore</span>
+                {% elif event['level'] == 'warning' %}
+                  <span class="badge text-bg-warning">attenzione</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">info</span>
+                {% endif %}
+              </td>
+              <td class="small">{{ event['message'] }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="text-body-secondary small py-3">Diario vuoto.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-cloud-arrow-up me-1"></i> Conferimenti</h2>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0" data-snap-table data-page-size="25">
+          <thead><tr><th>ISTANTE</th><th>LOTTO</th><th class="text-end">REC.</th><th>ESITO</th></tr></thead>
+          <tbody>
+            {% for sync in syncs %}
+            <tr>
+              <td class="small text-nowrap">{{ sync['created_at']|dt }}</td>
+              <td class="small"><code>{{ sync['batch_uid'][:10] }}</code></td>
+              <td class="text-end small">{{ sync['records'] }}</td>
+              <td class="small">{{ sync['status'] }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="text-body-secondary small py-3">Nessun conferimento.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

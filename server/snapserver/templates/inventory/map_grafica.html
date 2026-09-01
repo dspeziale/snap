@@ -1,0 +1,322 @@
+{#
+  snap server - Mappa della rete in forma grafica, con le icone dei dispositivi.
+
+  Due viste, una pagina:
+
+  * il PANORAMA -- ogni sonda al centro della propria isola, le reti che osserva
+    attorno, la bolla grande quanto la loro consistenza e con l'icona del tipo piu'
+    presente;
+  * una RETE -- i dispositivi attorno al centro, ciascuno con l'icona del proprio
+    tipo, il colore dello stato e il collegamento alla propria scheda.
+
+  La disposizione la calcola il server (`map_graphic`): la pagina non carica librerie
+  di grafi, non ha script inline e funziona senza JavaScript. Le linee sono un SVG con
+  `viewBox`, le icone sono elementi posizionati in percentuale: la mappa scala con la
+  finestra senza ricalcoli.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Mappa grafica della rete{% endblock %}
+{% block page_icon %}bi-bezier2{% endblock %}
+{% block page_title %}Mappa grafica della rete{% endblock %}
+{% block page_subtitle %}
+  {% if vista %}
+  Rete {{ vista.cidr }}{% if vista.etichetta %} - {{ vista.etichetta }}{% endif %}:
+  {{ vista.totale }} dispositivi, {{ vista.attivi }} attivi adesso, osservati da
+  {{ vista.sonda }}. Ogni icona e' un dispositivo; il colore e' lo stato.
+  {% else %}
+  Ogni bolla e' una rete dichiarata in cui la sonda ha trovato qualcosa: la dimensione
+  dice quanti dispositivi, l'icona il tipo piu' presente. Si apre una rete per vedere i
+  dispositivi uno per uno.
+  {% endif %}
+{% endblock %}
+
+{% block page_actions %}
+{% if vista %}
+<a href="{{ url_for('inventory.network_map_graphic', attivi='1' if solo_attivi else none) }}"
+   class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-arrow-left me-1"></i> Panorama
+</a>
+<a href="{{ url_for('inventory.nodes', subnet=vista.subnet_id) }}"
+   class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-list-ul me-1"></i> Elenco di questa rete
+</a>
+{% endif %}
+<a href="{{ url_for('inventory.network_map_graphic',
+                    subnet=vista.subnet_id if vista else none,
+                    attivi=none if solo_attivi else '1') }}"
+   class="btn btn-sm {{ 'btn-primary' if solo_attivi else 'btn-outline-secondary' }}">
+  <i class="bi bi-funnel me-1"></i>
+  {{ 'Mostra anche gli assenti' if solo_attivi else 'Solo dispositivi attivi' }}
+</a>
+<a href="{{ url_for('inventory.network_map') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-diagram-3 me-1"></i> Mappa ad albero
+</a>
+{% endblock %}
+
+{% block content %}
+
+{# La dimensione della pagina di stampa scelta dall'operatore. Un blocco <style> e'
+   l'unico modo di fissare @page; il valore viene da un'allowlist lato server, quindi
+   non e' testo arbitrario. #}
+<style>
+  @media print {
+    @page { size: {{ fogli_stampa[foglio].css }}; margin: 6mm; }
+  }
+</style>
+
+{# ------------------------------------------------------------------ barra stampa #}
+<div class="card mb-3 snap-nostampa">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+    <span class="small fw-semibold me-1"><i class="bi bi-printer me-1"></i> Stampa</span>
+    <div class="btn-group btn-group-sm" role="group" aria-label="Formato del foglio">
+      {% for chiave, f in fogli_stampa.items() %}
+      <a href="{{ url_for('inventory.network_map_graphic',
+                          subnet=vista.subnet_id if vista else none,
+                          attivi='1' if solo_attivi else none, foglio=chiave) }}"
+         class="btn {{ 'btn-primary' if foglio == chiave else 'btn-outline-secondary' }}">
+        {{ f.label }}
+      </a>
+      {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm btn-primary" data-print>
+      <i class="bi bi-printer-fill me-1"></i> Stampa ora
+    </button>
+    <span class="small text-body-secondary ms-auto">
+      La mappa riempie il foglio scelto; sfondo e comandi non vengono stampati.
+    </span>
+  </div>
+</div>
+
+{# ------------------------------------------------------------------ scelta rete #}
+<div class="card mb-3 snap-nostampa">
+  <div class="card-body py-2">
+    <form method="get" action="{{ url_for('inventory.network_map_graphic') }}"
+          class="row g-2 align-items-end">
+      {% if solo_attivi %}<input type="hidden" name="attivi" value="1">{% endif %}
+      <div class="col-12 col-md-6 col-lg-5">
+        <label class="form-label small mb-1" for="subnet">Rete da disegnare</label>
+        <select class="form-select form-select-sm" id="subnet" name="subnet">
+          <option value="">Panorama: tutte le reti con dispositivi</option>
+          {% for r in reti %}
+          <option value="{{ r.id }}" {{ 'selected' if vista and r.id == vista.subnet_id else '' }}>
+            {{ r.cidr }}{% if r.etichetta %} - {{ r.etichetta }}{% endif %}
+            ({{ r.totale }} dispositivi)
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-3 col-lg-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100">
+          <i class="bi bi-bezier2 me-1"></i> Disegna
+        </button>
+      </div>
+      <div class="col-12 col-lg-5">
+        <p class="small text-body-secondary mb-0">
+          {% if vista %}
+          I dispositivi con riscontri aperti stanno sugli anelli interni: se qualcosa
+          non entra nel disegno non e' cio' che ha un problema.
+          {% else %}
+          {{ panorama.reti_disegnate }} reti disegnate su {{ panorama.reti_totali }}
+          con dispositivi.
+          {% endif %}
+        </p>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------------------------------ disegno #}
+<div class="card mb-3 snap-stampa-mappa">
+  <div class="card-body">
+    {% if vista %}
+    {# ------------------------------------------------------------- una rete #}
+    <div class="snap-mappa" style="--snap-mappa-rapporto: {{ vista.altezza }} / {{ vista.larghezza }}">
+      <svg class="snap-mappa-linee" viewBox="0 0 {{ vista.larghezza }} {{ vista.altezza }}"
+           preserveAspectRatio="none" aria-hidden="true" focusable="false">
+        {% for n in vista.nodi %}
+        <line x1="{{ vista.centro.x }}" y1="{{ vista.centro.y }}"
+              x2="{{ n.x|round(1) }}" y2="{{ n.y|round(1) }}"
+              class="snap-mappa-filo snap-mappa-filo-{{ n.stato }}"></line>
+        {% endfor %}
+      </svg>
+
+      <div class="snap-mappa-centro"
+           style="left: {{ (vista.centro.x / vista.larghezza * 100)|round(3) }}%;
+                  top: {{ (vista.centro.y / vista.altezza * 100)|round(3) }}%">
+        <i class="bi bi-diagram-3"></i>
+        <span class="snap-mappa-centro-titolo">{{ vista.cidr }}</span>
+        <span class="snap-mappa-centro-nota">
+          {{ vista.zona or 'zona non dichiarata' }}
+        </span>
+      </div>
+
+      {% for n in vista.nodi %}
+      <a class="snap-mappa-nodo snap-mappa-{{ n.stato }}"
+         style="left: {{ (n.x / vista.larghezza * 100)|round(3) }}%;
+                top: {{ (n.y / vista.altezza * 100)|round(3) }}%"
+         href="{{ url_for('inventory.node', node_id=n.id) }}"
+         title="{{ n.ip }}{% if n.hostname %} - {{ n.hostname }}{% endif %} | {{ n.tipo }}{% if n.dichiarato %} (dichiarato dall'operatore){% else %} (confidenza {{ n.confidenza }}%){% endif %} | {{ n.porte }} porte aperte{% if n.snmp %}, letto via SNMP{% endif %}{% if n.riscontri %} | {{ n.riscontri }} riscontri aperti{% endif %}">
+        <span class="snap-mappa-icona">
+          <i class="bi {{ n.icona }}"></i>
+          {% if n.riscontri %}<span class="snap-mappa-allarme">{{ n.riscontri }}</span>{% endif %}
+          {% if n.dichiarato %}
+          <span class="snap-mappa-dichiarato" aria-hidden="true">
+            <i class="bi bi-person-check"></i>
+          </span>
+          {% endif %}
+        </span>
+        <span class="snap-mappa-nome">{{ n.etichetta }}</span>
+      </a>
+      {% endfor %}
+    </div>
+
+    {% if vista.non_disegnati %}
+    <p class="small text-body-secondary mt-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      {{ vista.non_disegnati }} dispositivi non sono disegnati: oltre le
+      {{ max_nodi }} icone si sovrapporrebbero. Sono i meno interessanti per questa
+      vista (assenti e senza riscontri); l'elenco completo sta in
+      <a href="{{ url_for('inventory.nodes', subnet=vista.subnet_id) }}">Nodi</a>.
+    </p>
+    {% endif %}
+
+    {% else %}
+    {# --------------------------------------------------------------- panorama #}
+    {% if panorama.isole %}
+    <div class="snap-mappa" style="--snap-mappa-rapporto: {{ panorama.altezza }} / {{ panorama.larghezza }}">
+      <svg class="snap-mappa-linee" viewBox="0 0 {{ panorama.larghezza }} {{ panorama.altezza }}"
+           preserveAspectRatio="none" aria-hidden="true" focusable="false">
+        {% for isola in panorama.isole %}
+        {% for r in isola.reti %}
+        <line x1="{{ isola.x }}" y1="{{ isola.y }}"
+              x2="{{ r.x|round(1) }}" y2="{{ r.y|round(1) }}"
+              class="snap-mappa-filo snap-mappa-filo-{{ r.stato }}"></line>
+        {% endfor %}
+        {% endfor %}
+      </svg>
+
+      {% for isola in panorama.isole %}
+      <div class="snap-mappa-centro"
+           style="left: {{ (isola.x / panorama.larghezza * 100)|round(3) }}%;
+                  top: {{ (isola.y / panorama.altezza * 100)|round(3) }}%">
+        <i class="bi bi-broadcast-pin"></i>
+        <span class="snap-mappa-centro-titolo">{{ isola.sonda }}</span>
+        <span class="snap-mappa-centro-nota">
+          {{ isola.nodi }} dispositivi, {{ isola.attivi }} attivi
+        </span>
+      </div>
+
+      {% for r in isola.reti %}
+      <a class="snap-mappa-rete snap-mappa-{{ r.stato }} snap-mappa-{{ r.peso }}"
+         style="left: {{ (r.x / panorama.larghezza * 100)|round(3) }}%;
+                top: {{ (r.y / panorama.altezza * 100)|round(3) }}%"
+         href="{{ url_for('inventory.network_map_graphic', subnet=r.subnet_id,
+                          attivi='1' if solo_attivi else none) }}"
+         title="{{ r.cidr }}{% if r.etichetta %} - {{ r.etichetta }}{% endif %} | {{ r.totale }} dispositivi, {{ r.attivi }} attivi | prevalgono: {{ r.tipo_dominante }}{% if r.zona %} | zona {{ r.zona }}{% endif %}{% if r.riscontri %} | {{ r.riscontri }} riscontri aperti{% endif %}">
+        <span class="snap-mappa-icona">
+          <i class="bi {{ r.icona }}"></i>
+          {% if r.riscontri %}<span class="snap-mappa-allarme">{{ r.riscontri }}</span>{% endif %}
+        </span>
+        <span class="snap-mappa-nome">{{ r.cidr }}</span>
+        <span class="snap-mappa-conto">{{ r.totale }}</span>
+      </a>
+      {% endfor %}
+      {% endfor %}
+    </div>
+
+    {% for isola in panorama.isole if isola.reti_non_disegnate %}
+    <p class="small text-body-secondary mt-2 mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      {{ isola.sonda }}: {{ isola.reti_non_disegnate }} reti non disegnate (si sceglie
+      la rete dal selettore qui sopra per vederne i dispositivi).
+    </p>
+    {% endfor %}
+
+    {% else %}
+    <p class="text-center text-body-secondary py-5 mb-0">
+      <i class="bi bi-bezier2 fs-3 d-block mb-2"></i>
+      Nessun dispositivo trovato: la mappa si disegna quando le sonde hanno conferito
+      almeno una scoperta.
+    </p>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{# ------------------------------------------------------------------------ legenda #}
+<div class="row g-3">
+  <div class="col-12 col-xl-8">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-list-check me-1"></i> Che cosa rappresentano le icone
+        </h3>
+      </div>
+      <div class="card-body">
+        {% if legenda %}
+        <div class="d-flex flex-wrap gap-2">
+          {% for voce in legenda %}
+          <span class="badge text-bg-light border d-inline-flex align-items-center gap-1">
+            <i class="bi {{ voce.icona }}"></i> {{ voce.etichetta }}
+            <span class="text-body-secondary">{{ voce.quanti }}</span>
+          </span>
+          {% endfor %}
+        </div>
+        <p class="small text-body-secondary mt-3 mb-0">
+          Nella legenda ci sono i soli tipi presenti in questa rete: un elenco di tutto
+          il catalogo costringerebbe a cercare i tipi che esistono davvero fra quelli
+          che non ci sono. L'icona viene dal catalogo delle firme, la stessa che decide
+          il tipo.
+        </p>
+        {% else %}
+        <p class="small text-body-secondary mb-0">Nessun dispositivo da rappresentare.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-palette me-1"></i> I colori</h3>
+      </div>
+      <div class="card-body">
+        <ul class="list-unstyled small mb-0">
+          <li class="mb-2">
+            <span class="snap-mappa-campione snap-mappa-attivo"></span>
+            <strong>attivo</strong>: ha risposto all'ultima verifica.
+          </li>
+          <li class="mb-2">
+            <span class="snap-mappa-campione snap-mappa-critico"></span>
+            <strong>con riscontri aperti</strong>: attivo, ma ha vulnerabilita' o
+            esposizioni da valutare. Il numero sull'icona dice quante.
+          </li>
+          <li class="mb-2">
+            <span class="snap-mappa-campione snap-mappa-assente"></span>
+            <strong>assente</strong>: non risponde. Resta in inventario, perche' un
+            dispositivo spento non e' un dispositivo che non esiste.
+          </li>
+          <li>
+            <i class="bi bi-person-check text-info"></i>
+            tipo <strong>dichiarato dall'operatore</strong>, non riconosciuto dalle
+            prove.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-secondary mt-3 small mb-0">
+  <i class="bi bi-info-circle me-1"></i>
+  Questa mappa disegna cio' che il prodotto <em>sa</em>: quale sonda ha osservato, in
+  quale rete dichiarata, quali dispositivi. <strong>Non</strong> e' un grafo dei
+  collegamenti fisici: le adiacenze fra apparati, su una rete commutata, una scansione
+  non le vede. Chi cerca la stessa informazione in forma di testo -- da cercare,
+  stampare, copiare -- usa la
+  <a href="{{ url_for('inventory.network_map') }}">mappa ad albero</a>.
+</div>
+{% endblock %}

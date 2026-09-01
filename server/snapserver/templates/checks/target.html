@@ -1,0 +1,333 @@
+{#
+  snap server - Bersaglio dei controlli: i suoi controlli e la creazione di uno nuovo.
+
+  Il modulo di creazione mostra un solo insieme di campi per volta, secondo il
+  genere scelto: una maschera che chiede tutto insieme si compila male.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}{{ target.name }}{% endblock %}
+{% block page_icon %}bi-bullseye{% endblock %}
+{% block page_title %}{{ target.name }}{% endblock %}
+{% block page_subtitle %}
+  <span class="font-monospace">{{ target.address }}</span>
+  {% if target.description %} — {{ target.description }}{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('checks.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Tutti i bersagli
+  </a>
+  {% if has_role('tenant_admin') %}
+  <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('checks.toggle_target', target_id=target.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-{{ 'warning' if target.is_enabled else 'success' }}">
+        <i class="bi bi-{{ 'pause' if target.is_enabled else 'play' }} me-1"></i>
+        {{ 'Sospendere' if target.is_enabled else 'Attivare' }}
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('checks.delete_target', target_id=target.id) }}"
+          data-confirm="Rimuovere il bersaglio {{ target.address }}? Se ne vanno anche i suoi controlli, gli esiti e gli incidenti. Digitare {{ target.address }} per confermare."
+          data-confirm-destructive>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="confirm" value="{{ target.address }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash me-1"></i> Rimuovere
+      </button>
+    </form>
+  </div>
+  {% endif %}
+</div>
+
+{{ schede.barra([
+    ('controlli', 'Controlli su questo bersaglio', 'bi-clipboard-check', checks|length),
+    ('nuovo', 'Nuovo controllo', 'bi-plus-circle', none),
+] if has_role('tenant_admin') else [
+    ('controlli', 'Controlli su questo bersaglio', 'bi-clipboard-check', checks|length),
+]) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-controlli" role="tabpanel"
+     aria-labelledby="tab-controlli">
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25"
+             data-no-sort="AZIONI">
+        <thead>
+          <tr><th>STATO</th><th>ULTIMO ESITO</th><th>NOME</th><th>GENERE</th><th>VERIFICA</th>
+              <th>LATENZA</th><th>CADENZA</th><th>SOGLIE</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for c in checks %}
+          <tr class="{{ '' if c.is_enabled else 'text-body-secondary' }}">
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if c.is_enabled else 'secondary' }}">
+                {{ 'attivo' if c.is_enabled else 'sospeso' }}
+              </span>
+            </td>
+            <td class="small">
+              {% if c.last_status %}
+              <span class="badge text-bg-{{ 'success' if c.last_status == 'ok' else ('danger' if c.last_status == 'fail' else 'warning') }}">
+                {{ c.last_status }}
+              </span>
+              <div class="text-body-secondary">{{ c.last_executed_at|dt }}</div>
+              {% else %}
+              <span class="text-body-secondary">mai eseguito</span>
+              {% endif %}
+            </td>
+            <td class="fw-semibold">
+              <a href="{{ url_for('checks.check', check_id=c.id) }}"
+                 class="text-decoration-none">{{ c.name }}</a>
+              {% if c.incident_id %}
+              <a href="{{ url_for('checks.incident', incident_id=c.incident_id) }}"
+                 class="badge text-bg-danger text-decoration-none ms-1">incidente aperto</a>
+              {% endif %}
+            </td>
+            <td class="small">{{ kinds[c.kind] if c.kind in kinds else c.kind }}</td>
+            <td class="small">{{ c.description }}</td>
+            <td style="min-width:9rem">
+              {% if c.latency_points|length > 1 %}
+              <div class="text-primary" data-snap-grafico data-altezza="44"
+                   data-etichetta="latenza di {{ c.name }}"
+                   data-punti='{{ c.latency_points|tojson }}'></div>
+              {% else %}
+              <span class="small text-body-secondary">-</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {{ c.interval_seconds }} s
+              <div class="text-body-secondary">soglia {{ c.failure_threshold }}, attesa {{ c.timeout_seconds }} s</div>
+            </td>
+            <td class="small">
+              apre a {{ c.failure_threshold }}
+              <div class="text-body-secondary">operatore a {{ c.escalation_threshold }}</div>
+            </td>
+            <td class="text-end">
+              {% if has_role('analyst') %}
+              <form method="post" action="{{ url_for('checks.run_now', check_id=c.id) }}"
+                    class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        title="Provare adesso">
+                  <i class="bi bi-play-circle"></i>
+                </button>
+              </form>
+              {% endif %}
+              {% if has_role('tenant_admin') %}
+              <a href="{{ url_for('checks.check', check_id=c.id, scheda='definizione') }}"
+                 class="btn btn-sm btn-outline-primary" title="Modificare la configurazione">
+                <i class="bi bi-pencil"></i>
+              </a>
+              <form method="post" action="{{ url_for('checks.toggle_check', check_id=c.id) }}"
+                    class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                        title="{{ 'Sospendere' if c.is_enabled else 'Attivare' }}">
+                  <i class="bi bi-{{ 'pause' if c.is_enabled else 'play' }}"></i>
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('checks.delete_check', check_id=c.id) }}"
+                    class="d-inline"
+                    data-confirm="Rimuovere il controllo '{{ c.name }}' e i suoi esiti?"
+                    data-confirm-destructive>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Rimuovere">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-body-secondary py-5">
+              <i class="bi bi-clipboard fs-3 d-block mb-2"></i>
+              Nessun controllo su questo bersaglio.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+{% if has_role('tenant_admin') %}
+<div class="tab-pane fade" id="pane-nuovo" role="tabpanel" aria-labelledby="tab-nuovo">
+<div class="card">
+  <div class="card-body">
+    <form method="post" action="{{ url_for('checks.create_check', target_id=target.id) }}"
+          id="modulo-controllo">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-3">
+        <div class="col-12 col-md-3">
+          <label class="form-label small">GENERE</label>
+          <select name="kind" class="form-select" id="genere-controllo" required>
+            {% for chiave, etichetta in kinds.items() %}
+            <option value="{{ chiave }}">{{ etichetta }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label small">NOME (facoltativo)</label>
+          <input type="text" name="name" class="form-control" maxlength="120"
+                 placeholder="lasciare vuoto per generarlo dalla verifica">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">GRAVITA</label>
+          <select name="severity" class="form-select">
+            {% for s in severities %}
+            <option value="{{ s }}" {{ 'selected' if s == 'warning' }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">RECAPITO OPERATORE</label>
+          <input type="email" name="escalation_email" class="form-control"
+                 maxlength="254" placeholder="email del tenant">
+        </div>
+
+        {# --- porte ------------------------------------------------------ #}
+        <div class="col-12 campi-genere" data-genere="ports" hidden>
+          <label class="form-label small">PORTE DA VERIFICARE</label>
+          <input type="text" name="ports" class="form-control"
+                 placeholder="443, 5100, udp/161">
+          <div class="form-text">
+            Numeri separati da virgola. Il protocollo si indica come <code>udp/161</code>;
+            senza indicazione si intende TCP.
+          </div>
+        </div>
+
+        {# --- endpoint HTTP ---------------------------------------------- #}
+        <div class="col-12 col-md-7 campi-genere" data-genere="http" hidden>
+          <label class="form-label small">URL DELL'ENDPOINT</label>
+          <input type="url" name="url" class="form-control"
+                 placeholder="http://bc-test-ws-dkr50.psn-test.ised.it:5100/api/health">
+        </div>
+        <div class="col-6 col-md-2 campi-genere" data-genere="http" hidden>
+          <label class="form-label small">METODO</label>
+          <select name="method" class="form-select">
+            <option value="GET">GET</option>
+            <option value="HEAD">HEAD</option>
+          </select>
+        </div>
+        <div class="col-6 col-md-3 campi-genere" data-genere="http" hidden>
+          <label class="form-label small">STATO ATTESO</label>
+          <input type="number" name="expect_status" class="form-control" value="200"
+                 min="100" max="599">
+        </div>
+        <div class="col-12 campi-genere" data-genere="http" hidden>
+          <label class="form-label small">VERIFICHE SUL CONTENUTO JSON</label>
+          <div class="form-text mb-2">
+            Un endpoint di salute risponde 200 anche quando dichiara
+            <code>database: disconnected</code>: il codice di stato non basta. Il percorso
+            usa il punto per scendere nell'oggetto, ad esempio <code>metrics.uptime</code>.
+          </div>
+          {% for indice in range(3) %}
+          <div class="row g-2 mb-2">
+            <div class="col-12 col-md-5">
+              <input type="text" name="assert_path" class="form-control form-control-sm"
+                     placeholder="{{ ['status', 'database', 'metrics.uptime'][indice] }}">
+            </div>
+            <div class="col-6 col-md-3">
+              <select name="assert_op" class="form-select form-select-sm">
+                {% for chiave, etichetta in assertion_ops.items() %}
+                <option value="{{ chiave }}">{{ etichetta }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6 col-md-4">
+              <input type="text" name="assert_value" class="form-control form-control-sm"
+                     placeholder="{{ ['ok', 'connected', ''][indice] }}">
+            </div>
+          </div>
+          {% endfor %}
+          {# I dati da conservare si scelgono dopo il primo esito: i percorsi si
+             ricavano da cio' che l'endpoint restituisce davvero, non si scrivono a
+             memoria. Fino a quel momento si conserva tutto. #}
+          <div class="alert alert-light border py-2 mb-0 small">
+            <i class="bi bi-info-circle me-1"></i>
+            Alla creazione si conservano <strong>tutti</strong> i dati della risposta.
+            Dopo il primo esito, nella scheda <em>Definizione</em> del controllo si
+            possono scegliere quali memorizzare e mostrare, spuntandoli dall'elenco di
+            cio' che l'endpoint restituisce.
+          </div>
+        </div>
+
+        <div class="col-6 col-md-3">
+          <label class="form-label small">CADENZA (secondi)</label>
+          <input type="number" name="interval_seconds" class="form-control" value="300"
+                 min="30" max="86400">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">TEMPO MASSIMO (secondi)</label>
+          <input type="number" name="timeout_seconds" class="form-control" value="10"
+                 min="1" max="120">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">FALLIMENTI PER APRIRE UN INCIDENTE</label>
+          <input type="number" name="failure_threshold" class="form-control" value="3"
+                 min="1" max="20">
+          <div class="form-text">
+            Il workflow e' automatico: l'incidente si chiude da se' al rientro.
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">FALLIMENTI PER ATTIVARE UN OPERATORE</label>
+          <input type="number" name="escalation_threshold" class="form-control" value="6"
+                 min="1" max="200">
+          <div class="form-text">
+            Oltre questa soglia l'incidente <strong>non si chiude piu' da se'</strong>:
+            serve una persona. Senza recapito si usa l'email del tenant.
+          </div>
+        </div>
+        <div class="col-12 col-md-3 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-check-lg me-1"></i> Creare il controllo
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+</div>
+{% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* Mostra i soli campi del genere scelto: una maschera che chiede tutto insieme
+     si compila male, e i campi non pertinenti verrebbero inviati vuoti. */
+  (function () {
+    "use strict";
+    var scelta = document.getElementById("genere-controllo");
+    if (!scelta) { return; }
+
+    function aggiorna() {
+      var genere = scelta.value;
+      document.querySelectorAll(".campi-genere").forEach(function (blocco) {
+        var suo = blocco.getAttribute("data-genere") === genere;
+        blocco.hidden = !suo;
+        // Un campo nascosto non deve essere obbligatorio, altrimenti il modulo
+        // non si invia e il browser non puo' nemmeno mostrare dove.
+        blocco.querySelectorAll("input, select").forEach(function (campo) {
+          campo.disabled = !suo;
+        });
+      });
+    }
+
+    scelta.addEventListener("change", aggiorna);
+    aggiorna();
+  })();
+</script>
+{% endblock %}

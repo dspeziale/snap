@@ -1,0 +1,82 @@
+{#
+  snap server - Registro di audit.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/pagination.html' as nav %}
+{% block title %}Audit ed eventi{% endblock %}
+{% block page_icon %}bi-journal-text{% endblock %}
+{% block page_title %}Audit &amp; Eventi{% endblock %}
+{% block page_subtitle %}
+  Tracciatura delle operazioni e degli eventi di sicurezza del tenant.
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <form method="get" action="{{ url_for('audit.index') }}" class="row g-2 align-items-end">
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-1" for="q">Ricerca</label>
+        <input type="search" class="form-control form-control-sm" id="q" name="q"
+               value="{{ filters.q }}" placeholder="descrizione o attore">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="type">Famiglia evento</label>
+        <select class="form-select form-select-sm" id="type" name="type" data-autosubmit>
+          <option value="">Tutte</option>
+          {% for family in families %}
+          <option value="{{ family }}" {{ 'selected' if filters.type == family }}>{{ family }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="severity">Gravita'</label>
+        <select class="form-select form-select-sm" id="severity" name="severity" data-autosubmit>
+          <option value="">Tutte</option>
+          <option value="info" {{ 'selected' if filters.severity == 'info' }}>Informativa</option>
+          <option value="warning" {{ 'selected' if filters.severity == 'warning' }}>Attenzione</option>
+          <option value="critical" {{ 'selected' if filters.severity == 'critical' }}>Critica</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-2 d-flex gap-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100">
+          <i class="bi bi-funnel me-1"></i> Filtra
+        </button>
+        <a href="{{ url_for('audit.index') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-x-lg"></i>
+        </a>
+      </div>
+    </form>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table data-page-size="40">
+        <thead>
+          <tr><th>DATA E ORA</th><th>GRAVITA'</th><th>EVENTO</th><th>ATTORE</th>
+              <th>DESCRIZIONE</th><th>ORIGINE</th></tr>
+        </thead>
+        <tbody>
+          {% for event in page.rows %}
+          <tr>
+            <td class="small text-nowrap">{{ event['created_at']|dt }}</td>
+            <td><span class="badge text-bg-{{ badges.get(event['severity'], 'secondary') }}">
+              {{ event['severity'] }}</span></td>
+            <td class="small fw-semibold">{{ event['event_type'] }}</td>
+            <td class="small">{{ event['actor'] }}</td>
+            <td class="small">{{ event['description'] }}</td>
+            <td class="small text-body-secondary">{{ event['source_ip'] or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-body-secondary py-4">
+            Nessun evento registrato con i criteri selezionati.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer">{{ nav.render(page, 'audit.index', filters) }}</div>
+</div>
+{% endblock %}

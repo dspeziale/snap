@@ -1,0 +1,399 @@
+{#
+  snap server - Report e resoconti.
+
+  Il resoconto quotidiano lo spedisce il server da se', all'ora configurata. Questa
+  pagina serve a vedere che cosa e' stato spedito, a leggere in anteprima il resoconto
+  di un giorno senza spedirlo, e a chiederne la spedizione fuori orario.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Report e resoconti{% endblock %}
+{% block page_icon %}bi-file-earmark-pdf{% endblock %}
+{% block page_title %}Report e Resoconti{% endblock %}
+{% block page_subtitle %}
+  Il resoconto quotidiano viene composto e spedito dal server all'ora configurata,
+  senza che nessuno sia collegato. I report restano su disco: sopravvivono ai dati che
+  riassumono, che scadono per conservazione.
+{% endblock %}
+
+{% block content %}
+{% set pronto = channels.email.pronto or channels.telegram.pronto %}
+{% if not pronto %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    <strong>Nessun canale di recapito pronto.</strong>
+    Il resoconto viene comunque composto e messo in coda, e parte appena un canale e'
+    configurato: nulla va perduto.
+  </div>
+  {% if has_role('tenant_admin') %}
+  <a href="{{ url_for('admin.settings') }}" class="btn btn-sm btn-warning">
+    Configurare i canali <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not fonts.completo %}
+<div class="alert alert-light border small mb-3">
+  <i class="bi bi-type me-1"></i>
+  I PDF sono resi in <strong>Helvetica</strong>: nella cartella
+  <code>{{ fonts.cartella }}</code> non ci sono i file <code>.ttf</code> di PT Sans
+  Narrow, e un PDF non incorpora i formati web. Copiandoli li' (licenza OFL 1.1) i
+  report adottano la tipografia del progetto senza altre modifiche.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('RESOCONTO', settings.time if settings.enabled else 'sospeso', 'bi-alarm',
+       'success' if settings.enabled else 'secondary'),
+      ('CANALI', settings.channels|join(', '), 'bi-send', 'primary'),
+      ('ALLEGATO PDF', 'attivo' if settings.attach else 'spento', 'bi-paperclip',
+       'warning' if settings.attach else 'secondary'),
+      ('DOCUMENTI', footprint.documenti, 'bi-file-earmark-text', 'primary'),
+      ('SPAZIO', (footprint.byte / 1024 / 1024)|round(2)|string + ' MB', 'bi-hdd',
+       'secondary')] %}
+  <div class="col-6 col-xl">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0" style="font-size:1.05rem">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{{ schede.barra([
+    ('prodotti', 'Report prodotti', 'bi-archive', reports|length),
+    ('catalogo', 'Catalogo dei report', 'bi-journals', catalog|length),
+    ('resoconto', 'Resoconto quotidiano', 'bi-alarm', none),
+    ('incidenti', 'Rapporti di incidente', 'bi-exclamation-triangle', incidents|length),
+], apri=request.args.get('scheda')) }}
+
+{% set scheda = request.args.get('scheda') %}
+<div class="tab-content">
+
+<div class="tab-pane fade {{ 'show active' if scheda in (none, '', 'prodotti') }}"
+     id="pane-prodotti" role="tabpanel" aria-labelledby="tab-prodotti">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-archive me-1"></i> Report prodotti</h3>
+    <small class="text-body-secondary">
+      il resoconto quotidiano compare anche quando non ha allegato: la riga e' la prova
+      che e' stato spedito
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>GENERE</th><th>PERIODO</th><th>PRODOTTO</th><th>FILE</th>
+              <th>DIMENSIONE</th><th>RECAPITO</th><th>RICHIESTO DA</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for r in reports %}
+          <tr>
+            <td>{{ kinds[r.kind] if r.kind in kinds else r.kind }}</td>
+            <td class="font-monospace small">{{ r.period_key }}</td>
+            <td class="small">{{ r.created_at|dt }}</td>
+            <td class="font-monospace small">
+              {% if r.presente %}{{ r.nome_file }}
+              {% elif r.nome_file %}<span class="text-body-secondary">{{ r.nome_file }} (rimosso)</span>
+              {% else %}<span class="text-body-secondary">nessun allegato</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if r.file_bytes %}{{ (r.file_bytes / 1024)|round(0)|int }} kB{% else %}-{% endif %}
+            </td>
+            <td class="small">
+              {% if r.notifica_stato %}
+              <span class="badge text-bg-{{ 'success' if r.notifica_stato == 'sent'
+                                           else ('warning' if r.notifica_stato == 'pending' else 'danger') }}">
+                {{ r.notifica_stato }}</span>
+              <span class="text-body-secondary">{{ r.notifica_canale }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+            <td class="small">{{ r.richiedente or 'server (automatico)' }}</td>
+            <td>
+              <div class="d-flex gap-1 justify-content-end">
+                {% if r.presente %}
+                <a href="{{ url_for('reports.download', report_id=r.id) }}"
+                   class="btn btn-sm btn-outline-primary" title="Scaricare">
+                  <i class="bi bi-download"></i>
+                </a>
+                {% endif %}
+                {% if has_role('analyst') %}
+                {# Con otto generi e piu' ampiezze l'elenco si riempie di prove e di
+                   ripetizioni: si elimina il documento, non solo la riga. #}
+                <form method="post"
+                      action="{{ url_for('reports.delete', report_id=r.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-sm btn-outline-danger"
+                          title="Eliminare"
+                          data-confirm="Eliminare il report {{ r.nome_file or r.kind }}? Il file viene cancellato dal disco e l'operazione resta nel registro.">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not reports %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun report prodotto. Il primo arrivera' alle {{ settings.time }} del prossimo
+      giorno; per vederne uno adesso, usare l'anteprima nella scheda accanto.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade {{ 'show active' if scheda == 'catalogo' }}"
+     id="pane-catalogo" role="tabpanel" aria-labelledby="tab-catalogo">
+<div class="row g-3">
+  {% for voce in catalog %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-start gap-2 flex-wrap">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-file-earmark-text me-1"></i> {{ voce.titolo }}
+        </h3>
+        <small class="text-body-secondary text-end">{{ voce.destinatario }}</small>
+      </div>
+      <div class="card-body">
+        {# La domanda a cui risponde e' l'unica cosa che serve per scegliere: un
+           catalogo che elenca titoli fa aprire tutto per capire. #}
+        <p class="fst-italic text-body-secondary mb-3">&laquo;{{ voce.domanda }}&raquo;</p>
+        {% if has_role('analyst') %}
+        <form method="post" action="{{ url_for('reports.generate') }}"
+              class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="kind" value="{{ voce.chiave }}">
+          <div class="col-6 col-md-4">
+            <label class="form-label small">FINO AL GIORNO</label>
+            <input type="date" name="day" class="form-control form-control-sm"
+                   value="{{ default_day }}" max="{{ default_day }}">
+          </div>
+          <div class="col-6 col-md-4">
+            <label class="form-label small">AMPIEZZA</label>
+            <select name="days" class="form-select form-select-sm">
+              {% for giorni in voce.periodi %}
+              <option value="{{ giorni }}" {{ 'selected' if giorni == voce.predefinito }}>
+                {{ giorni }} giorn{{ 'o' if giorni == 1 else 'i' }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12 col-md-4">
+            <button type="submit" class="btn btn-sm btn-primary w-100">
+              <i class="bi bi-file-earmark-pdf me-1"></i> Generare
+            </button>
+          </div>
+        </form>
+        {% if voce.ruolo == 'tenant_admin' and not has_role('tenant_admin') %}
+        <p class="small text-warning mb-0 mt-2">
+          Riservato agli amministratori di tenant: contiene valutazioni destinate a
+          circolare fuori dal gruppo operativo.
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          La generazione e' riservata agli analisti.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+<p class="small text-body-secondary mt-3 mb-0">
+  Ogni report dichiara in testa l'intervallo coperto nel fuso del tenant e l'istante di
+  generazione: la stessa richiesta sullo stesso intervallo produce gli stessi numeri.
+  L'inventario tecnico esce in formato orizzontale, perche' le sue tabelle hanno piu' di
+  otto colonne.
+</p>
+</div>
+
+<div class="tab-pane fade {{ 'show active' if scheda == 'incidenti' }}"
+     id="pane-incidenti" role="tabpanel" aria-labelledby="tab-incidenti">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-exclamation-triangle me-1"></i> Rapporti di incidente
+    </h3>
+    <small class="text-body-secondary">
+      cronologia, esiti attorno all'incidente, misure correlate, comunicazioni inviate
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>#</th><th>GRAVITA'</th><th>STATO</th><th>BERSAGLIO</th>
+              <th>CONTROLLO</th><th>APERTO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for i in incidents %}
+          <tr>
+            <td>{{ i.id }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if i.severity == 'critical'
+                                            else ('warning' if i.severity == 'warning' else 'secondary') }}">
+                {{ i.severity }}
+              </span>
+            </td>
+            <td class="small">{{ i.status }}</td>
+            <td class="font-monospace small">{{ i.address }}</td>
+            <td class="small">{{ i.controllo }}</td>
+            <td class="small text-nowrap">{{ i.opened_at|dt }}</td>
+            <td>
+              {% if has_role('analyst') %}
+              <form method="post"
+                    action="{{ url_for('reports.generate_incident', incident_id=i.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-file-earmark-pdf me-1"></i> Rapporto
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not incidents %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun incidente registrato: non c'e' nulla di cui fare il rapporto.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade {{ 'show active' if scheda == 'resoconto' }}"
+     id="pane-resoconto" role="tabpanel" aria-labelledby="tab-resoconto">
+<div class="row g-3">
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-alarm me-1"></i> Come e' configurato</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6">Spedizione</dt>
+          <dd class="col-6">{{ 'attiva' if settings.enabled else 'sospesa' }}</dd>
+          <dt class="col-6">Ora locale</dt>
+          <dd class="col-6">{{ settings.time }} ({{ zone }})</dd>
+          <dt class="col-6">Canali</dt>
+          <dd class="col-6">{{ settings.channels|join(', ') }}</dd>
+          <dt class="col-6">Destinatari</dt>
+          <dd class="col-6">
+            {% if recipients %}{{ recipients|join(', ') }}
+            {% else %}<span class="text-danger">nessuno</span>{% endif %}
+          </dd>
+          <dt class="col-6">Allegato PDF</dt>
+          <dd class="col-6">{{ 'sì, report NOC' if settings.attach else 'no' }}</dd>
+          <dt class="col-6">Tendenze</dt>
+          <dd class="col-6">{{ settings.trend_days }} giorni</dd>
+        </dl>
+        <hr>
+        <p class="small text-body-secondary mb-2">
+          Il resoconto delle {{ settings.time }} copre <strong>il giorno
+          precedente</strong>, per intero: e' il solo intervallo di cui si conoscono
+          tutti gli eventi. Viene spedito una sola volta per giorno, anche se il server
+          viene riavviato.
+        </p>
+        {% if has_role('tenant_admin') %}
+        <a href="{{ url_for('admin.settings') }}#resoconto"
+           class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-sliders me-1"></i> Modificare la configurazione
+        </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-play-circle me-1"></i> Adesso</h3>
+      </div>
+      <div class="card-body">
+        <form method="get" action="{{ url_for('reports.preview') }}" class="row g-2 align-items-end mb-3">
+          <div class="col-12 col-md-4">
+            <label class="form-label small">GIORNO</label>
+            <input type="date" name="day" class="form-control form-control-sm"
+                   value="{{ default_day }}" max="{{ default_day }}">
+          </div>
+          <div class="col-12 col-md-8 d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">
+              <i class="bi bi-eye me-1"></i> Anteprima
+            </button>
+            <button type="submit" name="format" value="text"
+                    class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-file-text me-1"></i> Anteprima testo
+            </button>
+          </div>
+        </form>
+
+        {% if has_role('analyst') %}
+        <div class="d-flex flex-wrap gap-2">
+          <form method="post" action="{{ url_for('reports.send_daily') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="day" value="{{ default_day }}">
+            <button type="submit" class="btn btn-sm btn-outline-primary"
+                    data-confirm="Spedire adesso il resoconto del {{ default_day }} a {{ recipients|join(', ') or 'nessun destinatario' }}?">
+              <i class="bi bi-send me-1"></i> Spedire il resoconto di ieri
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('reports.generate_noc') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="day" value="{{ default_day }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-file-earmark-pdf me-1"></i> Generare il report NOC di ieri
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('reports.run_scheduler') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary">
+              <i class="bi bi-arrow-repeat me-1"></i> Eseguire un giro del pianificatore
+            </button>
+          </form>
+        </div>
+        <p class="small text-body-secondary mt-3 mb-0">
+          La spedizione a richiesta <strong>ripete</strong> anche un resoconto gia'
+          spedito: serve a provare la configurazione. Il giro del pianificatore, invece,
+          rispetta la regola di un solo resoconto per giorno.
+        </p>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          La spedizione a richiesta e la generazione dei PDF sono riservate agli
+          analisti.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

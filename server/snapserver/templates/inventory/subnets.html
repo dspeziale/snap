@@ -1,0 +1,350 @@
+{#
+  snap server - Perimetro di scansione dichiarato dal tenant.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Perimetro{% endblock %}
+{% block page_icon %}bi-bounding-box{% endblock %}
+{% block page_title %}Perimetro di Scansione{% endblock %}
+{% block page_subtitle %}
+  Le subnet dichiarate qui sono le sole che le sonde scansionano: un bersaglio
+  esterno al perimetro viene rifiutato e registrato.
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <p class="snap-stat-label mb-1">SCANSIONI DELLE SONDE</p>
+      <p class="mb-0">
+        {% if probes_scanning %}
+        <span class="badge text-bg-success">attive</span>
+        su {{ probes_scanning }} sonde di {{ probes_total }}
+        {% else %}
+        <span class="badge text-bg-warning">sospese</span>
+        su tutte le {{ probes_total }} sonde del tenant
+        {% endif %}
+        <span class="text-body-secondary small d-block mt-1">
+          L'interruttore viaggia nella configurazione cifrata: le sonde lo recepiscono al
+          contatto successivo. La sospensione non interrompe il conferimento dei dati raccolti.
+        </span>
+      </p>
+    </div>
+    {% if has_role('tenant_admin') and probes_total %}
+    <form method="post" action="{{ url_for('inventory.toggle_tenant_scanning') }}"
+          {% if probes_scanning %}
+          data-confirm="Sospendere le scansioni su tutte le {{ probes_total }} sonde del tenant?"
+          {% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit"
+              class="btn {{ 'btn-outline-warning' if probes_scanning else 'btn-success' }}">
+        <i class="bi bi-{{ 'pause-fill' if probes_scanning else 'play-fill' }} me-1"></i>
+        {{ 'Sospendere tutte le scansioni' if probes_scanning else 'Riprendere le scansioni' }}
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{{ schede.barra([
+    ('subnet', 'Subnet dichiarate', 'bi-diagram-3', subnets|length),
+    ('carica', 'Caricamento del perimetro', 'bi-upload', none),
+] if has_role('tenant_admin') else [
+    ('subnet', 'Subnet dichiarate', 'bi-diagram-3', subnets|length),
+]) }}
+
+<div class="tab-content">
+{% if has_role('tenant_admin') %}
+<div class="tab-pane fade" id="pane-carica" role="tabpanel" aria-labelledby="tab-carica">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-upload me-1"></i> Caricamento del perimetro</h3>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('inventory.upload_subnets') }}"
+          enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-3">
+        <div class="col-12 col-lg-5">
+          <label class="form-label">File di testo</label>
+          <input type="file" name="file" class="form-control" accept=".txt,.csv,text/plain">
+          <div class="form-text">
+            Una subnet per riga in notazione CIDR, con etichetta facoltativa.
+            Righe di commento con <code>#</code>. Una rete piu' ampia di
+            {{ max_hosts }} indirizzi viene <strong>suddivisa in blocchi</strong>
+            (una <code>/16</code> diventa sedici <code>/20</code>): il perimetro
+            coperto e' lo stesso, cambia l'unita' di lavoro della sonda.
+          </div>
+        </div>
+        <div class="col-12 col-lg-7">
+          <label class="form-label">Oppure incollare le subnet</label>
+          <textarea name="text" class="form-control" rows="5" placeholder="10.50.9.0/24 Sede centrale
+10.20.10.0/24 Amministrazione
+# 192.168.1.0/24 laboratorio, disattivata"></textarea>
+        </div>
+      </div>
+      <div class="form-check mt-3">
+        <input class="form-check-input" type="checkbox" id="replace" name="replace" value="1">
+        <label class="form-check-label" for="replace">
+          Le subnet non presenti nel file vengono disattivate (i nodi già scoperti restano)
+        </label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="allow_public" name="allow_public" value="1">
+        <label class="form-check-label" for="allow_public">
+          Consentire intervalli di indirizzamento pubblico
+          <span class="text-danger">(solo se la rete è effettivamente propria)</span>
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary mt-3">
+        <i class="bi bi-check2 me-1"></i> Importare il perimetro
+      </button>
+    </form>
+  </div>
+</div>
+</div>
+{% endif %}
+
+<div class="tab-pane fade show active" id="pane-subnet" role="tabpanel"
+     aria-labelledby="tab-subnet">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-diagram-3 me-1"></i> Subnet dichiarate ({{ subnets|length }})</h3>
+    <div class="d-flex align-items-center gap-2">
+      <small class="text-body-secondary">
+        {{ summary.perimeter_addresses }} indirizzi nel perimetro attivo, {{ summary.total }} nodi trovati
+      </small>
+      {% if has_role('tenant_admin') and subnets %}
+      {# Le caselle di scelta stanno nella tabella e sono collegate a questo
+         modulo con l'attributo form: le righe contengono a loro volta dei moduli,
+         e un modulo dentro un altro non e' consentito. #}
+      <form method="post" action="{{ url_for('inventory.toggle_all_subnets') }}"
+            id="modulo-subnet-scelte" class="d-flex align-items-center gap-2 flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {# Lo stato non viaggia col pulsante premuto: dopo una conferma il modulo
+           viene inviato per programma, e il pulsante non ne fa parte. #}
+        <input type="hidden" name="state" value="on" data-selezione-stato>
+        <input type="hidden" name="subnet_ids_csv" value="" data-selezione-elenco>
+        <small class="text-body-secondary" data-selezione-conteggio>nessuna subnet scelta</small>
+        <div class="btn-group btn-group-sm">
+          <button type="submit" class="btn btn-outline-success" value="on" data-selezione-azione
+                  data-confirm="Attivare le subnet scelte? Le sonde riprenderanno a scansionare gli indirizzi che vi appartengono."
+                  disabled>
+            <i class="bi bi-check2-all me-1"></i> Attiva scelte
+          </button>
+          <button type="submit" class="btn btn-outline-warning" value="off" data-selezione-azione
+                  data-confirm="Disattivare le subnet scelte? Le sonde non scansionano piu' gli indirizzi che vi appartengono."
+                  data-confirm-destructive disabled>
+            <i class="bi bi-x-lg me-1"></i> Disattiva scelte
+          </button>
+        </div>
+      </form>
+
+      {# Rimozione in blocco: modulo proprio, perche' chiede una conferma diversa --
+         il NUMERO delle subnet scelte. Trenta CIDR da ricopiare non sarebbero una
+         conferma ma un ostacolo, e un ostacolo si aggira smettendo di leggere. #}
+      <form method="post" action="{{ url_for('inventory.delete_selected_subnets') }}"
+            id="modulo-subnet-rimozione" class="d-flex align-items-center gap-2 flex-wrap">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="subnet_ids_csv" value="" data-selezione-elenco>
+        <div class="input-group input-group-sm" style="max-width: 22rem;">
+          <input type="text" class="form-control" name="confirm" required
+                 placeholder="quante subnet scelte?"
+                 aria-label="Numero delle subnet scelte, come conferma">
+          <button type="submit" class="btn btn-outline-danger"
+                  data-confirm="Rimuovere dal perimetro le subnet scelte? I dispositivi gia' scoperti restano in inventario, senza subnet."
+                  data-confirm-destructive>
+            <i class="bi bi-trash me-1"></i> Rimuovi scelte
+          </button>
+        </div>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {# Le zone: lo stesso servizio significa cose opposte a seconda di dove si trova, e
+   senza dichiararlo il prodotto deve per forza segnalare tutto. #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-diagram-3 me-1"></i> Zone di rete
+    </h3>
+    <small class="text-body-secondary">
+      {{ zone_summary.dichiarate }} subnet dichiarate su {{ zone_summary.totale }}
+      {%- if zone_summary.senza_zona %},
+      {{ zone_summary.senza_zona }} senza zona (valgono come rete di utenza){% endif %}
+    </small>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      SSH su una rete di utenza e' una via d'ingresso che nessuno ha chiesto; SSH in un
+      datacenter e' il modo in cui i sistemi si amministrano. Dichiarare la zona di una
+      subnet cambia il <strong>giudizio</strong> sulle esposizioni che ci si trovano:
+      quelle attese restano annotate con la loro motivazione e non contano fra i
+      riscontri aperti, quelle vietate in quel contesto salgono di gravita'.
+      Non si cancella nulla: se la zona cambia, la correlazione successiva rivaluta.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>ZONA</th><th>SUBNET</th><th>CHE COS'E'</th><th>ATTESO QUI</th>
+              <th>VIETATO QUI</th></tr>
+        </thead>
+        <tbody>
+          {% for z in zones %}
+          <tr>
+            <td class="text-nowrap">
+              <span class="badge text-bg-{{ z.tono }}">
+                <i class="bi {{ z.icona }} me-1"></i>{{ z.nome }}
+              </span>
+            </td>
+            <td class="text-end">{{ zone_summary.per_zona[z.chiave] }}</td>
+            <td class="small text-body-secondary">{{ z.descrizione }}</td>
+            <td class="small">
+              {% for voce in z.attese %}{{ voce }}{% if not loop.last %}<br>{% endif %}
+              {% else %}<span class="text-body-secondary">niente</span>{% endfor %}
+            </td>
+            <td class="small">
+              {% for voce in z.violazioni %}{{ voce }}{% if not loop.last %}<br>{% endif %}
+              {% else %}<span class="text-body-secondary">niente in particolare</span>{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25"
+             data-no-sort="AZIONI"
+             {%- if has_role('tenant_admin') and subnets %}
+             data-selezione-modulo="modulo-subnet-scelte"
+             data-selezione-moduli-extra="modulo-subnet-rimozione"
+             data-selezione-tutti="{{ subnets|map(attribute='id')|join(',') }}"
+             {%- endif %}>
+        <thead>
+          <tr>
+            {%- if has_role('tenant_admin') and subnets %}
+            <th class="text-center" style="width:2.5rem">
+              <input type="checkbox" class="form-check-input" data-selezione-tutte
+                     aria-label="Selezionare o deselezionare tutte le subnet"
+                     title="Selezionare o deselezionare tutte le subnet">
+            </th>
+            {%- endif %}
+            <th>STATO</th><th>SUBNET</th><th>ETICHETTA</th><th>ZONA</th>
+            <th>INDIRIZZI</th><th>NODI TROVATI</th>
+            <th>ATTIVI</th><th>ORIGINE</th><th>IMPORTATA</th><th>AZIONI</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in subnets %}
+          <tr class="{{ '' if s.is_enabled else 'text-body-secondary' }}">
+            {%- if has_role('tenant_admin') %}
+            <td class="text-center">
+              <input type="checkbox" class="form-check-input" name="subnet_ids" value="{{ s.id }}"
+                     form="modulo-subnet-scelte" data-selezione-voce
+                     aria-label="Scegliere la subnet {{ s.cidr }}">
+            </td>
+            {%- endif %}
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if s.is_enabled else 'secondary' }}">
+                {{ 'attiva' if s.is_enabled else 'disattivata' }}
+              </span>
+            </td>
+            <td class="fw-semibold">
+              <a href="{{ url_for('inventory.nodes', subnet=s.id) }}" class="text-decoration-none">{{ s.cidr }}</a>
+            </td>
+            <td class="small">{{ s.label or '-' }}</td>
+            <td class="small">
+              {% if has_role('tenant_admin') %}
+              {# La zona si cambia dove la subnet vive: una pagina di impostazioni a
+                 parte costringerebbe a ricordare quale subnet si stava guardando. #}
+              <form method="post"
+                    action="{{ url_for('inventory.set_subnet_zone', subnet_id=s.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <select name="zone" class="form-select form-select-sm" data-autosubmit
+                        aria-label="Zona della subnet {{ s.cidr }}">
+                  <option value="">non dichiarata</option>
+                  {% for z in zones %}
+                  <option value="{{ z.chiave }}"
+                          {{ 'selected' if s.zone == z.chiave }}>{{ z.nome }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+              {% else %}
+              {% set dichiarata = zones|selectattr('chiave', 'equalto', s.zone)|first %}
+              {{ dichiarata.nome if dichiarata else 'non dichiarata' }}
+              {% endif %}
+            </td>
+            <td class="small">{{ s.host_count }}</td>
+            <td class="small">{{ s.nodes_found }}</td>
+            <td class="small">{{ s.nodes_up }}</td>
+            <td class="small">{{ s.source_file or '-' }}</td>
+            <td class="small">
+              {{ s.imported_at|dt }}
+              {% if s.imported_by_email %}<div class="text-body-secondary">{{ s.imported_by_email }}</div>{% endif %}
+            </td>
+            <td class="text-end">
+              {# La scoperta ordinaria ha cadenza di giorni: quando si aggiunge una
+                 rete o si sospetta che sia comparso qualcosa, si chiede subito. #}
+              {% if has_role('analyst') and s.is_enabled %}
+              <form method="post" action="{{ url_for('inventory.scan_subnet_now', subnet_id=s.id) }}"
+                    class="d-inline"
+                    data-confirm="Avviare subito una scoperta su {{ s.cidr }} ({{ s.host_count }} indirizzi)? Viene eseguita al prossimo contatto della sonda.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-primary"
+                        title="Scansionare ora {{ s.cidr }}: passata di scoperta immediata">
+                  <i class="bi bi-lightning"></i>
+                </button>
+              </form>
+              {% endif %}
+              {% if has_role('tenant_admin') %}
+              <form method="post" action="{{ url_for('inventory.toggle_subnet', subnet_id=s.id) }}"
+                    class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-secondary"
+                        title="{{ 'Disattivare' if s.is_enabled else 'Attivare' }}">
+                  <i class="bi bi-{{ 'pause' if s.is_enabled else 'play' }}"></i>
+                </button>
+              </form>
+              <form method="post" action="{{ url_for('inventory.delete_subnet', subnet_id=s.id) }}"
+                    class="d-inline"
+                    data-confirm="Rimuovere la subnet {{ s.cidr }} dal perimetro? I {{ s.nodes_found }} nodi già scoperti restano in inventario. Digitare {{ s.cidr }} per confermare.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="confirm" value="{{ s.cidr }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger" title="Rimuovere">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="{{ 10 if has_role('tenant_admin') else 9 }}"
+                class="text-center text-body-secondary py-5">
+              <i class="bi bi-bounding-box fs-3 d-block mb-2"></i>
+              Nessuna subnet dichiarata: le sonde non hanno perimetro e non scansionano.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/snap-selezione.js') }}"></script>
+{% endblock %}

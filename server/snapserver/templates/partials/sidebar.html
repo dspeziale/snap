@@ -1,0 +1,378 @@
+{#
+  snap server - Menu di navigazione laterale.
+
+  Il menu e' organizzato in gruppi collassabili, uno per dominio: la console e'
+  cresciuta a quattordici voci e un elenco piatto costringeva a scorrere per
+  raggiungere l'amministrazione. Ogni gruppo si apre e si chiude; quello che contiene
+  la pagina in corso e' sempre aperto, perche' il menu deve dire dove si e'.
+
+  Le pastiglie dei gruppi chiusi non sono decorazione: un gruppo chiuso nasconde le
+  proprie voci, e con esse la notizia che ci sono incidenti aperti. La pastiglia
+  compare sul gruppo quando e' chiuso e sulla voce quando e' aperto (regola in
+  snap.css), cosi' l'informazione non sparisce ne' si ripete.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% set endpoint = request.endpoint or '' %}
+
+{# Appartenenza della pagina in corso a ciascun gruppo: decide quale si apre. #}
+{% set in_rete = endpoint in ('inventory.nodes', 'inventory.node', 'inventory.network_map',
+                              'monitor.status',
+                              'monitor.changes', 'inventory.subnets',
+                              'inventory.zone_index',
+                              'inventory.deliveries', 'inventory.delivery') %}
+{% set in_controlli = endpoint.startswith('checks.') or endpoint.startswith('rules.') %}
+{% set in_sicurezza = endpoint.startswith('threat.') or endpoint.startswith('audit.')
+                      or endpoint.startswith('acn.') %}
+{% set in_sonde = endpoint.startswith('probes.') %}
+{% set in_admin = endpoint.startswith('admin.') %}
+{% set in_sala = endpoint.startswith('operations.') %}
+
+{% set nodi = (indicators.nodes_total if indicators else 0) or 0 %}
+{% set controlli_attivi = (indicators.checks_active if indicators else 0) or 0 %}
+{% set incidenti = (indicators.incidents_open if indicators else 0) or 0 %}
+{% set minacce = (indicators.threat_confirmed if indicators else 0) or 0 %}
+{% set minacce_aperte = (indicators.threat_open if indicators else 0) or 0 %}
+
+{# Nessun data-bs-theme qui: il menu deve seguire il tema scelto dall'utente,
+   che e' dichiarato sulla radice del documento. #}
+<aside class="app-sidebar bg-body-secondary shadow">
+  <div class="sidebar-brand">
+    <a href="{{ url_for('dashboard.index') }}" class="brand-link">
+      <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
+      <span class="brand-text fw-bold">{{ app_name }}</span>
+      <span class="badge text-bg-primary ms-2">v{{ app_version }}</span>
+    </a>
+  </div>
+
+  <div class="sidebar-wrapper">
+    <nav class="mt-2">
+      <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview"
+          role="navigation" data-snap-menu>
+
+        <li class="nav-item">
+          <a href="{{ url_for('dashboard.index') }}"
+             class="nav-link {% if endpoint == 'dashboard.index' %}active{% endif %}">
+            <i class="nav-icon bi bi-speedometer2"></i>
+            <p>Dashboard</p>
+          </a>
+        </li>
+
+        {# --- Sala operativa: le tre pagine con cui si lavora tutto il giorno.
+               Stanno in cima perche' sono il punto di partenza del turno, non una
+               sezione fra le altre. #}
+        <li class="nav-item {% if in_sala %}menu-open{% endif %}" data-snap-gruppo="sala">
+          <a href="#" class="nav-link {% if in_sala %}active{% endif %}">
+            <i class="nav-icon bi bi-display"></i>
+            <p>
+              Sala operativa
+              {% if incidenti %}
+              <span class="badge text-bg-danger snap-badge-gruppo">{{ incidenti }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('operations.noc') }}"
+                 class="nav-link {% if endpoint == 'operations.noc' %}active{% endif %}">
+                <i class="nav-icon bi bi-display"></i>
+                <p>
+                  Quadro NOC
+                  {% if incidenti %}
+                  <span class="badge text-bg-danger">{{ incidenti }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('operations.soc') }}"
+                 class="nav-link {% if endpoint == 'operations.soc' %}active{% endif %}">
+                <i class="nav-icon bi bi-shield-shaded"></i>
+                <p>
+                  Quadro SOC
+                  {% if minacce %}
+                  <span class="badge text-bg-danger">{{ minacce }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('operations.search') }}"
+                 class="nav-link {% if endpoint in ('operations.search', 'operations.export_saved') %}active{% endif %}">
+                <i class="nav-icon bi bi-search"></i><p>Ricerca</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        {# --- Rete: che cosa c'e', come sta, che cosa e' cambiato ------------- #}
+        <li class="nav-item {% if in_rete %}menu-open{% endif %}" data-snap-gruppo="rete">
+          <a href="#" class="nav-link {% if in_rete %}active{% endif %}">
+            <i class="nav-icon bi bi-hdd-network"></i>
+            <p>
+              Rete
+              {% if nodi %}
+              <span class="badge text-bg-success"
+                    title="nodi individuati in inventario">{{ nodi }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.nodes') }}"
+                 class="nav-link {% if endpoint in ('inventory.nodes', 'inventory.node') %}active{% endif %}">
+                <i class="nav-icon bi bi-pc-display"></i><p>Nodi</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.network_map') }}"
+                 class="nav-link {% if endpoint == 'inventory.network_map' %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-3"></i><p>Mappa della rete</p>
+              </a>
+            </li>
+            {# Due viste della stessa gerarchia: l'albero si cerca e si stampa come
+               testo, la mappa grafica si guarda. Nessuna delle due sostituisce
+               l'altra, quindi stanno entrambe nel menu. #}
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.network_map_graphic') }}"
+                 class="nav-link {% if endpoint == 'inventory.network_map_graphic' %}active{% endif %}">
+                <i class="nav-icon bi bi-bezier2"></i><p>Mappa grafica</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('monitor.status') }}"
+                 class="nav-link {% if endpoint == 'monitor.status' %}active{% endif %}">
+                <i class="nav-icon bi bi-activity"></i><p>Stato della rete</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('monitor.changes') }}"
+                 class="nav-link {% if endpoint == 'monitor.changes' %}active{% endif %}">
+                <i class="nav-icon bi bi-clock-history"></i><p>Cambiamenti</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.subnets') }}"
+                 class="nav-link {% if endpoint == 'inventory.subnets' %}active{% endif %}">
+                <i class="nav-icon bi bi-bounding-box"></i><p>Perimetro</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.zone_index') }}"
+                 class="nav-link {% if endpoint == 'inventory.zone_index' %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-3"></i><p>Zone di rete</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.deliveries') }}"
+                 class="nav-link {% if endpoint in ('inventory.deliveries', 'inventory.delivery') %}active{% endif %}">
+                <i class="nav-icon bi bi-cloud-arrow-down"></i><p>Dati dalle sonde</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        {# --- Controlli: che i servizi funzionino, e chi avvisare se no ------- #}
+        <li class="nav-item {% if in_controlli %}menu-open{% endif %}"
+            data-snap-gruppo="controlli">
+          <a href="#" class="nav-link {% if in_controlli %}active{% endif %}">
+            <i class="nav-icon bi bi-clipboard-check"></i>
+            <p>
+              Controlli
+              {% if controlli_attivi %}
+              <span class="badge text-bg-primary"
+                    title="controlli attivi">{{ controlli_attivi }}</span>
+              {% endif %}
+              {# La pastiglia degli incidenti resta, ma solo a gruppo chiuso: un
+                 gruppo chiuso nasconde la voce Incidenti e con essa la notizia. #}
+              {% if incidenti %}
+              <span class="badge text-bg-danger snap-badge-gruppo"
+                    title="incidenti aperti">{{ incidenti }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('checks.index') }}"
+                 class="nav-link {% if endpoint in ('checks.index', 'checks.target', 'checks.check') %}active{% endif %}">
+                <i class="nav-icon bi bi-list-check"></i><p>Bersagli e controlli</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('checks.incident_list') }}"
+                 class="nav-link {% if endpoint in ('checks.incident_list', 'checks.incident') %}active{% endif %}">
+                <i class="nav-icon bi bi-exclamation-triangle"></i>
+                <p>
+                  Incidenti
+                  {% if incidenti %}
+                  <span class="badge text-bg-danger">{{ incidenti }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('checks.notifications') }}"
+                 class="nav-link {% if endpoint == 'checks.notifications' %}active{% endif %}">
+                <i class="nav-icon bi bi-envelope-paper"></i><p>Notifiche</p>
+              </a>
+            </li>
+            {# Le regole non stanno sotto i controlli per parentela tecnica: reagiscono
+               a QUALUNQUE evento del sistema. Stanno qui perche' e' qui che si guarda
+               quando si decide chi va avvisato e quando. #}
+            <li class="nav-item">
+              <a href="{{ url_for('rules.index') }}"
+                 class="nav-link {% if endpoint.startswith('rules.') %}active{% endif %}">
+                <i class="nav-icon bi bi-sliders2"></i>
+                <p>
+                  Regole di notifica
+                  {% if indicators and indicators.rules_active %}
+                  <span class="badge text-bg-secondary">{{ indicators.rules_active }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        {# --- Sicurezza: cio' che si e' trovato contro cio' che si sa --------- #}
+        <li class="nav-item {% if in_sicurezza %}menu-open{% endif %}"
+            data-snap-gruppo="sicurezza">
+          <a href="#" class="nav-link {% if in_sicurezza %}active{% endif %}">
+            <i class="nav-icon bi bi-shield-exclamation"></i>
+            <p>
+              Sicurezza
+              {% if minacce %}
+              <span class="badge text-bg-danger snap-badge-gruppo">{{ minacce }}</span>
+              {% elif minacce_aperte %}
+              <span class="badge text-bg-warning snap-badge-gruppo">{{ minacce_aperte }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('threat.index') }}"
+                 class="nav-link {% if endpoint.startswith('threat.') %}active{% endif %}">
+                <i class="nav-icon bi bi-bug"></i>
+                <p>
+                  Threat Intelligence
+                  {% if minacce %}
+                  <span class="badge text-bg-danger">{{ minacce }}</span>
+                  {% elif minacce_aperte %}
+                  <span class="badge text-bg-warning">{{ minacce_aperte }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('audit.index') }}"
+                 class="nav-link {% if endpoint.startswith('audit.') %}active{% endif %}">
+                <i class="nav-icon bi bi-journal-text"></i><p>Audit &amp; Eventi</p>
+              </a>
+            </li>
+            {# La comunicazione all'autorita' e' un atto che impegna il soggetto: la
+               voce e' visibile solo a chi puo' compierlo. #}
+            {% if has_role('tenant_admin') %}
+            <li class="nav-item">
+              <a href="{{ url_for('acn.index') }}"
+                 class="nav-link {% if endpoint.startswith('acn.') %}active{% endif %}">
+                <i class="nav-icon bi bi-send-exclamation"></i>
+                <p>
+                  Comunicazioni ACN
+                  {% if acn_urgenti %}
+                  <span class="badge text-bg-danger">{{ acn_urgenti }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+            {% endif %}
+          </ul>
+        </li>
+
+        {# Un gruppo con una voce sola sarebbe un clic in piu' per niente: i report
+           restano una voce diretta. #}
+        <li class="nav-item">
+          <a href="{{ url_for('reports.index') }}"
+             class="nav-link {% if endpoint.startswith('reports.') %}active{% endif %}">
+            <i class="nav-icon bi bi-file-earmark-pdf"></i>
+            <p>Report e resoconti</p>
+          </a>
+        </li>
+
+        {# --- Sonde ---------------------------------------------------------- #}
+        <li class="nav-item {% if in_sonde %}menu-open{% endif %}" data-snap-gruppo="sonde">
+          <a href="#" class="nav-link {% if in_sonde %}active{% endif %}">
+            <i class="nav-icon bi bi-broadcast-pin"></i>
+            <p>Sonde <i class="nav-arrow bi bi-chevron-right"></i></p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('probes.index') }}"
+                 class="nav-link {% if endpoint == 'probes.index' %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-2"></i><p>Flotta sonde</p>
+              </a>
+            </li>
+            {% if has_role('tenant_admin') %}
+            <li class="nav-item">
+              <a href="{{ url_for('probes.create') }}"
+                 class="nav-link {% if endpoint == 'probes.create' %}active{% endif %}">
+                <i class="nav-icon bi bi-plus-square"></i><p>Registra sonda</p>
+              </a>
+            </li>
+            {% endif %}
+          </ul>
+        </li>
+
+        {# --- Amministrazione ------------------------------------------------ #}
+        {% if has_role('tenant_admin') %}
+        <li class="nav-item {% if in_admin %}menu-open{% endif %}" data-snap-gruppo="admin">
+          <a href="#" class="nav-link {% if in_admin %}active{% endif %}">
+            <i class="nav-icon bi bi-gear-wide-connected"></i>
+            <p>Amministrazione <i class="nav-arrow bi bi-chevron-right"></i></p>
+          </a>
+          <ul class="nav nav-treeview">
+            {% if is_superadmin %}
+            <li class="nav-item">
+              <a href="{{ url_for('admin.tenants') }}"
+                 class="nav-link {% if endpoint == 'admin.tenants' %}active{% endif %}">
+                <i class="nav-icon bi bi-buildings"></i><p>Tenant</p>
+              </a>
+            </li>
+            {% endif %}
+            <li class="nav-item">
+              <a href="{{ url_for('admin.users') }}"
+                 class="nav-link {% if endpoint == 'admin.users' %}active{% endif %}">
+                <i class="nav-icon bi bi-people"></i><p>Utenti</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('admin.settings') }}"
+                 class="nav-link {% if endpoint == 'admin.settings' %}active{% endif %}">
+                <i class="nav-icon bi bi-gear"></i><p>Impostazioni Sistema</p>
+              </a>
+            </li>
+          </ul>
+        </li>
+        {% endif %}
+
+        {# La guida si apre in una finestra nuova: si consulta ACCANTO a cio' che si
+           sta facendo, non al posto suo. #}
+        <li class="nav-item">
+          <a href="{{ url_for('guide.index') }}" target="_blank" rel="noopener"
+             class="nav-link">
+            <i class="nav-icon bi bi-book"></i>
+            <p>
+              Guida operativa
+              <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+            </p>
+          </a>
+        </li>
+      </ul>
+    </nav>
+  </div>
+</aside>

@@ -1,0 +1,189 @@
+{#
+  snap probe - Registrazione della sonda presso il server.
+
+  La pagina e' raggiungibile in qualunque stato: a sonda gia' registrata mostra
+  la registrazione in essere e consente di sostituirla, operazione necessaria
+  quando il server emette un nuovo pacchetto.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Registrazione{% endblock %}
+{% block page_icon %}bi-key{% endblock %}
+{% block page_title %}Registrazione della sonda{% endblock %}
+{% block page_subtitle %}
+  {% if already %}
+    La sonda e' registrata: per usare un nuovo pacchetto confermare la sostituzione.
+  {% else %}
+    Incollare il pacchetto emesso dal server: e' l'unica informazione necessaria.
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if already %}
+<div class="card border-success mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0 text-success">
+      <i class="bi bi-shield-check me-1"></i> Registrazione attualmente in essere
+    </h2>
+  </div>
+  <div class="card-body">
+    <dl class="row small mb-0">
+      <dt class="col-sm-3">Codice sonda</dt>
+      <dd class="col-sm-9">{{ settings.get('probe_code', '-') }}</dd>
+      <dt class="col-sm-3">Nome assegnato</dt>
+      <dd class="col-sm-9">{{ settings.get('probe_name', '-') }}</dd>
+      <dt class="col-sm-3">Tenant</dt>
+      <dd class="col-sm-9">
+        {{ settings.get('tenant_name') or settings.get('tenant_code') or '-' }}
+      </dd>
+      <dt class="col-sm-3">Server</dt>
+      <dd class="col-sm-9">{{ settings.get('server_url', '-') }}</dd>
+      <dt class="col-sm-3">Registrata il</dt>
+      <dd class="col-sm-9">{{ settings.get('enrolled_at')|dtz }}</dd>
+      <dt class="col-sm-3">Record in coda</dt>
+      <dd class="col-sm-9">
+        {{ agent_status.queue_size }}
+        <span class="text-body-secondary">
+          (conservati: verranno conferiti dopo la nuova registrazione)
+        </span>
+      </dd>
+    </dl>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-clipboard-check me-1"></i>
+          {% if already %}Nuovo pacchetto di registrazione{% else %}Pacchetto di registrazione{% endif %}
+        </h2>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('probe.enroll') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold" for="bundle">
+              Stringa <code>SNAP1-...</code> copiata dalla console del server
+            </label>
+            <textarea class="form-control font-monospace" id="bundle" name="bundle" rows="4"
+                      autofocus placeholder="SNAP1-eyJ1cmwiOiJodHRwOi8v...">{{ form.get('bundle', '') }}</textarea>
+            <div class="form-text">
+              Contiene URL del server, codice della sonda e token monouso.
+            </div>
+          </div>
+
+          <p class="text-body-secondary small mb-2">
+            In alternativa, inserimento manuale dei tre valori:
+          </p>
+          <div class="row g-2">
+            <div class="col-md-12">
+              <label class="form-label small" for="server_url">URL del server</label>
+              <input type="text" class="form-control form-control-sm" id="server_url"
+                     name="server_url" value="{{ form.get('server_url', '') }}"
+                     placeholder="http://192.168.1.10:5500">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="probe_code">Codice sonda</label>
+              <input type="text" class="form-control form-control-sm" id="probe_code"
+                     name="probe_code" value="{{ form.get('probe_code', '') }}"
+                     placeholder="sonda-sede-01">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label small" for="enrollment_token">Token monouso</label>
+              <input type="text" class="form-control form-control-sm font-monospace"
+                     id="enrollment_token" name="enrollment_token"
+                     value="{{ form.get('enrollment_token', '') }}">
+            </div>
+          </div>
+
+          {% if already %}
+          <div class="alert alert-warning mt-3 mb-0">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="replace" name="replace"
+                     value="on" {{ 'checked' if form.get('replace') }}>
+              <label class="form-check-label" for="replace">
+                <strong>Sostituisci la registrazione attuale</strong>
+                ({{ settings.get('probe_code', '-') }})
+              </label>
+            </div>
+            <p class="small mb-0 mt-2">
+              Le chiavi correnti vengono eliminate e sostituite da quelle ottenute con
+              il nuovo pacchetto. I dati in coda non vengono perduti. La sonda
+              precedente resta censita sul server: se non serve piu', eliminarla dalla
+              console.
+            </p>
+          </div>
+          {% endif %}
+
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-shield-lock me-1"></i>
+              {% if already %}Sostituisci e apri il canale{% else %}Registra e apri il canale cifrato{% endif %}
+            </button>
+            <a href="{{ url_for('probe.index') }}" class="btn btn-outline-secondary">Annulla</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-info-circle me-1"></i> Dove ottenere il pacchetto</h2>
+      </div>
+      <div class="card-body">
+        <ol class="small ps-3 mb-3">
+          <li class="mb-2">
+            Nella console del server: <strong>Sonde &amp; Discovery &gt; Registra sonda</strong>.
+          </li>
+          <li class="mb-2">
+            Compilare codice e nome, poi <strong>Crea sonda ed emetti token</strong>.
+          </li>
+          <li class="mb-2">
+            Copiare la stringa <code>SNAP1-...</code> con il pulsante
+            <em>Copia pacchetto</em>: e' visibile una sola volta.
+          </li>
+          <li>
+            Incollarla nel campo qui a fianco e confermare.
+          </li>
+        </ol>
+
+        <h3 class="h6">Cosa accade alla conferma</h3>
+        <ol class="small ps-3 mb-3">
+          <li class="mb-2">
+            La sonda genera una coppia di chiavi <strong>X25519</strong>: la parte privata
+            non lascia mai questo dispositivo.
+          </li>
+          <li class="mb-2">
+            Dal token viene derivata una chiave temporanea (HKDF-SHA256) con cui e'
+            cifrata la richiesta; al server viene dichiarata solo l'<strong>impronta</strong>
+            del token.
+          </li>
+          <li class="mb-2">
+            Il server risponde con la propria chiave pubblica: si ottiene la chiave di
+            sessione <strong>AES-256-GCM</strong>.
+          </li>
+          <li>
+            Ogni scambio successivo e' cifrato, autenticato e protetto da ripetizione.
+          </li>
+        </ol>
+
+        <div class="alert alert-secondary small mb-0">
+          <i class="bi bi-arrow-left-right me-1"></i>
+          Il traffico e' sempre <strong>in uscita</strong>: il server non conosce
+          l'indirizzo di questa sonda e non puo' contattarla.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

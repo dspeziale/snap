@@ -1,0 +1,509 @@
+{#
+  snap server - Threat Intelligence: riscontri, catalogo, esposizioni, sorgenti.
+
+  Le tre classi di riscontro restano distinte in ogni vista: un elenco che mescola fatti
+  e ipotesi non e' utilizzabile, perche' chi lo legge non sa quali righe sono vere.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Threat Intelligence{% endblock %}
+{% block page_icon %}bi-shield-exclamation{% endblock %}
+{% block page_title %}Threat Intelligence{% endblock %}
+{% block page_subtitle %}
+  Di cio' che c'e' in rete, che cosa e' noto per essere un problema. Il catalogo (CVE,
+  CWE, tecniche ATT&CK) e' locale: la correlazione non contatta nessuno e funziona anche
+  in una rete isolata.
+{% endblock %}
+
+{% block content %}
+
+{% if not catalog.cve %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi bi-database-exclamation me-1"></i>
+    <strong>Catalogo vuoto.</strong> Senza CVE in archivio la correlazione produce solo
+    esposizioni dei servizi, che non dipendono dal catalogo. Il primo aggiornamento
+    scarica le CVE dei prodotti che sono davvero nell'inventario.
+  </div>
+  {% if has_role('tenant_admin') %}
+  <a href="{{ url_for('threat.index', scheda='sorgenti') }}" class="btn btn-sm btn-warning">
+    Aggiornare il catalogo <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('CONFERMATI', summary.confermati, 'bi-exclamation-octagon',
+       'danger' if summary.confermati else 'success'),
+      ('SFRUTTATI ATTIVAMENTE', summary.kev, 'bi-fire',
+       'danger' if summary.kev else 'secondary'),
+      ('DA VERIFICARE', summary.da_verificare, 'bi-question-circle',
+       'warning' if summary.da_verificare else 'secondary'),
+      ('ESPOSIZIONI', summary.esposizioni, 'bi-door-open',
+       'warning' if summary.esposizioni else 'success'),
+      ('NODI INTERESSATI', summary.nodi, 'bi-hdd-network', 'primary'),
+      ('CVE IN CATALOGO', catalog.cve, 'bi-database', 'secondary')] %}
+  <div class="col-6 col-xl-2">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# La qualita' del dato decide che cosa si puo' affermare: dirlo qui evita di far
+   cercare in un elenco vuoto la risposta a "e le vulnerabilita'?". #}
+<div class="alert alert-light border small mb-3 py-2">
+  <i class="bi bi-info-circle me-1"></i>
+  <strong>Qualita' del dato:</strong>
+  {{ summary.porte_aperte }} porte aperte,
+  <strong>{{ summary.porte_con_cpe }}</strong> con identificativo di prodotto,
+  <strong>{{ summary.porte_con_versione }}</strong> con la versione.
+  <details class="d-inline">
+    <summary class="d-inline text-body-secondary">che cosa comporta</summary>
+    <div class="mt-2">
+      Una CVE si puo' attribuire a un'istanza solo conoscendo la
+      <strong>versione</strong>: senza, il riscontro resta <em>da verificare</em> e non
+      viene contato fra le vulnerabilita'. Le <em>esposizioni</em> non dipendono dalle
+      versioni e sono la classe che su questo dato porta piu' informazione. Per
+      ottenere piu' versioni: profilo di sforzo piu' alto sulle sonde, che aumenta
+      l'interrogazione dei servizi.
+    </div>
+  </details>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    {% if has_role('analyst') %}
+    <form method="post" action="{{ url_for('threat.correlate') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-primary">
+        <i class="bi bi-arrow-repeat me-1"></i> Correlare adesso
+      </button>
+    </form>
+    {% endif %}
+    {% if has_role('tenant_admin') %}
+    <form method="post" action="{{ url_for('threat.sync', operazione='targeted') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-primary"
+              {{ 'disabled' if running }}>
+        <i class="bi bi-cloud-download me-1"></i>
+        Aggiornare le CVE dei prodotti in inventario
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <small class="text-body-secondary">
+    {% if catalog.ultimo_per_sorgente %}
+    ultimo aggiornamento:
+    {% for sorgente, dati in catalog.ultimo_per_sorgente.items() %}
+    {{ sorgente }} {{ dati.quando|dt if dati.quando else '-' }}{% if not loop.last %},
+    {% endif %}
+    {% endfor %}
+    {% else %}catalogo mai aggiornato{% endif %}
+  </small>
+</div>
+
+{# Schede come collegamenti: ciascuna carica soltanto cio' che mostra. Tenere in
+   pagina tutte le tabelle per nasconderle con il browser costava 1,7 MB a ogni
+   apertura, per guardarne una. #}
+{{ schede.barra_collegamenti([
+    ('riscontri', 'Riscontri sui nodi', 'bi-list-check', summary.aperti,
+     url_for('threat.index', scheda='riscontri')),
+    ('catalogo', 'Catalogo CVE', 'bi-database', catalog.cve,
+     url_for('threat.index', scheda='catalogo')),
+    ('cwe', 'CWE', 'bi-diagram-3', catalog.cwe,
+     url_for('threat.index', scheda='cwe')),
+    ('attack', 'MITRE ATT&CK', 'bi-crosshair', catalog.tecniche,
+     url_for('threat.index', scheda='attack')),
+    ('sorgenti', 'Sorgenti e aggiornamento', 'bi-cloud-arrow-down', none,
+     url_for('threat.index', scheda='sorgenti')),
+], attiva=scheda) }}
+
+<div class="tab-content">
+
+{# ------------------------------------------------------------- riscontri #}
+{% if scheda == 'riscontri' %}
+<div class="tab-pane fade show active"
+     id="pane-riscontri" role="tabpanel" aria-labelledby="tab-riscontri">
+{# Le tre classi in schede: un elenco che le mescola non e' utilizzabile, perche' chi
+   lo legge non sa quali righe sono fatti e quali ipotesi (TI-02). Sono collegamenti e
+   non pannelli: il filtro e' del server, e tenere in pagina cinquecento righe per
+   ciascuna classe la renderebbe pesante senza dare nulla in piu'. #}
+{{ schede.barra_collegamenti([
+    ('', 'Tutte le classi', 'bi-list-ul', summary.aperti,
+     url_for('threat.index', scheda='riscontri', stato=filtro.stato,
+             gravita=filtro.gravita)),
+    ('confirmed', 'Confermate', 'bi-exclamation-octagon', summary.confermati,
+     url_for('threat.index', scheda='riscontri', classe='confirmed',
+             stato=filtro.stato, gravita=filtro.gravita)),
+    ('potential', 'Da verificare', 'bi-question-circle', summary.da_verificare,
+     url_for('threat.index', scheda='riscontri', classe='potential',
+             stato=filtro.stato, gravita=filtro.gravita)),
+    ('exposure', 'Esposizioni', 'bi-door-open', summary.esposizioni,
+     url_for('threat.index', scheda='riscontri', classe='exposure',
+             stato=filtro.stato, gravita=filtro.gravita)),
+], attiva=filtro.classe, classe='mb-3 nav-tabs-sub') }}
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-check me-1"></i>
+      {{ kinds.get(filtro.classe, 'Riscontri sui nodi') }}
+      <span class="text-body-secondary small">({{ nodes|length }} dispositivi)</span>
+    </h3>
+    <form method="get" class="d-flex gap-2 flex-wrap align-items-center">
+      <input type="hidden" name="scheda" value="riscontri">
+      <input type="hidden" name="classe" value="{{ filtro.classe }}">
+      <select name="stato" class="form-select form-select-sm w-auto" data-autosubmit>
+        {% for chiave, etichetta in statuses.items() %}
+        <option value="{{ chiave }}" {{ 'selected' if filtro.stato == chiave }}>
+          {{ etichetta }}</option>
+        {% endfor %}
+        <option value="" {{ 'selected' if not filtro.stato }}>tutti gli stati</option>
+      </select>
+      <select name="gravita" class="form-select form-select-sm w-auto" data-autosubmit>
+        <option value="">tutte le gravita'</option>
+        {% for s in severities %}
+        <option value="{{ s }}" {{ 'selected' if filtro.gravita == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  <div class="card-body p-0">
+    {# Un dispositivo per riga. Lo stesso apparato compariva in venti righe -- una per
+       porta e per CVE -- e la domanda di chi lavora non e' "quale riga leggo per
+       prima" ma "da quale dispositivo comincio". I riscontri del singolo nodo, con
+       le decisioni da prendere, stanno nella sua pagina. #}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="RISCONTRI">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>DISPOSITIVO</th>
+              <th>PEGGIORE</th><th>CONF.</th><th>DA VERIF.</th><th>ESPOS.</th>
+              <th>PORTE</th><th>RISCONTRI</th><th>ULTIMA OSSERVAZIONE</th></tr>
+        </thead>
+        <tbody>
+          {% for n in nodes %}
+          <tr>
+            <td class="text-nowrap">
+              {% if n.hostname %}
+              <div class="small text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              <a href="{{ url_for('inventory.node', node_id=n.node_id) }}"
+                 class="font-monospace">{{ n.ip }}</a>
+              {% if n.kev %}
+              <span class="badge text-bg-danger ms-1" title="vulnerabilita' sfruttate
+                    attivamente su questo dispositivo">KEV {{ n.kev }}</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if n.peggiore in ('critical','high')
+                                            else ('warning' if n.peggiore == 'medium' else 'secondary') }}">
+                {{ n.peggiore }}
+              </span>
+            </td>
+            <td class="text-end">
+              {% if n.confermati %}
+              <span class="badge text-bg-danger">{{ n.confermati }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if n.da_verificare %}
+              <span class="badge text-bg-warning">{{ n.da_verificare }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if n.esposizioni %}
+              <span class="badge text-bg-secondary">{{ n.esposizioni }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+            <td class="text-end small">{{ n.porte or '-' }}</td>
+            <td class="small text-body-secondary">
+              {% for titolo in n.titoli %}{{ titolo }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+              {% if n.altri_titoli %}
+              <span class="text-body-tertiary">e altri {{ n.altri_titoli }}</span>
+              {% endif %}
+            </td>
+            <td class="small text-nowrap">{{ n.ultimo|dt }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if limite_elenco and nodes|length >= limite_elenco %}
+    <p class="p-3 mb-0 small text-body-secondary border-top">
+      <i class="bi bi-info-circle me-1"></i>
+      Elenco fermato a {{ limite_elenco }} dispositivi, i piu' gravi per questa classe.
+      Per vedere gli altri, restringere con le schede qui sopra o con i filtri.
+    </p>
+    {% endif %}
+    {% if not nodes %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun riscontro con questi filtri. Se non e' mai stata eseguita, premere
+      <em>Correlare adesso</em>: la correlazione lavora sul catalogo locale e non
+      contatta nessuno.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% if summary.accettati or summary.chiusi %}
+<p class="small text-body-secondary mt-2 mb-0">
+  Fuori dall'elenco: {{ summary.accettati }} riscontri con rischio accettato,
+  {{ summary.chiusi }} non piu' presenti. Restano consultabili cambiando il filtro di
+  stato: la storia di cio' che era esposto e' informazione, e cancellarla renderebbe
+  impossibile dire quando e' stato chiuso.
+</p>
+{% endif %}
+</div>
+
+{# -------------------------------------------------------------- catalogo #}
+{% endif %}
+{% if scheda == 'catalogo' %}
+<div class="tab-pane fade show active"
+     id="pane-catalogo" role="tabpanel" aria-labelledby="tab-catalogo">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-database me-1"></i> Catalogo CVE locale</h3>
+    <form method="get" class="d-flex gap-2 flex-wrap align-items-center">
+      <input type="hidden" name="scheda" value="catalogo">
+      <input type="search" name="cerca" class="form-control form-control-sm w-auto"
+             placeholder="CVE-2024-... o testo" value="{{ filtro.cerca }}">
+      <select name="cve_gravita" class="form-select form-select-sm w-auto">
+        <option value="">tutte le gravita'</option>
+        {% for s in severities %}
+        <option value="{{ s }}"
+                {{ 'selected' if request.args.get('cve_gravita') == s }}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-check form-check-inline">
+        <input class="form-check-input" type="checkbox" name="solo_kev" value="1"
+               id="solo-kev" {{ 'checked' if request.args.get('solo_kev') }}>
+        <label class="form-check-label small" for="solo-kev">solo sfruttate</label>
+      </div>
+      <button type="submit" class="btn btn-sm btn-outline-primary">Cercare</button>
+    </form>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>CVE</th><th>PUBBLICATA</th><th>GRAVITA'</th><th>PUNTEGGIO</th>
+              <th>CWE</th><th>DESCRIZIONE</th></tr>
+        </thead>
+        <tbody>
+          {% for c in cves %}
+          <tr>
+            <td class="font-monospace">
+              <a href="{{ url_for('threat.cve', cve_id=c.cve_id) }}">{{ c.cve_id }}</a>
+              {% if c.kev %}
+              <span class="badge text-bg-danger" title="sfruttata attivamente">
+                <i class="bi bi-fire"></i>
+              </span>
+              {% endif %}
+            </td>
+            <td class="small text-nowrap">{{ c.published_at|giorno }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if c.severity in ('critical','high')
+                                            else ('warning' if c.severity == 'medium' else 'secondary') }}">
+                {{ c.severity or '-' }}
+              </span>
+            </td>
+            <td class="text-end">{{ c.cvss_score or '-' }}</td>
+            <td class="small font-monospace">{{ c.cwe_ids or '-' }}</td>
+            <td class="small text-body-secondary">{{ c.descrizione }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not cves %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna CVE in catalogo con questi criteri.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------------- CWE #}
+{% endif %}
+{% if scheda == 'cwe' %}
+<div class="tab-pane fade show active"
+     id="pane-cwe" role="tabpanel" aria-labelledby="tab-cwe">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-diagram-3 me-1"></i> CWE: classi di debolezza
+    </h3>
+    <small class="text-body-secondary">
+      vista 1003, quella che la NVD usa per classificare le CVE
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>CWE</th><th>NOME</th><th>ASTRAZIONE</th><th>CVE COLLEGATE</th>
+              <th>DESCRIZIONE</th></tr>
+        </thead>
+        <tbody>
+          {% for w in cwes %}
+          <tr>
+            <td class="font-monospace">
+              {% if w.url %}<a href="{{ w.url }}" target="_blank" rel="noopener">{{ w.cwe_id }}</a>
+              {% else %}{{ w.cwe_id }}{% endif %}
+            </td>
+            <td class="small">{{ w.name }}</td>
+            <td class="small text-body-secondary">{{ w.abstraction }}</td>
+            <td class="text-end">{{ w.cve_collegate }}</td>
+            <td class="small text-body-secondary">{{ (w.description or '')[:180] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not cwes %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Catalogo CWE non importato: si scarica dalla scheda Sorgenti (130 voci, un file).
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ---------------------------------------------------------------- ATT&CK #}
+{% endif %}
+{% if scheda == 'attack' %}
+<div class="tab-pane fade show active"
+     id="pane-attack" role="tabpanel" aria-labelledby="tab-attack">
+
+{# Due domande diverse, due schede: "che cosa espongo e come verrebbe usato" e
+   "che cos'e' questa tecnica". La prima e' quella per cui si apre la pagina. #}
+{{ schede.barra([
+    ('atk-esposizioni', 'Esposizioni e tecniche', 'bi-crosshair', exposures|length),
+    ('atk-catalogo', 'Catalogo delle tecniche', 'bi-list-ol', techniques|length),
+]) }}
+
+<div class="tab-content">
+
+<div class="tab-pane fade show active" id="pane-atk-esposizioni" role="tabpanel"
+     aria-labelledby="tab-atk-esposizioni">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-crosshair me-1"></i> Esposizioni e tecniche corrispondenti
+    </h3>
+    <small class="text-body-secondary">
+      l'associazione porta&rarr;tecnica e' nostra, non pubblicata da MITRE
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-search="true">
+        <thead>
+          <tr><th>PORTE</th><th>ESPOSIZIONE</th><th>GRAVITA'</th><th>TECNICA</th>
+              <th>PERCHE' CONTA</th><th>CHE COSA FARE</th></tr>
+        </thead>
+        <tbody>
+          {% for e in exposures %}
+          <tr>
+            <td class="font-monospace small">{{ e.porte_testo }}</td>
+            <td class="small">{{ e.titolo }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if e.severity == 'high'
+                                            else ('warning' if e.severity == 'medium' else 'secondary') }}">
+                {{ e.severity }}
+              </span>
+            </td>
+            <td class="small">
+              {% if e.tecnica_url %}
+              <a href="{{ e.tecnica_url }}" target="_blank" rel="noopener">{{ e.technique }}</a>
+              {% else %}<span class="font-monospace">{{ e.technique }}</span>{% endif %}
+              {% if e.tecnica_nome %}
+              <div class="text-body-secondary">{{ e.tecnica_nome }}</div>
+              {% endif %}
+            </td>
+            <td class="small text-body-secondary">{{ e.motivo }}</td>
+            <td class="small text-body-secondary">{{ e.azione }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="pane-atk-catalogo" role="tabpanel"
+     aria-labelledby="tab-atk-catalogo">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-ol me-1"></i> Tecniche in catalogo ({{ techniques|length }})
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="20">
+        <thead><tr><th>ID</th><th>NOME</th><th>TATTICHE</th><th>DESCRIZIONE</th></tr></thead>
+        <tbody>
+          {% for t in techniques %}
+          <tr>
+            <td class="font-monospace small">
+              {% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">{{ t.technique_id }}</a>
+              {% else %}{{ t.technique_id }}{% endif %}
+            </td>
+            <td class="small">{{ t.name }}</td>
+            <td class="small text-body-secondary">{{ t.tactics }}</td>
+            <td class="small text-body-secondary">{{ (t.description or '')[:140] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not techniques %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Catalogo ATT&CK non importato: le esposizioni funzionano comunque e mostrano
+      l'identificativo della tecnica senza il nome.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+</div>
+</div>
+
+{# -------------------------------------------------------------- sorgenti #}
+{% endif %}
+{% if scheda == 'sorgenti' %}
+<div class="tab-pane fade show active"
+     id="pane-sorgenti" role="tabpanel" aria-labelledby="tab-sorgenti">
+{% include 'threat/_sorgenti.html' %}
+</div>
+{% endif %}
+
+</div>
+{% endblock %}

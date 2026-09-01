@@ -1,0 +1,125 @@
+/*
+ * snap - Famiglie tipografiche PT Sans e PT Sans Narrow (sottoinsieme latino).
+ *
+ * I file sono serviti localmente: nessuna richiesta verso servizi esterni.
+ * PT Sans Narrow esiste nei soli pesi regolare e grassetto; il corsivo dei
+ * titoli usa PT Sans Italic e PT Sans Bold Italic, come indicato dal
+ * committente.
+ *
+ * remarks: Autore: Daniele Speziale - Data: 2026-08-27
+ * copyright: (c) 2024-26 DS Consulting
+ * license: MIT
+ */
+
+@font-face {
+  font-family: "PT Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "PT Sans";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "PT Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "PT Sans";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-bold-italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "PT Sans Narrow";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-narrow-regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "PT Sans Narrow";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../vendor/fonts/pt-sans-narrow-bold.woff2") format("woff2");
+}
+
+:root {
+  /* Titoli: PT Sans Narrow, con PT Sans per il corsivo che Narrow non copre. */
+  --snap-font-titoli: "PT Sans Narrow", "PT Sans", "Segoe UI", system-ui, sans-serif;
+  --snap-font-corsivo: "PT Sans", "PT Sans Narrow", "Segoe UI", system-ui, sans-serif;
+}
+
+/* --- Titoli ------------------------------------------------------------- */
+h1, h2, h3, h4, h5, h6,
+.h1, .h2, .h3, .h4, .h5, .h6,
+.card-title,
+.modal-title,
+.navbar-brand,
+.snap-auth-brand,
+.sidebar-brand .brand-text,
+.snap-stat-value,
+.snap-stat-label,
+.snap-kpi-value,
+.snap-kpi-label,
+.nav-header,
+table.dataTable thead th,
+.table > thead th {
+  font-family: var(--snap-font-titoli);
+  letter-spacing: .01em;
+}
+
+/* Il corsivo dei titoli ricade su PT Sans, che ne dispone. */
+h1 em, h2 em, h3 em, h4 em, h5 em, h6 em,
+h1 i:not([class*="bi-"]), h2 i:not([class*="bi-"]), h3 i:not([class*="bi-"]),
+h4 i:not([class*="bi-"]), h5 i:not([class*="bi-"]), h6 i:not([class*="bi-"]),
+.card-title em, .modal-title em,
+.snap-titolo-corsivo {
+  font-family: var(--snap-font-corsivo);
+  font-style: italic;
+}
+
+/* Titoli in grassetto e grassetto corsivo. */
+h1 strong, h2 strong, h3 strong, h4 strong, h5 strong, h6 strong,
+.card-title strong, .modal-title strong {
+  font-family: var(--snap-font-titoli);
+  font-weight: 700;
+}
+h1 em strong, h1 strong em,
+h2 em strong, h2 strong em,
+h3 em strong, h3 strong em,
+.card-title em strong, .card-title strong em {
+  font-family: var(--snap-font-corsivo);
+  font-style: italic;
+  font-weight: 700;
+}
+
+/* --- Stampa dei documenti ---------------------------------------------- */
+/* I manuali software adottano PT Sans Narrow a 19 punti, come da convenzione
+   di progetto: la regola si applica ai contenuti marcati come documento. */
+.snap-documento {
+  font-family: "PT Sans Narrow", "PT Sans", serif;
+  font-size: 19pt;
+  line-height: 1.35;
+}
+.snap-documento h1,
+.snap-documento h2,
+.snap-documento h3 {
+  font-family: "PT Sans Narrow", "PT Sans", serif;
+  font-weight: 700;
+}
+.snap-documento em { font-family: "PT Sans", serif; font-style: italic; }
+
+@media print {
+  .snap-documento { font-size: 19pt; }
+}

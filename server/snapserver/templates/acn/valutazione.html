@@ -1,0 +1,182 @@
+{#
+  snap server - Valutazione di significativita' di un incidente, prima del fascicolo.
+
+  La decisione e' dell'organizzazione: questa pagina mostra i criteri e cio' che i dati
+  dicono, e chiede l'istante di CONOSCENZA, che e' quello da cui decorrono i termini.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Valutazione incidente #{{ incidente.id }}{% endblock %}
+{% block page_icon %}bi-clipboard-check{% endblock %}
+{% block page_title %}Incidente #{{ incidente.id }}: e' significativo?{% endblock %}
+{% block page_subtitle %}
+  Solo gli incidenti <strong>significativi</strong> vanno comunicati (art. 23 della
+  direttiva (UE) 2022/2555). La valutazione e' dell'organizzazione: qui ci sono i
+  criteri e cio' che i dati dicono.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-card-list me-1"></i> L'incidente</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5">Controllo</dt>
+          <dd class="col-7">{{ incidente.controllo }} ({{ incidente.genere }})</dd>
+          <dt class="col-5">Bersaglio</dt>
+          <dd class="col-7 font-monospace snap-wrap">{{ incidente.bersaglio }}</dd>
+          <dt class="col-5">Gravita'</dt>
+          <dd class="col-7">
+            <span class="badge text-bg-{{ 'danger' if incidente.severity == 'critical' else 'warning' }}">
+              {{ incidente.severity }}
+            </span>
+          </dd>
+          <dt class="col-5">Aperto</dt>
+          <dd class="col-7">{{ incidente.opened_at|dtz }}</dd>
+          <dt class="col-5">Preso in carico</dt>
+          <dd class="col-7">{{ incidente.acknowledged_at|dtz if incidente.acknowledged_at else 'non ancora' }}</dd>
+          <dt class="col-5">Chiuso</dt>
+          <dd class="col-7">{{ incidente.resolved_at|dtz if incidente.resolved_at else 'ancora aperto' }}</dd>
+          <dt class="col-5">Indisponibilita' misurata</dt>
+          <dd class="col-7">{{ valutazione.ore_indisponibilita }} ore</dd>
+          <dt class="col-5">Primo dettaglio</dt>
+          <dd class="col-7 snap-wrap">{{ incidente.first_detail or '-' }}</dd>
+          <dt class="col-5">Ultimo dettaglio</dt>
+          <dd class="col-7 snap-wrap">{{ incidente.last_detail or '-' }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-list-check me-1"></i> I criteri
+        </h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">{{ valutazione.motivo_proposta }}</p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="25" data-no-search="true">
+            <thead>
+              <tr><th>CRITERIO</th><th>DAI DATI</th><th>DOMANDA</th></tr>
+            </thead>
+            <tbody>
+              {% for c in criteri %}
+              {% set esito = valutazione.esiti.get(c.chiave) %}
+              <tr>
+                <td class="small fw-semibold">{{ c.titolo }}</td>
+                <td class="small text-nowrap">
+                  {% if esito is true %}
+                  <span class="badge text-bg-danger">si</span>
+                  {% elif esito is false %}
+                  <span class="badge text-bg-success">no</span>
+                  {% else %}
+                  <span class="badge text-bg-secondary">da dichiarare</span>
+                  {% endif %}
+                </td>
+                <td class="small">{{ c.domanda }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="small text-body-secondary mt-3 mb-0">
+          Soglie dichiarate: indisponibilita' oltre
+          <strong>{{ soglie.ore_indisponibilita }} ore</strong>, oppure
+          <strong>{{ soglie.servizi_coinvolti }}</strong> servizi coinvolti, oppure
+          gravita' <strong>{{ soglie.gravita_minima }}</strong>. Non sono la legge: la
+          direttiva parla di "grave perturbazione operativa" e di "ripercussioni su
+          altri soggetti", e sono un aiuto a non lasciar passare inosservato cio' che va
+          valutato.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if incidente.origin == 'manual' %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-trash me-1"></i> Eliminare questo incidente
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary mb-2">
+      Si puo' eliminare perche' e' stato <strong>registrato a mano</strong>: un
+      incidente aperto da un controllo e' un fatto della sorveglianza e non si cancella.
+      L'eliminazione viene rifiutata se una comunicazione all'autorita' e' gia' stata
+      inviata: il protocollo e' la prova dei tempi. Se si rivela un falso allarme, lo si
+      dichiara nella relazione finale.
+    </p>
+    <form method="post" action="{{ url_for('acn.elimina', incident_id=incidente.id) }}"
+          data-confirm="Eliminare l'incidente &quot;{{ incidente.controllo }}&quot; (#{{ incidente.id }})? Il fascicolo non ancora inviato viene eliminato con esso.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash me-1"></i> Elimina l'incidente
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% if comunicazioni %}
+<div class="alert alert-secondary mt-3 small">
+  Il fascicolo di questo incidente e' gia' aperto:
+  <a href="{{ url_for('acn.index') }}">vedere le comunicazioni</a>.
+</div>
+{% else %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-hourglass-top me-1"></i> Aprire il fascicolo fa partire l'orologio
+    </h3>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('acn.apri', incident_id=incidente.id) }}"
+          data-confirm="Aprire il fascicolo ACN per l'incidente #{{ incidente.id }}? I termini decorrono dall'istante di conoscenza indicato.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-5">
+          <label class="form-label small" for="conosciuto">
+            Istante di <strong>conoscenza</strong> dell'incidente (UTC)
+          </label>
+          <input type="text" name="conosciuto_alle" id="conosciuto"
+                 class="form-control form-control-sm"
+                 value="{{ conoscenza_utc }}" maxlength="19">
+          <div class="form-text">
+            I termini decorrono da qui, non dall'inizio dell'incidente: e' cio' che dice
+            l'art. 23, ed e' anche l'unico istante che si puo' documentare. Se
+            l'organizzazione ne e' venuta a conoscenza dopo, si corregge.
+          </div>
+        </div>
+        <div class="col-12 col-md-7">
+          <ul class="small mb-0">
+            {% for s in stadi %}
+            <li><strong>{{ s.nome }}</strong>: {{ s.termine }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-warning mt-3">
+        <i class="bi bi-folder-plus me-1"></i> Apri il fascicolo ACN
+      </button>
+      <a href="{{ portale }}" target="_blank" rel="noopener noreferrer"
+         class="btn btn-outline-secondary mt-3">
+        <i class="bi bi-box-arrow-up-right me-1"></i> Apri il portale ACN
+      </a>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

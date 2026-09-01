@@ -1,0 +1,774 @@
+{#
+  snap server - Quadro SOC: la superficie esposta e come cambia.
+
+  Apre con la VARIAZIONE e non con lo stato: una porta aperta da sempre e'
+  architettura nota, la stessa porta aperta ieri e' un evento (RP-12). Lo stato --
+  superficie, riscontri, porte sospette -- viene dopo, nelle schede.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Quadro SOC{% endblock %}
+{% block page_icon %}bi-shield-shaded{% endblock %}
+{% block page_title %}Quadro SOC{% endblock %}
+{% block page_subtitle %}
+  Che cosa e' cambiato nella superficie esposta negli ultimi {{ board.giorni }} giorni,
+  e che cosa resta da guardare.
+{% endblock %}
+
+{% block page_actions %}
+<div class="btn-group btn-group-sm me-2" role="group" aria-label="Finestra">
+  {% for giorni in finestre %}
+  <a href="{{ url_for('operations.soc', giorni=giorni) }}"
+     class="btn {{ 'btn-primary' if board.giorni == giorni else 'btn-outline-secondary' }}">
+    {{ giorni }}g
+  </a>
+  {% endfor %}
+</div>
+{% if has_role('analyst') %}
+<form method="post" action="{{ url_for('threat.correlate') }}" class="d-inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-primary">
+    <i class="bi bi-arrow-repeat me-1"></i> Correlare adesso
+  </button>
+</form>
+{% endif %}
+<a href="{{ url_for('threat.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-shield-exclamation me-1"></i> Threat Intelligence
+</a>
+<a href="{{ url_for('operations.search', pronta='desktop_remoto') }}"
+   class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-search me-1"></i> Ricerca
+</a>
+<a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-file-earmark-pdf me-1"></i> Report
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="alert {{ 'alert-warning' if board.variazioni_totali else 'alert-success' }}
+            d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi {{ 'bi-arrow-left-right' if board.variazioni_totali
+                    else 'bi-check-circle-fill' }} me-1"></i>
+    {% if board.variazioni_totali %}
+    <strong>{{ board.variazioni_totali }} variazioni</strong> nella superficie esposta:
+    {{ board.porte_nuove|length }} porte aperte,
+    {{ board.nodi_nuovi|length }} dispositivi comparsi,
+    {{ board.identita_cambiate|length }} identita' cambiate.
+    {% else %}
+    <strong>Nessuna variazione</strong> nella superficie esposta in questa finestra.
+    {% endif %}
+  </div>
+  <small>
+    {% if board.riscontri.kev %}
+    <span class="badge text-bg-danger">{{ board.riscontri.kev }} sfruttate attivamente</span>
+    {% endif %}
+    finestra di {{ board.giorni }} giorni
+  </small>
+</div>
+
+<div class="row g-3 mb-3">
+  {% set riquadri = [
+      ('PORTE APERTE', board.porte_nuove|length, 'bi-door-open',
+       'warning' if board.porte_nuove else 'success', 'nella finestra scelta'),
+      ('DISPOSITIVI COMPARSI', board.nodi_nuovi|length, 'bi-plus-circle',
+       'warning' if board.nodi_nuovi else 'success', 'indirizzi mai visti prima'),
+      ('IDENTITA\' CAMBIATE', board.identita_cambiate|length, 'bi-arrow-repeat',
+       'warning' if board.identita_cambiate else 'success', 'stesso indirizzo, altro apparato'),
+      ('CONFERMATE', board.riscontri.confermati, 'bi-exclamation-octagon',
+       'danger' if board.riscontri.confermati else 'success', 'vulnerabilita\' dimostrate'),
+      ('ESPOSIZIONI', board.riscontri.esposizioni, 'bi-shield-exclamation',
+       'warning' if board.riscontri.esposizioni else 'success', 'servizi rischiosi per natura'),
+      ('ATTESE NEL CONTESTO', board.zone.attese, 'bi-diagram-3',
+       'success' if board.zone.attese else 'secondary',
+       'esposizioni normali nella loro zona'),
+      ('VIOLAZIONI DI ZONA', board.zone.violazioni, 'bi-exclamation-diamond',
+       'danger' if board.zone.violazioni else 'success',
+       'servizi dove non dovrebbero esserci'),
+      ('FUORI PERIMETRO', board.fuori_perimetro|length, 'bi-bounding-box',
+       'danger' if board.fuori_perimetro else 'success', 'nodi in subnet non dichiarate'),
+  ] %}
+  {% for etichetta, valore, icona, tono, nota in riquadri %}
+  <div class="col-6 col-lg-4 col-xxl-2">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center gap-2">
+          <div>
+            <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+            <p class="snap-stat-value mb-0">{{ valore }}</p>
+            <p class="snap-stat-foot mb-0">{{ nota }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{{ schede.barra([
+    ('variazioni', 'Variazioni', 'bi-arrow-left-right',
+     board.variazioni_totali),
+    ('rischio', 'Da cui cominciare', 'bi-list-ol', board.nodi_a_rischio|length),
+    ('segmentazione', 'Segmentazione', 'bi-diagram-3', board.zone.violazioni),
+    ('superficie', 'Superficie esposta', 'bi-door-open', none),
+    ('anomalie', 'Anomalie', 'bi-question-diamond',
+     board.fuori_perimetro|length + board.porte_sospette|length),
+    ('registro', 'Registro e regole', 'bi-journal-text',
+     board.eventi_gravi|length + board.regole_scattate|length),
+]) }}
+
+<div class="tab-content">
+
+{# -------------------------------------------------------------- variazioni #}
+<div class="tab-pane fade show active" id="pane-variazioni" role="tabpanel"
+     aria-labelledby="tab-variazioni">
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-graph-up-arrow me-1"></i> La superficie si allarga o si restringe?
+        </h3>
+        <small class="text-body-secondary">porte aperte per giorno, 30 giorni</small>
+      </div>
+      <div class="card-body">
+        {% if board.andamento_superficie %}
+        <div class="text-warning" data-snap-grafico data-altezza="130"
+             data-etichetta="porte aperte"
+             data-punti='{{ board.andamento_superficie|tojson }}'></div>
+        <p class="small text-body-secondary mb-0 mt-1">
+          I giorni senza aperture non compaiono: non sono uno zero, sono giorni in cui
+          non e' cambiato nulla.
+        </p>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          Nessuna porta aperta negli ultimi trenta giorni.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-list-ol me-1"></i> Servizi aperti di piu'
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="8" data-no-search="true">
+            <thead><tr><th>PORTA</th><th>SERVIZIO</th><th>DISPOSITIVI</th></tr></thead>
+            <tbody>
+              {% for pt in board.porte_top %}
+              <tr>
+                <td class="small font-monospace">{{ pt.protocol }}/{{ pt.port }}</td>
+                <td class="small">{{ pt.servizio or '-' }}</td>
+                <td class="text-end">{{ pt.nodi }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.porte_top %}
+        <p class="p-3 mb-0 text-body-secondary small">
+          Nessuna porta aperta nella finestra.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-door-open me-1"></i> Porte aperte di recente</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="15">
+        <thead>
+          <tr><th>QUANDO</th><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>PORTA</th>
+              <th>SERVIZIO</th><th>PRODOTTO</th></tr>
+        </thead>
+        <tbody>
+          {% for p in board.porte_nuove %}
+          <tr>
+            <td class="small text-nowrap">{{ p.first_seen_at|ago }}</td>
+            <td><a href="{{ url_for('inventory.node', node_id=p.node_id) }}"
+                   class="font-monospace">{{ p.ip }}</a></td>
+            <td class="small">{{ p.device_label or 'non identificato' }}{% if (p.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td class="small font-monospace">{{ p.protocol }}/{{ p.port }}</td>
+            <td class="small">{{ p.service_name or '-' }}</td>
+            <td class="small text-body-secondary">
+              {{ p.product or '' }} {{ p.version or '' }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.porte_nuove %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna porta nuova in questa finestra: la superficie esposta non e' cambiata.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-plus-circle me-1"></i> Dispositivi comparsi
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead>
+              <tr><th>QUANDO</th><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>PORTE</th>
+                  <th>SUBNET</th></tr>
+            </thead>
+            <tbody>
+              {% for n in board.nodi_nuovi %}
+              <tr>
+                <td class="small text-nowrap">{{ n.first_seen_at|ago }}</td>
+                <td><a href="{{ url_for('inventory.node', node_id=n.id) }}"
+                       class="font-monospace">{{ n.ip }}</a></td>
+                <td class="small">
+                  {{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}
+                  {%- if n.device_confidence %} ({{ n.device_confidence }}%){% endif %}
+                </td>
+                <td class="text-end small">{{ n.porte }}</td>
+                <td class="small font-monospace">{{ n.subnet_cidr or 'fuori' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.nodi_nuovi %}
+        <p class="p-3 mb-0 text-body-secondary small">Nessun dispositivo nuovo.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-arrow-repeat me-1"></i> Identita' cambiate
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <p class="small text-body-secondary p-3 mb-0 border-bottom">
+          Un indirizzo che era una stampante e adesso e' un server non e' un
+          aggiornamento del catalogo: o e' stato riassegnato, o e' stato collegato un
+          altro apparato.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead>
+              <tr><th>QUANDO</th><th>INDIRIZZO</th><th>CHE COSA</th><th>PRIMA</th>
+                  <th>ADESSO</th></tr>
+            </thead>
+            <tbody>
+              {% for c in board.identita_cambiate %}
+              <tr>
+                <td class="small text-nowrap">{{ c.created_at|ago }}</td>
+                <td><a href="{{ url_for('inventory.node', node_id=c.node_id) }}"
+                       class="font-monospace">{{ c.ip }}</a></td>
+                <td class="small">{{ c.kind }}</td>
+                <td class="small text-body-secondary">{{ (c.before_value or '-')[:26] }}</td>
+                <td class="small">{{ (c.after_value or '-')[:26] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.identita_cambiate %}
+        <p class="p-3 mb-0 text-body-secondary small">
+          Nessuna identita' cambiata in questa finestra.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+{# ----------------------------------------------------------------- rischio #}
+<div class="tab-pane fade" id="pane-rischio" role="tabpanel" aria-labelledby="tab-rischio">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-ol me-1"></i> Dispositivi da cui cominciare
+    </h3>
+    <small class="text-body-secondary">
+      prima chi ha vulnerabilita' sfruttate attivamente, poi chi ne ha di confermate
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>PEGGIORE</th><th>CONF.</th>
+              <th>DA VERIF.</th><th>ESPOS.</th><th>KEV</th><th>RISCONTRI</th></tr>
+        </thead>
+        <tbody>
+          {% for n in board.nodi_a_rischio %}
+          <tr>
+            <td><a href="{{ url_for('inventory.node', node_id=n.node_id) }}"
+                   class="font-monospace">{{ n.ip }}</a></td>
+            <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if n.peggiore in ('critical','high')
+                                            else ('warning' if n.peggiore == 'medium'
+                                                  else 'secondary') }}">
+                {{ n.peggiore }}
+              </span>
+            </td>
+            <td class="text-end small">{{ n.confermati or '-' }}</td>
+            <td class="text-end small">{{ n.da_verificare or '-' }}</td>
+            <td class="text-end small">{{ n.esposizioni or '-' }}</td>
+            <td class="text-end small">
+              {% if n.kev %}<span class="badge text-bg-danger">{{ n.kev }}</span>
+              {% else %}-{% endif %}
+            </td>
+            <td class="small text-body-secondary">
+              {% for titolo in n.titoli %}{{ titolo }}{% if not loop.last %} &middot; {% endif %}{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.nodi_a_rischio %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun riscontro aperto. Se la correlazione non e' mai stata eseguita, si avvia
+      dal menu Threat Intelligence.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ----------------------------------------------------------- segmentazione #}
+<div class="tab-pane fade" id="pane-segmentazione" role="tabpanel"
+     aria-labelledby="tab-segmentazione">
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-diagram-3 me-1"></i> La segmentazione dichiarata regge?
+    </h3>
+    <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-outline-secondary">
+      Dichiarare le zone
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      La domanda non e' quante esposizioni ci sono, ma quante sono <strong>normali dove
+      si trovano</strong>. SSH in un datacenter e' il modo in cui i sistemi si
+      amministrano; lo stesso SSH in una rete ospiti e' una violazione. Una rete ben
+      segmentata ha molte esposizioni attese e poche violazioni; una rete piatta ha
+      tutto aperto e niente di dichiarato.
+      {% if board.zone.senza_zona %}
+      <br><strong>{{ board.zone.senza_zona }} subnet non dichiarano la zona</strong> e
+      valgono come rete di utenza, che e' il giudizio piu' severo: il silenzio non vale
+      come giustificazione.
+      {% endif %}
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>ZONA</th><th>SUBNET</th><th>DISPOSITIVI</th><th>ESPOSIZIONI APERTE</th>
+              <th>ATTESE NEL CONTESTO</th><th>VIOLAZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for z in board.zone.zone %}
+          <tr>
+            <td class="text-nowrap">
+              <span class="badge text-bg-{{ z.tono }}">
+                <i class="bi {{ z.icona }} me-1"></i>{{ z.nome }}
+              </span>
+            </td>
+            <td class="text-end">{{ z.subnet }}</td>
+            <td class="text-end">{{ z.nodi }}</td>
+            <td class="text-end">{{ z.aperte }}</td>
+            <td class="text-end">
+              {% if z.attese %}
+              <span class="badge text-bg-success">{{ z.attese }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+            <td class="text-end">
+              {% if z.violazioni %}
+              <span class="badge text-bg-danger">{{ z.violazioni }}</span>
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-book me-1"></i> Che cosa significa ciascuna zona
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead><tr><th>ZONA</th><th>CHE COS'E'</th><th>ATTESO QUI</th>
+                   <th>VIETATO QUI</th></tr></thead>
+        <tbody>
+          {% for z in board.zone.catalogo %}
+          <tr>
+            <td class="text-nowrap">
+              <span class="badge text-bg-{{ z.tono }}">{{ z.nome }}</span>
+            </td>
+            <td class="small text-body-secondary">{{ z.descrizione }}</td>
+            <td class="small">
+              {% for voce in z.attese %}{{ voce }}{% if not loop.last %}<br>{% endif %}
+              {% else %}<span class="text-body-secondary">niente</span>{% endfor %}
+            </td>
+            <td class="small">
+              {% for voce in z.violazioni %}{{ voce }}{% if not loop.last %}<br>{% endif %}
+              {% else %}<span class="text-body-secondary">niente in particolare</span>{% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+{# -------------------------------------------------------------- superficie #}
+<div class="tab-pane fade" id="pane-superficie" role="tabpanel"
+     aria-labelledby="tab-superficie">
+<div class="row g-3">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-door-open me-1"></i> Superficie esposta per categoria di rischio
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" data-snap-table
+                 data-page-size="15" data-no-search="true">
+            <thead>
+              <tr><th>CATEGORIA</th><th>DISPOSITIVI</th><th>SERVIZI</th>
+                  <th>PERCHE' CONTA</th></tr>
+            </thead>
+            <tbody>
+              {% for c in board.superficie.categorie %}
+              <tr>
+                <td class="small fw-semibold">{{ c.etichetta }}</td>
+                <td class="text-end">{{ c.nodi }}</td>
+                <td class="text-end small">{{ c.porte }}</td>
+                <td class="small text-body-secondary">{{ c.nota }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card mb-3">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-crosshair me-1"></i> Come verrebbe usato
+        </h3>
+        <small class="text-body-secondary">tecniche MITRE ATT&CK</small>
+      </div>
+      <div class="card-body p-0">
+        <p class="small text-body-secondary p-3 mb-0 border-bottom">
+          Un elenco di porte dice che cosa e' aperto; le tecniche dicono come verrebbe
+          usato, ed e' la lingua con cui un SOC parla con il resto del mondo.
+          L'associazione porta&rarr;tecnica e' nostra, non pubblicata da MITRE.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="8" data-no-search="true">
+            <thead><tr><th>TECNICA</th><th>NOME</th><th>DISPOSITIVI</th></tr></thead>
+            <tbody>
+              {% for tec in board.tecniche %}
+              <tr>
+                <td class="small font-monospace">
+                  {% if tec.url %}
+                  <a href="{{ tec.url }}" target="_blank" rel="noopener">{{ tec.technique_id }}</a>
+                  {% else %}{{ tec.technique_id }}{% endif %}
+                </td>
+                <td class="small">{{ tec.nome or '-' }}</td>
+                <td class="text-end">{{ tec.nodi }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.tecniche %}
+        <p class="p-3 mb-0 text-body-secondary small">
+          Nessuna esposizione aperta con una tecnica associata.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-broadcast me-1"></i> Che cosa consegna SNMP
+        </h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Con la community di fabbrica un apparato racconta di se' a chiunque
+          raggiunga la porta. Non e' una vulnerabilita': e' ricognizione servita al
+          bersaglio.
+        </p>
+        <dl class="row small mb-0">
+          <dt class="col-7">Apparati che espongono SNMP</dt>
+          <dd class="col-5 text-end">{{ board.snmp.esposti }}</dd>
+          <dt class="col-7">Hanno risposto</dt>
+          <dd class="col-5 text-end">{{ board.snmp.letti }}</dd>
+          <dt class="col-7">Descrizioni di sistema</dt>
+          <dd class="col-5 text-end">{{ board.snmp.con_descrizione }}</dd>
+          <dt class="col-7">Interfacce dichiarate</dt>
+          <dd class="col-5 text-end">{{ board.snmp.interfacce }}</dd>
+          <dt class="col-7">Processi</dt>
+          <dd class="col-5 text-end">{{ board.snmp.processi }}</dd>
+          <dt class="col-7">Voci di software</dt>
+          <dd class="col-5 text-end">{{ board.snmp.software }}</dd>
+          <dt class="col-7">Connessioni</dt>
+          <dd class="col-5 text-end">{{ board.snmp.connessioni }}</dd>
+          <dt class="col-7">Utenze locali</dt>
+          <dd class="col-5 text-end">{{ board.snmp.utenti }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+{# ---------------------------------------------------------------- anomalie #}
+<div class="tab-pane fade" id="pane-anomalie" role="tabpanel" aria-labelledby="tab-anomalie">
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-bounding-box me-1"></i> Nodi fuori perimetro
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      Dispositivi in subnet non dichiarate o sospese: o il perimetro e' incompleto, o
+      qualcosa risponde dove non dovrebbe.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="10">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>SUBNET</th></tr>
+        </thead>
+        <tbody>
+          {% for n in board.fuori_perimetro %}
+          <tr>
+            <td class="font-monospace small">
+              {% if n.hostname %}
+              <div class="text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              {{ n.ip }}
+            </td>
+            <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td class="small font-monospace">{{ n.cidr or 'nessuna' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.fuori_perimetro %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Tutti i dispositivi appartengono a una subnet dichiarata e attiva.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-question-diamond me-1"></i> Porte iniettate dalla rete
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      Porte che rispondono su troppi dispositivi diversi: risponde un apparato
+      intermedio, non il nodo. Restano visibili ma non contano come prove.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="10">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>PORTA</th><th>SERVIZIO</th><th>MOTIVO</th></tr>
+        </thead>
+        <tbody>
+          {% for p in board.porte_sospette %}
+          <tr>
+            <td class="font-monospace small">{{ p.ip }}</td>
+            <td class="small font-monospace">{{ p.protocol }}/{{ p.port }}</td>
+            <td class="small">{{ p.service_name or '-' }}</td>
+            <td class="small text-body-secondary">{{ (p.suspect_reason or '')[:70] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.porte_sospette %}
+    <p class="p-3 mb-0 text-body-secondary small">Nessuna porta marcata come iniettata.</p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ---------------------------------------------------------------- registro #}
+<div class="tab-pane fade" id="pane-registro" role="tabpanel" aria-labelledby="tab-registro">
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-journal-text me-1"></i> Eventi gravi
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10">
+            <thead>
+              <tr><th>QUANDO</th><th>TIPO</th><th>GRAVITA'</th><th>DESCRIZIONE</th></tr>
+            </thead>
+            <tbody>
+              {% for e in board.eventi_gravi %}
+              <tr>
+                <td class="small text-nowrap">{{ e.created_at|ago }}</td>
+                <td class="small font-monospace">{{ e.event_type }}</td>
+                <td>
+                  <span class="badge text-bg-{{ 'danger' if e.severity == 'critical'
+                                                else 'warning' }}">{{ e.severity }}</span>
+                </td>
+                <td class="small text-body-secondary">{{ (e.description or '')[:80] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.eventi_gravi %}
+        <p class="p-3 mb-0 text-body-secondary small">Nessun evento grave nella finestra.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-sliders2 me-1"></i> Regole scattate
+        </h3>
+        <a href="{{ url_for('rules.index') }}" class="btn btn-sm btn-outline-secondary">
+          Regole
+        </a>
+      </div>
+      <div class="card-body p-0">
+        <p class="small text-body-secondary p-3 mb-0 border-bottom">
+          Che cosa il sistema ha gia' segnalato da se': se una regola non scatta mai,
+          o e' scritta male o quell'evento non accade.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10">
+            <thead>
+              <tr><th>QUANDO</th><th>REGOLA</th><th>EVENTO</th><th>SOGGETTO</th>
+                  <th>CANALI</th></tr>
+            </thead>
+            <tbody>
+              {% for m in board.regole_scattate %}
+              <tr>
+                <td class="small text-nowrap">{{ m.created_at|ago }}</td>
+                <td class="small fw-semibold">{{ m.rule_name }}</td>
+                <td class="small font-monospace">{{ m.event_type }}</td>
+                <td class="small">{{ (m.subject or '-')[:24] }}</td>
+                <td class="small text-body-secondary">
+                  {{ m.channels }}
+                  {% if m.suppressed %}
+                  <span class="badge text-bg-secondary">soppressa</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if not board.regole_scattate %}
+        <p class="p-3 mb-0 text-body-secondary small">
+          Nessuna regola scattata nella finestra.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if board.accessi_falliti %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-person-x me-1"></i> Accessi non riusciti alla console
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="10">
+        <thead><tr><th>QUANDO</th><th>CHI</th><th>DA DOVE</th><th>DETTAGLIO</th></tr></thead>
+        <tbody>
+          {% for a in board.accessi_falliti %}
+          <tr>
+            <td class="small text-nowrap">{{ a.created_at|dt }}</td>
+            <td class="small">{{ a.actor or '-' }}</td>
+            <td class="small font-monospace">{{ a.source_ip or '-' }}</td>
+            <td class="small text-body-secondary">{{ (a.description or '')[:70] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+</div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,177 @@
+{#
+  snap server - Guida: threat intelligence.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<!-- ============================================================= -->
+<h2 id="threat">16. Threat Intelligence</h2>
+<p>
+  Il prodotto sa <em>che cosa c'e' in rete</em>. La Threat Intelligence collega quel dato
+  a <em>cio' che il mondo sa essere un problema</em>: vulnerabilita' pubblicate (CVE),
+  classi di debolezza (CWE), vulnerabilita' sfruttate attivamente (CISA KEV) e tecniche
+  di attacco (MITRE ATT&amp;CK). Il catalogo e' <strong>locale</strong>: la correlazione
+  non contatta nessuno e funziona in una rete isolata.
+</p>
+
+<h3>Come e' organizzata la pagina</h3>
+<p>
+  In testa restano i numeri e i due pulsanti che si usano davvero (<em>Correlare
+  adesso</em> e l'aggiornamento delle CVE dei prodotti in inventario). Il resto e' in
+  <strong>schede</strong>, e ogni scheda carica soltanto cio' che mostra: costruirle
+  tutte insieme voleva dire impaginare a ogni apertura cinquecento riscontri, duecento
+  CVE, centotrenta CWE e settecento tecniche.
+</p>
+<ul>
+  <li><strong>Riscontri sui nodi</strong>, divisi a loro volta per <em>classe</em>:
+      confermate, da verificare, esposizioni. Un elenco che le mescola non e'
+      utilizzabile, perche' chi lo legge non sa quali righe sono fatti e quali
+      ipotesi.</li>
+  <li><strong>Catalogo CVE</strong> e <strong>CWE</strong>: che cosa c'e' in archivio.</li>
+  <li><strong>MITRE ATT&amp;CK</strong>, in due schede: le <em>esposizioni con la
+      tecnica</em> che le sfrutterebbe, e il <em>catalogo delle tecniche</em>.</li>
+  <li><strong>Sorgenti e aggiornamento</strong>, in cinque schede: aggiornare il
+      catalogo, chiave API della NVD, importare da file, prodotti riconosciuti in
+      inventario, registro degli aggiornamenti.</li>
+</ul>
+<p>
+  L'elenco dei riscontri si ferma a duecento righe per classe, le piu' gravi: piu'
+  lungo non si legge, e le schede e i filtri portano dove serve.
+</p>
+
+<h3>Le tre classi di riscontro</h3>
+<p>
+  Correlare un inventario con le CVE e' facile da fare male: si cerca il nome del
+  prodotto e si produce un elenco lungo, spaventoso e inutile. Per questo ogni riscontro
+  dichiara sempre a quale classe appartiene.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>CLASSE</th><th>QUANDO SI PRODUCE</th><th>CHE COSA SIGNIFICA</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Confermato</strong></td>
+        <td>prodotto <strong>e versione</strong> noti, e la versione rientra
+            nell'applicabilita' dichiarata dalla NVD</td>
+        <td>E' un fatto: quel dispositivo e' interessato. E' l'unico caso in cui si parla
+            di vulnerabilita'.</td>
+      </tr>
+      <tr>
+        <td><strong>Da verificare</strong></td>
+        <td>prodotto riconosciuto, versione ignota</td>
+        <td>Le CVE esistono per quel prodotto, ma l'istanza non e' verificabile. Non e'
+            una vulnerabilita' accertata: dice <em>dove serve rilevare la versione</em>.
+            Se ne produce <strong>uno solo</strong> per nodo e porta, non uno per CVE.</td>
+      </tr>
+      <tr>
+        <td><strong>Esposizione</strong></td>
+        <td>nessuna CVE: e' il servizio in se' a essere un rischio</td>
+        <td>Telnet in chiaro, SMB raggiungibile, desktop remoto aperto. Non dipende dalle
+            versioni ed e' la classe che porta piu' informazione su un inventario reale.
+            Porta la tecnica MITRE ATT&amp;CK che la sfrutterebbe.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<h3>Le esposizioni si leggono nel contesto</h3>
+<p>
+  Un'esposizione non e' un fatto assoluto: dipende da dove si trova. Se la subnet del
+  dispositivo dichiara una <a href="#zone">zona di rete</a>, l'esposizione puo'
+  risultare <strong>attesa</strong> in quel contesto (SSH in un datacenter) e allora
+  resta annotata con la sua ragione ma non conta fra i riscontri aperti; oppure una
+  <strong>violazione</strong> (SSH in una rete ospiti), e allora sale di gravita'.
+</p>
+<p>
+  Gli attesi sono contati <strong>a parte</strong>, mai sommati agli aperti, con la
+  stessa disciplina con cui le tre classi non si sommano fra loro. Le vulnerabilita'
+  confermate non sono toccate dalla zona: una CVE e' un fatto del software, non della
+  rete.
+</p>
+
+<p>
+  <strong>Una versione fuori intervallo non produce nulla.</strong> E' la regola che
+  separa una correlazione da un generatore di falsi positivi: se il servizio dichiara una
+  versione e quella versione non rientra nell'applicabilita', non si segnala niente.
+</p>
+
+<h3>Perche' a volte le conferme sono zero</h3>
+<p>
+  Una CVE si attribuisce a un'istanza <strong>solo conoscendo la versione</strong>. Su
+  una rete reale la maggior parte dei servizi non la annuncia: nell'inventario di
+  collaudo, 14 porte su 3.456. Con quel dato "nessuna vulnerabilita' confermata" e' la
+  risposta <em>vera</em>, non un guasto — e la pagina lo dichiara sempre in testa,
+  con quante porte hanno un identificativo di prodotto e quante hanno la versione.
+</p>
+<p>
+  Per avere piu' conferme serve piu' informazione: <strong>profilo di sforzo piu'
+  alto</strong> sulle sonde, che aumenta l'interrogazione dei servizi.
+</p>
+
+<h3>Aggiornare il catalogo</h3>
+<ul>
+  <li><strong>CVE dei prodotti in inventario</strong> (predefinito): interroga la NVD
+      soltanto sui prodotti che esistono davvero in rete. Poche richieste, tutto
+      pertinente: scaricare 250.000 CVE per correlarne trenta produce un catalogo che
+      nessuno tiene aggiornato.</li>
+  <li><strong>Finestra temporale</strong>: le CVE modificate negli ultimi giorni.</li>
+  <li><strong>CISA KEV</strong>: le vulnerabilita' sfruttate attivamente. Fra due
+      vulnerabilita' con lo stesso punteggio, quella sfruttata va prima.</li>
+  <li><strong>CWE</strong> (130 classi) e <strong>ATT&amp;CK</strong> (709 tecniche,
+      circa 35 MB).</li>
+  <li><strong>Importazione da file</strong>: per le reti senza uscita verso internet. Il
+      formato si riconosce dal contenuto, non dall'estensione.</li>
+</ul>
+<p>
+  La NVD limita a 5 richieste ogni 30 secondi senza chiave API: l'aggiornamento attende
+  sei secondi e mezzo fra le richieste, e la pagina dichiara quanto durera' prima di
+  premere. L'aggiornamento e' <strong>l'unico momento</strong> in cui il server esce
+  verso internet, e non trasmette nulla del cliente: chiede CVE per nome di prodotto, non
+  per indirizzo.
+</p>
+
+<h3>La chiave API della NVD</h3>
+<p>
+  Senza chiave la NVD concede <strong>5 richieste ogni 30 secondi</strong>, e
+  l'aggiornamento attende sei secondi e mezzo fra una richiesta e l'altra: su un
+  inventario con quaranta prodotti sono alcuni minuti. Con la chiave sono
+  <strong>50</strong>, e la stessa operazione dura pochi secondi. La chiave e' gratuita e
+  si richiede alla NIST con un indirizzo di posta, dalla scheda <em>Sorgenti</em>.
+</p>
+<ul>
+  <li>La registra il <strong>solo amministratore di sistema</strong>: il catalogo e'
+      unico per tutto il server, quindi la chiave e' una credenziale
+      dell'installazione e non di un cliente.</li>
+  <li>Non torna <strong>mai in chiaro</strong> alla pagina e non finisce nei registri:
+      si vedono le ultime quattro cifre. Un campo vuoto la rimuove e si torna al ritmo
+      senza chiave.</li>
+  <li>La forma viene verificata subito: un incolla parziale verrebbe altrimenti scoperto
+      con un rifiuto della NVD dopo dieci minuti di aggiornamento.</li>
+</ul>
+
+<h3>Che cosa farne</h3>
+<ul>
+  <li>Ogni riscontro porta la <strong>motivazione in chiaro</strong> e una
+      <strong>confidenza</strong>: scende quando il prodotto e' dedotto per euristica dal
+      nome del servizio, o quando la versione viene dal banner invece che dal CPE.</li>
+  <li><strong>Rischio accettato</strong> e <strong>falso positivo</strong> richiedono una
+      motivazione: senza, fra sei mesi nessuno sapra' perche' quel riscontro e' stato
+      messo da parte. La decisione non viene sovrascritta dalle rivalutazioni
+      successive.</li>
+  <li>Un riscontro non piu' osservato <strong>si chiude, non si cancella</strong>: la
+      storia di cio' che era esposto serve a dire quando e' stato chiuso.</li>
+  <li>La scheda <em>Vulnerabilita' ed esposizioni</em> nella pagina di un nodo mostra i
+      riscontri di quel dispositivo.</li>
+  <li>I riscontri sono una <strong>sorgente di evento</strong> per le regole di notifica:
+      fra le regole pronte ci sono "Vulnerabilita' confermata su un nodo" e
+      "Vulnerabilita' sfruttata attivamente".</li>
+  <li>Il <strong>report di sicurezza (SOC)</strong> apre con una sezione sulle
+      vulnerabilita' note, con la stessa distinzione fra le tre classi.</li>
+  <li>Il report <strong>Vulnerabilita' ed esposizioni</strong> (menu Report) e' il
+      documento dedicato: qualita' del dato, riscontri per classe, esposizioni
+      raggruppate per tipo con la tecnica ATT&amp;CK e l'azione consigliata, dispositivi
+      ordinati per quanto hanno da sistemare, variazioni del periodo e decisioni
+      registrate.</li>
+</ul>

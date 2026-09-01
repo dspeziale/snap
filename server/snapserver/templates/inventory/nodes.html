@@ -1,0 +1,431 @@
+{#
+  snap server - Inventario dei nodi scoperti.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Nodi{% endblock %}
+{% block page_icon %}bi-hdd-network{% endblock %}
+{% block page_title %}Inventario dei Nodi{% endblock %}
+{% block page_subtitle %}
+  Dispositivi scoperti dalle sonde nel perimetro dichiarato. Il tipo e' determinato
+  dalle prove raccolte, con il catalogo {{ catalog_version }}.
+{% endblock %}
+
+{% block page_actions %}
+{% if has_role('analyst') %}
+{# Riapplicare il prodotto ai dati gia' raccolti. Il pulsante fa il lavoro completo
+   nell'ordine giusto; il menu accanto permette di scegliere un passo solo, per chi
+   sa che gli serve quello. Nessuna scansione, in nessun caso. #}
+<div class="btn-group btn-group-sm d-inline-flex">
+  <form method="post" action="{{ url_for('inventory.reprocess') }}" class="d-inline"
+        data-confirm="Riapplicare le regole di oggi ai {{ summary.total }} dispositivi gia' in archivio? Vengono rifatti riconoscimento, correlazione e giudizio delle zone. NON viene eseguita nessuna scansione.">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-repeat me-1"></i> Riapplica ai dati raccolti
+    </button>
+  </form>
+  <button type="button" class="btn btn-outline-secondary dropdown-toggle dropdown-toggle-split"
+          data-bs-toggle="dropdown" aria-expanded="false">
+    <span class="visually-hidden">Scegli un passo</span>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end p-2" style="min-width: 22rem;">
+    <li class="small text-body-secondary px-2 pb-2">
+      Un passo solo, per chi sa quale gli serve. L'ordine completo e' quello del
+      pulsante: le porte prima dei verdetti, i verdetti prima della correlazione, le
+      zone per ultime.
+    </li>
+    {% for passo in passi_rielaborazione %}
+    <li>
+      <form method="post" action="{{ url_for('inventory.reprocess') }}" class="px-2 py-1">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="passi" value="{{ passo.chiave }}">
+        <button type="submit" class="btn btn-sm btn-link p-0 text-start">
+          <strong>{{ passo.titolo }}</strong>
+        </button>
+        <div class="small text-body-secondary">{{ passo.spiegazione }}</div>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{# Enumerare SMB su tutti i nodi con 139/445 aperta, in una sola richiesta: le sonde la
+   eseguono a lotti. Utile per completare in fretta la copertura invece di un nodo per
+   volta. Compare solo se ci sono nodi SMB. #}
+{% if smb_open_count %}
+<form method="post" action="{{ url_for('inventory.enumerate_all_smb') }}"
+      class="d-inline"
+      data-confirm="Enumerare via SMB tutti i {{ smb_open_count }} nodi con la porta 139/445 aperta? Le sonde la eseguono a lotti, e' traffico sulla rete del cliente.">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-outline-primary">
+    <i class="bi bi-windows me-1"></i> Enumera SMB su tutti
+    <span class="badge text-bg-light ms-1">{{ smb_open_count }}</span>
+  </button>
+</form>
+{% endif %}
+{% endif %}
+<a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-bounding-box me-1"></i> Perimetro
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('NODI IN INVENTARIO', summary.total, 'bi-hdd-network', 'primary'),
+      ('RAGGIUNGIBILI', summary.up, 'bi-check-circle', 'success'),
+      ('NON RAGGIUNGIBILI', summary.down, 'bi-x-circle', 'danger'),
+      ('DA IDENTIFICARE', summary.uncertain, 'bi-question-circle', 'warning')] %}
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="snap-stat-label">{{ voce[0] }}</p>
+            <p class="snap-stat-value">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{{ schede.barra([
+    ('nodi', 'Nodi', 'bi-list-ul', nodes|length),
+    ('tipi', 'Distribuzione per tipo', 'bi-pie-chart', distribution|length),
+] if distribution else [('nodi', 'Nodi', 'bi-list-ul', nodes|length)]) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-nodi" role="tabpanel"
+     aria-labelledby="tab-nodi">
+{# Il filtro sta nella stessa scheda della tabella che filtra: altrove la tabella
+   sembrerebbe non filtrata. #}
+{# I filtri sono raccolti in quattro gruppi che rispondono a quattro domande diverse:
+   DOVE sta il nodo, CHE COS'E', CHE COSA ESPONE (e cosa abbiamo gia' letto), e la
+   SICUREZZA. Sopra, una ricerca libera; sotto, le pastiglie dei filtri attivi, ognuna
+   rimovibile con un clic. Tutto lato server: nessuno script, coerente con la CSP. #}
+<div class="card snap-filtri mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-funnel me-1"></i> Filtri</h3>
+    {% if active_filters %}
+    <span class="badge rounded-pill text-bg-primary">
+      {{ active_filters|length }} filtr{{ 'o' if active_filters|length == 1 else 'i' }}
+      attiv{{ 'o' if active_filters|length == 1 else 'i' }}
+    </span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <form method="get">
+      {# --- Ricerca libera: la prima cosa che si prova, larga e con l'icona --- #}
+      <div class="input-group input-group-sm mb-3">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input type="search" name="cerca" id="filtro-cerca" value="{{ filters.cerca }}"
+               class="form-control"
+               placeholder="Cerca per indirizzo, nome host, MAC, costruttore, sistema operativo, tipo...">
+        <button type="submit" class="btn btn-primary px-3">
+          <i class="bi bi-funnel-fill me-1"></i> Applica
+        </button>
+      </div>
+
+      <div class="row g-3">
+        {# --- DOVE --- #}
+        <div class="col-12 col-lg-6 col-xxl-3">
+          <p class="snap-filtri-gruppo"><i class="bi bi-geo-alt me-1"></i> Dove</p>
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="filtro-subnet">Subnet</label>
+            <select name="subnet" id="filtro-subnet" class="form-select form-select-sm">
+              <option value="">tutte</option>
+              {% for s in subnets %}
+              <option value="{{ s.id }}" {% if filters.subnet == s.id %}selected{% endif %}>
+                {{ s.cidr }}{% if s.label %} - {{ s.label }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-1" for="filtro-zona">Zona di rete</label>
+            <select name="zona" id="filtro-zona" class="form-select form-select-sm">
+              <option value="">qualunque</option>
+              {% for z in zones %}
+              <option value="{{ z.chiave }}" {% if filters.zona == z.chiave %}selected{% endif %}>{{ z.nome }}</option>
+              {% endfor %}
+              <option value="senza" {% if filters.zona == 'senza' %}selected{% endif %}>non dichiarata</option>
+            </select>
+          </div>
+        </div>
+
+        {# --- CHE COS'E' --- #}
+        <div class="col-12 col-lg-6 col-xxl-3">
+          <p class="snap-filtri-gruppo"><i class="bi bi-pc-display me-1"></i> Che cos'e'</p>
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="filtro-type">Tipo di dispositivo</label>
+            <select name="type" id="filtro-type" class="form-select form-select-sm">
+              <option value="">tutti</option>
+              <option value="unknown" {% if filters.type == 'unknown' %}selected{% endif %}>Non identificato</option>
+              {% for c in classes %}
+              <option value="{{ c.key }}" {% if filters.type == c.key %}selected{% endif %}>{{ c.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small mb-1" for="filtro-status">Stato</label>
+              <select name="status" id="filtro-status" class="form-select form-select-sm">
+                <option value="">tutti</option>
+                <option value="up" {% if filters.status == 'up' %}selected{% endif %}>raggiungibile</option>
+                <option value="down" {% if filters.status == 'down' %}selected{% endif %}>assente</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1" for="filtro-identificazione">Identificazione</label>
+              <select name="identificazione" id="filtro-identificazione" class="form-select form-select-sm">
+                <option value="">indifferente</option>
+                <option value="incerto" {% if filters.identificazione == 'incerto' %}selected{% endif %}>da verificare</option>
+                <option value="certo" {% if filters.identificazione == 'certo' %}selected{% endif %}>riconosciuto</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {# --- CHE COSA ESPONE --- #}
+        <div class="col-12 col-lg-6 col-xxl-3">
+          <p class="snap-filtri-gruppo"><i class="bi bi-ethernet me-1"></i> Che cosa espone</p>
+          <div class="row g-2 mb-2">
+            <div class="col-7">
+              <label class="form-label small mb-1" for="filtro-servizio">Servizio</label>
+              <select name="servizio" id="filtro-servizio" class="form-select form-select-sm">
+                <option value="">qualunque</option>
+                {% for chiave, etichetta, _porte in service_families %}
+                <option value="{{ chiave }}" {% if filters.servizio == chiave %}selected{% endif %}>{{ etichetta }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-5">
+              <label class="form-label small mb-1" for="filtro-porta">Porta</label>
+              <input type="text" name="porta" id="filtro-porta" value="{{ filters.porta }}"
+                     class="form-control form-control-sm" placeholder="3389, udp/161">
+            </div>
+          </div>
+          <div class="row g-2">
+            <div class="col-6">
+              <label class="form-label small mb-1" for="filtro-snmp">Lettura SNMP</label>
+              <select name="snmp" id="filtro-snmp" class="form-select form-select-sm">
+                <option value="">indifferente</option>
+                <option value="letto" {% if filters.snmp == 'letto' %}selected{% endif %}>gia' letta</option>
+                <option value="da_leggere" {% if filters.snmp == 'da_leggere' %}selected{% endif %}>porta aperta, mai letta</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label small mb-1" for="filtro-smb">Enumerazione SMB</label>
+              <select name="smb" id="filtro-smb" class="form-select form-select-sm">
+                <option value="">indifferente</option>
+                <option value="letto" {% if filters.smb == 'letto' %}selected{% endif %}>gia' enumerata</option>
+                <option value="da_leggere" {% if filters.smb == 'da_leggere' %}selected{% endif %}>139/445 aperta, mai enumerata</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {# --- SICUREZZA e QUANDO --- #}
+        <div class="col-12 col-lg-6 col-xxl-3">
+          <p class="snap-filtri-gruppo"><i class="bi bi-shield-check me-1"></i> Sicurezza e tempo</p>
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="filtro-rischio">Sicurezza</label>
+            <select name="rischio" id="filtro-rischio" class="form-select form-select-sm">
+              <option value="">indifferente</option>
+              <option value="aperti" {% if filters.rischio == 'aperti' %}selected{% endif %}>con riscontri aperti</option>
+              <option value="confermati" {% if filters.rischio == 'confermati' %}selected{% endif %}>con vulnerabilita' confermate</option>
+              <option value="kev" {% if filters.rischio == 'kev' %}selected{% endif %}>sfruttate attivamente (KEV)</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label small mb-1" for="filtro-visto">Ultimo contatto</label>
+            <select name="visto" id="filtro-visto" class="form-select form-select-sm">
+              <option value="">qualunque</option>
+              <option value="24h" {% if filters.visto == '24h' %}selected{% endif %}>ultime 24 ore</option>
+              <option value="7g" {% if filters.visto == '7g' %}selected{% endif %}>ultimi 7 giorni</option>
+              <option value="30g" {% if filters.visto == '30g' %}selected{% endif %}>ultimi 30 giorni</option>
+              <option value="silenzio" {% if filters.visto == 'silenzio' %}selected{% endif %}>muti da oltre 7 giorni</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <p class="small text-body-secondary mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          I filtri si <strong>combinano</strong>: ciascuno restringe l'elenco. Un valore
+          scritto male viene ignorato, non svuota la rete.
+        </p>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('inventory.nodes') }}"
+             class="btn btn-sm btn-outline-secondary {{ 'disabled' if not active_filters }}">
+            <i class="bi bi-x-circle me-1"></i> Azzera tutti
+          </a>
+          <button type="submit" class="btn btn-sm btn-primary">
+            <i class="bi bi-funnel-fill me-1"></i> Applica
+          </button>
+        </div>
+      </div>
+    </form>
+
+    {# --- Pastiglie dei filtri attivi: ognuna si toglie con un clic --- #}
+    {% if active_filters %}
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-3 pt-3 border-top">
+      <span class="small text-body-secondary">Attivi:</span>
+      {% for f in active_filters %}
+      <a href="{{ f.reset_url }}" class="snap-chip" title="Togliere questo filtro">
+        <span class="snap-chip-nome">{{ f.titolo }}</span>
+        <span class="snap-chip-valore">{{ f.valore }}</span>
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h3 class="card-title mb-0"><i class="bi bi-list-ul me-1"></i> Nodi ({{ nodes|length }})</h3>
+    <small class="text-body-secondary">Copertura del perimetro: {{ summary.coverage_pct }}%</small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="50"
+             data-no-sort="AZIONI">
+        <thead>
+          <tr><th>STATO</th><th>CONTROLLI</th><th>INDIRIZZO</th><th>TIPO</th>
+              <th>CONF.</th><th>SISTEMA OPERATIVO</th><th>PORTE</th><th>SUBNET</th>
+              <th>ULTIMO CONTATTO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for n in nodes %}
+          <tr>
+            <td>
+              <span class="snap-dot snap-dot-{{ 'online' if n.status == 'up' else 'offline' }}"></span>
+              <span class="small">{{ 'attivo' if n.status == 'up' else 'assente' }}</span>
+            </td>
+            <td class="small">
+              {# Un nodo gia' sorvegliato va dichiarato: senza questo si rifarebbe
+                 l'onboarding di qualcosa che e' gia' fra i controlli. #}
+              {% if n.check_target_id %}
+              <a href="{{ url_for('checks.target', target_id=n.check_target_id) }}"
+                 class="badge text-bg-success text-decoration-none"
+                 title="Nodo sorvegliato: {{ n.checks_active }} controlli attivi">
+                <i class="bi bi-clipboard-check me-1"></i>{{ n.checks_active }}
+              </a>
+              {% elif has_role('tenant_admin') %}
+              <form method="post" action="{{ url_for('checks.onboard_node', node_id=n.id) }}"
+                    class="d-inline"
+                    data-confirm="Fare l'onboarding di {{ n.ip }} nei controlli? Vengono creati un controllo di presenza e uno sulle porte trovate aperte.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if n.hostname %}<input type="hidden" name="use_hostname" value="on">{% endif %}
+                <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-1"
+                        title="OnBoarding nei controlli">
+                  <i class="bi bi-clipboard-plus"></i>
+                </button>
+              </form>
+              {% else %}
+              <span class="text-body-secondary">-</span>
+              {% endif %}
+            </td>
+            <td class="fw-semibold">
+              {% if n.hostname %}
+              <div class="small fw-normal text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ n.ip }}</a>
+              {% if n.is_managed %}<i class="bi bi-shield-check text-success ms-1" title="gestito"></i>{% endif %}
+            </td>
+            <td class="small">
+              {{ n.device_label }}
+              {% if (n.device_type_source or 'auto') == 'manual' %}
+              {# Una confidenza 100 automatica e una dichiarazione umana non sono la
+                 stessa cosa: il segno dice quale delle due si sta leggendo. #}
+              <i class="bi bi-person-check text-info ms-1"
+                 title="Tipo dichiarato dall'operatore"></i>
+              {% endif %}
+              {# Il produttore sotto il tipo: "stampante" dice cosa fa, "Ricoh" dice
+                 con chi si parla per farla aggiornare. Le tre fonti non valgono lo
+                 stesso, quindi la fonte si dichiara nel suggerimento. #}
+              {% if n.web_vendor %}
+              <div class="text-body-secondary" title="Dichiarato dalla pagina di gestione dell'apparato">
+                {{ n.web_vendor }}
+              </div>
+              {% elif n.mac_vendor %}
+              <div class="text-body-secondary" title="Ricavato dall'indirizzo MAC: e' il costruttore della scheda di rete">
+                {{ n.mac_vendor }}
+              </div>
+              {% elif n.os_vendor %}
+              <div class="text-body-secondary" title="Ricavato dal rilevamento del sistema operativo">
+                {{ n.os_vendor }}
+              </div>
+              {% endif %}
+            </td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if n.device_confidence >= 80 else 'warning' if n.device_confidence >= 50 else 'secondary' }}">
+                {{ n.device_confidence }}%
+              </span>
+            </td>
+            <td class="small">{{ n.os_name or '-' }}</td>
+            <td class="small">{{ n.open_ports }}</td>
+            <td class="small">{{ n.subnet_cidr or '-' }}</td>
+            <td class="small">{{ n.last_seen_at|dt }}<div class="text-body-secondary">{{ n.last_seen_at|ago }}</div></td>
+            <td class="text-end">
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-search"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="10" class="text-center text-body-secondary py-5">
+              <i class="bi bi-hdd-network fs-3 d-block mb-2"></i>
+              Nessun nodo in inventario. Dichiarare il perimetro e attendere la prima scoperta.
+              <div class="mt-2">
+                <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-primary">Dichiarare il perimetro</a>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+{% if distribution %}
+<div class="tab-pane fade" id="pane-tipi" role="tabpanel" aria-labelledby="tab-tipi">
+<div class="card">
+  <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-pie-chart me-1"></i> Distribuzione per tipo</h3></div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="25">
+        <thead><tr><th>TIPO</th><th>NODI</th><th>CONFIDENZA MEDIA</th></tr></thead>
+        <tbody>
+          {% for d in distribution %}
+          <tr>
+            <td>
+              <a href="{{ url_for('inventory.nodes', type=d.type) }}" class="text-decoration-none">{{ d.label }}</a>
+            </td>
+            <td>{{ d.count }}</td>
+            <td>{{ d.avg_confidence }}%</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+{% endif %}
+</div>
+{% endblock %}

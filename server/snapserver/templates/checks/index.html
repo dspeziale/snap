@@ -1,0 +1,350 @@
+{#
+  snap server - Controlli periodici: bersagli, incidenti aperti, esiti recenti.
+
+  Le tre schede rispondono a tre domande distinte: che cosa sorvegliamo, che cosa
+  non va adesso, che cosa e' successo.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Controlli{% endblock %}
+{% block page_icon %}bi-clipboard-check{% endblock %}
+{% block page_title %}Controlli{% endblock %}
+{% block page_subtitle %}
+  Verifiche periodiche su indirizzi e nomi host: presenza in rete, porte aperte ed endpoint HTTP.
+  Le eseguono le sonde; qui si definiscono e si governano gli incidenti che ne derivano.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('BERSAGLI', summary.targets, 'bi-bullseye', 'primary'),
+      ('CONTROLLI ATTIVI', summary.checks_enabled, 'bi-clipboard-check', 'info'),
+      ('INCIDENTI APERTI', summary.incidents_open, 'bi-exclamation-triangle', 'danger'),
+      ('RIUSCITA 24H', (summary.success_rate_24h ~ '%') if summary.success_rate_24h is not none else '-', 'bi-graph-up', 'success')] %}
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <p class="snap-stat-label">{{ voce[0] }}</p>
+            <p class="snap-stat-value">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# La percentuale delle ultime 24 ore dice come va adesso; non dice se sta migliorando
+   o peggiorando, che e' la domanda per cui si apre questa pagina. Un giorno senza
+   esecuzioni resta un buco nella linea e non diventa uno zero: "non abbiamo guardato"
+   non e' "il servizio e' caduto" (RP-05). #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-graph-up-arrow me-1"></i> Disponibilita' nel tempo
+    </h3>
+    <small class="text-body-secondary">
+      ultimi {{ availability.giorni }} giorni, nel fuso del tenant
+    </small>
+  </div>
+  <div class="card-body">
+    {# Le quattro misure che qualificano la linea: senza di esse un tracciato dice
+       la forma dell'andamento ma non la sua sostanza. Stanno sopra il disegno
+       perche' si leggono per prime. #}
+    <div class="snap-grafico-sintesi mb-3">
+      <div>
+        <span class="snap-grafico-sintesi-voce">Media del periodo</span>
+        <span class="snap-grafico-sintesi-dato text-success">
+          {% if availability.media is not none -%}
+          {{ ('%.2f'|format(availability.media))|replace('.', ',') }}%
+          {%- else -%}&mdash;{%- endif %}
+        </span>
+      </div>
+      <div>
+        <span class="snap-grafico-sintesi-voce">Giorno peggiore</span>
+        <span class="snap-grafico-sintesi-dato">
+          {% if availability.minimo is not none -%}
+          {{ ('%.2f'|format(availability.minimo))|replace('.', ',') }}%
+          {%- else -%}&mdash;{%- endif %}
+        </span>
+      </div>
+      <div>
+        <span class="snap-grafico-sintesi-voce">Giorni misurati</span>
+        <span class="snap-grafico-sintesi-dato">
+          {{ availability.misurati }}<span class="text-body-secondary fs-6">
+            / {{ availability.giorni }}</span>
+        </span>
+      </div>
+      <div>
+        <span class="snap-grafico-sintesi-voce">Esiti considerati</span>
+        <span class="snap-grafico-sintesi-dato">{{ availability.esiti|intero }}</span>
+      </div>
+    </div>
+    {% if availability.punti %}
+    <div class="text-success" data-snap-grafico data-altezza="180"
+         data-etichetta="disponibilita' dei servizi sorvegliati"
+         data-unita="%" data-scala="percentuale" data-passo="giorno"
+         data-da="{{ availability.da }}" data-a="{{ availability.a }}"
+         data-punti='{{ availability.punti|tojson }}'></div>
+    <p class="small text-body-secondary mb-0 mt-2">
+      Percentuale di esiti riusciti per giorno. La scala parte dal gradino sotto al
+      giorno peggiore e arriva a 100: un asse che si stringesse sui dati farebbe
+      sembrare una montagna russa una differenza di pochi decimi.
+      {% if availability.senza_misure %}
+      Le fasce grigie sono i {{ availability.senza_misure }} giorni su
+      {{ availability.giorni }} senza esecuzioni: non sono cadute, sono giorni in cui
+      non si e' guardato.
+      {% endif %}
+    </p>
+    {% else %}
+    <p class="small text-body-secondary mb-0">
+      Nessun esito registrato negli ultimi {{ availability.giorni }} giorni: senza
+      esecuzioni non c'e' disponibilita' da rappresentare, e uno zero direbbe una cosa
+      falsa.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#scheda-bersagli"
+            type="button" role="tab">
+      <i class="bi bi-bullseye me-1"></i> Bersagli sorvegliati ({{ targets|length }})
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#scheda-incidenti"
+            type="button" role="tab">
+      <i class="bi bi-exclamation-triangle me-1"></i> Incidenti aperti ({{ incidents|length }})
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#scheda-esiti"
+            type="button" role="tab">
+      <i class="bi bi-clock-history me-1"></i> Esiti recenti ({{ results|length }})
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#scheda-metriche"
+            type="button" role="tab">
+      <i class="bi bi-speedometer2 me-1"></i> Metriche ({{ metrics_summary.total }})
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+  {# ---------------------------------------------------------------- bersagli #}
+  <div class="tab-pane fade show active" id="scheda-bersagli" role="tabpanel">
+    {# L'elenco per primo: si consulta ogni volta, mentre un bersaglio
+       nuovo si crea di rado. #}
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-bullseye me-1"></i> Bersagli sorvegliati</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25"
+                 data-no-sort="AZIONI">
+            <thead>
+              <tr><th>STATO</th><th>NOME</th><th>INDIRIZZO</th><th>CONTROLLI</th>
+                  <th>INCIDENTI</th><th>ULTIMO ESITO</th><th>AZIONI</th></tr>
+            </thead>
+            <tbody>
+              {% for t in targets %}
+              <tr class="{{ '' if t.is_enabled else 'text-body-secondary' }}">
+                <td class="small">
+                  <span class="badge text-bg-{{ 'success' if t.is_enabled else 'secondary' }}">
+                    {{ 'attivo' if t.is_enabled else 'sospeso' }}
+                  </span>
+                </td>
+                <td class="fw-semibold">
+                  <a href="{{ url_for('checks.target', target_id=t.id) }}"
+                     class="text-decoration-none">{{ t.name }}</a>
+                  {% if t.description %}<div class="small text-body-secondary">{{ t.description }}</div>{% endif %}
+                </td>
+                <td class="small font-monospace">{{ t.address }}</td>
+                <td class="small">{{ t.checks_enabled }} / {{ t.checks_total }}</td>
+                <td class="small">
+                  {% if t.incidents_open %}
+                  <span class="badge text-bg-danger">{{ t.incidents_open }} aperti</span>
+                  {% else %}
+                  <span class="text-body-secondary">nessuno</span>
+                  {% endif %}
+                </td>
+                <td class="small">{{ t.last_result_at|dt if t.last_result_at else 'mai eseguito' }}</td>
+                <td class="text-end">
+                  <a href="{{ url_for('checks.target', target_id=t.id) }}"
+                     class="btn btn-sm btn-outline-secondary" title="Aprire">
+                    <i class="bi bi-box-arrow-in-right"></i>
+                  </a>
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-body-secondary py-5">
+                  <i class="bi bi-bullseye fs-3 d-block mb-2"></i>
+                  Nessun bersaglio dichiarato: i controlli periodici cominciano da qui.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="mt-3"></div>
+    {% if has_role('tenant_admin') %}
+    <div class="card mb-3">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-plus-circle me-1"></i> Nuovo bersaglio</h3>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('checks.create_target') }}" class="row g-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-12 col-md-3">
+            <label class="form-label small">NOME</label>
+            <input type="text" name="name" class="form-control" maxlength="120" required
+                   placeholder="Servizio Texa di collaudo">
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label small">INDIRIZZO IP O NOME HOST</label>
+            <input type="text" name="address" class="form-control" maxlength="253" required
+                   placeholder="bc-test-ws-dkr50.psn-test.ised.it">
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label small">DESCRIZIONE</label>
+            <input type="text" name="description" class="form-control" maxlength="255"
+                   placeholder="a cosa serve, chi lo usa">
+          </div>
+          <div class="col-12 col-md-1 d-flex align-items-end">
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="bi bi-check-lg"></i>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+
+  {# -------------------------------------------------------------- incidenti #}
+  <div class="tab-pane fade" id="scheda-incidenti" role="tabpanel">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-exclamation-triangle me-1"></i> Incidenti aperti e presi in carico
+        </h3>
+        <a href="{{ url_for('checks.incident_list', status='tutti') }}"
+           class="btn btn-sm btn-outline-secondary">Storico completo</a>
+      </div>
+      <div class="card-body p-0">
+        {% include 'checks/_incidents_table.html' %}
+      </div>
+    </div>
+  </div>
+
+  {# --------------------------------------------------------------- metriche #}
+  <div class="tab-pane fade" id="scheda-metriche" role="tabpanel">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-speedometer2 me-1"></i> Misure conservate
+        </h3>
+        <small class="text-body-secondary">
+          {{ metrics_summary.total }} misure su {{ metrics_summary.series }} serie,
+          {{ metrics_summary.last_24h }} nelle ultime 24 ore
+        </small>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25">
+            <thead>
+              <tr><th>MISURATA</th><th>CONTROLLO</th><th>BERSAGLIO</th><th>MISURA</th>
+                  <th>VALORE</th></tr>
+            </thead>
+            <tbody>
+              {% for m in metrics %}
+              <tr>
+                <td class="small">{{ m.measured_at|dt }}</td>
+                <td class="small">
+                  <a href="{{ url_for('checks.check', check_id=m.check_id, metric=m.name) }}"
+                     class="text-decoration-none">{{ m.check_name }}</a>
+                </td>
+                <td class="small font-monospace">{{ m.address }}</td>
+                <td class="small font-monospace">{{ m.name }}</td>
+                <td class="small">
+                  {% if m.value is not none %}{{ '%g'|format(m.value) }}{% endif %}
+                  {% if m.text_value %}<span class="text-body-secondary">{{ m.text_value }}</span>{% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="5" class="text-center text-body-secondary py-5">
+                  <i class="bi bi-speedometer2 fs-3 d-block mb-2"></i>
+                  Nessuna misura conservata: arrivano con gli esiti dei controlli.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------------ esiti #}
+  <div class="tab-pane fade" id="scheda-esiti" role="tabpanel">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-clock-history me-1"></i> Esiti recenti</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25">
+            <thead>
+              <tr><th>ESITO</th><th>QUANDO</th><th>CONTROLLO</th><th>BERSAGLIO</th>
+                  <th>LATENZA</th><th>DETTAGLIO</th><th>SONDA</th></tr>
+            </thead>
+            <tbody>
+              {% for r in results %}
+              <tr>
+                <td class="small">
+                  <span class="badge text-bg-{{ 'success' if r.status == 'ok' else ('danger' if r.status == 'fail' else 'warning') }}">
+                    {{ r.status }}
+                  </span>
+                </td>
+                <td class="small">{{ r.executed_at|dt }}</td>
+                <td class="small">
+                  <a href="{{ url_for('checks.check', check_id=r.check_id) }}"
+                     class="text-decoration-none">{{ r.check_name }}</a>
+                </td>
+                <td class="small font-monospace">{{ r.address }}</td>
+                <td class="small">{{ '%.0f ms'|format(r.latency_ms) if r.latency_ms is not none else '-' }}</td>
+                <td class="small">{{ r.detail or '-' }}</td>
+                <td class="small text-body-secondary">{{ r.probe_name or '-' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="7" class="text-center text-body-secondary py-5">
+                  <i class="bi bi-clock-history fs-3 d-block mb-2"></i>
+                  Nessun esito ancora ricevuto: le sonde eseguono i controlli e li conferiscono.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

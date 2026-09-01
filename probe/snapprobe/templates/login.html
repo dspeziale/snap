@@ -1,0 +1,80 @@
+{#
+  snap probe - Accesso all'interfaccia locale.
+
+  Pagina senza menu: da qui non si va da nessuna parte senza credenziali, e un menu
+  che rimanda a pagine irraggiungibili e' solo un elenco di porte chiuse.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}<!doctype html>
+<html lang="it" data-bs-theme="{{ settings.get('ui_theme', 'light') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accesso - {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/probe.css') }}">
+</head>
+<body class="bg-body-tertiary">
+<main class="container py-5" style="max-width: 30rem;">
+
+  <div class="text-center mb-4">
+    <i class="bi bi-broadcast-pin text-primary" style="font-size: 2.6rem;"></i>
+    <h1 class="h4 mt-2 mb-1">{{ app_name }}</h1>
+    <p class="text-body-secondary small mb-0">{{ app_subtitle }}</p>
+  </div>
+
+  {% include 'flash.html' %}
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h2 class="h6 text-uppercase text-body-secondary mb-3">
+        <i class="bi bi-shield-lock me-1"></i> Accesso all'interfaccia
+      </h2>
+
+      {% if bloccato %}
+      <div class="alert alert-danger d-flex gap-2" role="alert">
+        <i class="bi bi-lock fs-5"></i>
+        <div>
+          Accesso bloccato per <strong>{{ bloccato }} minuti</strong> dopo troppi
+          tentativi falliti. Il blocco scade da se': non serve riavviare la sonda.
+        </div>
+      </div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('auth.login') }}" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="avanti" value="{{ avanti|default('') }}">
+        <div class="mb-3">
+          <label class="form-label" for="password">Password dell'interfaccia</label>
+          <input type="password" class="form-control form-control-lg" id="password"
+                 name="password" required autofocus
+                 {{ 'disabled' if bloccato }}>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" {{ 'disabled' if bloccato }}>
+          <i class="bi bi-box-arrow-in-right me-1"></i> Entra
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <p class="text-body-secondary small mt-3 mb-0">
+    La password protegge la <strong>configurazione</strong> della sonda: registrazione,
+    intervallo di raccolta, sospensione delle scansioni. I dati raccolti non sono
+    consultabili da qui: la loro sede e' il server.
+  </p>
+  <p class="text-body-secondary small mt-2 mb-0">
+    Password dimenticata? Si reimposta dalla postazione della sonda, cancellando la
+    voce <code>ui_password_hash</code> dall'archivio locale: e' un'operazione che
+    richiede l'accesso al dispositivo, ed e' cosi' di proposito.
+  </p>
+
+  <footer class="text-center text-body-secondary small mt-4">
+    &copy; 2024-26 DS Consulting &middot; licenza MIT &middot; v{{ app_version }}
+  </footer>
+</main>
+</body>
+</html>

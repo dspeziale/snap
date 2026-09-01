@@ -1,0 +1,1251 @@
+{#
+  snap server - Guida operativa della console.
+
+  Pagina autonoma: si apre in una finestra propria, non ha il menu laterale e si
+  stampa come un documento. La voce di menu la apre con target="_blank" perche' la
+  guida si consulta ACCANTO a cio' che si sta facendo, non al posto suo.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<!doctype html>
+<html lang="it" data-bs-theme="{{ theme }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guida operativa &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap.css') }}">
+  <style>
+    /* La guida e' un documento: colonna di lettura contenuta, indice affiancato,
+       e una resa di stampa che non porta con se' i comandi dello schermo. */
+    .guida-indice { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }
+    .guida-corpo { max-width: 62rem; }
+    .guida-corpo h2 { font-size: 1.35rem; font-weight: 700; margin-top: 2.2rem; padding-top: .6rem;
+                      border-top: 1px solid var(--bs-border-color); }
+    .guida-corpo h3 { font-size: 1.08rem; font-weight: 700; margin-top: 1.4rem; }
+    .guida-corpo p, .guida-corpo li { line-height: 1.6; }
+    .guida-corpo code { background: var(--bs-tertiary-bg); padding: .1rem .3rem; border-radius: .2rem; }
+    .guida-corpo table { font-size: .93rem; }
+    .guida-passo { counter-increment: passo; }
+    .guida-passo::before { content: counter(passo); display: inline-flex; align-items: center;
+                           justify-content: center; width: 1.6rem; height: 1.6rem; margin-right: .5rem;
+                           border-radius: 50%; background: var(--bs-primary); color: #fff;
+                           font-weight: 700; font-size: .85rem; }
+    .guida-elenco-passi { counter-reset: passo; list-style: none; padding-left: 0; }
+    .guida-elenco-passi > li { margin-bottom: .8rem; }
+    @media print {
+      .guida-nostampa { display: none !important; }
+      .guida-corpo { max-width: none; }
+      .guida-corpo h2 { page-break-after: avoid; }
+      a[href^="/"]::after { content: ""; }
+    }
+  </style>
+</head>
+<body class="bg-body">
+
+<header class="border-bottom bg-body-tertiary guida-nostampa">
+  <div class="container-xxl py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-book text-primary fs-3"></i>
+      <div>
+        <h1 class="h5 mb-0">Guida operativa della console</h1>
+        <p class="small text-body-secondary mb-0">
+          {{ app_name }} v{{ app_version }} &middot; documento generato dalla console stessa
+        </p>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="{{ url_for('guide.probe_guide') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-broadcast-pin me-1"></i> Guida della sonda
+      </a>
+      <button type="button" class="btn btn-sm btn-outline-primary" onclick="window.print()">
+        <i class="bi bi-printer me-1"></i> Stampare
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container-xxl py-4">
+  <div class="row g-4">
+    {# ---------------------------------------------------------------- indice #}
+    <div class="col-12 col-lg-3 guida-nostampa">
+      <nav class="guida-indice">
+        <p class="small text-body-secondary fw-bold mb-2">INDICE</p>
+        <ol class="list-unstyled small mb-0">
+          {% for chiave, titolo in [
+              ('cose', "Che cos'e' snap"),
+              ('ruoli', 'Ruoli e primo accesso'),
+              ('sonde', 'Registrare una sonda'),
+              ('perimetro', 'Perimetro di scansione'),
+              ('scansione', 'Come lavora la scansione'),
+              ('inventario', 'Inventario e riconoscimento'),
+              ('monitoraggio', 'Monitoraggio e scostamenti'),
+              ('controlli', 'Controlli periodici'),
+              ('incidenti', 'Workflow, soglie e notifiche'),
+              ('metriche', 'Metriche e andamenti'),
+              ('dashboard', 'Leggere la dashboard'),
+              ('regole', 'Regole di notifica'),
+              ('canali', 'Canali: posta e Telegram'),
+              ('report', 'Report e resoconto delle 07:00'),
+              ('archivio', 'Archivio, conservazione, copie'),
+              ('threat', 'Threat Intelligence'),
+              ('sala', 'Sala operativa: NOC, SOC, ricerca'),
+              ('zone', 'Zone di rete'),
+              ('acn', "Comunicazioni all'autorita' (ACN)"),
+              ('sicurezza', 'Sicurezza e conformita'),
+              ('diagnosi', 'Quando qualcosa non torna'),
+              ('glossario', 'Glossario')] %}
+          <li class="mb-1">
+            <a href="#{{ chiave }}" class="text-decoration-none">{{ loop.index }}. {{ titolo }}</a>
+          </li>
+          {% endfor %}
+        </ol>
+      </nav>
+    </div>
+
+    {# ----------------------------------------------------------------- corpo #}
+    <div class="col-12 col-lg-9">
+      <div class="guida-corpo">
+
+        <div class="alert alert-primary d-flex gap-2">
+          <i class="bi bi-info-circle fs-5"></i>
+          <div>
+            <strong>A chi serve questa guida.</strong> A chi usa la console: dichiarare il
+            perimetro, governare le sonde, leggere l'inventario, definire i controlli e
+            gestire gli incidenti. Per l'interfaccia locale della sonda c'e'
+            <a href="{{ url_for('guide.probe_guide') }}">la guida della sonda</a>.
+          </div>
+        </div>
+
+        <!-- ============================================================= -->
+        <h2 id="cose">1. Che cos'e' snap</h2>
+        <p>
+          snap e' un <strong>inventario di rete con sorveglianza dei nodi trovati</strong> e
+          <strong>controlli periodici sui servizi</strong>. E' composto da due programmi
+          distinti:
+        </p>
+        <ul>
+          <li>
+            il <strong>server</strong> (questa console): conserva l'inventario, definisce cosa
+            va fatto e mostra i risultati. Non entra mai nella rete del cliente;
+          </li>
+          <li>
+            la <strong>sonda</strong>: sta dentro la rete del cliente, esegue le scansioni e i
+            controlli, e <em>chiama</em> il server per consegnare cio' che ha raccolto.
+          </li>
+        </ul>
+        <p>
+          <strong>Tutte le connessioni partono dalla sonda.</strong> Il server non apre mai una
+          connessione verso l'interno: i comandi che gli operatori impartiscono qui viaggiano
+          nella risposta al contatto successivo della sonda. Questa asimmetria e' una scelta di
+          sicurezza: non serve alcuna porta aperta verso la rete del cliente.
+        </p>
+        <div class="alert alert-secondary">
+          <strong>Conseguenza pratica.</strong> Ogni azione che riguarda la rete (una scansione
+          richiesta, una sospensione, la prova di un controllo) non e' immediata: si applica al
+          contatto successivo, di norma entro <strong>15 secondi</strong>.
+        </div>
+
+        <h3>Il ciclo, in breve</h3>
+        <ol class="guida-elenco-passi">
+          <li class="guida-passo">Si dichiara il <strong>perimetro</strong>: quali subnet appartengono al cliente.</li>
+          <li class="guida-passo">La sonda <strong>scopre</strong> gli indirizzi vivi in quelle subnet.</li>
+          <li class="guida-passo">Su ciascun nodo trovato svolge le fasi di <strong>approfondimento</strong>: porte, servizi, sistema operativo.</li>
+          <li class="guida-passo">Quando il profilo di un nodo e' completo, lo <strong>conferisce</strong> al server, che lo classifica.</li>
+          <li class="guida-passo">Il server <strong>sorveglia</strong> i nodi noti e registra ogni scostamento.</li>
+          <li class="guida-passo">In parallelo, i <strong>controlli periodici</strong> verificano i servizi dichiarati dall'operatore.</li>
+        </ol>
+
+        <!-- ============================================================= -->
+        <h2 id="ruoli">2. Ruoli e primo accesso</h2>
+        <p>
+          L'accesso avviene con la sola <strong>email</strong> e la password. Ogni utenza
+          appartiene a un tenant, tranne l'amministratore di sistema.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead>
+              <tr><th>RUOLO</th><th>PUO' FARE</th><th>NON PUO' FARE</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Amministratore di sistema</strong></td>
+                <td>creare tenant, commutare il contesto, tutto cio' che segue</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td><strong>Amministratore tenant</strong></td>
+                <td>utenti, sonde, perimetro, definizione dei controlli, impostazioni del proprio tenant</td>
+                <td>creare tenant, vedere altri tenant</td>
+              </tr>
+              <tr>
+                <td><strong>Analista</strong></td>
+                <td>chiedere scansioni, provare i controlli, prendere in carico e risolvere incidenti, consultare tutto</td>
+                <td>modificare perimetro, utenti e definizioni</td>
+              </tr>
+              <tr>
+                <td><strong>Consultazione</strong></td>
+                <td>leggere inventario, monitoraggio, controlli e audit</td>
+                <td>qualsiasi modifica</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Le utenze di tenant hanno la password contrassegnata come provvisoria: al primo
+          accesso viene chiesto di sostituirla in <em>Profilo e sicurezza</em>. La sessione ha
+          una durata limitata e viene chiusa dopo un periodo di inattivita'.
+        </p>
+        <h3>Come e' organizzato il menu</h3>
+        <p>
+          Il menu laterale raccoglie le pagine in <strong>gruppi che si aprono e si
+          chiudono</strong>, uno per dominio: <em>Rete</em> (nodi, stato, cambiamenti,
+          perimetro, dati dalle sonde), <em>Controlli</em> (bersagli, incidenti, notifiche,
+          regole), <em>Sicurezza</em> (Threat Intelligence e registro degli eventi),
+          <em>Report e resoconti</em>, <em>Sonde</em>, <em>Amministrazione</em>.
+        </p>
+        <ul>
+          <li>Il gruppo che contiene la pagina aperta si apre <strong>da solo</strong>: il
+              menu dice sempre dove si e'.</li>
+          <li>I gruppi si comportano come un <strong>soffietto</strong>: aprendone uno
+              gli altri si chiudono. Con sei gruppi aperti insieme la voce cercata
+              finiva sotto il bordo dello schermo, e il menu diventava una lista da
+              scorrere.</li>
+          <li>I gruppi chiusi a mano restano chiusi anche cambiando pagina: la scelta e' di
+              questa postazione, e serve a tenere il menu corto.</li>
+          <li>Le pastiglie dicono quanto c'e' senza aprire il gruppo: <strong>verde</strong>
+              i nodi in inventario, <strong>blu</strong> i controlli attivi,
+              <strong>rossa</strong> gli incidenti aperti o i riscontri di sicurezza
+              confermati, <strong>gialla</strong> i riscontri ancora da valutare.</li>
+        </ul>
+
+        <h3>Come sono organizzate le pagine</h3>
+        <p>
+          Le pagine con piu' contenuti distinti li tengono in <strong>schede</strong>: nodi e
+          distribuzione per tipo, subnet dichiarate e caricamento del perimetro, controlli di
+          un bersaglio e creazione di uno nuovo, andamento delle misure e definizione di un
+          controllo. Due regole costanti aiutano a orientarsi:
+        </p>
+        <ul>
+          <li>
+            cio' che si guarda a colpo d'occhio -- i numeri di sintesi, i pulsanti di azione,
+            il riquadro degli incidenti aperti -- resta <strong>fuori</strong> dalle schede;
+          </li>
+          <li>
+            un <strong>filtro</strong> sta sempre nella stessa scheda della tabella che
+            filtra: altrove la tabella sembrerebbe non filtrata.
+          </li>
+          <li>
+            i valori lunghi &mdash; identificativi di lotto, elenchi di destinatari,
+            protocolli, messaggi di errore &mdash; <strong>vanno a capo nella cella,
+            non vengono tagliati</strong>: su un identificativo troncato non si puo'
+            nemmeno cercare.
+          </li>
+        </ul>
+
+        <h3>Contesto di lavoro (tenant)</h3>
+        <p>
+          L'amministratore di sistema lavora <em>dentro</em> un tenant per volta: la voce
+          <em>Cambia Tenant</em> commuta il contesto. Tutto cio' che si vede -- nodi, sonde,
+          controlli, audit -- appartiene al tenant selezionato. Un identificativo di un altro
+          tenant non e' raggiungibile nemmeno scrivendolo a mano nell'indirizzo.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="sonde">3. Registrare una sonda</h2>
+        <p>
+          Una sonda va installata nella rete da esaminare e poi <strong>registrata</strong>: la
+          registrazione stabilisce il canale cifrato fra le due parti.
+        </p>
+        <ol class="guida-elenco-passi">
+          <li class="guida-passo">
+            In <em>Sonde &rarr; Registra sonda</em> si crea una nuova sonda: si ottengono un
+            <strong>codice di registrazione</strong> e una <strong>chiave</strong>.
+          </li>
+          <li class="guida-passo">
+            Sulla macchina della sonda si apre l'interfaccia locale
+            (<code>http://127.0.0.1:5510/</code>), voce <em>Registrazione</em>, e si inseriscono
+            indirizzo del server, codice e chiave.
+          </li>
+          <li class="guida-passo">
+            La sonda scambia le chiavi, riceve la configurazione e compare in
+            <em>Sonde &rarr; Flotta sonde</em> come <strong>attiva</strong>.
+          </li>
+        </ol>
+        <p>
+          Da <em>Flotta sonde</em> si governano, per singola sonda: intervallo di contatto, profilo di
+          sforzo, tempo massimo per host, giorni fra due scoperte complete, e l'interruttore
+          delle scansioni. Le sonde di un tenant eseguono <strong>gli stessi controlli
+          periodici</strong>: il bersaglio e' un servizio del cliente, non della singola sonda.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="perimetro">4. Perimetro di scansione</h2>
+        <p>
+          Il perimetro e' l'elenco delle subnet che la sonda puo' esaminare.
+          <strong>E' vincolante</strong>: fuori da quell'elenco la sonda rifiuta di scansionare,
+          e il rifiuto viene registrato come evento di gravita' alta.
+        </p>
+        <h3>Importare il perimetro</h3>
+        <p>
+          In <em>Sonde &rarr; Perimetro</em> si carica un file di testo con una
+          subnet per riga, in notazione CIDR. Sono ammessi commenti e un'etichetta:
+        </p>
+        <pre class="bg-body-tertiary p-3 rounded small"># Sede centrale
+10.50.9.0/24    Sede centrale
+10.20.10.0/24   Magazzino
+192.168.4.0/24  laboratorio</pre>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>REGOLA</th><th>COMPORTAMENTO</th></tr></thead>
+            <tbody>
+              <tr><td>Indirizzi pubblici</td><td>rifiutati, salvo deroga esplicita al momento dell'importazione</td></tr>
+              <tr><td>Ripetizioni e sovrapposizioni</td><td>rifiutate: due subnet che si sovrappongono renderebbero ambiguo a chi appartiene un nodo</td></tr>
+              <tr><td>Notazione non valida</td><td>la riga viene scartata e dichiarata, la lettura prosegue</td></tr>
+              <tr><td>Reti ampie (<code>/16</code> e simili)</td><td><strong>suddivise in blocchi</strong> da un massimo di 4096 indirizzi: una <code>/16</code> diventa sedici <code>/20</code>, e l'etichetta di ogni blocco riporta la rete di origine. Il perimetro coperto e' lo stesso; il limite riguarda l'ampiezza di una singola passata, che su 65.000 indirizzi durerebbe ore. La suddivisione viene dichiarata al momento dell'importazione</td></tr>
+              <tr><td>Reti oltre 512 blocchi (<code>/8</code>)</td><td>rifiutate: sarebbero sedici milioni di indirizzi da esaminare</td></tr>
+              <tr><td>Superamento dei limiti complessivi</td><td>l'importazione viene <strong>rifiutata</strong>, non troncata: un perimetro troncato in silenzio farebbe credere completa una scansione parziale</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Scansionare subito una subnet</h3>
+        <p>
+          La scoperta ha cadenza di giorni: e' giusto per il regime ordinario e sbagliato
+          quando si e' appena dichiarata una rete o si sospetta che sia comparso qualcosa.
+          Sulla riga della subnet, colonna <em>Azioni</em>, il pulsante con il
+          <strong>fulmine</strong> chiede subito una passata di <strong>scoperta</strong>.
+          Viene chiesta conferma, perche' una passata su 254 indirizzi e' traffico sulla
+          rete del cliente.
+        </p>
+        <ul>
+          <li>Viene eseguita <strong>al prossimo contatto della sonda</strong>: il server
+              non apre connessioni verso le sonde, per progetto.</li>
+          <li>Trova gli <strong>indirizzi vivi</strong>. L'esame delle porte dei nodi
+              trovati segue nel ciclo ordinario: chiedere &laquo;porte&raquo; su una rete
+              non avrebbe significato, quelle fasi lavorano sui nodi noti.</li>
+          <li>La richiesta va alla sonda che ha <strong>gia' visto nodi</strong> in quella
+              subnet; se nessuna l'ha vista, a tutte &mdash; chi la raggiunga non lo si sa
+              ancora.</li>
+          <li>Su una subnet <strong>disattivata</strong> il pulsante non c'e': fuori dal
+              perimetro consegnato la sonda rifiuterebbe il bersaglio.</li>
+          <li>Con le scansioni <strong>sospese</strong> la richiesta viene negata con la
+              ragione: la sospensione non si aggira con un comando.</li>
+          <li>Chiedendola due volte, la seconda lo dichiara e <strong>non accoda un
+              doppione</strong>.</li>
+          <li>La richiesta resta nel registro degli eventi, e il comando si vede nella
+              pagina della sonda con il suo esito.</li>
+        </ul>
+
+        <h3>Attivare e disattivare</h3>
+        <p>
+          Ogni subnet ha un interruttore. Le subnet disattivate <strong>escono dal
+          perimetro</strong>: le sonde non le scansionano piu', ma i nodi gia' scoperti restano
+          in inventario. Con centinaia di subnet si usano le <strong>caselle di spunta</strong>:
+          quella nell'intestazione seleziona o deseleziona tutte le righe (anche quelle delle
+          altre pagine della tabella), poi <em>Attiva scelte</em> o <em>Disattiva scelte</em>.
+        </p>
+        <div class="alert alert-warning">
+          <strong>Attenzione.</strong> Disattivare tutte le subnet svuota il perimetro: le sonde
+          restano attive ma non hanno nulla da scansionare, e l'impianto sembra fermo. Il numero
+          di subnet attive e' sempre visibile nella pagina <em>Sonde &rarr; Perimetro</em>.
+        </div>
+
+        <!-- ============================================================= -->
+        <h2 id="scansione">5. Come lavora la scansione</h2>
+        <p>
+          La scansione e' <strong>progressiva</strong>: ogni fase aggiunge un genere di prova al
+          profilo del nodo, e il nodo viene conferito al server solo quando il profilo e'
+          completo. Cosi' il server non riceve mezzi nodi da correggere poco dopo.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>FASE</th><th>COSA FA</th><th>NOTE</th></tr></thead>
+            <tbody>
+              <tr><td><code>discovery</code></td><td>trova gli indirizzi vivi in una subnet</td><td>una passata per subnet, ogni N giorni (3 per impostazione predefinita)</td></tr>
+              <tr><td><code>ports</code></td><td>cerca le porte aperte</td><td>quante porte dipende dal profilo di sforzo</td></tr>
+              <tr><td><code>services</code></td><td>riconosce i servizi e ne raccoglie il banner</td><td>interroga <strong>le porte gia' trovate</strong>, non riparte da zero</td></tr>
+              <tr><td><code>os</code></td><td>stima il sistema operativo</td><td>richiede accesso a socket raw</td></tr>
+              <tr><td><code>deep</code></td><td>approfondisce i nodi rimasti incerti</td><td>UDP e script di riconoscimento</td></tr>
+              <tr><td><code>snmp</code></td><td>legge tutto cio' che SNMP espone sui nodi con la porta 161 aperta</td><td>solo script di <strong>sola lettura</strong>; su switch e stampanti e' la fonte piu' ricca che esista</td></tr>
+              <tr><td><code>web</code></td><td>apre le interfacce di gestione trovate e legge che cosa dichiarano; interroga le stampanti via IPP</td><td>sola lettura: nessun modulo inviato, nessun comando eseguito</td></tr>
+              <tr><td><code>monitor</code></td><td>verifica che i nodi noti rispondano ancora</td><td>alimenta stato e disponibilita'</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>La lettura SNMP</h3>
+        <p>
+          Dove la porta <strong>161/udp</strong> risponde, l'apparato racconta di se' piu' di
+          quanto direbbero dieci porte TCP: modello e firmware, nome, collocazione, interfacce
+          con indirizzi e velocita', e sui sistemi Windows processi, software installato,
+          condivisioni e utenti. E' spesso l'<em>unica</em> fonte utile su switch e stampanti,
+          che di porte non ne hanno.
+        </p>
+        <ul>
+          <li>E' una fase <strong>a se'</strong>, con cadenza di dodici ore e cinque minuti di
+              tempo per host: gli script interrogano molte tabelle e un apparato lento risponde
+              in minuti. Riguarda i soli nodi che hanno la 161 aperta.</li>
+          <li>Solo script di <strong>sola lettura</strong>: quello che indovina le community e'
+              escluso di proposito, un inventario non forza serrature. Si prova la community
+              <em>di fabbrica</em>, e trovarla funzionante <em>e'</em> il riscontro.</li>
+          <li>Nella scheda <em>Lettura SNMP</em> della pagina del nodo ogni esito diventa
+              una <strong>tabella</strong>: interfacce con indirizzo, MAC, velocita' e
+              traffico; connessioni con protocollo, indirizzo e porta; processi con il
+              loro numero; software con la data di installazione. Il testo restituito
+              dall'apparato resta sotto ciascuna tabella, perche' e' la fonte.</li>
+          <li>Le stesse informazioni compaiono nei report: l'inventario tecnico ha una
+              sezione <em>Apparati interrogati via SNMP</em> con modello, firmware e
+              collocazione; il report di sicurezza e quello delle vulnerabilita'
+              dichiarano quanto la community di fabbrica consegna a chiunque
+              raggiunga la porta.</li>
+          <li>La descrizione di sistema entra fra le prove del riconoscimento: un apparato senza
+              nemmeno una porta TCP aperta, che resterebbe non identificato, diventa
+              &laquo;switch gestito&raquo; con confidenza 95.</li>
+        </ul>
+
+        <h3>La mappa della rete</h3>
+        <p>
+          La voce <em>Mappa della rete</em> mostra un <strong>albero</strong>: quale sonda
+          osserva, dentro quale perimetro dichiarato, quali dispositivi. Non e' un disegno
+          e non e' un grafo di collegamenti &mdash; le adiacenze fra dispositivi una
+          scansione non le puo' dedurre: cio' che si sa e' chi ha visto che cosa e dove.
+        </p>
+        <ul>
+          <li>I rami si aprono e si chiudono; ogni subnet dichiara <strong>che cosa
+              contiene</strong> (quanti dispositivi per tipo) prima dell'elenco.</li>
+          <li>Ogni foglia porta stato, tipo con la confidenza, porte aperte, la presenza
+              di letture SNMP e i riscontri di sicurezza aperti; l'indirizzo apre la
+              pagina del dispositivo.</li>
+          <li>Un pulsante mostra i <strong>soli dispositivi attivi</strong>.</li>
+          <li>Essendo testo, la mappa si cerca con la ricerca del browser, si stampa e si
+              copia.</li>
+        </ul>
+        <p>
+          Accanto c'e' una <strong>mappa grafica</strong> (voce <em>Mappa grafica</em>),
+          per chi la rete la guarda invece di leggerla: la stessa gerarchia, ma con le
+          <strong>icone del tipo</strong> di ciascun nodo, il colore dello stato e i
+          collegamenti al centro.
+        </p>
+        <ul>
+          <li>Il <strong>panorama</strong> mette la sonda al centro e le reti attorno:
+              la bolla e' grande quanto la rete e porta l'icona del tipo piu' presente
+              (&laquo;una rete di stampanti&raquo;), rossa se ha riscontri aperti, verde
+              se e' pulita. Si apre una rete per vederne i dispositivi uno per uno.</li>
+          <li>Nella vista di una rete, i dispositivi con <strong>riscontri aperti stanno
+              sugli anelli interni</strong>: se qualcosa viene troncato, non e' cio' che
+              ha un problema. Ogni icona porta alla scheda del dispositivo.</li>
+          <li>La disposizione la calcola il server: gli elementi si distribuiscono su
+              anelli che arrivano quasi ai bordi, cosi' la mappa riempie il riquadro
+              invece di lasciare spazio vuoto ai lati.</li>
+          <li>Si <strong>stampa in A4 o A3</strong> (orizzontale o verticale): una barra
+              in cima sceglie il formato e avvia la stampa. Sul foglio restano la mappa e
+              la legenda &mdash; sfondo e comandi non vengono stampati. Le due mappe non
+              si sostituiscono: l'albero si <em>cerca</em>, la grafica si
+              <em>guarda</em>.</li>
+        </ul>
+        <p>
+          L'albero ha due livelli di lettura, e vanno tenuti distinti:
+          <strong>chi osserva</strong> (la sonda, con le subnet in cui ha effettivamente
+          visto qualcosa) e <strong>il perimetro del tenant</strong>, che e' dichiarato
+          una volta e consegnato a tutte le sonde. Una subnet dichiarata e mai vista da
+          nessuno non appartiene a una sonda in particolare: appartiene al perimetro.
+        </p>
+        <ul>
+          <li>Per questo le reti dichiarate <strong>senza dispositivi</strong> stanno in
+              un riquadro proprio, <em>Perimetro che ancora tace</em>, raggruppate per
+              blocco <code>/16</code>: su qualche centinaio di subnet un elenco piatto
+              non si legge, un blocco per sede si.</li>
+          <li>Ogni riga dice <strong>perche'</strong> tace, e sono due cose diverse:
+              <em>mai scansionata</em> (nessuna passata di scoperta e' ancora arrivata
+              fin la') oppure <em>scansionata senza esito</em> (la passata c'e' stata e
+              non ha trovato nulla). La prima e' lavoro da fare, la seconda e' un
+              risultato.</li>
+          <li>Le pastiglie in testa alla pagina dichiarano quante subnet hanno
+              dispositivi e quante tacciono: la somma deve corrispondere al perimetro
+              dichiarato. Se non corrisponde, e' un difetto da segnalare, non una
+              stranezza della rete.</li>
+        </ul>
+
+        <h3>Trovare un nodo</h3>
+        <p>
+          Su una rete di centinaia di dispositivi l'elenco si filtra. I filtri sono
+          raccolti in <strong>quattro gruppi</strong>, uno per domanda: <em>Dove</em>
+          (subnet, zona), <em>Che cos'e'</em> (tipo, stato, identificazione),
+          <em>Che cosa espone</em> (servizio, porta, letture SNMP e SMB) e
+          <em>Sicurezza e tempo</em> (riscontri, ultimo contatto). Sopra, una ricerca
+          libera; sotto, le <strong>pastiglie dei filtri attivi</strong>, che si vedono
+          a colpo d'occhio e si tolgono con un clic.
+        </p>
+        <ul>
+          <li><strong>Servizio esposto</strong>: interfaccia web, SNMP, accesso remoto,
+              condivisione file, banche dati, stampa, posta, telefonia, protocolli in
+              chiaro. Le porte riconosciute come <em>iniettate dalla rete</em> non
+              contano: risponde un apparato intermedio, non il nodo.</li>
+          <li><strong>Porta</strong>: il numero esatto, con il protocollo se serve
+              (<code>3389</code>, <code>udp/161</code>).</li>
+          <li><strong>Lettura SNMP</strong>: gia' letta, oppure porta aperta e mai
+              letta &mdash; l'elenco di cio' che manca ancora.</li>
+          <li><strong>Enumerazione SMB</strong>: gia' enumerata, oppure porta 139/445
+              aperta e mai enumerata &mdash; chi ancora manca all'inventario Windows.</li>
+          <li><strong>Sicurezza</strong>: nodi con riscontri aperti, con vulnerabilita'
+              confermate, o con vulnerabilita' sfruttate attivamente (KEV).</li>
+          <li><strong>Identificazione</strong>: i nodi <em>da verificare</em>, cioe'
+              quelli con confidenza sotto 60, dove il verdetto e' un'ipotesi.</li>
+          <li><strong>Ultimo contatto</strong>: chi risponde da poco e chi e' muto da
+              oltre una settimana.</li>
+          <li><strong>Cerca</strong>: indirizzo, nome host, MAC, costruttore, sistema
+              operativo, tipo.</li>
+        </ul>
+        <p>
+          I filtri si combinano e ciascuno restringe; le pastiglie in fondo dicono
+          quali sono attivi e ognuna si toglie da sola, senza rifare tutto. Un filtro
+          scritto male &mdash; una porta che non e' un numero &mdash; viene ignorato
+          invece di svuotare l'elenco: una rete vuota e una ricerca sbagliata non devono
+          somigliarsi.
+        </p>
+
+        <h3>Profilo di sforzo</h3>
+        <p>
+          Un solo comando governa insieme <em>quanto parallelismo</em> e <em>quanta
+          profondita'</em>: sono la stessa decisione, cioe' quanto carico si accetta sulla rete
+          del cliente.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>PROFILO</th><th>SCANSIONI IN PARALLELO</th><th>PORTE ESAMINATE</th><th>QUANDO USARLO</th></tr></thead>
+            <tbody>
+              <tr><td><strong>minimo</strong></td><td>1</td><td>prime 100</td><td>reti delicate, apparati industriali, orari di produzione</td></tr>
+              <tr><td><strong>medio</strong></td><td>2</td><td>prime 200</td><td>impostazione ordinaria</td></tr>
+              <tr><td><strong>massimo</strong></td><td>4</td><td>prime 1000</td><td>prima mappatura, finestre dedicate</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Tempo massimo per host</h3>
+        <p>
+          E' il tempo che nmap dedica a un singolo indirizzo. Non e' una preferenza:
+          <strong>sotto una certa soglia la fase gira senza produrre nulla</strong>, perche' nmap
+          abbandona l'host prima di concludere. Misurato su una stampante multifunzione con
+          tredici porte note: a 90 secondi l'host veniva abbandonato e l'esame restituiva zero
+          porte; a 300 secondi si concludeva in 103 secondi con il dispositivo riconosciuto.
+        </p>
+        <p>
+          Per questo le fasi <code>services</code>, <code>os</code> e <code>deep</code> hanno un
+          <strong>minimo di 180 secondi</strong>, indipendente dal valore scelto. Scoperta,
+          esame delle porte e sorveglianza rispettano invece il valore impostato, perche' su
+          quelle un tempo lungo si moltiplicherebbe per ogni indirizzo morto.
+        </p>
+        <h3>Quando nmap abbandona l'host</h3>
+        <p>
+          Un esame delle porte puo' finire in due modi molto diversi: <em>concluso, e
+          non c'era niente</em> oppure <em>abbandonato per tempo scaduto</em>. nmap li
+          distingue (marca l'host come <code>timedout</code>), e il prodotto li tratta
+          in modo opposto, perche' confonderli fa sparire dispositivi veri.
+        </p>
+        <ul>
+          <li>Un host <strong>scaduto non consuma un tentativo</strong>: non e' stato
+              esaminato, quindi non puo' contare come esame vuoto. Se contasse, due
+              scadenze di fila basterebbero a scartare dall'inventario un apparato lento
+              ma perfettamente vivo.</li>
+          <li>La scadenza viene <strong>contata a parte</strong> e al giro successivo
+              quell'host riceve <strong>il doppio del tempo</strong>, fino a un massimo
+              di 300 secondi. Il tetto limita gli aumenti, non riduce mai un tempo gia'
+              impostato piu' alto.</li>
+          <li>Sono i dispositivi con molte porte e risposte lente &mdash; stampanti
+              multifunzione, apparati di rete carichi, sistemi industriali &mdash; a
+              cadere in questa condizione: sono anche quelli che interessano di piu'.</li>
+        </ul>
+        <h3>Sospendere le scansioni</h3>
+        <p>
+          Due interruttori indipendenti, e prevale il piu' restrittivo: quello del
+          <strong>server</strong> (per singola sonda o per tutte le sonde del tenant) e quello
+          <strong>locale della sonda</strong>. La sospensione interrompe le esecuzioni in corso
+          ma <strong>non</strong> il conferimento di cio' che e' gia' stato raccolto.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="inventario">6. Inventario e riconoscimento</h2>
+        <p>
+          Ogni nodo porta indirizzo, nome host, MAC e produttore quando disponibili, porte,
+          servizi, sistema operativo, e un <strong>tipo di dispositivo con una
+          confidenza</strong>.
+        </p>
+        <h3>Come viene deciso il tipo</h3>
+        <p>
+          Il riconoscimento pesa le prove: porte aperte, nomi di servizio, prodotti e versioni,
+          banner annunciati, famiglia del sistema operativo, produttore del MAC. Anche il
+          <strong>TTL</strong> osservato da' un indizio debole della famiglia (64 per
+          Linux/macOS, 128 per Windows, 255 per un apparato di rete), usato solo quando
+          nmap non l'ha determinata. Nessuna prova decide da sola, tranne le firme
+          inequivocabili (per esempio il nome di un firmware).
+          La confidenza cresce con la <em>quantita'</em> di prove, con la loro
+          <em>varieta'</em> e con il <em>distacco</em> dalla seconda ipotesi: dieci prove dello
+          stesso genere valgono meno di tre prove di generi diversi.
+        </p>
+        <h3>Correggere il tipo: la dichiarazione dell'operatore</h3>
+        <p>
+          Le prove possono non bastare: un apparato che non apre porte, non risponde a
+          SNMP e non ha una pagina di gestione resta <em>non identificato</em> per
+          sempre &mdash; anche quando il tecnico sa benissimo che e' il PLC della linea
+          2. Nella scheda del dispositivo, in fondo al riquadro <em>Perche' e' stato
+          classificato cosi'</em>, il tipo si puo' <strong>dichiarare</strong>.
+        </p>
+        <ul>
+          <li>La scelta viene dal <strong>catalogo</strong> dei tipi: non si scrive a
+              mano, perche' il tipo alimenta filtri, conteggi e report.</li>
+          <li>La <strong>motivazione</strong> e' facoltativa ma vale la pena
+              (&laquo;verificato di persona: PLC di linea 2&raquo;): finisce nel
+              registro degli eventi e nella scheda PDF, e fra sei mesi e' l'unica cosa
+              che spieghera' la scelta.</li>
+          <li>Il tipo dichiarato vale <strong>100 di confidenza</strong> &mdash;
+              risponde una persona, non una somma di indizi &mdash; e quindi il nodo
+              esce dai filtri <em>da verificare</em>.</li>
+          <li><strong>Resiste alle scansioni successive</strong> e alla
+              rideterminazione dell'inventario, che dichiara quante dichiarazioni ha
+              rispettato. Una dichiarazione che durasse fino alla scansione dopo
+              sarebbe peggio di niente: farebbe credere di aver corretto
+              l'inventario.</li>
+          <li>Il <strong>riconoscimento automatico continua a lavorare</strong>: se non
+              e' d'accordo, la scheda lo dice (&laquo;direbbe stampante&raquo;). Un
+              disaccordo che si ripete sullo stesso genere di apparato e' un catalogo
+              delle firme da correggere, e questa e' la via per accorgersene.</li>
+          <li><em>Torna al riconoscimento automatico</em> annulla la dichiarazione e
+              <strong>ricalcola subito</strong> il tipo dalle prove conservate.</li>
+          <li>Dove si legge il tipo, un'icona (persona con spunta) distingue un tipo
+              dichiarato da uno riconosciuto: inventario, stato della rete, mappa,
+              quadri NOC e SOC, Threat Intelligence.</li>
+        </ul>
+
+        <h3>Due casi che vale conoscere</h3>
+        <div class="alert alert-secondary">
+          <p class="mb-2">
+            <strong>Porte iniettate da un apparato intermedio.</strong> Su una rete reale
+            risultavano aperte le porte 1720, 2000 e 5060 su <em>tutti</em> i nodi -- router,
+            stampanti e postazioni indistintamente: rispondeva un apparato di rete per ogni
+            indirizzo. Il sistema riconosce questa situazione (porta aperta su quasi tutti i nodi,
+            su famiglie di sistema operativo diverse, mai con un prodotto identificato), la
+            <strong>marca</strong> e la esclude dalle prove. La porta resta visibile con la
+            propria motivazione: se l'apparato viene rimosso, la marcatura si annulla da se'.
+          </p>
+          <p class="mb-0">
+            <strong>Agenti di sicurezza che rispondono al posto del servizio.</strong> Su una
+            porta 161 (SNMP) rispondeva la pagina di blocco di un antivirus per endpoint. Quella
+            porta non descrive il dispositivo, ma il banner dice due cose: l'etichetta del
+            servizio e' falsa, e sul dispositivo c'e' un agente di sicurezza -- quindi e' una
+            postazione o un server, non un apparato incorporato. Il sistema esclude la porta
+            dalle prove e usa l'agente come indizio.
+          </p>
+        </div>
+        <h3>Che cosa dichiara la pagina di gestione</h3>
+        <p>
+          Dove risponde un'interfaccia web (80, 443, 8080 e le altre porte di gestione)
+          c'e' spesso l'informazione che nessun altro riscontro puo' dare: il
+          <strong>modello esatto</strong>, la collocazione fisica, il nome che
+          l'amministratore ha dato all'apparato. La fase <code>web</code> apre quelle
+          pagine e le legge.
+        </p>
+        <ul>
+          <li>La navigazione e' <strong>limitata e in sola lettura</strong>: si seguono
+              le rinuncie della pagina iniziale (redirezioni, <em>meta refresh</em>,
+              cambi di indirizzo via script), i riquadri, i collegamenti che portano un
+              nome da pagina di informazioni e alcuni percorsi noti per marca. Non si
+              inviano moduli, non si premono pulsanti che cambiano stato: i verbi che
+              hanno effetto sono esclusi per nome.</li>
+          <li>Si riconoscono le <strong>etichette</strong> nelle lingue in cui gli
+              apparati parlano (modello, nome, collocazione, versione del firmware,
+              numero di serie, contatori) e le si accostano al loro valore. Le
+              diciture di riempimento &mdash; &laquo;non impostato&raquo;,
+              &laquo;n/d&raquo;, una riga di trattini &mdash; vengono scartate: un campo
+              vuoto letto come valore e' peggio di un campo mancante.</li>
+          <li>Dalle stesse pagine si ricava <strong>marca e modello</strong>, che
+              diventano il produttore del nodo anche quando il MAC non lo diceva (per
+              esempio perche' l'indirizzo e' di un apparato intermedio).</li>
+          <li>Il <strong>contenuto della pagina non viene conservato</strong>: si tiene
+              solo cio' che si e' capito. Sono pagine che possono contenere dati
+              personali e un archivio di pagine di gestione sarebbe un archivio di
+              credenziali potenziali (GDPR, minimizzazione).</li>
+          <li>Se la pagina chiede una credenziale, lo si dichiara: i dati che stanno
+              dietro l'autenticazione risultano <strong>protetti</strong>, non assenti.
+              E' un'informazione utile due volte, perche' una pagina di gestione senza
+              credenziale e' un riscontro di sicurezza.</li>
+          <li>Nella pagina del nodo la scheda <em>Che cosa dichiara la sua pagina di
+              gestione</em> mostra i fatti trovati con la loro provenienza, e il pulsante
+              <strong>PDF della lettura</strong> ne produce il documento: e' quello che
+              si allega a una richiesta di intervento. Gli stessi fatti entrano nella
+              <em>Scheda dell'apparato</em>, sezione &laquo;Dichiarato
+              dall'apparato&raquo;.</li>
+        </ul>
+        <h3>Le stampanti: la lettura IPP</h3>
+        <p>
+          Le stampanti di rete rispondono al protocollo di stampa (631/tcp, e alcune
+          sulla 80) con una richiesta di <strong>soli attributi della stampante</strong>:
+          modello, costruttore, nome dato dall'amministratore, collocazione, stato,
+          e l'identificativo IEEE 1284 da cui si legge il numero di serie.
+        </p>
+        <ul>
+          <li>Si chiedono <em>esclusivamente</em> gli attributi della stampante: nulla
+              sulle code e nulla sui lavori di stampa &mdash; un lavoro di stampa porta
+              il nome del documento e di chi lo ha mandato, che non e' inventario.</li>
+          <li>E' l'unica interrogazione del prodotto che usa una <code>POST</code>: il
+              protocollo non ammette altro. Resta una lettura, e la ragione e'
+              dichiarata nel codice perche' non sembri un'eccezione dimenticata.</li>
+          <li>Su molte multifunzione e' la fonte piu' precisa che esista: dove SNMP e'
+              chiuso e la pagina web chiede la password, l'IPP risponde comunque con
+              modello e numero di serie.</li>
+        </ul>
+        <h3>L'enumerazione SMB (139/445)</h3>
+        <p>
+          Dove un dispositivo espone SMB &mdash; la <strong>139</strong> (NetBIOS) o la
+          <strong>445</strong> (SMB diretto, spesso l'unica aperta su Windows recenti)
+          &mdash; una fase dedicata esegue il comando che identifica una macchina
+          Windows: <code>smb-os-discovery</code>, <code>smb-enum-shares</code>,
+          <code>smb-enum-users</code>, <code>smb-security-mode</code>.
+        </p>
+        <ul>
+          <li>Ne ricava <strong>sistema operativo esatto, dominio, nome del computer,
+              condivisioni pubblicate e utenze</strong>. E' la risposta piu' ricca alla
+              domanda &laquo;che macchina Windows e' questa?&raquo; &mdash; comprende, e
+              supera, cio' che darebbe un <code>nbtstat -A</code>.</li>
+          <li>E' <strong>enumerazione in sola lettura</strong>: si legge cio' che il
+              servizio concede, non si tentano credenziali. Un host che nega
+              l'enumerazione anonima risponde con un errore, che non viene contato come
+              una condivisione.</li>
+          <li><code>smb-os-discovery</code> <strong>identifica Windows</strong> meglio
+              del rilevamento del sistema operativo: un nodo con le sole 139/445 aperte,
+              che resterebbe incerto, diventa Server o Postazione Windows.</li>
+          <li>Nella pagina del nodo la scheda <em>Enumerazione SMB</em> mostra le
+              tabelle (condivisioni, utenze, sicurezza) e, sotto ciascuna, il testo
+              grezzo. Se la firma dei messaggi non e' richiesta, la scheda lo segnala:
+              e' un'esposizione al relay.</li>
+        </ul>
+
+        <h3>Gli altri script di arricchimento</h3>
+        <p>
+          Durante la lettura dei servizi il prodotto applica un insieme <strong>curato e
+          di sola lettura</strong> di script che arricchiscono l'identita' servizio per
+          servizio &mdash; nmap li esegue solo dove la porta pertinente e' aperta:
+        </p>
+        <ul>
+          <li><strong>certificato TLS</strong>: soggetto e nomi alternativi portano
+              spesso il nome host e l'organizzazione reali, anche dietro un indirizzo
+              anonimo;</li>
+          <li><strong>web</strong>: titolo della pagina, prodotto e versione del server,
+              impronta dell'icona;</li>
+          <li><strong>desktop remoto (3389)</strong>: nome computer, dominio e build di
+              Windows;</li>
+          <li><strong>NetBIOS</strong>: nome NetBIOS e MAC;</li>
+          <li><strong>SSH</strong>: impronta della chiave host e algoritmi deboli.</li>
+        </ul>
+        <p class="small text-body-secondary">
+          Entrano <strong>solo</strong> script che leggono cio' che il servizio dichiara.
+          Sono esclusi per principio quelli che forzano credenziali o disturbano il
+          servizio.
+        </p>
+
+        <h3>La ricerca di vulnerabilita'</h3>
+        <p>
+          Una fase dedicata <strong>verifica con nmap</strong> i difetti piu' gravi e
+          diffusi &mdash; Heartbleed, POODLE, EternalBlue e simili &mdash; sui soli nodi
+          che espongono un servizio a rischio (TLS, SMB, web).
+        </p>
+        <ul>
+          <li>Sono <strong>solo script di rilevazione</strong>: accertano la presenza di
+              un difetto <em>senza sfruttarlo</em>. Tutto cio' che sfrutta, disturba o
+              forza le credenziali e' escluso per principio &mdash; un inventario
+              accerta, non attacca.</li>
+          <li>Cio' che risulta vulnerabile diventa un <strong>riscontro di
+              sicurezza</strong> accanto a quelli dedotti dalla versione del servizio,
+              con il segno <em>nmap</em>: un difetto verificato sul campo vale piu' di
+              una deduzione, e la sua confidenza e' alta.</li>
+          <li>Un nodo controllato resta segnato tale <strong>anche se pulito</strong>:
+              &laquo;verificato, nessun difetto fra quelli cercati&raquo; e' diverso da
+              &laquo;mai verificato&raquo;. Se un difetto viene sanato, alla verifica
+              successiva il riscontro si chiude da se'.</li>
+          <li>I riscontri di nmap seguono lo stesso percorso degli altri: si accetta il
+              rischio o si dichiara un falso positivo, e compaiono negli stessi report.
+              Si trovano nella scheda <em>Vulnerabilita' ed esposizioni</em> del nodo e
+              in <em>Threat Intelligence</em>.</li>
+        </ul>
+
+        <h3>Come si leggono le tabelle dei nodi</h3>
+        <p>
+          Nelle tabelle dei nodi &mdash; inventario, stato della rete, sala operativa,
+          ricerca, Threat Intelligence &mdash; due colonne portano due informazioni
+          ciascuna, sempre nello stesso modo:
+        </p>
+        <ul>
+          <li>nella colonna <strong>Indirizzo</strong>, quando si conosce, il
+              <strong>nome host sta sopra</strong> l'indirizzo: e' cio' con cui le
+              persone chiamano l'apparato. Non c'e' piu' una colonna &laquo;Nome
+              host&raquo; separata, che costringeva a leggere due colonne distanti per
+              sapere di che macchina si stesse parlando;</li>
+          <li>nella colonna <strong>Tipo</strong>, sotto il tipo di dispositivo, il
+              <strong>produttore</strong> quando lo si conosce &mdash; dal MAC, dalla
+              lettura SNMP, dalla pagina di gestione o dall'IPP, indifferentemente.</li>
+        </ul>
+        <p class="small text-body-secondary">
+          L'ordinamento e la ricerca continuano a funzionare su entrambe le
+          informazioni: sono due righe nella stessa cella, non un'immagine.
+        </p>
+
+        <h3>La pagina di un nodo, a colpo d'occhio</h3>
+        <p>
+          La pagina di un dispositivo apre con una <strong>striscia di riepilogo</strong>
+          compatta: stato e latenza, porte aperte, riscontri aperti, produttore, sistema
+          operativo, quali fonti di approfondimento sono gia' state lette (SNMP, SMB,
+          web) e l'ultimo contatto. Sono le cose che si guardano per prime, senza aprire
+          nulla. Il resto sta nelle schede &mdash; identita', porte, vulnerabilita',
+          letture, storia &mdash; una per dominio.
+        </p>
+
+        <h3>Nodi senza informazioni</h3>
+        <p>
+          Un indirizzo che risponde al ping ma non porta <em>alcuna</em> altra informazione,
+          esaurite tutte le fasi, viene <strong>rimosso dall'inventario</strong>: e' rumore di
+          rete, non un dispositivo. Il server applica la rimozione solo se non ha dati propri
+          sul nodo, e l'indirizzo resta in quarantena per una settimana per non essere
+          riscoperto subito.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="monitoraggio">7. Monitoraggio e scostamenti</h2>
+        <p>
+          <em>Stato della rete</em> (menu <em>Stato della rete</em>) risponde a "cosa risponde adesso": raggiungibilita', latenza
+          e disponibilita' calcolata sulle ultime 24 ore. <em>Cambiamenti</em> risponde a "cosa
+          e' cambiato", che in un inventario e' l'informazione piu' utile.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>SCOSTAMENTO</th><th>SIGNIFICATO</th></tr></thead>
+            <tbody>
+              <tr><td>Nodo comparso / scomparso</td><td>un indirizzo nuovo, o uno che non risponde piu' da oltre un giorno</td></tr>
+              <tr><td>Porta aperta / chiusa</td><td>una porta che prima non era aperta, o che non lo e' piu'</td></tr>
+              <tr><td>Servizio cambiato</td><td>prodotto o versione diversi sulla stessa porta: e' il segno di un aggiornamento o di una sostituzione</td></tr>
+              <tr><td>Sistema operativo cambiato</td><td>spesso indica che dietro lo stesso indirizzo c'e' un'altra macchina</td></tr>
+              <tr><td>Tipo di dispositivo cambiato</td><td>il riconoscimento ha cambiato idea, tipicamente perche' sono arrivate prove nuove</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <em>Dati dalle sonde</em> mostra i lotti ricevuti: quando, da quale sonda, quanti
+          record e di quale genere. E' la pagina da guardare quando l'inventario non cresce come
+          si aspetta.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="controlli">8. Controlli periodici</h2>
+        <p>
+          I controlli rispondono a una domanda che l'inventario non copre: <strong>i servizi che
+          ci interessano stanno funzionando?</strong> Si dichiara un <em>bersaglio</em> (indirizzo
+          IP oppure nome host) e vi si associano uno o piu' controlli.
+        </p>
+        <p>
+          Il menu <em>Controlli</em> ha due voci: <em>Bersagli e controlli</em>, dove si
+          dichiarano i bersagli e si definiscono le verifiche, e <em>Incidenti</em>, dove si
+          governa cio' che non ha funzionato. Gli stessi contenuti sono raggiungibili dai
+          riquadri della dashboard.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>GENERE</th><th>VERIFICA</th><th>ESITO POSITIVO SE</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Presenza in rete</strong></td><td>il bersaglio risponde</td><td>risponde entro il tempo massimo</td></tr>
+              <tr><td><strong>Porte aperte</strong></td><td>una o piu' porte dichiarate</td><td><strong>tutte</strong> risultano aperte</td></tr>
+              <tr><td><strong>Endpoint HTTP</strong></td><td>una richiesta GET o HEAD</td><td>lo stato e' quello atteso <strong>e</strong> tutte le verifiche sul contenuto sono soddisfatte</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Perche' il codice di stato non basta</h3>
+        <p>
+          Un endpoint di salute risponde <code>200</code> anche quando dichiara
+          <code>"database": "disconnected"</code>. Per questo le verifiche si scrivono sul
+          <strong>contenuto</strong>: percorso, operatore, valore atteso. Il percorso usa il punto
+          per scendere negli oggetti (<code>metrics.cpu_percent</code>) e l'indice per gli elenchi
+          (<code>items.0.name</code>).
+        </p>
+        <pre class="bg-body-tertiary p-3 rounded small">Risposta:  {"status": "ok", "database": "connected",
+            "version": "1.2.1", "metrics": {"cpu_percent": 3.3}}
+
+Verifiche: status            uguale a      ok
+           database          uguale a      connected
+           metrics.cpu_percent  minore di  90</pre>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>OPERATORE</th><th>SIGNIFICATO</th></tr></thead>
+            <tbody>
+              <tr><td><code>uguale a</code> / <code>diverso da</code></td><td>confronto come testo</td></tr>
+              <tr><td><code>contiene</code></td><td>il valore contiene la stringa attesa</td></tr>
+              <tr><td><code>maggiore di</code> / <code>minore di</code></td><td>confronto numerico; se il valore non e' un numero la verifica non e' soddisfatta e lo dichiara</td></tr>
+              <tr><td><code>presente</code> / <code>assente</code></td><td>esistenza della chiave, distinta da un valore nullo</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>I tre esiti</h3>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>ESITO</th><th>SIGNIFICATO</th><th>APRE UN INCIDENTE?</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge text-bg-success">ok</span></td><td>la verifica e' passata</td><td>no, e chiude quello aperto</td></tr>
+              <tr><td><span class="badge text-bg-danger">fail</span></td><td>il bersaglio ha risposto, ma non come atteso: e' un <strong>disservizio</strong></td><td>si', al superamento della soglia</td></tr>
+              <tr><td><span class="badge text-bg-warning">error</span></td><td>non e' stato possibile eseguire il controllo (nome non risolto, nmap assente): e' un problema della <strong>verifica</strong></td><td>si', ma va letto diversamente: nessuno deve cercare un guasto dove non c'e'</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3>Cadenza, tempo massimo, soglie</h3>
+        <ul>
+          <li><strong>Cadenza</strong>: ogni quanto si esegue (da 30 secondi a un giorno).</li>
+          <li><strong>Tempo massimo</strong>: deve stare <strong>sotto la cadenza</strong>, altrimenti un'esecuzione lenta si sovrappone alla successiva.</li>
+          <li><strong>Soglia di apertura</strong>: quanti fallimenti consecutivi servono per aprire un incidente. Un singolo fallimento su una rete reale e' rumore.</li>
+          <li><strong>Soglia di attivazione dell'operatore</strong>: oltre questa, l'incidente non si chiude piu' da se' e viene notificato il recapito competente. Non puo' essere inferiore a quella di apertura.</li>
+          <li><strong>Recapito</strong>: l'email a cui attivare l'operatore. Vuoto significa "l'email di riferimento del tenant".</li>
+        </ul>
+        <h3>Modificare un controllo</h3>
+        <p>
+          La configurazione si corregge nella scheda <em>Definizione</em> della pagina del
+          controllo, raggiungibile anche dalla matita nell'elenco del bersaglio. Si cambia
+          tutto -- nome, URL o porte, verifiche, cadenza, tempo massimo, soglie, recapito,
+          attivazione -- <strong>tranne il genere</strong>: quello e' cio' che il controllo
+          misura, e cambiarlo terrebbe insieme lo storico di due verifiche diverse.
+        </p>
+        <div class="alert alert-secondary">
+          <strong>Non serve cancellare e ricreare.</strong> Con la cancellazione se ne
+          andrebbero esiti, misure e incidenti, cioe' proprio lo storico che rende il
+          controllo utile. La modifica lascia tutto al suo posto: le sonde ricevono la nuova
+          definizione al contatto successivo.
+        </div>
+
+        <h3>Provare subito un controllo</h3>
+        <p>
+          Il pulsante <em>Provare adesso</em> chiede alle sonde attive di eseguire il controllo
+          senza attendere la cadenza: serve a verificare che l'URL sia scritto bene e che le
+          verifiche corrispondano alla risposta vera. La pagina attende l'esito e si aggiorna da
+          se'; di norma arriva in pochi secondi.
+        </p>
+
+        <!-- ============================================================= -->
+        <h2 id="incidenti">9. Workflow degli incidenti</h2>
+        <p>
+          Il workflow e' <strong>sempre automatico</strong>: nessuna scelta da fare quando si
+          definisce il controllo. Due soglie governano tutto.
+        </p>
+        <pre class="bg-body-tertiary p-3 rounded small">fallimenti consecutivi >= SOGLIA DI APERTURA
+                  |
+                  v
+            [ APERTO ]  --- il controllo torna a posto ---> [ RISOLTO in automatico ]
+                  |
+                  |  i fallimenti continuano
+                  v
+fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
+                  |
+                  v
+    [ APERTO + OPERATORE ATTIVATO ]   <-- notifica al recapito competente
+                  |
+                  |  da qui l'incidente NON si chiude piu' da se':
+                  |  il rientro del controllo viene annotato e basta
+                  v
+       preso in carico ---> risolto da una persona, con motivazione</pre>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>SOGLIA</th><th>COSA FA</th><th>ESEMPIO</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Apertura</strong></td>
+                <td>apre l'incidente. Fino alla soglia successiva il rientro del controllo lo chiude da se'</td>
+                <td>3 fallimenti: un servizio che singhiozza per un minuto apre e chiude senza disturbare nessuno</td>
+              </tr>
+              <tr>
+                <td><strong>Attivazione dell'operatore</strong></td>
+                <td>notifica il recapito competente e <strong>impedisce la chiusura automatica</strong>: serve una verifica umana</td>
+                <td>6 fallimenti: il disservizio dura, e va guardato da qualcuno</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>Il recapito dell'operatore</strong> e' quello indicato sul controllo; se non e'
+          indicato si usa l'<strong>email di riferimento del tenant</strong>
+          (<em>Amministrazione &rarr; Tenant</em>). Se non c'e' nemmeno quella, l'attivazione
+          avviene comunque -- l'incidente resta in attesa di una persona -- ma senza recapito,
+          e la cosa viene dichiarata: un incidente che aspetta qualcuno che nessuno ha avvisato
+          e' peggio di un incidente senza recapito.
+        </p>
+        <p>
+          Ogni passaggio e' tracciato con autore (sistema od operatore), istante e nota. La
+          risoluzione richiede una <strong>motivazione</strong>: senza, lo storico non serve a
+          nulla.
+        </p>
+
+        <h3>Notifiche</h3>
+        <p>
+          Ogni passaggio produce una notifica: apertura, attivazione dell'operatore, rientro
+          con incidente ancora aperto, presa in carico, risoluzione. In
+          <em>Amministrazione &rarr; Impostazioni Sistema</em> si configura la posta e si
+          scelgono quali momenti notificare.
+        </p>
+        <ul>
+          <li>
+            Le notifiche vengono <strong>accodate</strong> e spedite da un processo a se': un
+            server di posta lento non deve rallentare il conferimento dei dati dalle sonde.
+          </li>
+          <li>
+            Senza posta configurata restano <strong>in attesa</strong> e partono appena la
+            configurazione e' completa: nulla va perduto.
+          </li>
+          <li>
+            La coda e' visibile in <em>Controlli &rarr; Notifiche</em>, con lo stato di ciascuna
+            e l'eventuale errore del server di posta. Una notifica persa in silenzio e' peggio
+            di una non inviata.
+          </li>
+          <li>
+            Una prova di invio immediata sta nelle impostazioni: l'errore viene mostrato per
+            esteso.
+          </li>
+        </ul>
+
+        <!-- ============================================================= -->
+        <h2 id="metriche">10. Metriche e andamenti</h2>
+        <p>
+          Ogni esito viene scomposto in <strong>punti di misura</strong> conservati come serie
+          storica: i numeri della risposta (<code>metrics.cpu_percent</code>), i valori testuali
+          (<code>version</code>, <code>database</code>) e la <strong>latenza</strong>, che e' la
+          misura disponibile per qualunque genere di controllo.
+        </p>
+        <p>
+          Serve perche' un valore da solo non dice nulla: <em>98765 secondi di uptime</em> e' un
+          dato muto, mentre <em>un uptime che nelle ultime 24 ore ha avuto minimo 12 e massimo
+          98765</em> dice che il servizio si e' riavviato. Per questo accanto al valore corrente
+          si mostrano minimo, media e massimo delle ultime 24 ore, e il numero di campioni.
+        </p>
+        <h3>Come leggere i grafici</h3>
+        <ul>
+          <li>La scala verticale porta i propri valori a sinistra; la riga
+              <strong>tratteggiata</strong> e' la media del periodo, con il valore
+              scritto accanto.</li>
+          <li>L'asse orizzontale e' il <strong>tempo</strong>, non la fila dei punti:
+              un periodo senza misure resta largo quanto e' davvero, con una fascia
+              grigia e la dicitura <em>nessuna misura</em>, e la linea si interrompe.
+              Unire due misure lontane direbbe che nel mezzo e' andato tutto bene.</li>
+          <li>Nelle serie in percentuale il <strong>tetto e' sempre 100</strong> e il
+              fondo e' un gradino sotto al valore peggiore: due mesi diversi si
+              possono confrontare, e pochi decimi non diventano una montagna russa.</li>
+          <li>Il punto pieno a destra e' il <strong>valore corrente</strong>. Passando
+              col puntatore -- oppure raggiungendo il grafico col tasto Tab e
+              percorrendolo con le <strong>frecce</strong> -- si legge il valore di
+              quell'istante in un riquadro con la data per esteso.</li>
+          <li>Le serie <strong>senza variazioni</strong> non hanno un grafico ma una riga con il valore: una retta orizzontale occuperebbe spazio senza aggiungere nulla.</li>
+          <li>Le serie <strong>binarie</strong> (porta aperta o no, bersaglio raggiungibile o no) portano la percentuale di campioni positivi: e' la disponibilita'.</li>
+          <li>Nel controllo delle porte le misure sono indicizzate <strong>per porta</strong> (<code>port.tcp/443</code>), non per posizione nell'elenco: cosi' una serie non cambia significato se si aggiunge una porta.</li>
+        </ul>
+
+        <h3>Scegliere quali dati memorizzare e mostrare</h3>
+        <p>
+          Per difetto si conserva <strong>tutto</strong> cio' che la risposta contiene, fino a 60
+          valori per esito. Su un endpoint prolisso finiscono in serie storica anche valori che
+          non interessano a nessuno -- il numero di core logici, il totale del disco -- e la
+          pagina degli andamenti si riempie di riquadri che non si guardano.
+        </p>
+        <p>
+          Nella scheda <em>Definizione</em> di un controllo su endpoint, il riquadro
+          <strong>DATI DA MEMORIZZARE E MOSTRARE</strong> elenca i percorsi disponibili come
+          caselle da spuntare, <strong>ricavati dall'ultima risposta ricevuta</strong>, con il
+          valore corrente accanto: i nomi dei campi dentro un JSON scritto da altri non si
+          scrivono a memoria, e un percorso sbagliato non da' errore, semplicemente non conserva
+          nulla. I percorsi mai conservati portano l'etichetta <em>nuovo</em>. I pulsanti
+          <em>tutti</em> e <em>nessuno</em> e il filtro agiscono sulle voci visibili.
+        </p>
+        <ul>
+          <li><strong>Nessuna spunta</strong> significa <em>tutti</em>: e' il comportamento predefinito, e non cambia nulla per i controlli esistenti.</li>
+          <li>Il campo <strong>ALTRI PERCORSI</strong> accetta percorsi scritti a mano, uno per riga: serve per un dato che l'endpoint restituisce solo in certe condizioni -- un errore, una coda -- e che quindi non compare fra le caselle. Un percorso scelto che l'ultima risposta non contiene viene ripresentato qui.</li>
+          <li>Restringere la scelta <strong>non cancella</strong> le misure gia' conservate: restano in archivio e scompaiono dalla vista. La scheda <em>Metriche raccolte</em> lo dichiara.</li>
+          <li>Il <strong>tempo di risposta</strong> si conserva sempre: non viene dalla risposta ma dall'esecuzione.</li>
+          <li>La risposta conservata nell'esito resta intera: da essa le misure si possono ricavare di nuovo, anche per un percorso aggiunto in seguito.</li>
+          <li>Presenza in rete e apertura delle porte non offrono la scelta: producono le misure che la loro definizione implica, e non c'e' nulla da scegliere.</li>
+        </ul>
+
+        <!-- ============================================================= -->
+        <h2 id="dashboard">11. Leggere la dashboard</h2>
+        <p>
+          In testa compare, <strong>solo se ce ne sono</strong>, il riquadro rosso degli
+          incidenti aperti: cio' che richiede un intervento non deve essere cercato. Poi la
+          striscia dei numeri, quattro andamenti e le schede di dettaglio.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>NUMERO</th><th>COSA DICE</th><th>QUANDO PREOCCUPARSI</th></tr></thead>
+            <tbody>
+              <tr><td>Nodi / non raggiungibili</td><td>ampiezza dell'inventario e nodi che non rispondono</td><td>un salto improvviso dei non raggiungibili</td></tr>
+              <tr><td>Da identificare</td><td>nodi con tipo incerto</td><td>se non scende: spesso serve piu' tempo per host o il profilo di sforzo piu' alto</td></tr>
+              <tr><td>Sonde in contatto</td><td>quante sonde hanno parlato di recente</td><td>una sonda muta da piu' di un quarto d'ora</td></tr>
+              <tr><td>Conferimenti 24h</td><td>lotti e record ricevuti</td><td>zero conferimenti con sonde attive</td></tr>
+              <tr><td>Controlli attivi</td><td>quanti controlli girano, su quanti bersagli</td><td>-</td></tr>
+              <tr><td>Incidenti aperti</td><td>e quanti attendono di essere presi in carico</td><td>qualunque valore diverso da zero</td></tr>
+              <tr><td>Riuscita controlli 24h</td><td>percentuale di esiti superati</td><td>sotto il 99% con controlli su servizi critici</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Gli andamenti mostrano la riuscita dei controlli per ora, gli esiti non superati per
+          ora, gli incidenti aperti per giorno e i record conferiti per ora. Le ore senza
+          esecuzioni <strong>non compaiono</strong>: inventare uno zero dove non e' stato eseguito
+          nulla farebbe leggere un crollo dove c'e' solo assenza di dati.
+        </p>
+
+        <!-- ============================================================= -->
+{% include 'guide/_regole_report.html' %}
+
+        {% include 'guide/_threat.html' %}
+
+        {% include 'guide/_sala.html' %}
+
+        {% include 'guide/_zone.html' %}
+
+        {% include 'guide/_acn.html' %}
+
+<h2 id="sicurezza">20. Sicurezza e conformita'</h2>
+        <ul>
+          <li>
+            <strong>Canale cifrato.</strong> Ogni scambio fra sonda e server e' cifrato
+            end-to-end con chiavi scambiate alla registrazione; ogni messaggio e' autenticato,
+            legato al percorso richiesto e valido solo per pochi minuti. Un messaggio ripetuto
+            viene riconosciuto e scartato.
+          </li>
+          <li>
+            <strong>Perimetro vincolante.</strong> La sonda non puo' scansionare fuori dalle
+            subnet dichiarate, e ogni tentativo e' registrato con gravita' alta.
+          </li>
+          <li>
+            <strong>Separazione per tenant.</strong> Ogni interrogazione porta il tenant come
+            primo filtro: l'appartenenza e' una condizione, non un filtro applicato dopo.
+          </li>
+          <li>
+            <strong>Audit.</strong> Accessi, modifiche di configurazione, comandi alle sonde e
+            passaggi di stato degli incidenti sono registrati con autore e istante
+            (rilevante per NIS2 e per il GDPR in caso di verifica).
+          </li>
+          <li>
+            <strong>Dati raccolti.</strong> snap raccoglie dati tecnici di rete (indirizzi, porte,
+            servizi, nomi host). Un indirizzo IP puo' costituire dato personale: la conservazione
+            e' limitata nel tempo per tenant e l'accesso e' governato dai ruoli.
+          </li>
+          <li>
+            <strong>Prudenza sui controlli.</strong> Un controllo periodico puo' usare solo GET e
+            HEAD: un controllo che modificasse lo stato del bersaglio cambierebbe cio' che
+            verifica.
+          </li>
+        </ul>
+
+        <!-- ============================================================= -->
+        <h2 id="diagnosi">21. Quando qualcosa non torna</h2>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>SINTOMO</th><th>CAUSA PIU' PROBABILE</th><th>COSA FARE</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>La sonda sembra ferma, nulla si aggiorna</td>
+                <td>perimetro vuoto o quasi</td>
+                <td>controllare le subnet <strong>attive</strong> in <em>Sonde &rarr; Perimetro</em></td>
+              </tr>
+              <tr>
+                <td>L'inventario non cresce, ma i lotti arrivano</td>
+                <td>i profili non si completano</td>
+                <td>alzare il tempo per host, o il profilo di sforzo; guardare il diario della sonda</td>
+              </tr>
+              <tr>
+                <td>Molti nodi "da identificare"</td>
+                <td>prove insufficienti: rete remota senza MAC ne' nomi host</td>
+                <td>profilo di sforzo piu' alto, e attendere la fase di approfondimento</td>
+              </tr>
+              <tr>
+                <td>Una sonda risulta non in contatto</td>
+                <td>rete, o processo arrestato</td>
+                <td>verificare l'interfaccia locale della sonda; il suo diario dice l'ultimo errore</td>
+              </tr>
+              <tr>
+                <td>Un controllo resta in <code>error</code></td>
+                <td>nome non risolvibile dalla sonda, o URL sbagliato</td>
+                <td><em>Provare adesso</em> e leggere il dettaglio dell'esito</td>
+              </tr>
+              <tr>
+                <td>Incidenti che si riaprono continuamente</td>
+                <td>servizio che oscilla</td>
+                <td>alzare la soglia di apertura, oppure abbassare quella di attivazione perche' qualcuno lo guardi</td>
+              </tr>
+              <tr>
+                <td>Nessuna notifica arriva</td>
+                <td>posta non configurata, momento disattivato, o nessun recapito</td>
+                <td><em>Controlli &rarr; Notifiche</em>: ogni notifica dichiara il proprio stato e l'errore. La prova di invio sta nelle impostazioni</td>
+              </tr>
+              <tr>
+                <td>Un grafico non compare</td>
+                <td>serve almeno il <strong>secondo</strong> campione</td>
+                <td>attendere l'esecuzione successiva, o usare <em>Provare adesso</em></td>
+              </tr>
+              <tr>
+                <td>Una porta risulta aperta su tutti i nodi</td>
+                <td>apparato intermedio che risponde per ogni indirizzo</td>
+                <td>nulla: il sistema la marca e la esclude dalle prove; la marcatura e' visibile nella pagina del nodo</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- ============================================================= -->
+        <h2 id="glossario">22. Glossario</h2>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>TERMINE</th><th>SIGNIFICATO</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Tenant</strong></td><td>il cliente, o l'ambiente, a cui appartengono sonde, nodi e controlli</td></tr>
+              <tr><td><strong>Sonda</strong></td><td>il programma installato nella rete da esaminare</td></tr>
+              <tr><td><strong>Perimetro</strong></td><td>le subnet che la sonda puo' esaminare</td></tr>
+              <tr><td><strong>Fase</strong></td><td>un passo della scansione progressiva (scoperta, porte, servizi, ...)</td></tr>
+              <tr><td><strong>Profilo del nodo</strong></td><td>l'insieme delle prove raccolte su un indirizzo prima del conferimento</td></tr>
+              <tr><td><strong>Conferimento</strong></td><td>la consegna al server di un lotto di record, sul canale cifrato</td></tr>
+              <tr><td><strong>Candidato</strong></td><td>un indirizzo vivo che non porta ancora prove sostanziali: non entra in inventario</td></tr>
+              <tr><td><strong>Bersaglio</strong></td><td>l'indirizzo o il nome host su cui agiscono i controlli periodici</td></tr>
+              <tr><td><strong>Incidente</strong></td><td>l'oggetto del workflow, aperto quando un controllo fallisce oltre la soglia</td></tr>
+              <tr><td><strong>Punto di misura</strong></td><td>un valore ricavato da un esito e conservato in serie storica</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="alert alert-secondary mt-4">
+          <strong>Documentazione tecnica.</strong> I documenti di progetto (requisiti, modello
+          dei dati, decisioni assunte, osservazioni dal campo) stanno nella cartella
+          <code>docs/</code> dell'installazione: architettura, canale cifrato, inventario e
+          monitoraggio, controlli periodici.
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="border-top bg-body-tertiary py-3 mt-4 guida-nostampa">
+  <div class="container-xxl small text-body-secondary d-flex justify-content-between flex-wrap gap-2">
+    <span>{{ app_name }} v{{ app_version }} &middot; guida operativa della console</span>
+    <span>(c) 2024-26 DS Consulting &middot; licenza MIT</span>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-tables.js') }}"></script>
+</body>
+</html>

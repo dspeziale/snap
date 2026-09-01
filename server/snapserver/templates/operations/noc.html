@@ -1,0 +1,488 @@
+{#
+  snap server - Quadro NOC: il turno.
+
+  Si guarda in piedi e deve dire in dieci secondi se il turno e' tranquillo. Per
+  questo la prima riga e' una frase, non un colore: "nulla di aperto" oppure
+  "3 controlli in errore". Il resto risponde alle quattro domande del mestiere --
+  che cosa non va adesso, che cosa balla, chi tace, chi rallenta.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Quadro NOC{% endblock %}
+{% block page_icon %}bi-display{% endblock %}
+{% block page_title %}Quadro NOC{% endblock %}
+{% block page_subtitle %}
+  Il turno: che cosa non funziona adesso, che cosa e' instabile, chi non risponde piu'.
+  {{ board.nodi_attivi }} dispositivi attivi su {{ board.nodi }} in inventario.
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('checks.incident_list') }}" class="btn btn-sm btn-outline-danger">
+  <i class="bi bi-exclamation-triangle me-1"></i> Incidenti
+</a>
+<a href="{{ url_for('checks.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-clipboard-check me-1"></i> Controlli
+</a>
+<a href="{{ url_for('operations.noc') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-arrow-clockwise me-1"></i> Aggiornare
+</a>
+{% endblock %}
+
+{% block content %}
+{# La riga che dice com'e' il turno. Una frase, perche' un colore da solo non si
+   legge da lontano e non si ripete al telefono. #}
+<div class="alert {{ 'alert-success' if board.tranquillo else 'alert-danger' }}
+            d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi {{ 'bi-check-circle-fill' if board.tranquillo
+                    else 'bi-exclamation-triangle-fill' }} me-1"></i>
+    {% if board.tranquillo %}
+    <strong>Turno tranquillo.</strong> Nessun controllo in errore e nessun incidente
+    aperto.
+    {% else %}
+    <strong>{{ board.in_errore|length }} controlli in errore</strong>
+    e {{ board.riepilogo.incidents_open }} incidenti aperti,
+    di cui {{ board.riepilogo.incidents_unclaimed }} non ancora presi in carico.
+    {% endif %}
+  </div>
+  <small>
+    ultimo conferimento dalle sonde {{ board.ultimo_lotto|ago if board.ultimo_lotto
+                                       else 'mai' }}
+  </small>
+</div>
+
+<div class="row g-3 mb-3">
+  {% set riquadri = [
+      ('IN ERRORE ADESSO', board.in_errore|length, 'bi-x-octagon',
+       'danger' if board.in_errore else 'success', 'controlli il cui ultimo esito non e\' riuscito'),
+      ('INCIDENTI APERTI', board.riepilogo.incidents_open, 'bi-exclamation-triangle',
+       'danger' if board.riepilogo.incidents_open else 'success',
+       '%d da prendere in carico'|format(board.riepilogo.incidents_unclaimed)),
+      ('INSTABILI 24H', board.instabili|length, 'bi-activity',
+       'warning' if board.instabili else 'success', 'vanno e vengono: il caso peggiore'),
+      ('IN SILENZIO', board.silenzi|length, 'bi-volume-mute',
+       'danger' if board.silenzi else 'success',
+       'interrogati e non hanno risposto'),
+      ('NON INTERROGATI', board.non_interrogati|length, 'bi-question-circle',
+       'warning' if board.non_interrogati else 'success',
+       'nessuna verifica nelle 24 ore'),
+      ('RIUSCITA 24H',
+       (board.riepilogo.success_rate_24h ~ '%') if board.riepilogo.success_rate_24h
+        is not none else 'non misurata', 'bi-graph-up',
+       'success' if (board.riepilogo.success_rate_24h or 0) >= 99 else 'warning',
+       '%d esiti, %d non superati'|format(board.riepilogo.results_24h,
+                                          board.riepilogo.failures_24h)),
+      ('SONDE IN CONTATTO', '%d/%d'|format(board.sonde.online, board.sonde.total),
+       'bi-broadcast-pin',
+       'success' if board.sonde.total and board.sonde.online == board.sonde.total
+        else 'warning', 'chi raccoglie i dati'),
+  ] %}
+  {% for etichetta, valore, icona, tono, nota in riquadri %}
+  <div class="col-6 col-lg-4 col-xxl-2">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center gap-2">
+          <div>
+            <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+            <p class="snap-stat-value mb-0">{{ valore }}</p>
+            <p class="snap-stat-foot mb-0">{{ nota }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# --- Che cosa non funziona adesso: prima di tutto il resto ---------------- #}
+<div class="card mb-3 {{ 'border-danger' if board.in_errore }}">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-x-octagon me-1"></i> Non funziona adesso
+    </h3>
+    <small class="text-body-secondary">
+      l'ultimo esito di ciascun controllo, non un errore qualsiasi delle ultime ore
+    </small>
+  </div>
+  <div class="card-body p-0">
+    {% if board.in_errore %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>GRAVITA'</th><th>CONTROLLO</th><th>BERSAGLIO</th><th>ESITO</th>
+              <th>DETTAGLIO</th><th>DA QUANDO</th><th>FALLITI 24H</th>
+              <th>INCIDENTE</th></tr>
+        </thead>
+        <tbody>
+          {% for r in board.in_errore %}
+          <tr>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if r.severity == 'critical'
+                                            else ('warning' if r.severity == 'warning'
+                                                  else 'secondary') }}">
+                {{ r.severity }}
+              </span>
+            </td>
+            <td class="small fw-semibold">{{ r.check_name }}</td>
+            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="small">{{ r.status }}</td>
+            <td class="small text-body-secondary">{{ (r.detail or '')[:70] }}</td>
+            <td class="small text-nowrap">
+              {{ r.opened_at|ago if r.opened_at else r.executed_at|ago }}
+            </td>
+            <td class="text-end small">{{ r.falliti_24h }}</td>
+            <td class="small">
+              {% if r.incident_id %}
+              <a href="{{ url_for('checks.incident', incident_id=r.incident_id) }}"
+                 class="badge text-bg-danger text-decoration-none">
+                {{ r.incident_status }}
+              </a>
+              {% else %}
+              <span class="text-body-secondary">nessuno</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun controllo in errore: l'ultimo esito di ognuno e' riuscito.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{{ schede.barra([
+    ('instabili', 'Instabili', 'bi-activity', board.instabili|length),
+    ('silenzi', 'In silenzio', 'bi-volume-mute', board.silenzi|length),
+    ('copertura', 'Non interrogati', 'bi-question-circle',
+     board.non_interrogati|length),
+    ('lenti', 'Lentezza', 'bi-hourglass-split', board.lenti|length),
+    ('sonde', 'Sonde', 'bi-broadcast-pin', board.flotta|length),
+    ('andamenti', 'Andamenti', 'bi-graph-up', none),
+]) }}
+
+<div class="tab-content">
+
+{# --------------------------------------------------------------- instabili #}
+<div class="tab-pane fade show active" id="pane-instabili" role="tabpanel"
+     aria-labelledby="tab-instabili">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-activity me-1"></i> Va e viene</h3>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      Un servizio fermo si vede; uno che va e viene consuma il turno e non compare in
+      nessun elenco di errori, perche' quando lo si guarda funziona. Qui si contano i
+      <strong>cambi di stato</strong> nelle ultime 24 ore, non i fallimenti.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>CONTROLLO</th><th>BERSAGLIO</th><th>CAMBI DI STATO</th>
+              <th>ESITI 24H</th><th>ULTIMO</th><th>QUANDO</th></tr>
+        </thead>
+        <tbody>
+          {% for r in board.instabili %}
+          <tr>
+            <td class="small fw-semibold">{{ r.check_name }}</td>
+            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="text-end">
+              <span class="badge text-bg-warning">{{ r.cambi }}</span>
+            </td>
+            <td class="text-end small">{{ r.esiti }}</td>
+            <td class="small">{{ r.ultimo }}</td>
+            <td class="small text-nowrap">{{ r.ultimo_at|ago }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.instabili %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun controllo instabile nelle ultime 24 ore.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ----------------------------------------------------------------- silenzi #}
+<div class="tab-pane fade" id="pane-silenzi" role="tabpanel" aria-labelledby="tab-silenzi">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-volume-mute me-1"></i> In silenzio</h3>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      Dispositivi che <strong>sono stati interrogati e non hanno risposto</strong>. Si
+      chiamano cosi' e non "caduti" perche' uno spento di proposito e uno guasto danno
+      lo stesso risultato: il giudizio spetta a chi conosce la rete. Chi non e' stato
+      interrogato affatto sta nella scheda accanto: e' un buco della copertura, non un
+      guasto del nodo.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="20">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>SUBNET</th>
+              <th>ULTIMA VERIFICA</th><th>ESITO</th><th>ULTIMO CONTATTO</th>
+              <th>SORVEGLIATO</th></tr>
+        </thead>
+        <tbody>
+          {% for n in board.silenzi %}
+          <tr>
+            <td>
+              {# Il nome host sopra l'indirizzo: chi cerca un dispositivo lo cerca per
+                 nome quando ce l'ha e per indirizzo quando non ce l'ha. #}
+              {% if n.hostname %}
+              <div class="small text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}"
+                 class="font-monospace">{{ n.ip }}</a>
+            </td>
+            <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td class="small font-monospace">{{ n.subnet_cidr or '-' }}</td>
+            <td class="small text-nowrap">
+              {{ n.ultima_verifica|ago if n.ultima_verifica else 'mai verificato' }}
+            </td>
+            <td class="small">
+              {% if n.ultima_verifica %}
+              <span class="badge text-bg-danger">non ha risposto</span>
+              {% else %}
+              <span class="badge text-bg-secondary">{{ n.status }}</span>
+              {% endif %}
+            </td>
+            <td class="small text-nowrap">{{ n.last_seen_at|ago }}</td>
+            <td class="small">
+              {% if n.sorvegliato %}
+              <span class="badge text-bg-success">si'</span>
+              {% else %}
+              <span class="text-body-secondary">no</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.silenzi %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessun dispositivo interrogato ha smesso di rispondere.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# --------------------------------------------------------------- copertura #}
+<div class="tab-pane fade" id="pane-copertura" role="tabpanel"
+     aria-labelledby="tab-copertura">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-question-circle me-1"></i> Non interrogati nelle ultime 24 ore
+    </h3>
+    <a href="{{ url_for('probes.index') }}" class="btn btn-sm btn-outline-secondary">
+      Sonde
+    </a>
+  </div>
+  <div class="card-body p-0">
+    <p class="small text-body-secondary p-3 mb-0 border-bottom">
+      Questi dispositivi <strong>non hanno un guasto</strong>: nessuno glielo ha
+      chiesto. Su un perimetro ampio la sorveglianza ruota e qualcuno resta indietro;
+      se l'elenco e' lungo o cresce di giorno in giorno, il problema e' la copertura
+      della sonda -- cadenza del monitoraggio, profilo di sforzo, nodi per passata --
+      non i singoli indirizzi.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="20">
+        <thead>
+          <tr><th>INDIRIZZO</th><th>DISPOSITIVO</th><th>SUBNET</th>
+              <th>ULTIMA VERIFICA</th><th>ULTIMO CONTATTO</th></tr>
+        </thead>
+        <tbody>
+          {% for n in board.non_interrogati %}
+          <tr>
+            <td>
+              {# Il nome host sopra l'indirizzo: chi cerca un dispositivo lo cerca per
+                 nome quando ce l'ha e per indirizzo quando non ce l'ha. #}
+              {% if n.hostname %}
+              <div class="small text-body-secondary">{{ n.hostname }}</div>
+              {% endif %}
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}"
+                 class="font-monospace">{{ n.ip }}</a>
+            </td>
+            <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
+            <td class="small font-monospace">{{ n.subnet_cidr or '-' }}</td>
+            <td class="small text-nowrap">
+              {{ n.ultima_verifica|ago if n.ultima_verifica else 'mai' }}
+            </td>
+            <td class="small text-nowrap">{{ n.last_seen_at|ago }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.non_interrogati %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      La sorveglianza ha interrogato tutti i dispositivi nelle ultime 24 ore.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------------- lenti #}
+<div class="tab-pane fade" id="pane-lenti" role="tabpanel" aria-labelledby="tab-lenti">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-hourglass-split me-1"></i> Bersagli piu' lenti (24 ore)
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>CONTROLLO</th><th>BERSAGLIO</th><th>MISURE</th>
+              <th>LATENZA MEDIA</th><th>MASSIMA</th></tr>
+        </thead>
+        <tbody>
+          {% for r in board.lenti %}
+          <tr>
+            <td class="small fw-semibold">{{ r.check_name }}</td>
+            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="text-end small">{{ r.esiti }}</td>
+            <td class="text-end">{{ r.media }} ms</td>
+            <td class="text-end small text-body-secondary">{{ r.massimo }} ms</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not board.lenti %}
+    <p class="p-3 mb-0 text-body-secondary small">
+      Nessuna misura di latenza nelle ultime 24 ore.
+    </p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------------- sonde #}
+<div class="tab-pane fade" id="pane-sonde" role="tabpanel" aria-labelledby="tab-sonde">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-broadcast-pin me-1"></i> Chi raccoglie i dati
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>SONDA</th><th>CODICE</th><th>STATO</th><th>ULTIMO CONTATTO</th>
+              <th>LOTTI 24H</th><th>RECORD 24H</th><th>SCANSIONI 24H</th>
+              <th>COMANDI IN ATTESA</th><th>VERSIONE</th></tr>
+        </thead>
+        <tbody>
+          {% for p in board.flotta %}
+          <tr>
+            <td class="small fw-semibold">
+              <a href="{{ url_for('probes.detail', probe_id=p.id) }}">{{ p.name }}</a>
+            </td>
+            <td class="small font-monospace">{{ p.code }}</td>
+            <td>
+              <span class="badge text-bg-{{ 'success' if p.status == 'active'
+                                            else 'secondary' }}">{{ p.status }}</span>
+            </td>
+            <td class="small text-nowrap">{{ p.last_seen_at|ago if p.last_seen_at
+                                              else 'mai' }}</td>
+            <td class="text-end small">{{ p.lotti_24h }}</td>
+            <td class="text-end small">{{ p.record_24h }}</td>
+            <td class="text-end small">{{ p.scansioni_24h }}</td>
+            <td class="text-end small">
+              {% if p.comandi_attesa %}
+              <span class="badge text-bg-warning">{{ p.comandi_attesa }}</span>
+              {% else %}-{% endif %}
+            </td>
+            <td class="small text-body-secondary">{{ p.agent_version or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+{# -------------------------------------------------------------- andamenti #}
+<div class="tab-pane fade" id="pane-andamenti" role="tabpanel"
+     aria-labelledby="tab-andamenti">
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-graph-up me-1"></i> Riuscita dei controlli
+        </h3>
+        <small class="text-body-secondary">per ora, ultime 24 ore</small>
+      </div>
+      <div class="card-body">
+        <div class="text-success" data-snap-grafico data-altezza="150"
+             data-etichetta="riuscita dei controlli"
+             data-scala="percentuale" data-unita="%" data-passo="ora"
+             data-punti='{{ board.punti_riuscita|tojson }}'></div>
+        <p class="small text-body-secondary mb-0 mt-1">
+          Le ore senza esecuzioni non compaiono: uno zero direbbe che tutto e' fallito.
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-baseline">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-calendar-week me-1"></i> Disponibilita' per giorno
+        </h3>
+        <small class="text-body-secondary">
+          ultimi {{ board.andamento_giorni.giorni }} giorni
+        </small>
+      </div>
+      <div class="card-body">
+        <div class="text-primary" data-snap-grafico data-altezza="150"
+             data-etichetta="disponibilita' per giorno"
+             data-scala="percentuale" data-unita="%" data-passo="giorno"
+             data-da="{{ board.andamento_giorni.da }}"
+             data-a="{{ board.andamento_giorni.a }}"
+             data-punti='{{ board.andamento_giorni.punti|tojson }}'></div>
+        <p class="small text-body-secondary mb-0 mt-1">
+          {% if board.andamento_giorni.media is not none %}
+          Media {{ board.andamento_giorni.media }}%,
+          giorno peggiore {{ board.andamento_giorni.minimo }}%.
+          {% else %}
+          Nessuna misura nel periodo.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

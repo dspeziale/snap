@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" args="nmap -p 139,445 -Pn --script smb-os-discovery,smb-enum-shares,smb-enum-users,smb-security-mode 192.0.2.51" start="1787822300" version="7.99" xmloutputversion="1.05">
+<host starttime="1787822301" endtime="1787822360"><status state="up" reason="user-set" reason_ttl="0"/>
+<address addr="192.0.2.51" addrtype="ipv4"/>
+<hostnames>
+</hostnames>
+<ports>
+<port protocol="tcp" portid="139"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="netbios-ssn" product="Microsoft Windows netbios-ssn" ostype="Windows" method="probed" conf="10"/></port>
+<port protocol="tcp" portid="445"><state state="open" reason="syn-ack" reason_ttl="128"/><service name="microsoft-ds" method="probed" conf="10"/></port>
+</ports>
+<hostscript>
+<script id="smb-os-discovery" output="&#xa;  OS: Windows Server 2019 Standard 17763 (Windows Server 2019 Standard 6.3)&#xa;  Computer name: dc01&#xa;  NetBIOS computer name: DC01\x00&#xa;  Domain name: contoso.local&#xa;  Forest name: contoso.local&#xa;  FQDN: dc01.contoso.local&#xa;  System time: 2026-08-31T21:40:00+02:00&#xa;"/>
+<script id="smb-security-mode" output="&#xa;  account_used: guest&#xa;  authentication_level: user&#xa;  challenge_response: supported&#xa;  message_signing: disabled (dangerous, but default)&#xa;"/>
+<script id="smb-enum-shares" output="&#xa;  account_used: guest&#xa;  \\192.0.2.51\ADMIN$: &#xa;    Type: STYPE_DISKTREE_HIDDEN&#xa;    Comment: Remote Admin&#xa;    Anonymous access: &lt;none&gt;&#xa;    Current user access: READ/WRITE&#xa;  \\192.0.2.51\C$: &#xa;    Type: STYPE_DISKTREE_HIDDEN&#xa;    Comment: Default share&#xa;    Anonymous access: &lt;none&gt;&#xa;  \\192.0.2.51\Dati: &#xa;    Type: STYPE_DISKTREE&#xa;    Comment: Condivisione aziendale&#xa;    Anonymous access: READ&#xa;"/>
+<script id="smb-enum-users" output="&#xa;  CONTOSO\Administrator (RID: 500)&#xa;    Flags:       Normal user account, Password does not expire&#xa;  CONTOSO\Guest (RID: 501)&#xa;    Flags:       Normal user account, Account disabled&#xa;  CONTOSO\svc_backup (RID: 1108)&#xa;    Flags:       Normal user account&#xa;"/>
+</hostscript>
+</host>
+<runstats><finished time="1787822360" timestr="Thu Aug 27 11:19:20 2026" elapsed="60" summary="1 host up" exit="success"/><hosts up="1" down="0" total="1"/></runstats>
+</nmaprun>

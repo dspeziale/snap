@@ -1,0 +1,399 @@
+{#
+  snap probe - Corpo della guida, mostrato sull'interfaccia locale.
+
+  Tenuto in un frammento a se' perche' e' lo stesso contenuto che la sonda mostra
+  sulla propria interfaccia locale: una sola redazione, due luoghi di lettura. I due
+  applicativi non condividono codice, quindi il frammento e' duplicato -- il testo
+  pero' nasce e viene mantenuto qui.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<div class="alert alert-primary d-flex gap-2">
+  <i class="bi bi-info-circle fs-5"></i>
+  <div>
+    <strong>A chi serve.</strong> Al tecnico che ha davanti la macchina su cui gira la
+    sonda: installarla, registrarla, capire cosa sta facendo e cosa puo' decidere in
+    sede senza passare dalla console.
+  </div>
+</div>
+
+<h2 id="cosa">1. Che cosa fa la sonda</h2>
+<p>
+  La sonda e' un programma che sta <strong>dentro la rete da esaminare</strong>. Fa tre
+  cose:
+</p>
+<ul>
+  <li><strong>scansiona</strong> le subnet che il server le ha dichiarato, per fasi progressive;</li>
+  <li><strong>esegue i controlli periodici</strong> definiti sul server (presenza, porte, endpoint HTTP);</li>
+  <li><strong>consegna</strong> quanto ha raccolto al server, su un canale cifrato, e ne riceve la configurazione e i comandi.</li>
+</ul>
+<h3>Cosa NON fa</h3>
+<ul>
+  <li>Non accetta connessioni dal server: <strong>e' sempre lei a chiamare</strong>. Non serve aprire porte verso la rete del cliente.</li>
+  <li>Non decide il perimetro: lo riceve. Fuori da quelle subnet <strong>rifiuta</strong> di scansionare e lo segnala come evento grave.</li>
+  <li>Non conserva l'inventario: quello sta sul server. In locale tiene i profili in lavorazione, la coda da consegnare e un diario.</li>
+  <li>Non richiede credenziali sulla propria interfaccia, perche' <strong>ascolta solo su <code>127.0.0.1</code></strong>: chi puo' aprirla e' gia' sulla macchina.</li>
+</ul>
+
+<h2 id="installazione">2. Installazione e requisiti</h2>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>REQUISITO</th><th>PERCHE'</th><th>SE MANCA</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>nmap</strong> installato e raggiungibile</td>
+        <td>e' lo strumento con cui la sonda esamina la rete</td>
+        <td>nessuna scansione: l'interfaccia lo dichiara fra le capacita' rilevate</td>
+      </tr>
+      <tr>
+        <td><strong>Accesso a socket raw</strong> (su Windows: Npcap)</td>
+        <td>serve al riconoscimento del sistema operativo e alle scansioni piu' efficienti</td>
+        <td>la sonda lavora comunque, ma il sistema operativo non viene rilevato e il profilo si considera completo senza di esso</td>
+      </tr>
+      <tr>
+        <td>Raggiungibilita' del server</td>
+        <td>per consegnare i dati e ricevere la configurazione</td>
+        <td>la sonda continua a raccogliere e la coda cresce; al ritorno del collegamento consegna tutto</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Le capacita' effettivamente rilevate sono mostrate nella pagina di stato: versione di
+  nmap, disponibilita' dei socket raw, possibilita' di rilevare il sistema operativo.
+  Vanno guardate <strong>prima</strong> di concludere che qualcosa non funziona.
+</p>
+
+<h2 id="registrazione">3. Registrazione</h2>
+<p>
+  Finche' non e' registrata, la sonda non ha un perimetro e non scansiona. La
+  registrazione si fa una volta sola:
+</p>
+<ol>
+  <li>sulla console, in <em>Sonde &rarr; Registra sonda</em>, si crea la sonda e si ottengono <strong>codice</strong> e <strong>chiave</strong>;</li>
+  <li>sull'interfaccia locale della sonda, voce <em>Registrazione</em>, si inseriscono l'indirizzo del server, il codice e la chiave;</li>
+  <li>la sonda scambia le chiavi, riceve la configurazione e comincia a lavorare.</li>
+</ol>
+<p>
+  Da quel momento l'indicatore in alto a destra dice <strong>Canale attivo</strong> quando
+  il server risponde. La chiave non viene mostrata di nuovo: se si perde, si registra di
+  nuovo la sonda.
+</p>
+
+<h2 id="interfaccia">4. L'interfaccia locale</h2>
+<p>
+  Si apre su <code>http://127.0.0.1:5510/</code>, ha il <strong>menu a sinistra</strong>
+  come la console del server e quattro pagine. In fondo al menu restano sempre visibili
+  lo stato del canale, la coda locale, il fuso orario in uso e il pulsante di
+  <strong>uscita</strong>: sono la condizione in cui si sta lavorando, non qualcosa da
+  andare a cercare. Su schermo stretto il menu si
+  chiude nella barra in alto, perche' la sonda si governa anche dal telefono, in piedi
+  davanti a un armadio di rete.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>PAGINA</th><th>COSA MOSTRA</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Stato</strong></td><td>attivita' in corso, perimetro ricevuto, avanzamento dei profili, coda, capacita' di nmap</td></tr>
+      <tr><td><strong>Registrazione</strong></td><td>stato della registrazione e modulo per eseguirla</td></tr>
+      <tr><td><strong>Configurazione</strong></td><td>le scelte che si possono fare in sede</td></tr>
+      <tr><td><strong>Diario locale</strong></td><td>cosa e' accaduto, in ordine di tempo: e' la prima cosa da leggere quando qualcosa non torna</td></tr>
+    </tbody>
+  </table>
+</div>
+<h3>Com'e' fatta la pagina di stato</h3>
+<p>
+  Dall'alto verso il basso, nell'ordine in cui servono:
+</p>
+<ul>
+  <li>una <strong>barra di badge</strong> con lo stato della scansione (in corso,
+      sospesa in locale, disabilitata dal server), quanti nodi sono confermati, quanti
+      candidati, quanti profili restano da completare e quale fase e' la prossima, con
+      accanto l'interruttore per fermare o riprendere le scansioni;</li>
+  <li>sei <strong>riquadri di sintesi</strong>: canale verso il server, coda locale,
+      raccolta, nodi confermati, scansione, ultimo conferimento;</li>
+  <li>la <strong>destinazione dei dati</strong> (a quale tenant e a quale server vanno)
+      e, accanto, l'andamento dei <strong>record conferiti</strong>: un tracciato
+      piccolo, che serve a vedere se la sonda sta consegnando o si e' fermata;</li>
+  <li>quattro <strong>schede</strong>: scansione della rete (con l'indicatore di
+      attivita' e il diario delle fasi), conferimenti, identita' e canale, diario
+      recente.</li>
+</ul>
+
+<h3>Leggere l'indicatore di attivita'</h3>
+<p>
+  L'indicatore dichiara <strong>quali fasi sono in corso e da quanto tempo</strong>. Un
+  tempo che avanza distingue il lavoro in corso da un blocco: una fase di ispezione su
+  sedici nodi puo' durare cinque minuti, ed e' normale. Se il tempo non avanza, o se una
+  fase si conclude sempre con "0 host", il diario ne dice il motivo.
+</p>
+<div class="alert alert-secondary">
+  <strong>Il perimetro esplorato</strong> conta le subnet su cui la scoperta e' passata
+  almeno una volta, non le subnet dichiarate: su un perimetro ampio cresce lentamente, ed
+  e' corretto che sia cosi'.
+</div>
+
+<h2 id="accesso">4-bis. Accesso all'interfaccia</h2>
+<p>
+  L'interfaccia e' protetta da <strong>una password</strong>: una sola credenziale,
+  senza elenco utenti e senza ruoli, perche' la sonda ha un solo operatore -- chi la
+  installa e chi la assiste.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>SITUAZIONE</th><th>COSA ACCADE</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Prima apertura</strong></td>
+        <td>La password non esiste e va scelta. <strong>Si scegle dalla postazione
+            della sonda</strong> (<code>http://127.0.0.1:5510/</code>): dalla rete la
+            scelta iniziale viene rifiutata, cosi' la sonda appartiene a chi l'ha
+            installata e non al primo che la trova in rete.</td>
+      </tr>
+      <tr>
+        <td><strong>Accessi successivi</strong></td>
+        <td>Password all'apertura, sessione di otto ore, uscita dal pulsante in fondo
+            al menu.</td>
+      </tr>
+      <tr>
+        <td><strong>Password sbagliata</strong></td>
+        <td>Cinque tentativi, poi blocco di quindici minuti. Il blocco scade da se':
+            non serve riavviare la sonda.</td>
+      </tr>
+      <tr>
+        <td><strong>Cambio password</strong></td>
+        <td><em>Configurazione &rarr; Password dell'interfaccia</em>: serve quella
+            attuale. Almeno 10 caratteri, con una maiuscola, una minuscola e una
+            cifra -- la stessa regola della console.</td>
+      </tr>
+      <tr>
+        <td><strong>Password dimenticata</strong></td>
+        <td>Non si recupera da remoto, di proposito. Si reimposta dal dispositivo,
+            cancellando la voce <code>ui_password_hash</code> dall'archivio locale:
+            alla riapertura l'interfaccia richiede di scegliere una password nuova.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Ogni accesso -- riuscito, fallito, bloccato -- <strong>entra nel diario locale</strong>
+  con l'indirizzo da cui e' arrivato: e' la traccia che serve a rispondere alla domanda
+  "chi ha toccato questa sonda".
+</p>
+<div class="alert alert-warning d-flex gap-2">
+  <i class="bi bi-exclamation-triangle fs-5"></i>
+  <div>
+    <strong>Due limiti da conoscere.</strong> Il canale dell'interfaccia e'
+    <strong>HTTP</strong>: se la si apre alla rete, la password l'attraversa in
+    chiaro. E chi ha la password puo' riconfigurare la sonda e sospendere le
+    scansioni: e' un accesso amministrativo, non di sola lettura. Il canale verso il
+    server e' un'altra cosa, ed e' cifrato e autenticato dalle chiavi della
+    registrazione.
+  </div>
+</div>
+
+<h2 id="scelte">5. Scelte locali e scelte del server</h2>
+<p>
+  Alcune impostazioni si possono cambiare da entrambi i lati. La regola e' semplice:
+  <strong>una scelta fatta in sede resta</strong>, e viene sostituita solo quando il
+  server la <em>cambia</em> -- non a ogni contatto.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>IMPOSTAZIONE</th><th>CHI DECIDE</th><th>NOTE</th></tr></thead>
+    <tbody>
+      <tr><td>Perimetro (subnet)</td><td><strong>solo il server</strong></td><td>vincolante: fuori da qui non si scansiona</td></tr>
+      <tr><td>Interruttore delle scansioni</td><td><strong>server, autoritativo</strong></td><td>e' una misura di sicurezza: viene riaffermato a ogni contatto</td></tr>
+      <tr><td>Sospensione locale</td><td><strong>sonda</strong></td><td>prevale il piu' restrittivo fra i due interruttori</td></tr>
+      <tr><td>Profilo di sforzo</td><td>entrambi</td><td>la scelta locale resta finche' il server non la cambia</td></tr>
+      <tr><td>Tempo massimo per host</td><td>entrambi</td><td>idem; le fasi di ispezione hanno comunque un minimo di 180 secondi</td></tr>
+      <tr><td>Giorni fra due scoperte</td><td>entrambi</td><td>la scoperta completa non gira in continuazione</td></tr>
+    </tbody>
+  </table>
+</div>
+<h3>Il minimo di 180 secondi</h3>
+<p>
+  Le fasi che interrogano i servizi (<code>services</code>, <code>os</code>,
+  <code>deep</code>) non scendono sotto 180 secondi per host, anche se si imposta un
+  valore piu' basso. Non e' una limitazione arbitraria: misurato su una stampante
+  multifunzione con tredici porte note, a 90 secondi nmap abbandonava l'host e l'esame
+  restituiva <strong>zero porte</strong>; a 300 secondi si concludeva in 103 secondi con il
+  dispositivo riconosciuto. Un tempo troppo breve non rende la fase piu' rapida: la rende
+  inutile.
+</p>
+<p>
+  Per questo un host che nmap <strong>abbandona</strong> per tempo scaduto non conta come
+  host esaminato: non consuma un tentativo, viene contato a parte e al giro successivo
+  riceve <strong>il doppio del tempo</strong>, fino a 300 secondi. Confondere un abbandono
+  con un esame vuoto faceva scartare dall'inventario apparati lenti ma perfettamente vivi
+  &mdash; ed erano proprio quelli con piu' porte aperte.
+</p>
+
+<h3>La lettura SNMP</h3>
+<p>
+  Dove un apparato risponde sulla porta <strong>161/udp</strong>, una fase dedicata
+  legge tutto cio' che SNMP espone: descrizione del sistema (che porta modello e
+  firmware), nome, collocazione, interfacce con i loro indirizzi, e sui sistemi Windows
+  processi, software installato, condivisioni e utenze. Su switch e stampanti e' spesso
+  l'unica fonte di modello e firmware.
+</p>
+<ul>
+  <li>Riguarda i <strong>soli nodi con la 161 aperta</strong>: interrogare gli altri
+      significherebbe attendere il tempo pieno per host senza ottenere nulla.</li>
+  <li>Usa <strong>solo script di lettura</strong>: quello che indovina le community e'
+      escluso di proposito. Si prova la community <em>di fabbrica</em>, e trovarla
+      funzionante <em>e'</em> il riscontro di sicurezza.</li>
+  <li>Ha una cadenza di dodici ore, ma un apparato <strong>mai letto</strong> ha la
+      precedenza: la cadenza governa le riletture, non la prima.</li>
+</ul>
+
+<h3>La lettura delle interfacce di gestione</h3>
+<p>
+  Dove risponde un'interfaccia web (80, 443, 8080 e le altre porte di gestione) una fase
+  dedicata <strong>apre le pagine e legge che cosa dichiarano</strong>: modello,
+  collocazione fisica, nome dato dall'amministratore, firmware, numero di serie. Su molti
+  apparati e' l'unico posto dove il modello sia scritto.
+</p>
+<ul>
+  <li>La navigazione e' <strong>limitata e in sola lettura</strong>: si seguono le
+      indicazioni della pagina stessa (redirezioni, meta refresh, cambi di indirizzo via
+      script, riquadri, collegamenti alle pagine di informazioni) e alcuni percorsi noti
+      per marca. Nessun modulo viene inviato, nessun indirizzo il cui nome contenga un
+      verbo con effetto viene aperto.</li>
+  <li>Il <strong>contenuto della pagina non viene conservato</strong>: si tiene soltanto
+      cio' che si e' capito. Sono pagine che possono contenere dati personali.</li>
+  <li>Se la pagina chiede una credenziale, la sonda lo <strong>dichiara</strong> invece di
+      presentare l'apparato come non identificato: e' un'informazione utile due volte,
+      perche' una pagina di gestione <em>senza</em> credenziale e' un riscontro di
+      sicurezza.</li>
+  <li>Le <strong>stampanti</strong> vengono interrogate anche via IPP (631/tcp, e la 80 su
+      alcune) chiedendo i soli attributi della stampante: modello, costruttore,
+      collocazione e numero di serie. Nulla sulle code e nulla sui lavori di stampa &mdash;
+      un lavoro di stampa porta il nome del documento e di chi lo ha mandato, che non e'
+      inventario.</li>
+  <li>Il risultato viene <strong>conferito subito</strong>, come la lettura SNMP: chi ha
+      chiesto la lettura si aspetta di vederla sulla console, non alla fase successiva.</li>
+</ul>
+
+<h2 id="autonomia">6. Autonomia e coda</h2>
+<p>
+  Se il server non risponde, la sonda <strong>continua a lavorare</strong>: scansiona,
+  esegue i controlli e accoda i record. La coda e' visibile nella pagina di stato. Al
+  ritorno del collegamento i lotti vengono consegnati e la coda si svuota.
+</p>
+<ul>
+  <li>Un lotto viene rimosso dalla coda <strong>solo dopo la conferma</strong> del server: nulla si perde per una connessione caduta a meta'.</li>
+  <li>Un lotto rifiutato per un motivo di protocollo non viene ritentato all'infinito: l'errore compare nel diario.</li>
+  <li>Il conferimento avviene <strong>a profilo completo</strong>: un nodo raggiunge il server con porte, servizi e sistema operativo insieme, non a pezzi.</li>
+</ul>
+
+<h2 id="controlli">7. Controlli eseguiti dalla sonda</h2>
+<p>
+  I controlli periodici sono definiti sul server e <strong>eseguiti qui</strong>, perche' i
+  bersagli stanno in questa rete. La sonda riceve le definizioni a ogni contatto e rispetta
+  la cadenza di ciascuna, anche dopo un riavvio.
+</p>
+<ul>
+  <li>Un bersaglio di controllo <strong>non</strong> e' soggetto al perimetro: e' un indirizzo o un nome host dichiarato espressamente dall'operatore, non una scoperta di rete.</li>
+  <li>Il diario riporta quante esecuzioni sono state fatte e quante non hanno superato la verifica.</li>
+  <li>Dalla console si puo' chiedere una <strong>prova immediata</strong>: la sonda la esegue al contatto successivo, senza attendere la cadenza.</li>
+</ul>
+
+<h2 id="azzeramento">9. Ricominciare da zero</h2>
+<p>
+  La pagina <em>Configurazione</em> offre due azzeramenti, distinti da cio' che
+  rimuovono. Entrambi chiedono di digitare una parola di conferma, e nessuno dei due
+  tocca l'inventario sul server.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>AZIONE</th><th>RIMUOVE</th><th>DOPO</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Azzera i dati</strong><br><code>AZZERA I DATI</code></td>
+        <td>nodi e profili, stato delle fasi, prenotazioni, coda, storico dei
+            conferimenti, stato dei controlli, diario, e le impostazioni che il server
+            riconsegna comunque</td>
+        <td>la sonda resta <strong>registrata</strong>: al contatto successivo riceve di
+            nuovo perimetro e controlli e riparte dalla scoperta, senza interventi</td>
+      </tr>
+      <tr>
+        <td><strong>Azzera tutto</strong><br><code>AZZERA TUTTO</code></td>
+        <td>quanto sopra, piu' registrazione, chiavi e ogni impostazione</td>
+        <td>l'archivio torna allo stato successivo all'installazione: la sonda
+            <strong>va registrata di nuovo</strong> dalla console, altrimenti resta ferma</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Prima di cancellare, le scansioni vengono sospese e i processi di nmap in corso
+  terminati: una scansione in corso scriverebbe i propri record subito dopo la
+  cancellazione, e l'archivio "azzerato" ripartirebbe con dei residui. Al termine lo
+  spazio viene restituito al sistema, e la prima riga del nuovo diario dichiara cosa
+  e' stato rimosso.
+</p>
+<div class="alert alert-warning">
+  <strong>I comandi di manutenzione non bastano.</strong> Azzerare la registrazione,
+  svuotare la coda e azzerare il contatore dei cicli lascia in casa nodi, profili e
+  diario -- misurato: 1752 nodi locali sopravvissuti a tutti e tre. Per ricominciare
+  davvero da zero servono i due comandi descritti qui.
+</div>
+
+<h2 id="diagnosi">10. Quando qualcosa non torna</h2>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>SINTOMO</th><th>CAUSA PIU' PROBABILE</th><th>COSA FARE</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>&ldquo;Server non raggiungibile&rdquo;</td>
+        <td>rete, indirizzo del server errato, oppure nessun contatto ancora tentato dopo l'avvio</td>
+        <td>leggere il diario: l'ultimo errore di trasporto e' riportato per esteso</td>
+      </tr>
+      <tr>
+        <td>Nessuna scansione, sonda registrata</td>
+        <td>perimetro vuoto, oppure scansioni sospese (da qui o dal server)</td>
+        <td>la pagina di stato dichiara entrambe le condizioni e il motivo della sospensione</td>
+      </tr>
+      <tr>
+        <td>Una fase si conclude sempre con &ldquo;0 host&rdquo;</td>
+        <td>tempo per host insufficiente: nmap abbandona gli host</td>
+        <td>il diario lo dichiara con il tempo in uso; alzare il tempo per host</td>
+      </tr>
+      <tr>
+        <td>&ldquo;nodi esclusi: la loro subnet non e' piu' fra quelle dichiarate&rdquo;</td>
+        <td>una subnet e' stata disattivata sul server</td>
+        <td>nulla: i nodi restano in inventario e non vengono piu' scansionati. Per riprenderli, riattivare la subnet</td>
+      </tr>
+      <tr>
+        <td>Il sistema operativo non viene mai rilevato</td>
+        <td>manca l'accesso a socket raw (Npcap su Windows)</td>
+        <td>installarlo, oppure accettare profili completi senza sistema operativo</td>
+      </tr>
+      <tr>
+        <td>La coda cresce e non si svuota</td>
+        <td>server irraggiungibile, o lotti rifiutati</td>
+        <td>diario e stato della registrazione; il conferimento riprende da se' al ritorno del collegamento</td>
+      </tr>
+      <tr>
+        <td>Un bersaglio di controllo risulta <code>error</code></td>
+        <td>il nome non e' risolvibile <em>da questa macchina</em></td>
+        <td>verificare la risoluzione dei nomi sulla macchina della sonda</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<div class="alert alert-secondary mt-4">
+  <strong>Prima di chiamare assistenza.</strong> Il <em>Diario locale</em> risponde a quasi
+  tutte le domande: dice quale fase e' stata svolta, su quanti bersagli, con quali
+  argomenti di nmap, quanto e' durata e cosa ha prodotto. Un estratto del diario e' cio'
+  che serve per capire un problema senza essere sul posto.
+</div>

@@ -1,0 +1,1785 @@
+================================================================================
+snap - PROMPT DI RICOSTRUZIONE COMPLETA DEL SISTEMA
+================================================================================
+Prompt da consegnare a Claude Code per ricreare integralmente il prodotto
+"snap" (server + sonda) partendo da una cartella vuota.
+
+Il documento e' redatto secondo le istruzioni di progetto riportate nella
+sezione 1: quelle istruzioni sono il primo file da creare nel nuovo progetto e
+governano ogni riga prodotta in seguito.
+
+remarks: Autore: Daniele Speziale - Data: 2026-08-27
+copyright: (c) 2024-26 DS Consulting
+license: MIT
+================================================================================
+
+--------------------------------------------------------------------------------
+SEZIONE 0 - COME USARE QUESTO FILE
+--------------------------------------------------------------------------------
+1. Creare una cartella vuota e aprirla con Claude Code.
+2. Salvare questo file nella cartella e scrivere:
+      "Realizza il sistema descritto in PROMPT_RICOSTRUZIONE.txt, integralmente
+       e nell'ordine indicato nella sezione 24. Le istruzioni di progetto della
+       sezione 1 valgono per ogni file che produci. Non chiedere conferme per
+       le scelte gia' fissate nel documento."
+   In alternativa, incollare l'intero contenuto come primo messaggio.
+3. La PRIMA cosa da creare e' il file CLAUDE.md con il contenuto della sezione
+   1: governa tutto il lavoro successivo e va scritto prima del codice.
+4. Le sezioni 22 (trappole) e 23 (criteri di accettazione) non sono opzionali:
+   sono la parte del prompt che evita di ripetere errori gia' commessi e
+   costati giorni di lavoro. Vanno consegnate insieme al resto.
+5. Il documento e' autosufficiente: non presuppone la disponibilita' del codice
+   esistente. Dove indica valori esatti (nomi di colonna, codici di errore,
+   etichette, dimensioni in punti) quei valori vanno rispettati alla lettera,
+   perche' test e documentazione li verificano.
+
+Dimensione dell'obiettivo: circa 14.700 righe fra codice, modelli di pagina,
+test e documentazione, escluse le librerie di terze parti incorporate.
+
+================================================================================
+SEZIONE 1 - ISTRUZIONI DI PROGETTO (file CLAUDE.md da creare)
+================================================================================
+Creare nella radice il file `CLAUDE.md` con il contenuto compreso fra le due
+righe di delimitazione. E' la versione completata del modello di progetto: le
+voci lasciate come TODO nel modello originale sono compilate con i valori
+effettivi del prodotto, e la struttura dichiarata e' quella reale (`server/` e
+`probe/` in luogo di un unico `src/`, per il requisito R3 della sezione 2).
+
+--------------------------- INIZIO CLAUDE.md -----------------------------------
+# CLAUDE.md
+
+Istruzioni per Claude Code su questo progetto.
+
+## Progetto
+
+`snap` (Secure Network Assessment Platform) — sistema server/sonda per la
+raccolta di dati presso le reti dei clienti. Una sonda installata dal cliente
+raccoglie dati e li conferisce a un server centrale multi-tenant su un canale
+cifrato applicativo. La sonda conosce il server, non viceversa, e funziona anche
+isolata: accumula in locale e conferisce quando il server torna raggiungibile.
+Destinatari: operatori di sicurezza (console del server) e tecnici di
+installazione (interfaccia della sonda).
+
+## Stack
+
+linguaggio python 3.10
+framework flask
+database sqlite
+layout AdminLte 4.3.1 (toggle chiaro/scuro anche la sidebar) (toggle per
+dimensione del carattere, piccolo, normale, grande, extra grande)
+applicazioni sulle porte 5500-5600 (server 5500, sonda 5510)
+
+## Struttura
+
+- `server/` — applicativo server (pacchetto `snapserver`)
+- `probe/` — applicativo sonda (pacchetto `snapprobe`), separato dal server
+- `tests/` — test
+- `docs/` — documentazione
+- `tools/` — strumenti di supporto (manuali .docx, collaudo dell'interfaccia)
+
+## Comandi
+
+```bash
+# install
+.\start.ps1 -Setup                     # crea .venv, dipendenze, base dati
+# dev
+.\start.ps1 -DevMode                   # server 5500 + sonda 5510
+# build
+python tools/genera_manuale.py         # nessun passo di build: solo i manuali
+# test
+python -m pytest tests -q              # oppure .\start.ps1 -Test
+# lint
+python -m compileall -q server/snapserver probe/snapprobe tests tools
+```
+
+## Convenzioni
+
+- Lingua: codice e nomi in **inglese**, commenti e documentazione in
+  **italiano**. La documentazione deve essere conforme alle specifiche dello
+  sviluppo del software. Segui le direttive ISO/IEC/IEEE 29148: 2018
+  (Requirements engineering) e ISO/IEC/IEEE 19510: 2013 (Unified Modeling
+  Language) e ISO/IEC/IEEE 15288: 2015 (System life cycle processes),
+  Regolamento (UE) 2016/679 – GDPR, Regolamento (UE) 2024/2847 – Cyber
+  Resilience Act (CRA), EN 50649:2024 (Cybersecurity for AI systems), ETSI EN
+  303 645 (Cybersecurity for consumer IoT), ETSI EN 303 825 (AI security for
+  non-technical managers) (anche quando non viene esplicitamente richiesto),
+  Direttiva (UE) 2022/2555 – NIS2
+- Prima di scrivere codice nuovo, cerca se esiste gia' una funzione/utility che
+  fa la stessa cosa e riusala.
+- Segui lo stile del file che stai modificando (naming, indentazione, pattern)
+  anche se differisce dal resto.
+- Niente commenti che spiegano l'ovvio: commenta il *perche'*, non il *cosa*.
+- Errori: gestione esplicita, niente `catch` vuoti o silenziosi.
+- Nessuna dipendenza nuova senza chiedere prima.
+- Nel codice in alto metti sempre l'autore e la data di scrittura. metti anche
+  il copyright 2024-26 DS Consulting e il tipo di licenza MIT.
+- Quando ti chiedo di creare manuali software crea dei file .docx con carattere
+  PT Sans Narrow 19pt ed usa gli stili predefiniti di Word.
+- tutte le tabelle devono essere con ordinamento, paginazione, ricerca generale
+  (datatables.js)
+- non fare errori come non chiudere tag html o non mettere virgole nei file
+  .json. Fai attenzione quando devi riscrivere file che sono scritti in json,
+  xml, html, css, js etc.
+- nel dialogo con l'utente usa Awesome Notification (AWN) tipo .confirm()
+- usa il carattere pt sans narrow, pt sans narrow italic, pt sans bold e pt
+  sans bold italic per i titoli, in particolare usa pt sans narrow 19pt per i
+  manuali software
+
+## Come lavorare
+
+- Modifiche piccole e mirate: non rifattorizzare codice non richiesto.
+- Se un test fallisce, sistemare la causa — mai disabilitare o adattare il test
+  per farlo passare.
+- Dopo una modifica, esegui lint e test prima di dire che e' finita.
+- Se una richiesta e' ambigua e le interpretazioni portano a lavori diversi,
+  chiedi prima di partire.
+- Prima di iniziare un nuovo task, assicurati di aver capito completamente le
+  specifiche e di avere tutto il necessario per completarlo.
+- Assicurati di aver compreso il task e fai domande chiarificatrici se
+  necessario.
+- Documenta sempre il tuo lavoro in modo chiaro e conciso.
+- Segui sempre le convenzioni del progetto e assicurati di non violare nessuna
+  delle regole stabilite.
+- Non introdurre nuove dipendenze senza chiedere prima.
+- Non introdurre modifiche non richieste.
+
+## Git
+
+- Branch di lavoro, mai commit diretti su `main`.
+- Commit e push solo se richiesto esplicitamente.
+- Messaggi di commit brevi, in inglese, all'imperativo (`add`, `fix`,
+  `refactor`).
+
+## Note
+
+- I cookie sono definiti per dominio e **ignorano la porta**: server e sonda
+  convivono su 127.0.0.1 e devono usare nomi di cookie di sessione distinti
+  (`snap_server_session`, `snap_probe_session`), altrimenti l'uso di una
+  interfaccia invalida la sessione dell'altra.
+- Il modulo di configurazione sta dentro il pacchetto e si chiama
+  `settings.py`: un `config.py` alla radice dei due applicativi va in
+  collisione quando i test importano server e sonda nello stesso processo.
+- In PowerShell il parametro non puo' chiamarsi `-Debug` (conflitto con i
+  parametri comuni): si usa `-DevMode`. Gli script si eseguono con il prefisso
+  `.\`.
+- Tutte le risorse di interfaccia (AdminLTE, Bootstrap, DataTables, AWN,
+  caratteri PT Sans) sono incorporate nel prodotto: nessuna CDN a runtime,
+  perche' il sistema deve funzionare in reti prive di accesso a Internet.
+- `tips.txt` contiene le credenziali iniziali in chiaro ed e' escluso dal
+  controllo di versione, come `docs/docx/`, `logs/` e le cartelle dei dati.
+- Nessun ORM: il filtro `tenant_id` deve restare visibile in ogni istruzione
+  SQL, perche' l'isolamento multi-tenant e' un requisito centrale.
+- Ogni istante e' persistito in UTC e convertito al fuso orario del tenant solo
+  in presentazione.
+---------------------------- FINE CLAUDE.md ------------------------------------
+
+NOTA SUL COPYRIGHT. Le istruzioni richiedono, in testa a ogni file, autore e
+data di scrittura piu' copyright "2024-26 DS Consulting" e licenza MIT. La forma
+canonica da usare e' quella indicata in 3.2. Se si riprende materiale da una
+versione precedente del prodotto che riportava un intestatario diverso, va
+allineato: l'intestatario del copyright e' DS Consulting.
+
+================================================================================
+SEZIONE 2 - OBIETTIVO E REQUISITI FONDANTI
+================================================================================
+Realizzare "snap" (Secure Network Assessment Platform), sistema composto da due
+applicativi distribuiti separatamente:
+
+  * un SERVER centrale multi-tenant con console web completa;
+  * una SONDA (probe) installata presso il cliente, che raccoglie dati e li
+    conferisce al server.
+
+Requisiti fondanti, non negoziabili:
+
+  R1.  Il dialogo fra sonda e server avviene su un CANALE CIFRATO applicativo,
+       indipendente da TLS.
+  R2.  La sonda conosce il server; il server NON conosce l'indirizzo della
+       sonda. Ogni contatto e' iniziato dalla sonda: il server non apre
+       connessioni verso la sonda e la sonda non espone porte in ingresso.
+  R3.  Le due parti risiedono in due directory COMPLETAMENTE SEPARATE, `server`
+       e `probe`, senza codice condiviso e senza import reciproci: devono poter
+       essere distribuite e installate indipendentemente. Per questo la
+       struttura di progetto non usa una cartella `src/` unica.
+  R4.  La sonda funziona ANCHE DA SOLA: se il server non e' raggiungibile
+       continua a raccogliere e accumula in una coda locale persistente. Quando
+       il server ritorna, conferisce i dati e SI SVUOTA, solo dopo conferma.
+  R5.  Entrambi gli applicativi hanno un'interfaccia web completa e
+       professionale.
+  R6.  L'interfaccia della SONDA serve SOLTANTO a registrare la sonda sul
+       server e a configurarla. Nessuna analisi, nessuna reportistica.
+  R7.  L'interfaccia del SERVER e' completa, con uno spazio dedicato agli
+       indicatori sintetici.
+  R8.  Gestione multi-tenant con ISOLAMENTO COMPLETO dei dati.
+  R9.  Ogni tenant ha il proprio fuso orario; TUTTE le date e le ore mostrate
+       sono normalizzate a quel fuso.
+  R10. Utenti per tenant con EMAIL e PASSWORD (nessuno username), con MFA
+       opzionale compatibile con Google Authenticator.
+  R11. Inizialmente la sonda scambia con il server solo dati di esempio
+       (annotazioni sul proprio ciclo di lavoro). Il contratto di conferimento
+       deve essere ESTENSIBILE: aggiungere un tipo di dato non deve richiedere
+       modifiche al trasporto cifrato.
+  R12. Sistema di avvio completo di server e sonda, per Windows PowerShell.
+
+================================================================================
+SEZIONE 3 - VINCOLI OPERATIVI DERIVATI DALLE ISTRUZIONI DI PROGETTO
+================================================================================
+Ogni voce delle istruzioni di progetto (sezione 1) si traduce in un vincolo
+verificabile. Questa sezione li rende espliciti; la mappa in 3.12 indica dove
+ciascuno e' realizzato.
+
+3.1 LINGUA
+    - Codice, nomi di variabile, funzioni, tabelle e colonne: INGLESE.
+    - Commenti, messaggi all'utente, documentazione: ITALIANO.
+    - Nei sorgenti si evitano le lettere accentate: si scrive `e'`, `puo'`,
+      `gia'`, `attivita'`. Nei testi mostrati all'utente e nei file .docx gli
+      accenti sono ammessi e corretti.
+
+3.2 INTESTAZIONE OBBLIGATORIA IN OGNI FILE PRODOTTO
+    Autore e data di scrittura, copyright e licenza. Forma canonica per Python:
+
+        """
+        snap server - Descrizione sintetica del modulo.
+
+        (eventuale spiegazione delle regole implementate e del perche')
+
+        remarks: Autore: Daniele Speziale - Data: AAAA-MM-GG
+        copyright: (c) 2024-26 DS Consulting
+        license: MIT
+        """
+
+    Adattata al linguaggio: `--` per .sql, blocco `<# ... #>` per .ps1,
+    `/* ... */` per .css e .js, commento Jinja `{# ... #}` per .html, righe `#`
+    per i file di requisiti. Nessun file prodotto ne e' privo.
+
+3.3 COMMENTI
+    Si commenta il PERCHE', non il COSA. Nessun commento che ripete il codice.
+    Ogni scelta non ovvia porta accanto la propria motivazione: e' il criterio
+    con cui vanno scritti i moduli di sessione, di prenotazione del lotto e di
+    normalizzazione oraria, dove il codice da solo non spiega la ragione.
+
+3.4 ERRORI
+    Gestione esplicita. Nessun `except`/`catch` vuoto o silenzioso. Ogni ramo di
+    errore registra, segnala o restituisce qualcosa di leggibile. Le letture di
+    configurazione ricadono sul valore predefinito noto senza sollevare
+    eccezioni all'avvio, ma la ricaduta e' commentata perche' e' una scelta.
+
+3.5 DIPENDENZE
+    Nessuna dipendenza oltre quelle della sezione 4. Se ne servisse un'altra,
+    CHIEDERE PRIMA. In particolare: nessuna libreria di linting e' dipendenza di
+    progetto, e il controllo statico minimo e' `python -m compileall`.
+
+3.6 RIUSO
+    Prima di scrivere una funzione nuova, cercare se esiste gia' una utility
+    equivalente e riusarla. Esempi concreti nel prodotto: i filtri di
+    presentazione oraria sono uno solo per applicativo; la conversione UTC ->
+    fuso del tenant vive in un unico punto; i moduli delle tabelle e dei
+    dialoghi sono un file unico per applicativo, non uno per pagina.
+
+3.7 STILE
+    Seguire lo stile del file che si sta modificando (naming, indentazione,
+    pattern) anche se differisce dal resto del progetto.
+
+3.8 FILE STRUTTURATI
+    Attenzione esplicita a JSON, XML, HTML, CSS e JS: nessun tag non chiuso,
+    nessuna virgola mancante o di troppo, nessuna regola CSS troncata. Un file
+    strutturato rotto blocca l'applicazione in modi difficili da diagnosticare.
+    Dopo ogni riscrittura di un file di questo tipo, verificarne la validita'
+    (rendendo la pagina, caricando il JSON) prima di proseguire.
+
+3.9 TABELLE
+    TUTTE le tabelle del prodotto, su server e sonda, hanno ORDINAMENTO,
+    PAGINAZIONE e RICERCA GENERALE, realizzati con datatables.js. Dettaglio
+    nella sezione 14.
+
+3.10 DIALOGO CON L'UTENTE
+     Il dialogo usa Awesome Notifications (AWN), con `.confirm()` per le
+     richieste di conferma. Nessuna finestra nativa del browser. Dettaglio nella
+     sezione 14.
+
+3.11 TIPOGRAFIA
+     Titoli in PT Sans Narrow, PT Sans Narrow Italic, PT Sans Bold e PT Sans
+     Bold Italic. Manuali software in .docx con PT Sans Narrow 19pt e gli stili
+     predefiniti di Word. Dettaglio nella sezione 15.
+
+3.12 MAPPA DELLE DIRETTIVE
+
+     Direttiva delle istruzioni di progetto      Dove e' realizzata
+     ------------------------------------------  --------------------------
+     python 3.10 / flask / sqlite                sezione 4
+     AdminLTE 4.3.1                              sezioni 4 e 13
+     toggle chiaro/scuro, sidebar compresa       sezione 13.2
+     toggle dimensione carattere (4 livelli)     sezione 13.2
+     porte 5500-5600                             sezioni 4, 17, 19
+     struttura del progetto                      sezione 5
+     comandi install/dev/build/test/lint         sezione 19.4 e CLAUDE.md
+     lingua inglese/italiano                     3.1
+     norme ISO/GDPR/CRA/NIS2/ETSI                sezione 21
+     riuso prima di scrivere                     3.6
+     stile del file                              3.7
+     commenti sul perche'                        3.3
+     errori espliciti                            3.4
+     nessuna dipendenza nuova                    3.5, sezione 4
+     autore/data/copyright/licenza in testa      3.2
+     manuali .docx PT Sans Narrow 19pt           sezione 15.2
+     tabelle con datatables.js                   sezione 14.1
+     attenzione ai file strutturati              3.8, sezione 22.14
+     AWN .confirm()                              sezione 14.2
+     caratteri PT Sans per i titoli              sezione 15.1
+     modifiche piccole e mirate                  3.13
+     causa del test fallito, non il test         3.13
+     lint e test prima di concludere             3.13, sezione 23
+     chiedere se ambiguo                         3.13
+     documentare il lavoro                       sezione 21
+     git: ramo, commit su richiesta              3.14
+
+3.13 METODO DI LAVORO
+     - Modifiche piccole e mirate: non rifattorizzare codice non richiesto, non
+       introdurre modifiche non richieste.
+     - Se un test fallisce, correggere LA CAUSA: mai disabilitare o adattare il
+       test per farlo passare. Se il test stesso e' scritto male, correggerlo
+       dichiarandolo, non annacquarne l'asserzione.
+     - Dopo ogni modifica, eseguire lint e test PRIMA di dichiarare concluso.
+     - Prima di iniziare, assicurarsi di aver compreso completamente le
+       specifiche e di avere tutto il necessario. Se una richiesta e' ambigua e
+       le interpretazioni portano a lavori diversi, CHIEDERE prima di partire.
+       Questo documento esiste per ridurre al minimo quei casi: dove indica un
+       valore, non c'e' ambiguita' da risolvere.
+     - Documentare il lavoro in modo chiaro e conciso, aggiornando i documenti
+       esistenti invece di aggiungerne di nuovi.
+
+3.14 GIT
+     Ramo di lavoro, mai commit diretti su `main`. Commit e push SOLO se
+     richiesti esplicitamente. Messaggi brevi, in inglese, all'imperativo
+     (`add`, `fix`, `refactor`).
+
+================================================================================
+SEZIONE 4 - STACK E DIPENDENZE
+================================================================================
+Linguaggio:   Python 3.10 o superiore (verificato su 3.13)
+Framework:    Flask 3
+Base dati:    SQLite tramite il modulo `sqlite3` della libreria standard.
+              NESSUN ORM: il filtro `tenant_id` deve restare visibile in ogni
+              istruzione SQL, perche' l'isolamento e' un requisito centrale.
+Interfaccia:  AdminLTE 4.3.1 su Bootstrap 5.3, Bootstrap Icons
+Porte:        intervallo consentito 5500-5600. Server 5500, sonda 5510.
+
+server/requirements.txt
+    Flask>=3.0,<4.0
+    Flask-WTF>=1.2,<2.0
+    cryptography>=42.0
+    pyotp>=2.9
+    qrcode[pil]>=8.0
+    tzdata>=2024.1
+
+probe/requirements.txt
+    Flask>=3.0,<4.0
+    Flask-WTF>=1.2,<2.0
+    cryptography>=42.0
+    requests>=2.31
+    tzdata>=2024.1
+
+requirements-dev.txt
+    -r server/requirements.txt
+    -r probe/requirements.txt
+    pytest>=8.0
+    pytest-cov>=5.0
+
+La sonda NON dipende da pyotp ne' da qrcode: non ha utenti ne' MFA. Il server
+NON dipende da requests: non contatta mai la sonda (requisito R2). Le due liste
+di dipendenze sono la prova documentale dell'asimmetria.
+
+Librerie di interfaccia: INCORPORATE nel prodotto, nessuna CDN a runtime (il
+sistema deve funzionare in reti prive di accesso a Internet). Vanno duplicate
+in `server/snapserver/static/vendor/` e `probe/snapprobe/static/vendor/`:
+
+    adminlte/adminlte.min.css            AdminLTE 4.3.1
+    adminlte/adminlte.min.js
+    bootstrap/bootstrap.min.css          Bootstrap 5.3
+    bootstrap/bootstrap.bundle.min.js
+    bootstrap-icons/bootstrap-icons.css  + fonts/bootstrap-icons.woff, .woff2
+    datatables/dataTables.min.js         DataTables 3.0.2 (senza jQuery)
+    datatables/dataTables.bootstrap5.min.css
+    datatables/dataTables.bootstrap5.min.js
+    awn/index.var.js                     Awesome Notifications 3.1.3
+    awn/style.css
+    fonts/pt-sans-narrow-regular.woff2
+    fonts/pt-sans-narrow-bold.woff2
+    fonts/pt-sans-regular.woff2
+    fonts/pt-sans-italic.woff2
+    fonts/pt-sans-bold.woff2
+    fonts/pt-sans-bold-italic.woff2
+
+Fuori dall'esercizio: `python-docx` per la generazione dei manuali (strumento di
+produzione documentale) e Playwright per il collaudo in browser reale
+(opzionale). Nessuna delle due e' dipendenza degli applicativi.
+
+================================================================================
+SEZIONE 5 - STRUTTURA DELLE DIRECTORY
+================================================================================
+snap/
+  CLAUDE.md                     istruzioni di progetto (sezione 1)
+  README.md                     presentazione, installazione, uso
+  PROMPT_RICOSTRUZIONE.txt      questo documento
+  requirements-dev.txt
+  start.ps1                     avvio completo (Windows PowerShell)
+  tips.txt                      credenziali iniziali in chiaro (NON versionato)
+  .gitignore
+
+  docs/
+    01_REQUISITI.md             requisiti secondo ISO/IEC/IEEE 29148
+    02_ARCHITETTURA.md          viste, modello dati, decisioni architetturali
+    03_PROTOCOLLO_SNAP_SEC.md   specifica del canale cifrato
+    04_CICLO_DI_VITA.md         processi di ciclo di vita (15288)
+    05_MANUALE_OPERATIVO.md     installazione, esercizio, diagnostica
+    docx/                       manuali generati (NON versionato)
+
+  server/
+    requirements.txt
+    run.py                      punto di avvio + inizializzazione
+    data/                       base dati (NON versionato)
+    instance/                   chiave di sessione persistente (NON versionato)
+    snapserver/
+      __init__.py               fabbrica dell'applicazione, hook, errori
+      settings.py               configurazione (NON chiamarlo config.py)
+      schema.sql                schema relazionale
+      db.py                     accesso ai dati, istanti UTC, conversioni
+      security.py               autenticazione, ruoli, MFA
+      tenancy.py                contesto multi-tenant, filtri di presentazione
+      audit.py                  registrazione degli eventi
+      crypto.py                 implementazione SNAP-SEC/1 lato server
+      ingest.py                 applicazione dei record conferiti
+      queries.py                interrogazioni di dominio e indicatori
+      seed.py                   dati iniziali
+      blueprints/
+        __init__.py
+        auth.py                 accesso, MFA, profilo, preferenze, diagnostica
+        dashboard.py            pagina iniziale
+        probes.py               flotta sonde, scheda, comandi, token
+        admin.py                tenant, utenti, impostazioni, conservazione
+        audit_views.py          registro eventi
+        api_probe.py            canale cifrato /api/v1
+      templates/                elenco nella sezione 13.5
+      static/
+        css/snap.css            stile proprio
+        css/snap-fonts.css      dichiarazioni dei caratteri
+        js/snap.js              preferenze di interfaccia
+        js/snap-tables.js       tabelle DataTables
+        js/snap-dialogs.js      dialoghi AWN
+        vendor/                 librerie incorporate
+
+  probe/
+    requirements.txt
+    run.py                      avvio interfaccia, modalita' senza interfaccia
+    data/                       archivio locale (NON versionato)
+    snapprobe/
+      __init__.py               fabbrica dell'applicazione
+      settings.py               configurazione
+      store.py                  archivio locale SQLite (coda persistente)
+      crypto.py                 implementazione SNAP-SEC/1 lato sonda
+      client.py                 dialogo con il server
+      agent.py                  ciclo autonomo in thread
+      collector.py              produzione dei record
+      timefmt.py                filtri di presentazione oraria
+      views.py                  rotte dell'interfaccia locale
+      templates/                base, index, enroll, configuration, diary,
+                                flash, error
+      static/                   css/js propri + vendor (duplicati)
+
+  tests/
+    conftest.py
+    test_crypto_channel.py
+    test_probe_server_flow.py
+    test_multitenancy.py
+    test_timezones.py
+    test_probe_interface.py
+    test_interfaccia.py
+    test_sessione.py
+
+  tools/
+    genera_manuale.py           conversione Markdown -> .docx
+    collaudo_ui.py              collaudo dell'interfaccia in browser reale
+
+.gitignore deve escludere: __pycache__/, *.py[cod], .venv/, .pytest_cache/,
+.snap-pids.json, server/data/, server/instance/, probe/data/, probe/instance/,
+*.sqlite3 e i file WAL/SHM, tips.txt (credenziali in chiaro), logs/,
+docs/docx/.
+
+================================================================================
+SEZIONE 6 - PROTOCOLLO SNAP-SEC/1 (canale cifrato sonda -> server)
+================================================================================
+6.1 Modello di sicurezza
+    Il trasporto HTTP e' considerato NON FIDATO: puo' essere osservato,
+    ritardato e ripetuto. Il token di registrazione viaggia per via fidata
+    (console del server, consegna al tecnico).
+
+    Obiettivi e meccanismi:
+      riservatezza del payload      -> AES-256-GCM con chiave da ECDH X25519
+      autenticita' e integrita'     -> tag GCM su ciphertext e dati associati
+      autenticazione della sonda    -> chiave di sessione + API key nel payload
+      protezione dalla ripetizione  -> nonce registrato per sonda + finestra
+      non trasferibilita'           -> AAD che lega versione, identita', nonce,
+                                       marca temporale e rotta
+      riservatezza del token        -> il server conserva solo impronta e
+                                       chiave derivata
+      revocabilita'                 -> azzeramento della chiave di sessione
+
+    Non obiettivi dichiarati: anonimato della sonda verso l'osservatore di
+    rete; segretezza in avanti per sessione (la chiave e' a lunga durata e si
+    rinnova con una nuova registrazione).
+
+6.2 Primitive
+      scambio di chiavi   X25519 (RFC 7748), chiavi grezze da 32 byte
+      derivazione         HKDF-SHA256 (RFC 5869), salt "snap-sec/1|static-salt",
+                          lunghezza 32 byte
+      cifratura           AES-256-GCM, nonce 96 bit da generatore
+                          crittografico
+      impronte            SHA-256 in esadecimale
+      codifica            Base64 URL-safe senza riempimento
+
+    Etichette HKDF (info), che separano i contesti d'uso:
+      registrazione : "snap-sec/1|enrollment-transport"
+      sessione      : "snap-sec/1|session-data"
+
+6.3 Formato della busta (corpo di ogni richiesta e risposta di sessione)
+
+      {
+        "v":     "SNAP-SEC/1",
+        "probe": "<identita' della sonda>",
+        "nonce": "<nonce 96 bit, base64url>",
+        "ts":    1774537200,
+        "data":  "<ciphertext||tag, base64url>"
+      }
+
+    Dati associati, autenticati ma non cifrati:
+
+      AAD = v | probe | nonce | ts | path
+
+    dove `path` e' il percorso della rotta (per esempio `/api/v1/ingest`). Una
+    busta valida non e' quindi riutilizzabile su un'altra rotta, con un'altra
+    identita' o con marca temporale alterata.
+
+    Il campo `probe` contiene il CODICE della sonda durante la registrazione
+    (l'identificativo definitivo non e' ancora noto) e il PROBE_UID in tutti
+    gli scambi successivi.
+
+6.4 Fase 1 - Registrazione (enrollment)
+
+    Emissione del token, lato server:
+      1. L'amministratore crea la sonda: il server assegna `probe_uid` e `code`.
+      2. Il server genera un token T di 32 byte casuali, base64url.
+      3. Memorizza:
+           enrollment_token_hash = SHA256(T)                (indice di ricerca)
+           enrollment_key        = HKDF(T | code, info=registrazione)
+           enrollment_expires_at = scadenza (24 ore predefinite)
+      4. Il token in chiaro NON viene conservato: e' mostrato una sola volta.
+
+    Pacchetto consegnato all'operatore:
+
+      SNAP1-<base64url({"url": "<server>", "code": "<codice>", "token": "<T>"})>
+
+    Richiesta POST /api/v1/enroll
+
+      {
+        "token_hint": "<SHA256(T) esadecimale>",
+        "envelope": { ... busta cifrata con Ke ... }
+      }
+
+    Payload cifrato con Ke = HKDF(T | code, info=registrazione):
+
+      {
+        "probe_code": "sonda-sede-01",
+        "probe_public_key": "<X25519 pubblica, base64url>",
+        "agent_version": "1.0.0",
+        "platform": "Windows 11",
+        "hostname": "<nome locale>",
+        "requested_at": "2026-08-26 19:20:00"
+      }
+
+    `token_hint` e' l'unico elemento in chiaro: permette al server di
+    individuare la sonda senza che il token transiti in rete.
+
+    Verifiche del server, nell'ordine:
+      1. esiste una sonda con quell'impronta, altrimenti 403 enroll_unknown
+      2. la sonda non e' revocata, altrimenti 403 probe_revoked
+      3. il token non e' gia' stato usato, altrimenti 409 enroll_used
+      4. il token non e' scaduto, altrimenti 403 enroll_expired
+      5. la busta si apre con enrollment_key, altrimenti 403 enroll_crypto
+
+    Risposta, cifrata con la medesima Ke (la sonda non ha ancora Ks):
+
+      {
+        "probe_uid": "<32 caratteri esadecimali>",
+        "api_key": "<32 byte base64url>",
+        "server_public_key": "<X25519 pubblica, base64url>",
+        "server_time": "2026-08-26 19:20:01",
+        "config": {
+          "scan_interval_sec": 300,
+          "tenant_code": "ised",
+          "tenant_name": "ISED S.p.a.",
+          "tenant_timezone": "Europe/Rome",
+          "probe_name": "Sonda sede centrale",
+          "options": {}
+        }
+      }
+
+    Contestualmente il server calcola Ks = HKDF(ECDH, info=sessione), memorizza
+    Ks e SHA256(api_key), AZZERA enrollment_key e porta lo stato ad `active`.
+    La sonda calcola la stessa Ks e memorizza le credenziali nel proprio
+    archivio.
+
+6.5 Fase 2 - Scambi di sessione
+    Tutte le rotte sono POST, con intestazione
+
+      X-Snap-Probe: <probe_uid>
+
+    e corpo costituito dalla busta cifrata con Ks. Ogni payload contiene il
+    campo `auth` con l'API key: l'autenticazione richiede quindi DUE elementi
+    indipendenti, chiave di sessione e API key.
+
+    POST /api/v1/heartbeat
+      richiesta: { "auth": "...", "agent_version": "1.0.0", "queue_size": 42,
+                   "paused": false, "hostname": "..." }
+      risposta:  { "server_time": "...", "config": { ...come in enrollment... },
+                   "commands": [ { "id": 7, "command": "flush", "payload": {} } ],
+                   "queue_ack": 42 }
+
+    POST /api/v1/ingest
+      richiesta: { "auth": "...", "batch_uid": "<32 esadecimali>",
+                   "generated_at": "2026-08-27 08:25:03",
+                   "records": { "events": [ {
+                       "type": "probe.cycle",
+                       "severity": "info",
+                       "description": "Ciclo di raccolta 42 eseguito dalla sonda",
+                       "created_at": "2026-08-27 08:25:00",
+                       "detail": { "ciclo": 42, "record_in_coda": 0,
+                                   "intervallo_sec": 300 } } ] } }
+      risposta:  { "accepted": true, "duplicate": false, "batch_uid": "...",
+                   "records": 1, "detail": { "events": 1 } }
+
+      TIPI DI RECORD. Il contratto iniziale prevede il solo tipo `events`: le
+      annotazioni prodotte dalla sonda, che il server registra nell'audit del
+      tenant conservando la gravita' dichiarata (`info`, `warning`,
+      `critical`; valori diversi sono normalizzati a `info`). Il campo
+      `detail`, se presente, e' conservato in forma leggibile insieme alla
+      descrizione.
+      Un lotto che contenga tipi non riconosciuti viene RIFIUTATO indicando i
+      tipi non ammessi. L'introduzione di un tipo nuovo richiede soltanto il
+      corrispondente applicatore sul server (registro `_APPLICATORI` in
+      `snapserver/ingest.py`) e il generatore sulla sonda
+      (`snapprobe/collector.py`), senza modifiche al trasporto: e' il modo in
+      cui si soddisfa il requisito R11.
+
+      IDEMPOTENZA. `batch_uid` e' univoco per sonda. Un lotto gia' acquisito
+      viene riconosciuto e riconfermato con `duplicate: true`, senza
+      riapplicare i dati: la sonda puo' ritrasmettere in sicurezza quando la
+      conferma non e' arrivata.
+      Gli istanti non interpretabili sono sostituiti dall'ora di ricezione.
+
+    POST /api/v1/command-ack
+      richiesta: { "auth": "...", "results": [ { "id": 7, "ok": true,
+                                                 "detail": "coda conferita" } ] }
+      risposta:  { "acknowledged": [7] }
+
+    GET /api/v1/ping
+      Unica rotta in chiaro, priva di dati di tenant: serve alla verifica di
+      raggiungibilita' dall'interfaccia della sonda.
+      { "service": "snap", "protocol": "SNAP-SEC/1", "server_time": "..." }
+
+6.6 Comandi disponibili (server -> sonda, in piggyback sulle risposte)
+      flush        conferimento immediato della coda
+      reconfigure  ricarica della configurazione al contatto successivo
+      pause        sospensione di raccolta e conferimento
+      resume       ripresa dell'attivita'
+      wipe         svuotamento della coda locale senza conferimento
+
+    I comandi sono accodati in `probe_commands`, consegnati al primo contatto
+    della sonda e marcati `delivered`; l'esito riportato dalla sonda li porta a
+    `completed` o `failed`. Non esiste alcun canale che raggiunga la sonda di
+    iniziativa del server: e' il modo in cui si preserva il requisito R2.
+
+6.7 Anti-replay e finestra temporale
+    - Ogni nonce accettato e' registrato in `probe_nonces` con vincolo di
+      unicita' per sonda: la ripresentazione della stessa busta e' rifiutata
+      con 403.
+    - Le buste con |ora_server - ts| > 300 s sono rifiutate.
+    - I nonce piu' vecchi della finestra di conservazione configurata sono
+      rimossi periodicamente durante gli heartbeat.
+
+6.8 Errori di protocollo, restituiti IN CHIARO (la chiave potrebbe non essere
+    disponibile o valida):
+
+      { "error": "<codice>", "detail": "<descrizione>", "v": "SNAP-SEC/1" }
+
+      protocol_error   400  richiesta malformata
+      enroll_unknown   403  token non riconosciuto
+      enroll_used      409  token gia' utilizzato
+      enroll_expired   403  token scaduto
+      enroll_crypto    403  busta di registrazione non valida
+      enroll_nokey     400  chiave pubblica assente
+      enroll_kex       400  scambio di chiavi non riuscito
+      probe_revoked    403  sonda revocata
+      auth_failed      403  autenticazione di sessione non riuscita (chiave,
+                            API key, nonce o marca temporale)
+
+    Comportamento atteso della sonda: gli errori di trasporto comportano il
+    mantenimento della coda e un nuovo tentativo al tick successivo; gli errori
+    applicativi definitivi sono registrati nel diario locale e liberano il
+    lotto. Nessun ramo di errore e' silenzioso (vincolo 3.4).
+
+6.9 Ciclo di vita del materiale crittografico
+      chiave privata della sonda    solo sull'archivio della sonda
+      chiave privata del server     solo sul server, una per sonda
+      chiave di sessione Ks         su entrambi i lati, fino a revoca o nuova
+                                    registrazione
+      token di registrazione        impronta e chiave derivata sul server; in
+                                    chiaro solo nel pacchetto consegnato;
+                                    24 ore o primo uso
+      API key                       in chiaro sulla sonda, solo impronta sul
+                                    server
+
+    REVOCA: azzera `session_key` e `api_key_hash` sul server; ogni conferimento
+    successivo riceve 403 auth_failed. La sonda registra l'indisponibilita' e
+    conserva i dati in coda fino a una nuova registrazione.
+
+6.10 Le due implementazioni (`snapserver/crypto.py` e `snapprobe/crypto.py`)
+     sono INDIPENDENTI e duplicate per scelta, perche' le due parti sono
+     distribuite separatamente (requisito R3). E' l'unica duplicazione ammessa
+     in deroga al vincolo di riuso 3.6, e va motivata nel commento di
+     intestazione di entrambi i moduli. L'interoperabilita' e' verificata da
+     test che fanno dialogare i due moduli.
+
+================================================================================
+SEZIONE 7 - MODELLO DATI DEL SERVER (server/snapserver/schema.sql)
+================================================================================
+Convenzioni:
+  * ogni colonna *_at contiene un istante UTC nel formato
+    'YYYY-MM-DD HH:MM:SS'; la conversione al fuso del tenant avviene SOLO in
+    presentazione;
+  * ogni tabella di dominio porta `tenant_id`;
+  * i vincoli ON DELETE CASCADE garantiscono la rimozione completa dei dati di
+    un tenant (diritto alla cancellazione, GDPR);
+  * lo script comincia con `PRAGMA foreign_keys = ON;` e va eseguito a ogni
+    avvio con `CREATE TABLE IF NOT EXISTS`, cosi' le installazioni esistenti si
+    allineano da sole senza interventi manuali.
+
+tenants
+  id INTEGER PK AUTOINCREMENT
+  code TEXT NOT NULL UNIQUE
+  name TEXT NOT NULL
+  timezone TEXT NOT NULL DEFAULT 'Europe/Rome'
+  locale TEXT NOT NULL DEFAULT 'it_IT'
+  contact_email TEXT
+  retention_days INTEGER NOT NULL DEFAULT 365
+  is_active INTEGER NOT NULL DEFAULT 1
+  notes TEXT
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+
+users
+  id INTEGER PK AUTOINCREMENT
+  tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE   -- NULL = superadmin
+  email TEXT NOT NULL UNIQUE
+  password_hash TEXT NOT NULL
+  full_name TEXT NOT NULL DEFAULT ''
+  role TEXT NOT NULL DEFAULT 'viewer'
+  is_active INTEGER NOT NULL DEFAULT 1
+  mfa_enabled INTEGER NOT NULL DEFAULT 0
+  mfa_secret TEXT
+  mfa_confirmed_at TEXT
+  must_change_pwd INTEGER NOT NULL DEFAULT 0
+  failed_logins INTEGER NOT NULL DEFAULT 0
+  locked_until TEXT
+  last_login_at TEXT
+  pref_theme TEXT NOT NULL DEFAULT 'light'
+  pref_font_size TEXT NOT NULL DEFAULT 'normal'
+  pref_layout TEXT NOT NULL DEFAULT 'wide'
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+  INDEX ix_users_tenant (tenant_id)
+
+probes                      -- il server conosce l'identita' logica e il
+                            -- materiale crittografico, non l'indirizzo
+  id INTEGER PK AUTOINCREMENT
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE
+  probe_uid TEXT NOT NULL UNIQUE
+  code TEXT NOT NULL
+  name TEXT NOT NULL
+  description TEXT
+  site TEXT
+  status TEXT NOT NULL DEFAULT 'pending'      -- pending | active | revoked
+  enrollment_token_hash TEXT
+  enrollment_key TEXT
+  enrollment_expires_at TEXT
+  enrolled_at TEXT
+  probe_public_key TEXT
+  server_private_key TEXT
+  server_public_key TEXT
+  session_key TEXT
+  api_key_hash TEXT
+  agent_version TEXT
+  last_seen_at TEXT
+  last_sync_at TEXT
+  scan_interval_sec INTEGER NOT NULL DEFAULT 300
+  config_json TEXT NOT NULL DEFAULT '{}'
+  revoked_at TEXT
+  created_at TEXT NOT NULL
+  updated_at TEXT NOT NULL
+  UNIQUE (tenant_id, code)
+  INDEX ix_probes_tenant (tenant_id)
+
+probe_nonces                -- anti-replay
+  id INTEGER PK AUTOINCREMENT
+  probe_id INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE
+  nonce TEXT NOT NULL
+  seen_at TEXT NOT NULL
+  UNIQUE (probe_id, nonce)
+  INDEX ix_nonces_seen (seen_at)
+
+probe_commands
+  id INTEGER PK AUTOINCREMENT
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE
+  probe_id INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE
+  command TEXT NOT NULL
+  payload_json TEXT NOT NULL DEFAULT '{}'
+  status TEXT NOT NULL DEFAULT 'pending'   -- pending|delivered|completed|failed
+  result_json TEXT
+  created_by INTEGER REFERENCES users(id) ON DELETE SET NULL
+  created_at TEXT NOT NULL
+  delivered_at TEXT
+  acked_at TEXT
+  INDEX ix_commands_probe (probe_id, status)
+
+ingest_batches
+  id INTEGER PK AUTOINCREMENT
+  tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE
+  probe_id INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE
+  batch_uid TEXT NOT NULL
+  record_count INTEGER NOT NULL DEFAULT 0
+  payload_bytes INTEGER NOT NULL DEFAULT 0
+  status TEXT NOT NULL DEFAULT 'accepted'
+  detail TEXT
+  received_at TEXT NOT NULL
+  UNIQUE (probe_id, batch_uid)             -- idempotenza dei conferimenti
+  INDEX ix_batches_tenant (tenant_id, received_at)
+
+audit_events
+  id INTEGER PK AUTOINCREMENT
+  tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+  actor TEXT NOT NULL DEFAULT 'system'
+  event_type TEXT NOT NULL
+  severity TEXT NOT NULL DEFAULT 'info'    -- info | warning | critical
+  entity TEXT
+  entity_id TEXT
+  description TEXT NOT NULL DEFAULT ''
+  source_ip TEXT
+  created_at TEXT NOT NULL
+  INDEX ix_audit_tenant (tenant_id, created_at)
+
+system_settings
+  key TEXT PRIMARY KEY
+  value TEXT NOT NULL
+  updated_at TEXT NOT NULL
+
+Dati iniziali (`snapserver/seed.py`, invocato da `python run.py --init`):
+  - amministratore di sistema (superadmin, tenant_id NULL):
+      admin@snap.local / Snap!Admin2026        (sovrascrivibili da ambiente)
+  - tenant dimostrativi:
+      ised  "ISED S.p.a."             Europe/Rome
+              admin@ised.local     (tenant_admin)
+              analista@ised.local  (analyst)
+              audit@ised.local     (viewer)
+      acme  "ACME International Ltd." America/New_York
+              admin@acme.local     (tenant_admin)
+    password comune Snap!Tenant2026, tutti con must_change_pwd = 1
+  - il seed e' IDEMPOTENTE: se un utente o un tenant esiste, lo segnala e non
+    lo duplica; restituisce l'elenco delle operazioni svolte, che `run.py`
+    stampa.
+  - I due fusi diversi non sono un dettaglio decorativo: servono a verificare
+    la normalizzazione oraria del requisito R9.
+
+Le credenziali iniziali vanno riportate in `tips.txt` (escluso dal controllo di
+versione) con l'avvertenza di cambiarle al primo accesso.
+
+================================================================================
+SEZIONE 8 - ARCHIVIO LOCALE DELLA SONDA (probe/snapprobe/store.py)
+================================================================================
+SQLite in `probe/data/snap_probe.sqlite3`, con `PRAGMA journal_mode = WAL` e
+accesso serializzato da un lock: agente in thread e interfaccia web concorrono
+sullo stesso file.
+
+settings   key TEXT PK, value TEXT NOT NULL, updated_at TEXT NOT NULL
+spool      id INTEGER PK AUTOINCREMENT
+           kind TEXT NOT NULL
+           payload_json TEXT NOT NULL
+           created_at TEXT NOT NULL
+           locked_batch TEXT            -- prenotazione del lotto in invio
+           INDEX ix_spool_kind (kind, id)
+events     id, level TEXT DEFAULT 'info', message TEXT, created_at TEXT
+           INDEX ix_events_created (created_at)
+sync_log   id, batch_uid TEXT, records INTEGER, status TEXT, detail TEXT,
+           created_at TEXT
+           INDEX ix_sync_created (created_at)
+
+PRENOTAZIONE DEL LOTTO (essenziale per il requisito R4): prima dell'invio le
+righe da conferire vengono marcate con un `locked_batch` (l'identificativo del
+lotto). Se l'invio non riceve conferma, il lotto resta prenotato e viene
+ritrasmesso con lo STESSO batch_uid: il server lo riconosce come duplicato. Le
+righe sono CANCELLATE solo dopo la conferma del server. Non deve esistere alcun
+percorso che svuoti la coda prima dell'ack.
+
+================================================================================
+SEZIONE 9 - ROTTE DEL SERVER
+================================================================================
+Console (sessione utente, protezione CSRF su ogni POST):
+
+  GET  /                                     dashboard.index
+  GET  /login        POST /login             auth.login
+  GET  /mfa          POST /mfa               auth.mfa_challenge
+  POST /logout                               auth.logout
+  POST /switch-tenant                        auth.switch_tenant_route
+  POST /preferences                          auth.preferences
+  GET  /profile                              auth.profile
+  POST /profile/password                     auth.change_password
+  GET  /profile/mfa/setup                    auth.mfa_setup
+  POST /profile/mfa/enable                   auth.mfa_enable
+  POST /profile/mfa/disable                  auth.mfa_disable
+  GET  /diagnostics/session                  auth.session_diagnostics
+
+  GET  /probes/                              probes.index      (flotta)
+  GET  /probes/new   POST /probes/new        probes.create     (registra sonda)
+  GET  /probes/<id>                          probes.detail
+  POST /probes/<id>/config                   probes.update_config
+  POST /probes/<id>/command                  probes.send_command
+  POST /probes/<id>/token                    probes.regenerate_token
+  POST /probes/<id>/revoke                   probes.revoke
+  POST /probes/<id>/delete                   probes.delete
+
+  GET  /audit/                               audit.index
+
+  GET  /admin/tenants  POST /admin/tenants   admin.tenants / create_tenant
+  POST /admin/tenants/<id>/update            admin.update_tenant
+  POST /admin/tenants/<id>/delete            admin.delete_tenant
+  GET  /admin/users    POST /admin/users     admin.users / create_user
+  POST /admin/users/<id>/update              admin.update_user
+  POST /admin/users/<id>/password            admin.reset_password
+  POST /admin/users/<id>/mfa-reset           admin.reset_mfa
+  POST /admin/users/<id>/delete              admin.delete_user
+  GET  /admin/settings POST /admin/settings  admin.settings / save_settings
+  POST /admin/maintenance/retention          admin.apply_retention
+
+Canale sonde (nessuna sessione utente, nessun CSRF, corpo cifrato):
+
+  GET  /api/v1/ping
+  POST /api/v1/enroll
+  POST /api/v1/heartbeat
+  POST /api/v1/ingest
+  POST /api/v1/command-ack
+
+9.1 /diagnostics/session restituisce JSON, senza esporre dati riservati:
+      { "nome_cookie": "snap_server_session",
+        "cookie_ricevuto": true|false,
+        "sessione_con_utente": true|false,
+        "secondo_fattore_superato": true|false,
+        "durata_sessione_minuti": 120 }
+    Serve a distinguere in un minuto un cookie scartato dal browser da una
+    sessione scaduta o da un secondo fattore incompleto.
+
+9.2 Hook before_request della fabbrica dell'applicazione:
+
+      if request.path.startswith("/api/v1/") or request.endpoint == "static":
+          g.user = None
+          g.tenant = None
+          return
+      load_current_user()
+      load_tenant_context()
+
+    Il canale sonde non ha sessione utente; i FILE STATICI non devono aprirla
+    affatto (motivazione nella sezione 16).
+
+9.3 Gestore di CSRFError: se l'endpoint e' di autenticazione, reindirizza (303)
+    al modulo di accesso con un messaggio comprensibile; altrimenti torna al
+    referente sicuro. `_safe_referrer()` accetta soltanto percorsi dello stesso
+    host: mai un reindirizzamento verso l'esterno.
+
+9.4 Intestazioni di risposta: X-Frame-Options configurabile (DENY predefinito) e
+    le usuali intestazioni di sicurezza. Nessuna richiesta verso host esterni.
+
+================================================================================
+SEZIONE 10 - ROTTE DELLA SONDA (interfaccia locale, porta 5510)
+================================================================================
+  GET  /                          probe.index          stato e attivita'
+  GET  /enroll   POST /enroll     probe.enroll_form / enroll
+  POST /enroll/reset              probe.enroll_reset
+  GET  /configuration             probe.configuration
+  POST /configuration             probe.save_configuration
+  POST /server-url                probe.update_server_url
+  GET  /diary                     probe.diary
+  POST /actions/test              probe.action_test          verifica server
+  POST /actions/collect           probe.action_collect       raccolta immediata
+  POST /actions/flush             probe.action_flush         conferimento
+  POST /actions/queue/clear       probe.action_clear_queue
+  POST /actions/collector/reset   probe.action_reset_collector
+
+REGOLE DELL'INTERFACCIA DELLA SONDA (requisito R6): nessuna pagina di analisi,
+nessun report, nessun elenco di dati raccolti oltre al diario tecnico locale.
+
+10.1 La pagina /enroll deve essere raggiungibile IN QUALSIASI STATO, anche a
+     sonda gia' registrata (variabile `already` nel modello), perche' la
+     sostituzione della registrazione e' un'operazione legittima. Il menu la
+     offre sempre.
+10.2 La sostituzione di una registrazione esistente richiede la spunta
+     esplicita `replace`. Senza di essa la registrazione in corso NON viene
+     toccata.
+10.3 Prima di tentare una sostituzione si prende un'istantanea dello stato; se
+     il nuovo tentativo fallisce (pacchetto malformato, server irraggiungibile)
+     lo stato precedente viene RIPRISTINATO e la coda resta intatta.
+10.4 Le operazioni distruttive richiedono la digitazione di una parola precisa,
+     dichiarata nella pagina: AZZERA per l'azzeramento della registrazione,
+     SVUOTA per lo svuotamento della coda. Se la parola non corrisponde,
+     l'operazione non avviene e il messaggio lo dichiara.
+10.5 Il campo del pacchetto di registrazione va etichettato in modo inequivoco
+     ("Pacchetto di registrazione"), con l'indicazione che contiene URL, codice
+     e token e che si incolla integralmente. E' l'unico punto in cui l'operatore
+     incolla la stringa SNAP1-...
+
+================================================================================
+SEZIONE 11 - SICUREZZA E ACCESSI (server/snapserver/security.py)
+================================================================================
+11.1 Identificazione con la SOLA email (nessuno username), requisito R10.
+11.2 Password con hash PBKDF2 di Werkzeug, metodo "pbkdf2:sha256:260000".
+11.3 Politica della password (lista di errori vuota se conforme):
+       almeno 10 caratteri; almeno una maiuscola; almeno una minuscola;
+       almeno una cifra.
+11.4 Blocco dell'utenza: 5 tentativi falliti -> blocco per 15 minuti.
+     MAX_FAILED_LOGINS = 5, LOCKOUT_MINUTES = 15.
+11.5 MFA TOTP opzionale, compatibile con Google Authenticator: `pyotp` per il
+     segreto e la verifica, `qrcode` per il QR mostrato come data URI (nessun
+     file temporaneo, nessuna richiesta esterna). L'attivazione richiede la
+     conferma di un codice valido; l'amministratore puo' azzerare il secondo
+     fattore di un utente.
+11.6 Ruoli gerarchici con livelli numerici:
+       viewer       10   "Consultazione"
+       analyst      20   "Analista"
+       tenant_admin 30   "Amministratore Tenant"
+       superadmin   40   "Amministratore di Sistema"
+     Il superadmin non appartiene a nessun tenant (tenant_id NULL) e puo'
+     commutare il contesto; ogni altro utente e' vincolato al proprio tenant.
+     Decoratori `@login_required` e `@role_required(minimo)`.
+11.7 Ogni evento rilevante finisce in `audit_events`: accessi riusciti e
+     falliti, creazioni e cancellazioni, emissioni e revoche di token,
+     modifiche di configurazione, conferimenti. La funzione di registrazione
+     deve prevedere un parametro `global_event=True` per gli eventi che
+     riguardano un tenant appena cancellato: senza di esso la scrittura
+     violerebbe il vincolo di chiave esterna.
+
+================================================================================
+SEZIONE 12 - MULTI-TENANCY E FUSI ORARI
+================================================================================
+12.1 Isolamento (server/snapserver/tenancy.py) - requisito R8
+     - Ogni richiesta autenticata risolve un tenant corrente in `g.tenant`.
+     - Un utente non superadmin opera ESCLUSIVAMENTE sul proprio tenant: ogni
+       tentativo di forzarne un altro viene ignorato, tracciato e respinto con
+       403 (`require_tenant_access`).
+     - Tutte le interrogazioni di dominio passano il tenant corrente come primo
+       filtro. E' la ragione per cui non si usa un ORM: il filtro deve restare
+       leggibile in ogni istruzione.
+     - `_remember_tenant()` scrive `session["tenant_id"]` SOLO se il valore
+       cambia: ogni scrittura marca la sessione come modificata e provoca
+       l'invio di un nuovo cookie.
+     - La cancellazione di un tenant rimuove tutti i suoi dati per cascata e
+       lascia la console utilizzabile anche se era il tenant selezionato, e
+       anche se era l'ultimo rimasto.
+
+12.2 Normalizzazione oraria (requisito R9 - da rispettare senza eccezioni)
+     - Ogni istante e' PERSISTITO IN UTC nel formato 'YYYY-MM-DD HH:MM:SS'.
+     - La conversione al fuso del tenant avviene SOLO in presentazione, a ogni
+       richiesta: cambiare il fuso di un tenant si riflette immediatamente
+       anche sui dati storici.
+     - L'ora legale e' applicata per ISTANTE, non per fuso: due date dello
+       stesso tenant possono avere offset diversi.
+     - Filtri Jinja registrati in `app.jinja_env`:
+         dt   istante nel fuso del tenant, "%d/%m/%Y %H:%M"
+         d    solo data, "%d/%m/%Y"
+         dtz  come dt con l'indicazione del fuso, "... (CEST)"
+         ago  distanza dall'ora corrente ("3 min fa", "2 h fa", "mai")
+     - La normalizzazione riguarda ANCHE i raggruppamenti per giornata: il
+       confine del giorno e' quello del fuso del tenant, non quello UTC.
+     - La sonda mostra gli orari nel fuso comunicato dal server (ricevuto nella
+       configurazione) e dichiara UTC quando non e' ancora registrata; filtri
+       propri in `snapprobe/timefmt.py` (dt, dtz, hms, ago) e un context
+       processor che espone `display_timezone`, `display_timezone_label`,
+       `display_timezone_known`.
+
+================================================================================
+SEZIONE 13 - INTERFACCIA DEL SERVER
+================================================================================
+13.1 Impianto
+     AdminLTE 4.3.1 su Bootstrap 5.3, Bootstrap Icons. Un layout base
+     (`templates/base.html`) con blocchi: title, page_icon, page_title,
+     page_subtitle, page_actions, content, scripts. Barra superiore, menu
+     laterale, area contenuti, messaggi.
+
+13.2 Preferenze per utente, persistite in `users` e applicate al caricamento
+     della pagina (nessun lampeggio di tema):
+
+       TEMA               light | dark
+                          attributo `data-bs-theme` sull'elemento radice.
+                          Il tema chiaro/scuro deve interessare ANCHE IL MENU
+                          LATERALE, non solo l'area dei contenuti.
+       DIMENSIONE         piccolo | normale | grande | extra grande
+       DEL CARATTERE      valori tecnici small | normal | large | xlarge,
+                          resi con la classe `snap-font-<valore>` sull'elemento
+                          radice e una scala di corpi dichiarata in snap.css.
+       LARGHEZZA          narrow | wide, classe `snap-layout-<valore>`
+
+     Il commutatore di tema e quello della dimensione del carattere sono
+     raggiungibili dalla barra superiore, con l'indicazione del valore corrente.
+     Valori non riconosciuti vengono rifiutati con un messaggio, non applicati
+     silenziosamente (vincolo 3.4).
+
+13.3 Menu laterale, ESATTAMENTE queste voci e non altre:
+
+       Dashboard
+       -- MONITORAGGIO --
+       Sonde                       (gruppo espandibile)
+           Flotta sonde
+           Registra sonda          (solo tenant_admin e superiori)
+       -- SICUREZZA --
+       Audit & Eventi
+       -- AMMINISTRAZIONE --       (solo tenant_admin e superiori)
+           Tenant                  (solo superadmin)
+           Utenti
+           Impostazioni Sistema
+
+     Non devono esistere voci per inventario asset, vulnerabilita',
+     remediation, scansioni, discovery o reportistica: quel dominio e' fuori
+     dal prodotto. Un test verifica che il menu contenga solo le voci previste
+     e che nessun collegamento punti a pagine inesistenti.
+
+13.4 Dashboard: lo spazio dedicato agli indicatori (requisito R7), composto da
+     quattro schede sintetiche in evidenza
+       SONDE CENSITE / IN ATTESA DI REGISTRAZIONE / CONFERIMENTI 24H / EVENTI 24H
+     e da un blocco di indicatori calcolati (`queries.dashboard_indicators`),
+     ciascuno con chiave, etichetta, valore, spiegazione, icona e tonalita':
+
+       coverage  "Copertura sonde"            "<online>/<totale>"
+                 sonde in contatto sul totale censito
+       pending   "In attesa di registrazione" token emessi e non ancora usati
+       flow      "Conferimenti 24h"           con "<n> record acquisiti"
+       volume    "Dati ricevuti 24h"          in kB, volume sul canale cifrato
+       commands  "Comandi in attesa"          consegnati al prossimo contatto
+       events    "Eventi rilevanti 7g"        voci di audit con gravita' alta
+
+     Piu' gli elenchi della flotta sonde, degli ultimi conferimenti e degli
+     eventi recenti. La dashboard non deve contenere NULLA che rimandi a
+     funzioni non presenti nel menu.
+
+13.5 Modelli di pagina
+       base.html
+       partials/navbar.html      barra superiore, selettore di tenant,
+                                 indicatori di stato, preferenze (tema,
+                                 dimensione del carattere), profilo
+       partials/sidebar.html     menu di 13.3
+       partials/flash.html       messaggi del server
+       partials/pagination.html  navigazione remota residua
+       auth/login.html, auth/mfa.html, auth/mfa_setup.html, auth/profile.html
+       dashboard/index.html
+       probes/index.html         flotta
+       probes/new.html           registrazione
+       probes/detail.html        scheda: identita', canale, configurazione,
+                                 comandi, conferimenti, token
+       probes/credentials.html   pacchetto di registrazione, mostrato UNA volta
+       audit/index.html
+       admin/tenants.html        elenco, creazione, modifica, cancellazione
+       admin/users.html          elenco, creazione, modifica, password, MFA
+       admin/settings.html       indirizzo pubblico del server, stato
+                                 dell'istanza, volumi del tenant corrente,
+                                 conservazione dei dati
+       errors/error.html
+
+13.6 Le azioni amministrative distruttive (cancellazione di tenant, utente,
+     sonda) devono essere VISIBILI senza aprire pannelli e richiedere una
+     conferma esplicita; per la cancellazione di un tenant la conferma richiede
+     la digitazione del codice del tenant, dichiarato nella pagina. Se la
+     conferma non corrisponde, il messaggio dichiara il codice atteso.
+
+================================================================================
+SEZIONE 14 - TABELLE (datatables.js) E DIALOGHI (AWN)
+================================================================================
+14.1 TUTTE le tabelle del prodotto, su server e sonda, devono avere
+     ORDINAMENTO, PAGINAZIONE e RICERCA GENERALE, realizzati con DataTables 3
+     (senza jQuery) tramite un unico modulo `static/js/snap-tables.js`
+     duplicato nei due applicativi.
+
+     Il contenuto della tabella e' prodotto dal server in HTML e resta
+     leggibile in assenza di JavaScript: il modulo AGGIUNGE le funzioni di
+     consultazione, non sostituisce il contenuto.
+
+     Attivazione e opzioni dichiarate nel markup:
+       <table data-snap-table
+              data-page-size="25"       righe per pagina (10, 25, 50, 100)
+              data-order-column="0"     colonna di ordinamento iniziale
+              data-order-dir="asc"      verso iniziale
+              data-no-sort="AZIONI"     colonne escluse dall'ordinamento
+              data-no-search="false">   disabilita la ricerca sulla tabella
+
+     Il modulo individua le colonne PER NOME leggendo le intestazioni, cosi'
+     l'aggiunta di una colonna non rompe le configurazioni. Salta le tabelle la
+     cui unica riga e' un segnaposto con `colspan`.
+
+     DataTables non include l'italiano: il modulo definisce l'oggetto di
+     traduzione completo (emptyTable, info, infoEmpty, infoFiltered, lengthMenu
+     "Mostra _MENU_ righe", loadingRecords, processing, search "Ricerca:",
+     searchPlaceholder "in tutte le colonne", zeroRecords, paginate
+     Prima/Precedente/Successiva/Ultima, aria per l'ordinamento, entries
+     riga/righe).
+
+     Impaginazione lato client su una finestra ampia servita dal server, in modo
+     che ordinamento e ricerca operino sull'insieme completo; la navigazione
+     remota resta come argine sui volumi elevati.
+
+14.2 Il dialogo con l'utente usa AWESOME NOTIFICATIONS (AWN), modulo
+     `static/js/snap-dialogs.js` duplicato nei due applicativi:
+     - le richieste di conferma usano `notifier.confirm()` e restituiscono una
+       Promise, con ricaduta sulla conferma nativa se AWN non e' disponibile;
+     - i messaggi di esito prodotti dal server (marcati `data-snap-flash`)
+       diventano notifiche e vengono rimossi dal flusso della pagina; restano
+       come avviso HTML in assenza di JavaScript;
+     - l'invio dei moduli marcati `[data-confirm]` viene intercettato e
+       subordinato alla conferma;
+     - configurazione: posizione top-right, massimo 6 notifiche, durate
+       success 5s / info 6s / warning 9s / errore 12s, etichette italiane
+       (Suggerimento, Informazione, "Operazione eseguita", Attenzione, Errore,
+       "Operazione in corso", "Confermare l'operazione", Conferma, Annulla),
+       icone attive.
+     - Nessuna chiamata a `confirm()` o `alert()` nativi deve restare nei
+       modelli: un test lo verifica.
+
+================================================================================
+SEZIONE 15 - TIPOGRAFIA E MANUALI
+================================================================================
+15.1 Caratteri: PT Sans Narrow, PT Sans Narrow Italic, PT Sans Bold e PT Sans
+     Bold Italic per i TITOLI. I file woff2 sono incorporati nel prodotto
+     (nessuna richiesta a Google Fonts o altri servizi esterni: un test lo
+     verifica).
+
+     Foglio `static/css/snap-fonts.css`, duplicato nei due applicativi, con sei
+     dichiarazioni @font-face e le variabili
+         --snap-font-titoli: "PT Sans Narrow", ...
+         --snap-font-corsivo: "PT Sans", ...
+     applicate a h1..h6, .card-title, .modal-title, .snap-stat-value,
+     .snap-kpi-*, table.dataTable thead th e alle altre intestazioni.
+     Il foglio va collegato in TUTTI i layout (server e sonda).
+
+     Classe `.snap-documento { font-family: "PT Sans Narrow"; font-size: 19pt; }`
+     per i testi lunghi resi a schermo con la stessa convenzione dei manuali.
+
+15.2 Manuali software in formato .docx, carattere PT Sans Narrow 19 pt, con gli
+     STILI PREDEFINITI di Word. Strumento `tools/genera_manuale.py`: converte i
+     documenti Markdown di `docs/` in .docx dentro `docs/docx/`.
+       CARATTERE = "PT Sans Narrow"
+       CORPO_PT = 19
+       DIMENSIONI_TITOLI = {1: 26, 2: 23, 3: 21, 4: 19, 5: 19, 6: 19}
+     Stili portati alla convenzione: Normal, Body Text, List Bullet,
+     List Number, Caption, Heading 1..4, Title. Tabelle con stile "Table Grid".
+     I blocchi di codice usano Consolas (unica eccezione al carattere di
+     progetto, motivata: il codice richiede spaziatura fissa). Gestisce
+     grassetto, corsivo, codice in linea, elenchi puntati e numerati, tabelle
+     Markdown con riga di separazione, separatori orizzontali e accorpamento
+     delle righe consecutive in paragrafi.
+     Uso:
+       python tools/genera_manuale.py
+       python tools/genera_manuale.py 05_MANUALE_OPERATIVO.md
+       python tools/genera_manuale.py --uscita C:\percorso
+
+================================================================================
+SEZIONE 16 - SESSIONI E COOKIE - LA TRAPPOLA PRINCIPALE
+================================================================================
+Questa sezione descrive un difetto che nel progetto originale e' costato diverse
+sessioni di lavoro. Va implementata subito, non dopo.
+
+16.1 I COOKIE SONO DEFINITI PER DOMINIO E IGNORANO LA PORTA. Server (5500) e
+     sonda (5510) convivono su 127.0.0.1: se entrambi usano il nome predefinito
+     di Flask (`session`), ogni risposta della sonda SOVRASCRIVE il cookie del
+     server e viceversa. Poiche' la pagina di stato della sonda si ricarica da
+     sola ogni 30 secondi, basta averla aperta in un'altra scheda perche' il
+     server chieda di nuovo l'accesso dopo pochi secondi di navigazione.
+
+     Rimedio obbligatorio, nei due moduli di configurazione:
+       server:  SESSION_COOKIE_NAME = os.environ.get(
+                    "SNAP_SERVER_COOKIE_NAME", "snap_server_session")
+       sonda:   SESSION_COOKIE_NAME = os.environ.get(
+                    "SNAP_PROBE_COOKIE_NAME", "snap_probe_session")
+     I due valori devono restare diversi anche se personalizzati.
+
+16.2 Il cookie NON va rinnovato a ogni risposta:
+       SESSION_REFRESH_EACH_REQUEST = False
+     Con il rinnovo attivo, una pagina che carica diversi file statici in
+     parallelo produce piu' risposte che riscrivono il cookie: una risposta
+     tardiva, partita con uno stato precedente, puo' arrivare dopo quella della
+     pagina e sovrascrivere lo stato piu' recente, con perdita intermittente
+     dell'accesso.
+
+16.3 I file statici non devono aprire il contesto di sessione (vedere 9.2), e il
+     contesto tenant scrive in sessione solo quando il valore cambia (vedere
+     12.1).
+
+16.4 Altri parametri di sessione:
+       PERMANENT_SESSION_LIFETIME  120 minuti (SNAP_SERVER_SESSION_MINUTES)
+       SESSION_COOKIE_HTTPONLY     True
+       SESSION_COOKIE_SECURE       False in HTTP locale, configurabile
+       SESSION_COOKIE_SAMESITE     "Lax"; "None" quando SNAP_SERVER_EMBEDDED=1
+       FRAME_OPTIONS               "DENY"; "SAMEORIGIN" in modalita' incorporata
+       TRACE_SESSION               tracciamento diagnostico, spento per
+                                   impostazione predefinita
+     La modalita' incorporata serve ai browser integrati negli editor, che
+     servono la pagina in un contesto di origine diversa e con SameSite=Lax non
+     inviano il cookie. Va documentato che i browser accettano SameSite=None
+     solo su connessione sicura e che la via affidabile resta il browser
+     esterno.
+
+16.5 La chiave di sessione e' persistente: da `SNAP_SERVER_SECRET_KEY` oppure
+     generata una volta e conservata in `server/instance/secret_key`, cosi' le
+     sessioni sopravvivono ai riavvii senza segreti nel codice. Non cancellare
+     quel file durante la diagnostica: invalida le sessioni in corso.
+
+================================================================================
+SEZIONE 17 - CONFIGURAZIONE PER VARIABILI D'AMBIENTE
+================================================================================
+Server, prefisso SNAP_SERVER_:
+  HOST 127.0.0.1 | PORT 5500 | DATABASE server/data/snap_server.sqlite3
+  SECRET_KEY (generata in instance/) | SESSION_MINUTES 120
+  COOKIE_NAME snap_server_session | COOKIE_SECURE false | COOKIE_SAMESITE Lax
+  EMBEDDED false | FRAME_OPTIONS DENY | TRACE_SESSION false
+  ENROLLMENT_TTL_HOURS 24 | PROBE_OFFLINE_AFTER_SEC 900
+  NONCE_RETENTION_HOURS 24 | MAX_UPLOAD_MB 32 | DEBUG false
+  ADMIN_EMAIL admin@snap.local | ADMIN_PASSWORD Snap!Admin2026
+
+Sonda, prefisso SNAP_PROBE_:
+  HOST 127.0.0.1 | PORT 5510 | STORE probe/data/snap_probe.sqlite3
+  COOKIE_NAME snap_probe_session
+  TICK_SECONDS 15 | SCAN_INTERVAL 300 | HTTP_TIMEOUT 15 | DEBUG false
+
+Le porte devono restare nell'intervallo 5500-5600 (istruzioni di progetto).
+
+Il modulo di configurazione va chiamato `settings.py` DENTRO il pacchetto
+(`snapserver/settings.py`, `snapprobe/settings.py`). Non `config.py` alla
+radice: i due applicativi finirebbero in collisione sul nome di modulo quando i
+test importano entrambi.
+
+Le funzioni di lettura (`_bool`, `_int`) ricadono sul valore predefinito noto in
+caso di contenuto non interpretabile, senza sollevare eccezioni all'avvio; la
+ricaduta e' commentata perche' e' una scelta, non una dimenticanza.
+
+Classe `TestConfig` derivata, per i test: TESTING, DEBUG, WTF_CSRF_ENABLED =
+False, chiave fissa.
+
+================================================================================
+SEZIONE 18 - AGENTE DELLA SONDA
+================================================================================
+18.1 L'agente gira in un THREAD interno al processo dell'interfaccia (un solo
+     processo da avviare e sorvegliare), con modalita' senza interfaccia
+     disponibile via `--headless`.
+18.2 Ciclo, cadenza `TICK_SECONDS` (15 s):
+       - se e' il momento (SCAN_INTERVAL), esegue una raccolta;
+       - se ci sono record in coda e il server e' raggiungibile, conferisce;
+       - invia un heartbeat, recepisce configurazione e comandi, li esegue e ne
+         riporta l'esito.
+18.3 Un errore nel ciclo NON deve arrestare l'agente: viene registrato nel
+     diario locale e il ciclo prosegue al tick successivo. La registrazione e'
+     obbligatoria: nessun errore silenzioso (vincolo 3.4).
+18.4 `collector.py` produce, a ogni ciclo, un record di tipo `event` con
+     `detail` contenente: ciclo, record_in_coda, intervallo_sec, piattaforma,
+     host, versione_agente. La funzione `reset()` azzera il contatore dei cicli.
+     E' il "dato di esempio" del requisito R11: l'aggiunta di tipi nuovi passa
+     da qui e dal registro degli applicatori sul server.
+18.5 La sonda continua a raccogliere anche quando NON e' registrata: i dati
+     restano in coda e verranno conferiti dopo la registrazione.
+
+================================================================================
+SEZIONE 19 - AVVIO E RIGA DI COMANDO
+================================================================================
+19.1 start.ps1 (Windows PowerShell), alla radice:
+
+       .\start.ps1                 avvia server (5500) e sonda (5510) in due
+                                   finestre
+       .\start.ps1 -Only server    solo il server
+       .\start.ps1 -Only probe     solo la sonda
+       .\start.ps1 -Setup          crea .venv, installa le dipendenze e
+                                   inizializza il database, senza avviare
+       .\start.ps1 -Test           esegue la suite di test
+       .\start.ps1 -DevMode        avvio in modalita' di sviluppo
+       .\start.ps1 -Stop           arresta i processi avviati dallo script
+
+     Parametri: -Only (all|server|probe), -ServerPort 5500, -ProbePort 5510,
+     -Setup, -Test, -Stop, -NoVenv, -DevMode.
+
+     ATTENZIONE: il nome del parametro NON puo' essere `-Debug`, che e' un
+     parametro comune di PowerShell: con `[CmdletBinding()]` si ottiene
+     `ParameterNameAlreadyExistsForCommand`. Usare `-DevMode`.
+
+     Lo script deve:
+       - preferire l'interprete di `.venv` se presente, altrimenti quello del
+         PATH, con messaggio chiaro se manca Python 3.10+;
+       - verificare che le porte siano libere prima di avviare
+         (`Test-PortInUse`);
+       - registrare i PID in `.snap-pids.json` in modo INCREMENTALE, annotando
+         il PID DEL PROCESSO IN ASCOLTO e non solo quello lanciato: con lo stub
+         di Python del Microsoft Store il processo avviato non e' quello che
+         apre la porta, e `-Stop` non troverebbe nulla da fermare;
+       - per l'arresto: terminare l'albero dei processi (`Stop-ProcessTree`),
+         con ricaduta sulla riga di comando (`Stop-ByCommandLine`), e
+         VERIFICARE che la porta sia stata liberata;
+       - scrivere i diari in `logs/`;
+       - NON avviare i servizi dentro un `Start-Job`: alla fine del job il
+         processo viene terminato.
+
+     Nella documentazione va ricordato che PowerShell richiede il prefisso `.\`
+     (`.\start.ps1`, non `start.ps1`).
+
+19.2 server/run.py
+       python run.py                avvia sulla porta configurata (5500)
+       python run.py --init         inizializza schema e dati iniziali, poi esce
+       python run.py --port 5501    porta alternativa
+       python run.py --host --debug
+     Rifiuta con codice 2 le porte fuori dall'intervallo 5500-5600. All'avvio
+     stampa versione, indirizzo dell'interfaccia, rotta di verifica del canale
+     sonde e percorso della base dati. `threaded=True`.
+
+19.3 probe/run.py
+       python run.py                     interfaccia locale (5510)
+       python run.py --headless          solo l'agente, senza interfaccia
+       python run.py --enroll "SNAP1-..." registrazione da riga di comando
+       python run.py --status            stato locale, poi esce
+       --host --port --debug
+
+19.4 Comandi di sviluppo, gli stessi dichiarati in CLAUDE.md:
+       install  .\start.ps1 -Setup
+       dev      .\start.ps1 -DevMode
+       build    non previsto (nessun passo di compilazione);
+                per i manuali: python tools/genera_manuale.py
+       test     python -m pytest tests -q     oppure .\start.ps1 -Test
+       lint     python -m compileall -q server/snapserver probe/snapprobe
+                                            tests tools
+     Nessuna libreria di linting e' dipendenza di progetto: se `ruff` e'
+     disponibile nell'ambiente si puo' usare
+     `python -m ruff check <cartelle> --select F` per i soli difetti sostanziali
+     (import non usati, nomi non definiti); le regole di lunghezza riga non
+     sono adottate.
+
+================================================================================
+SEZIONE 20 - TEST AUTOMATICI (tests/)
+================================================================================
+La suite completa conta 111 test raccolti in 8 file, tutti verdi. I conteggi fra
+parentesi sono i test RACCOLTI: alcune verifiche sono parametrizzate e producono
+piu' casi della singola funzione. `conftest.py` fornisce le fixture:
+applicazione del server su base dati temporanea, archivio della sonda
+temporaneo, client autenticati per i vari ruoli.
+
+I test NON sono un adempimento formale: ciascuno fissa un comportamento che nel
+progetto originale e' stato rotto almeno una volta. Se uno fallisce si corregge
+la causa, mai il test (vincolo 3.13).
+
+test_crypto_channel.py (10) - interoperabilita' e tenuta del canale
+  la chiave di sessione derivata dalle due implementazioni coincide; la chiave
+  di registrazione e' riproducibile da entrambi i lati; la sonda sigilla e il
+  server apre; il server sigilla e la sonda apre; la busta e' legata alla rotta;
+  la busta e' legata all'identita' della sonda; un ciphertext manomesso viene
+  rifiutato; una chiave errata viene rifiutata; una busta scaduta viene
+  rifiutata; l'impronta del token non rivela il token.
+
+test_probe_server_flow.py (9) - il flusso completo
+  la registrazione stabilisce il canale cifrato; il token non e' riutilizzabile;
+  un token errato viene respinto; LA SONDA LAVORA OFFLINE, POI CONFERISCE E
+  SVUOTA LA CODA; la ritrasmissione e' idempotente; i comandi del server sono
+  consegnati al contatto della sonda; una sonda revocata non puo' conferire; una
+  busta ripetuta viene respinta; una sonda non registrata continua a raccogliere.
+
+test_multitenancy.py (17) - isolamento, accessi, cancellazioni
+  l'utente di un tenant vede solo le proprie sonde; non puo' aprire la sonda di
+  un altro tenant; non puo' commutare il tenant; il superadmin puo'; il viewer
+  non raggiunge l'amministrazione; l'analista non gestisce i tenant; gli istanti
+  sono resi nel fuso del tenant; il cambio di fuso si riflette in presentazione;
+  l'accesso richiede credenziali valide; l'utenza si blocca dopo tentativi
+  ripetuti; l'MFA impedisce l'accesso fino al codice valido; la politica della
+  password e' applicata; la cancellazione di un tenant rimuove tutti i suoi
+  dati; l'azione di cancellazione e' visibile senza aprire pannelli; una
+  conferma errata dichiara il codice atteso; cancellare il tenant selezionato
+  lascia la console utilizzabile; cancellare tutti i tenant lascia
+  l'amministrazione raggiungibile.
+
+test_timezones.py (10) - normalizzazione oraria
+  le date delle sonde seguono il fuso del tenant; l'ora legale e' applicata;
+  l'interfaccia della sonda usa il fuso del tenant; la sonda dichiara UTC
+  quando non e' registrata; le date di coda e diario sono convertite.
+
+test_probe_interface.py (10) - interfaccia della sonda
+  la pagina di registrazione e' raggiungibile da non registrata E da gia'
+  registrata; il menu offre sempre la registrazione; la sostituzione richiede
+  una conferma esplicita; un pacchetto malformato non altera la registrazione;
+  un tentativo verso un server irraggiungibile ripristina la registrazione
+  precedente; la coda sopravvive al tentativo di sostituzione; la conferma di
+  azzeramento dichiara la parola attesa; l'azzeramento con la parola giusta
+  cancella la registrazione ma conserva la coda; lo svuotamento della coda
+  dichiara la parola attesa.
+
+test_interfaccia.py (31) - tabelle, dialoghi, menu, tipografia
+  ogni pagina di elenco ha una tabella attrezzata; nessuna tabella nei modelli
+  e' priva di attrezzatura; le funzioni richieste (ordinamento, paginazione,
+  ricerca) sono configurate; le tabelle della sonda usano lo stesso modulo;
+  nessun residuo della libreria precedente; le tabelle amministrative sono
+  piatte; la dimensione della pagina e' dichiarata; le risorse sono servite
+  localmente; nessun riferimento a reti esterne nei modelli; i messaggi del
+  server sono esposti alle notifiche; le conferme native del browser non sono
+  piu' usate; le azioni distruttive richiedono conferma; le pagine autonome
+  dispongono delle notifiche; nessun collegamento verso pagine inesistenti; le
+  sezioni rimosse non sono piu' raggiungibili; il menu contiene solo le voci
+  previste; i caratteri sono serviti localmente; il foglio dei caratteri
+  dichiara le quattro varianti; i titoli usano la famiglia stretta; i manuali
+  adottano diciannove punti; il foglio dei caratteri e' collegato in ogni
+  layout; nessun carattere e' richiesto a servizi esterni.
+
+test_sessione.py (24) - tenuta della sessione
+  i file statici non riscrivono la sessione (parametrizzato sulle risorse); le
+  pagine non riscrivono una sessione invariata (parametrizzato sulle pagine); il
+  cookie viene emesso quando la sessione cambia (accesso e cambio di tenant); la
+  sessione regge tre giri su tutte le pagine con i file statici a ogni giro; il
+  modulo resta valido dopo la navigazione (token CSRF ancora buono); la
+  diagnostica dichiara lo stato della sessione; I DUE APPLICATIVI USANO COOKIE
+  CON NOMI DISTINTI; il cookie emesso porta il nome configurato; un cookie della
+  sonda non invalida la sessione del server; la diagnostica dichiara il nome del
+  cookie.
+
+  L'helper che cerca l'intestazione Set-Cookie deve accettare il NOME
+  CONFIGURATO dell'applicazione, non una costante: altrimenti si rompe appena si
+  personalizza il cookie.
+
+Collaudo in browser reale: `tools/collaudo_ui.py` con Playwright verifica le
+funzioni delle tabelle, la conferma AWN, le notifiche e l'interfaccia della
+sonda su pagine effettivamente rese. Il collaudo automatico non sostituisce la
+prova in un browser esterno (vedere 22.15).
+
+================================================================================
+SEZIONE 21 - DOCUMENTAZIONE DA PRODURRE
+================================================================================
+Le istruzioni di progetto richiedono documentazione conforme alle specifiche
+dello sviluppo del software, anche quando non esplicitamente richiesta. Cinque
+documenti in `docs/`, in italiano, aggiornati a ogni modifica del codice.
+
+21.1 01_REQUISITI.md - secondo ISO/IEC/IEEE 29148:2018
+     Portata, definizioni, portatori di interesse, requisiti funzionali numerati
+     (SR-nn) e non funzionali (NFR-nn), ciascuno con il test che lo verifica, e
+     MATRICE DI TRACCIABILITA' fra portatori di interesse, requisiti e
+     componenti. Ogni requisito verificabile deve nominare il test
+     corrispondente: e' il legame che rende la suite un adempimento di
+     tracciabilita' e non una collezione di controlli.
+
+21.2 02_ARCHITETTURA.md - viste secondo UML (ISO/IEC/IEEE 19510:2013)
+     Principi, vista di contesto, vista dei componenti, vista dinamica (sequenze
+     di registrazione, conferimento, comando), modello dei dati come diagramma
+     di classi, vista di distribuzione, e tabella delle DECISIONI
+     ARCHITETTURALI (AD-nn) con alternative valutate e motivazione. Fra le
+     decisioni da registrare: cifratura applicativa invece del solo TLS; SQLite
+     con SQL esplicito senza ORM; modulo crittografico duplicato; comandi in
+     piggyback; coda locale con prenotazione del lotto; risorse dell'interfaccia
+     servite localmente; agente in thread; presentazione oraria calcolata a ogni
+     richiesta; contratto di conferimento estensibile; tabelle DataTables
+     applicate all'HTML del server; impaginazione lato client su finestra ampia;
+     cookie inviato solo quando la sessione cambia; NOMI DI COOKIE DISTINTI PER
+     APPLICATIVO.
+
+21.3 03_PROTOCOLLO_SNAP_SEC.md
+     La specifica della sezione 6 di questo documento, in forma di norma:
+     modello di sicurezza, primitive, formato della busta, fasi, comandi,
+     anti-replay, errori, ciclo di vita delle chiavi, verifica.
+
+21.4 04_CICLO_DI_VITA.md - secondo ISO/IEC/IEEE 15288:2015
+     Processi tecnici e di supporto applicati al prodotto: definizione dei
+     requisiti, architettura, realizzazione, verifica, transizione, esercizio,
+     manutenzione, ritiro. Trattamento dei dati personali (GDPR: minimizzazione,
+     conservazione configurabile, diritto alla cancellazione realizzato dalle
+     cascate), obblighi del Cyber Resilience Act e della NIS2 pertinenti.
+
+21.5 05_MANUALE_OPERATIVO.md
+     Prerequisiti, installazione, avvio, primo accesso, creazione di tenant e
+     utenti, registrazione di una sonda passo per passo, gestione della flotta,
+     comandi, tabella completa delle variabili d'ambiente, e sezione di
+     DIAGNOSTICA con i sintomi tipici, la causa probabile e l'intervento. La
+     diagnostica deve comprendere il caso dell'accesso richiesto ripetutamente,
+     con la rotta /diagnostics/session e le cause note (browser incorporato,
+     nomi host alternati, cookie bloccati, sessione scaduta, collisione con il
+     cookie della sonda).
+
+21.6 README.md - presentazione, requisiti, installazione rapida, uso, struttura,
+     riferimento ai documenti.
+
+21.7 I manuali .docx sono generati da questi Markdown con
+     `python tools/genera_manuale.py` (sezione 15.2) e non vanno versionati.
+
+================================================================================
+SEZIONE 22 - TRAPPOLE NOTE - ERRORI GIA' COMMESSI, DA NON RIPETERE
+================================================================================
+22.1 Nome del cookie di sessione condiviso fra server e sonda: causa di accessi
+     richiesti ogni pochi secondi. Vedere la sezione 16. E' il difetto piu'
+     costoso dell'intero progetto: implementare i nomi distinti dall'inizio.
+
+22.2 Riscrittura del cookie a ogni risposta, file statici compresi: perdita
+     intermittente della sessione. Vedere 16.2 e 16.3.
+
+22.3 `config.py` alla radice dei due applicativi: collisione sul nome di modulo
+     quando i test importano server e sonda nello stesso processo. Il modulo va
+     dentro il pacchetto e si chiama `settings.py`.
+
+22.4 Parametro `-Debug` in uno script PowerShell con `[CmdletBinding()]`:
+     errore `ParameterNameAlreadyExistsForCommand`. Usare `-DevMode`.
+
+22.5 PowerShell non esegue uno script della cartella corrente senza il prefisso
+     `.\`: `start.ps1` da' "termine non riconosciuto". Non e' un difetto, va
+     documentato.
+
+22.6 Stub di Python del Microsoft Store: il PID registrato non e' quello del
+     processo in ascolto e l'arresto non funziona. Registrare il PID del
+     listener, terminare l'albero dei processi, ricadere sulla riga di comando e
+     verificare che la porta sia libera.
+
+22.7 In Jinja, `group.items` risolve al metodo del dizionario, non alla chiave:
+     usare `group['items']|length`. Il difetto resta latente finche' non ci sono
+     dati.
+
+22.8 L'attributo HTML `pattern` con un trattino non protetto in una classe di
+     caratteri e' invalido con il flag v: scrivere `[a-z0-9][a-z0-9._\-]{1,31}`.
+
+22.9 Registrare un evento di audit DOPO la cancellazione del tenant viola la
+     chiave esterna: serve un parametro `global_event=True`.
+
+22.10 Jinja mantiene in cache i modelli: un server avviato prima di una modifica
+      ai template continua a servire l'HTML vecchio. Riavviare prima di
+      concludere che una modifica non funziona.
+
+22.11 In reportlab (o in qualunque generatore di tabelle) una riga di tabella
+      vuole una LISTA DI RIGHE, non oggetti Paragraph: `[[valore],[etichetta]]`.
+
+22.12 Diagnostica distruttiva: non cancellare `server/instance/secret_key` ne'
+      `server/data/` per "provare"; si invalidano le sessioni e si perde lo
+      storico dell'utente. Non terminare processi Python che non sono stati
+      avviati dallo script. Non lasciare in esecuzione piu' istanze della sonda
+      contemporaneamente: producono letture incoerenti.
+
+22.13 Le apostrofi italiane rompono gli heredoc di shell: per scrivere file di
+      codice usare lo strumento di scrittura file, non `cat <<EOF`.
+
+22.14 File strutturati (vincolo 3.8): un tag HTML non chiuso, una virgola
+      mancante in un .json, una regola CSS troncata bloccano l'applicazione in
+      modi difficili da leggere. Dopo ogni riscrittura di json, xml, html, css o
+      js, verificare la validita' del file prima di proseguire.
+
+22.15 Prima di dichiarare conclusa una correzione, RIPRODURRE il difetto e poi
+      verificarne l'assenza, in un browser esterno reale e non solo con i client
+      di test. Per il difetto della sessione la prova valida e' stata: due
+      schede aperte per 40 secondi, con la pagina della sonda che si ricarica,
+      contando le richieste di nuovo accesso (deve essere zero).
+
+22.16 Le librerie di interfaccia cambiano su richiesta del committente: nel
+      progetto originale le tabelle sono state realizzate prima con un'altra
+      libreria e poi rifatte con DataTables. Isolare tabelle e dialoghi in un
+      modulo unico per applicativo rende la sostituzione un intervento
+      circoscritto invece di una riscrittura dei modelli.
+
+22.17 Il perimetro funzionale si e' ristretto in corso d'opera: inventario
+      asset, vulnerabilita', remediation, scansioni e reportistica sono stati
+      rimossi. Non reintrodurli per iniziativa propria, in nessuna forma:
+      ne' voci di menu, ne' tabelle, ne' schede della dashboard.
+
+================================================================================
+SEZIONE 23 - CRITERI DI ACCETTAZIONE
+================================================================================
+Il sistema e' completo quando TUTTE queste verifiche passano:
+
+C1.  `.\start.ps1 -Setup` crea l'ambiente, installa le dipendenze e inizializza
+     la base dati senza errori.
+C2.  `.\start.ps1` avvia server (5500) e sonda (5510); entrambe le interfacce
+     rispondono; `.\start.ps1 -Stop` le arresta e libera le porte.
+C3.  `python -m pytest tests -q` esegue l'intera suite in verde e il controllo
+     statico (`python -m compileall`) non segnala nulla.
+C4.  Registrazione completa: si crea una sonda dalla console, si copia il
+     pacchetto `SNAP1-...`, si incolla nell'interfaccia della sonda, la sonda
+     passa ad `active` e compare in contatto nella flotta.
+C5.  Autonomia: si arresta il server, la sonda continua a raccogliere e la coda
+     cresce; si riavvia il server e la sonda conferisce tutto dichiarando quanti
+     record e quanti lotti, con coda residua a zero.
+C6.  Idempotenza: una ritrasmissione dello stesso lotto e' riconosciuta come
+     duplicato e non altera i dati.
+C7.  Revoca: dopo la revoca ogni conferimento riceve `auth_failed` e la sonda
+     conserva i dati.
+C8.  Anti-replay: la ripresentazione di una busta valida viene rifiutata.
+C9.  Isolamento: un utente di tenant non vede ne' raggiunge i dati di un altro
+     tenant, nemmeno forzando gli identificativi negli indirizzi.
+C10. Fusi orari: due tenant con fusi diversi mostrano gli stessi istanti con
+     orari diversi e coerenti, ora legale compresa; cambiando il fuso di un
+     tenant cambiano anche le date storiche.
+C11. Accesso: email e password, blocco dopo cinque tentativi, MFA opzionale
+     attivabile con Google Authenticator e verificata alla riattivazione.
+C12. Sessione: navigazione di piu' minuti su tutte le pagine, con l'interfaccia
+     della sonda aperta in un'altra scheda, SENZA che venga richiesto di nuovo
+     l'accesso.
+C13. Tabelle: ogni tabella del prodotto ordina, impagina e cerca; le etichette
+     sono in italiano.
+C14. Dialoghi: ogni conferma passa da AWN; nessun `confirm()` nativo resta nei
+     modelli; i messaggi del server diventano notifiche.
+C15. Nessuna richiesta verso host esterni: caricando qualunque pagina, il
+     browser non contatta CDN, servizi di caratteri o altro.
+C16. Menu ed elenchi contengono solo le voci previste; nessun collegamento punta
+     a una pagina inesistente.
+C17. Interfaccia: il commutatore chiaro/scuro cambia anche il menu laterale; le
+     quattro dimensioni del carattere (piccolo, normale, grande, extra grande)
+     sono selezionabili e persistono per utente.
+C18. Tipografia: i titoli usano PT Sans Narrow (e PT Sans per le varianti
+     corsive); i quattro tagli sono effettivamente serviti dal prodotto.
+C19. `python tools/genera_manuale.py` produce i cinque manuali .docx in PT Sans
+     Narrow 19 pt, con gli stili predefiniti di Word.
+C20. I cinque documenti di `docs/` sono aggiornati e coerenti con il codice, con
+     matrice di tracciabilita' fra requisiti, componenti e test.
+C21. Ogni file prodotto porta l'intestazione con autore, data di scrittura,
+     copyright "(c) 2024-26 DS Consulting" e licenza MIT; commenti e documentazione
+     in italiano, codice e nomi in inglese.
+C22. Nessuna dipendenza oltre quelle dichiarate nella sezione 4.
+
+================================================================================
+SEZIONE 24 - ORDINE DI REALIZZAZIONE
+================================================================================
+ 1. CLAUDE.md con il contenuto della sezione 1: governa tutto il resto e va
+    scritto per primo.
+ 2. Impianto: alberatura, .gitignore, requirements, README iniziale.
+ 3. Server: settings.py, schema.sql, db.py (istanti UTC e conversioni),
+    seed.py, run.py --init. Verificare che la base dati nasca correttamente.
+ 4. Canale cifrato: snapserver/crypto.py e snapprobe/crypto.py, poi
+    IMMEDIATAMENTE test_crypto_channel.py. Il canale va provato prima di
+    costruirci sopra.
+ 5. Sicurezza e multi-tenancy: security.py, tenancy.py, audit.py.
+ 6. Sessioni e cookie secondo la sezione 16, PRIMA di scrivere le pagine.
+ 7. Canale sonde: blueprints/api_probe.py, ingest.py con il registro degli
+    applicatori.
+ 8. Sonda: settings.py, store.py (con prenotazione del lotto), client.py,
+    collector.py, agent.py, run.py. Poi test_probe_server_flow.py, compresa la
+    prova di autonomia offline.
+ 9. Interfaccia del server: base, navbar (con i commutatori di tema e
+    dimensione del carattere), sidebar, autenticazione, dashboard e indicatori,
+    flotta e scheda sonda, audit, amministrazione.
+10. Interfaccia della sonda: stato, registrazione, configurazione, diario.
+11. Tabelle (snap-tables.js) e dialoghi (snap-dialogs.js) in entrambi gli
+    applicativi.
+12. Tipografia: caratteri incorporati, snap-fonts.css collegato in tutti i
+    layout.
+13. start.ps1 completo, con avvio, arresto e verifica delle porte.
+14. Suite di test completa secondo la sezione 20.
+15. Documentazione secondo la sezione 21, tips.txt, e tools/genera_manuale.py
+    per i .docx.
+16. Collaudo finale contro i criteri della sezione 23, in un browser esterno
+    reale e non solo con i client di test.
+
+Dopo ogni passo: lint e test prima di dichiararlo concluso (vincolo 3.13).
+
+================================================================================
+FINE DEL PROMPT
+================================================================================

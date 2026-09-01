@@ -1,0 +1,76 @@
+{#
+  snap server - Anteprima del resoconto quotidiano.
+
+  Perche' un'anteprima: la prima volta che si vede un messaggio automatico non deve
+  essere nella casella del destinatario. Qui non viene spedito nulla.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Anteprima del resoconto{% endblock %}
+{% block page_icon %}bi-eye{% endblock %}
+{% block page_title %}Anteprima del Resoconto{% endblock %}
+{% block page_subtitle %}
+  {{ day.strftime('%d/%m/%Y') }} &mdash; {{ composed.intervallo }}. Nessuna spedizione:
+  questa pagina mostra esattamente cio' che il server manderebbe.
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Report e resoconti
+  </a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('reports.preview', day=day.isoformat(),
+                        format='html' if as_text else 'text') }}"
+       class="btn btn-sm btn-outline-secondary">
+      {% if as_text %}<i class="bi bi-window me-1"></i> Vedere la forma HTML
+      {% else %}<i class="bi bi-file-text me-1"></i> Vedere la forma testo{% endif %}
+    </a>
+    {% if has_role('analyst') %}
+    <form method="post" action="{{ url_for('reports.send_daily') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="day" value="{{ day.isoformat() }}">
+      <button type="submit" class="btn btn-sm btn-primary"
+              data-confirm="Spedire questo resoconto adesso?">
+        <i class="bi bi-send me-1"></i> Spedire adesso
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-envelope me-1"></i> Oggetto</h3>
+  </div>
+  <div class="card-body py-2">
+    <p class="mb-0 font-monospace small">{{ composed.oggetto }}</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-file-earmark-text me-1"></i>
+      Corpo del messaggio &mdash; forma {{ 'testo' if as_text else 'HTML' }}
+    </h3>
+    <small class="text-body-secondary">
+      le due forme portano la stessa informazione: chi legge il testo semplice non deve
+      ricevere meno
+    </small>
+  </div>
+  <div class="card-body {{ 'p-0' if not as_text }}">
+    {% if as_text %}
+    <pre class="mb-0 small" style="white-space: pre-wrap; word-break: break-word;">{{ composed.testo }}</pre>
+    {% else %}
+    {# Il corpo HTML porta i propri stili in linea, come richiesto dai client di
+       posta: si mostra dentro una cornice, senza toccarlo. #}
+    <div style="max-height: 70vh; overflow: auto;">{{ composed.html|safe }}</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,203 @@
+{#
+  snap server - Un incidente: cronologia, azioni dell'operatore, esiti che lo hanno
+  prodotto.
+
+  Le azioni disponibili dipendono dallo stato: un incidente aperto si prende in
+  carico, uno in carico si risolve. Mostrare pulsanti che non si possono premere
+  non aiuta chi deve intervenire.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Incidente {{ incident.id }}{% endblock %}
+{% block page_icon %}bi-exclamation-triangle{% endblock %}
+{% block page_title %}Incidente {{ incident.id }}{% endblock %}
+{% block page_subtitle %}
+  Controllo <strong>{{ incident.check_name }}</strong> su
+  <span class="font-monospace">{{ incident.address }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('checks.incident_list') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Incidenti
+  </a>
+  <a href="{{ url_for('checks.check', check_id=incident.check_id) }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-clipboard-check me-1"></i> Definizione del controllo
+  </a>
+</div>
+
+{{ schede.barra([
+    ('stato', 'Stato e azioni', 'bi-info-circle', none),
+    ('cronologia', 'Cronologia', 'bi-list-ol', events|length),
+    ('esiti', 'Esiti del controllo', 'bi-clock-history', results|length),
+]) }}
+
+<div class="tab-content">
+
+<div class="tab-pane fade show active" id="pane-stato" role="tabpanel"
+     aria-labelledby="tab-stato">
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0"><i class="bi bi-info-circle me-1"></i> Stato</h3>
+        <span class="badge text-bg-{{ 'danger' if incident.status == 'open' else ('warning' if incident.status == 'acknowledged' else 'success') }}">
+          {{ {'open': 'aperto', 'acknowledged': 'in carico', 'resolved': 'risolto'}[incident.status] }}
+        </span>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5">Aperto</dt>
+          <dd class="col-7">{{ incident.opened_at|dt }}</dd>
+          <dt class="col-5">Gravita'</dt>
+          <dd class="col-7">{{ incident.severity }}</dd>
+          <dt class="col-5">Fallimenti</dt>
+          <dd class="col-7">{{ incident.failure_count }}</dd>
+          <dt class="col-5">Operatore</dt>
+          <dd class="col-7">
+            {% if incident.escalated_at %}
+            <span class="badge text-bg-danger">attivato</span>
+            il {{ incident.escalated_at|dt }}
+            <div class="text-body-secondary">
+              {{ incident.escalated_to or 'nessun recapito configurato' }}
+            </div>
+            <div class="text-body-secondary">
+              l'incidente non si chiude da se': serve una verifica
+            </div>
+            {% else %}
+            non attivato: il workflow si chiude da se' al rientro del controllo,
+            oppure attiva un operatore dopo {{ incident.escalation_threshold }}
+            fallimenti consecutivi
+            {% endif %}
+          </dd>
+          <dt class="col-5">Primo dettaglio</dt>
+          <dd class="col-7">{{ incident.first_detail or '-' }}</dd>
+          <dt class="col-5">Ultimo dettaglio</dt>
+          <dd class="col-7">{{ incident.last_detail or '-' }}</dd>
+          {% if incident.acknowledged_at %}
+          <dt class="col-5">Preso in carico</dt>
+          <dd class="col-7">{{ incident.acknowledged_at|dt }}
+            {% if incident.acknowledged_email %}<div class="text-body-secondary">{{ incident.acknowledged_email }}</div>{% endif %}
+          </dd>
+          {% endif %}
+          {% if incident.resolved_at %}
+          <dt class="col-5">Risolto</dt>
+          <dd class="col-7">{{ incident.resolved_at|dt }}
+            {% if incident.resolved_email %}<div class="text-body-secondary">{{ incident.resolved_email }}</div>{% endif %}
+          </dd>
+          <dt class="col-5">Motivazione</dt>
+          <dd class="col-7">{{ incident.resolution or '-' }}</dd>
+          {% endif %}
+        </dl>
+      </div>
+      {% if incident.status != 'resolved' and has_role('analyst') %}
+      <div class="card-footer">
+        {% if incident.status == 'open' %}
+        <form method="post" action="{{ url_for('checks.acknowledge', incident_id=incident.id) }}"
+              class="mb-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="input-group input-group-sm">
+            <input type="text" name="note" class="form-control"
+                   placeholder="nota di presa in carico (facoltativa)" maxlength="500">
+            <button type="submit" class="btn btn-outline-warning">
+              <i class="bi bi-hand-index me-1"></i> Prendere in carico
+            </button>
+          </div>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('checks.resolve', incident_id=incident.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="input-group input-group-sm">
+            <input type="text" name="resolution" class="form-control" required maxlength="500"
+                   placeholder="come e' stato risolto">
+            <button type="submit" class="btn btn-outline-success">
+              <i class="bi bi-check2-circle me-1"></i> Risolvere
+            </button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-cronologia" role="tabpanel"
+     aria-labelledby="tab-cronologia">
+<div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-list-ol me-1"></i> Cronologia</h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10" data-order-column="0" data-order-dir="asc">
+            <thead>
+              <tr><th>QUANDO</th><th>AZIONE</th><th>DA</th><th>NOTA</th></tr>
+            </thead>
+            <tbody>
+              {% for e in events %}
+              <tr>
+                <td class="small">{{ e.created_at|dt }}</td>
+                <td class="small">
+                  {{ {'opened': 'aperto', 'acknowledged': 'preso in carico',
+                      'resolved': 'risolto', 'recovered': 'rientrato',
+                      'escalated': 'operatore attivato'}.get(e.action, e.action) }}
+                </td>
+                <td class="small">{{ 'sistema' if e.actor == 'system' else 'operatore' }}</td>
+                <td class="small">{{ e.note or '-' }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-center text-body-secondary py-4">
+                Nessun passaggio registrato.
+              </td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-esiti" role="tabpanel" aria-labelledby="tab-esiti">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-clock-history me-1"></i> Esiti del controllo</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
+        <thead>
+          <tr><th>ESITO</th><th>ESEGUITO</th><th>LATENZA</th><th>DETTAGLIO</th></tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if r.status == 'ok' else ('danger' if r.status == 'fail' else 'warning') }}">
+                {{ r.status }}
+              </span>
+            </td>
+            <td class="small">{{ r.executed_at|dt }}</td>
+            <td class="small">{{ '%.0f ms'|format(r.latency_ms) if r.latency_ms is not none else '-' }}</td>
+            <td class="small">{{ r.detail or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-body-secondary py-4">Nessun esito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

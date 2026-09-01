@@ -1,0 +1,151 @@
+{#
+  snap server - Dati conferiti dalle sonde.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Dati dalle sonde{% endblock %}
+{% block page_icon %}bi-cloud-arrow-down{% endblock %}
+{% block page_title %}Dati Conferiti dalle Sonde{% endblock %}
+{% block page_subtitle %}
+  Ogni lotto e' arrivato cifrato sul canale SNAP-SEC/1. Il contenuto conferito e'
+  conservato ed e' consultabile riga per riga.
+{% endblock %}
+
+{% block content %}
+{{ schede.barra([
+    ('lotti', 'Lotti ricevuti', 'bi-inboxes', deliveries|length),
+    ('fasi', 'Fasi di scansione', 'bi-radar', runs|length),
+]) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-lotti" role="tabpanel"
+     aria-labelledby="tab-lotti">
+{# Il filtro sta con la tabella che filtra: altrove la tabella sembrerebbe non
+   filtrata, ed e' un modo sicuro di leggere numeri sbagliati. #}
+<div class="card mb-3">
+  <div class="card-header"><h3 class="card-title mb-0"><i class="bi bi-funnel me-1"></i> Filtro</h3></div>
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-md-5">
+        <label class="form-label small">Sonda</label>
+        <select name="probe" class="form-select form-select-sm">
+          <option value="">tutte</option>
+          {% for p in probes %}
+          <option value="{{ p.id }}" {% if selected_probe == p.id %}selected{% endif %}>
+            {{ p.code }} - {{ p.name }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100">Applica</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-inboxes me-1"></i> Lotti ricevuti ({{ deliveries|length }})</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="50"
+             data-no-sort="AZIONI">
+        <thead>
+          <tr><th>RICEVUTO</th><th>SONDA</th><th>IDENTIFICATIVO</th><th>RECORD</th><th>BYTE</th>
+              <th>CONTENUTO</th><th>SCANSIONI</th><th>ESITO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for b in deliveries %}
+          <tr>
+            <td class="small">{{ b.received_at|dt }}<div class="text-body-secondary">{{ b.received_at|ago }}</div></td>
+            <td class="small">{{ b.probe_code or '-' }}<div class="text-body-secondary">{{ b.probe_name or '' }}</div></td>
+            {# Un identificativo esadecimale non ha spazi: senza il capo dentro la
+               parola allarga la tabella e spinge le altre colonne fuori schermo. #}
+            <td class="small font-monospace snap-wrap">{{ b.batch_uid }}</td>
+            <td class="small">{{ b.record_count }}</td>
+            <td class="small text-end">{{ b.payload_bytes|bytes }}</td>
+            <td class="small snap-wrap">
+              {% if b.contenuto %}
+              {% for nome, quanti in b.contenuto %}
+              <span class="badge text-bg-light text-dark border me-1">
+                {{ nome }}{% if quanti is not none %} {{ quanti }}{% endif %}
+              </span>
+              {% endfor %}
+              {% else %}
+              <span class="text-body-secondary">nessun record</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ b.runs }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if b.status == 'accepted' else 'warning' }}">{{ b.status }}</span>
+              {% if b.records_truncated %}<span class="badge text-bg-secondary">estratto</span>{% endif %}
+            </td>
+            <td class="text-end">
+              <a href="{{ url_for('inventory.delivery', batch_id=b.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Vedere il contenuto">
+                <i class="bi bi-eye"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-body-secondary py-5">
+              <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+              Nessun conferimento ricevuto da questo tenant.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="pane-fasi" role="tabpanel" aria-labelledby="tab-fasi">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-radar me-1"></i> Fasi di scansione eseguite</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="25">
+        <thead>
+          <tr><th>QUANDO</th><th>SONDA</th><th>FASE</th><th>BERSAGLIO</th><th>HOST</th>
+              <th>ATTIVI</th><th>RECORD</th><th>DURATA</th><th>ESITO</th><th>COMANDO</th></tr>
+        </thead>
+        <tbody>
+          {% for r in runs %}
+          <tr>
+            <td class="small">{{ r.created_at|dt }}</td>
+            <td class="small">{{ r.probe_name or '-' }}</td>
+            <td class="small"><span class="badge text-bg-primary">{{ r.stage }}</span></td>
+            <td class="small">{{ r.target }}</td>
+            <td class="small">{{ r.hosts_total }}</td>
+            <td class="small">{{ r.hosts_up }}</td>
+            <td class="small">{{ r.records }}</td>
+            <td class="small">{% if r.duration_ms %}{{ (r.duration_ms / 1000)|round(1) }} s{% else %}-{% endif %}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if r.status == 'completed' else 'warning' }}">{{ r.status }}</span>
+            </td>
+            <td class="small font-monospace">{{ r.nmap_args or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-body-secondary py-4">Nessuna fase eseguita.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+{% endblock %}

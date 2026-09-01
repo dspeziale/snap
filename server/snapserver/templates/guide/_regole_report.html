@@ -1,0 +1,424 @@
+{#
+  snap server - Guida: regole di notifica, canali, report e manutenzione.
+
+  Partial della guida della console. Sta a se' perche' index.html della guida e' gia'
+  lungo e questi tre argomenti hanno una propria completezza.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<!-- ============================================================= -->
+<h2 id="regole">12. Regole di notifica</h2>
+<p>
+  Il sistema registra molto piu' di quanto comunichi. Le notifiche del workflow
+  riguardano gli incidenti dei controlli; tutto il resto -- un nodo nuovo, una porta di
+  amministrazione che si apre, una sonda che tace, un accesso fallito -- resta scritto in
+  una tabella finche' non si crea una <strong>regola</strong>.
+</p>
+<p>
+  Una regola dice: <em>su questa sorgente di eventi, per questo tipo di evento, se queste
+  condizioni sono vere, manda un messaggio su questi canali, al massimo N volte ogni M
+  secondi</em>. Le regole stanno nel menu <strong>Regole di notifica</strong>.
+</p>
+
+<h3>Le sorgenti di evento</h3>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>SORGENTE</th><th>CHE COSA PORTA</th><th>ATTRIBUTI PER LE CONDIZIONI</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Variazioni dei nodi</td>
+        <td>nodi comparsi o scomparsi, porte aperte o chiuse, cambi di tipo, sistema
+            operativo, nome host, indirizzo fisico</td>
+        <td><code>node_ip, node_hostname, node_type, node_os, subnet, protocol, port,
+            before, after, service</code></td>
+      </tr>
+      <tr>
+        <td>Esiti dei controlli</td>
+        <td>ogni esito, anche riuscito: serve per reagire al singolo fallimento senza
+            attendere la soglia dell'incidente</td>
+        <td><code>check_name, check_kind, address, target, status, latency_ms</code></td>
+      </tr>
+      <tr>
+        <td>Passaggi degli incidenti</td>
+        <td>apertura, attivazione dell'operatore, presa in carico, rientro, risoluzione</td>
+        <td><code>incident_id, action, actor, check_name, address</code></td>
+      </tr>
+      <tr>
+        <td>Passate di scansione</td>
+        <td>esito di ogni passata: completata, fallita, scaduta</td>
+        <td><code>stage, status, probe, hosts_total, hosts_up, records, duration_ms</code></td>
+      </tr>
+      <tr>
+        <td>Conferimenti delle sonde</td>
+        <td>lotti ricevuti, compresi quelli rifiutati</td>
+        <td><code>probe, status, records, bytes</code></td>
+      </tr>
+      <tr>
+        <td>Registro delle azioni</td>
+        <td>accessi riusciti e falliti, modifiche alla configurazione, comandi alle
+            sonde, azzeramenti dell'archivio, cancellazioni</td>
+        <td><code>actor, event_type, entity, entity_id, source_ip, user</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  A questi si aggiungono gli attributi comuni: <code>type</code>, <code>severity</code>,
+  <code>subject</code>, <code>detail</code>. Gli operatori delle condizioni sono gli
+  stessi delle verifiche sui controlli: un solo modo di nominare le cose.
+</p>
+
+<h3>Regole pratiche</h3>
+<ul>
+  <li><strong>Tipo di evento</strong>: <code>*</code> vale per tutti quelli della
+      sorgente; un tipo che finisce con il punto e' un prefisso, quindi
+      <code>port.</code> prende aperture e chiusure.</li>
+  <li><strong>Condizioni</strong>: valgono tutte insieme. Per un'alternativa (questo
+      <em>oppure</em> quello) si creano due regole: si leggono e si sospendono
+      separatamente, e un albero di operatori in una pagina web e' illeggibile.</li>
+  <li><strong>Anti-alluvione</strong>: la prima passata di scoperta ha prodotto 1851
+      aperture di porta. Il limite di messaggi per finestra evita che il canale venga
+      silenziato dal destinatario. Gli eventi in piu' non si perdono: vengono registrati
+      come <em>soppressi</em> e contati nel primo messaggio successivo.</li>
+  <li><strong>Solo resoconto</strong>: una regola puo' registrare senza spedire. Cio' che
+      va saputo ma non subito appartiene al resoconto delle 07:00.</li>
+  <li><strong>Prova sulla storia</strong>: dice quante volte la regola avrebbe scattato
+      sugli ultimi eventi, senza spedire nulla. E' il solo modo onesto di attivare una
+      regola.</li>
+  <li>Una regola vale sugli eventi che accadono <strong>da quando e' stata creata</strong>:
+      non rilegge il passato, altrimenti la sua creazione produrrebbe una raffica di
+      messaggi su fatti vecchi di settimane.</li>
+  <li>Il <strong>nome</strong> compare in ogni messaggio: senza, chi lo riceve non sa dove
+      andare per non riceverlo piu'.</li>
+</ul>
+<p>
+  La scheda <strong>Regole pronte</strong> contiene le dodici piu' richieste (nodo nuovo,
+  RDP esposto, SMB, telnet, banca dati, nodo scomparso, scansione ferma, accesso
+  fallito, azzeramento di una sonda, controllo in errore, latenza oltre il secondo,
+  conferimento rifiutato). Non sono attive per difetto: una notifica che nessuno ha
+  chiesto e' rumore.
+</p>
+
+<!-- ============================================================= -->
+<h2 id="canali">13. Canali: posta e bot Telegram</h2>
+<p>
+  Una notifica in una casella viene letta quando qualcuno apre la casella. Un incidente
+  alle tre di notte ha bisogno di un canale che suoni. In
+  <strong>Amministrazione &rarr; Impostazioni &rarr; Canali e resoconto</strong> si
+  configura il <strong>bot Telegram</strong> accanto alla posta.
+</p>
+<ol>
+  <li>Su Telegram, parlare con <code>@BotFather</code>, comando <code>/newbot</code>:
+      restituisce il token.</li>
+  <li>Aggiungere il bot al gruppo (o avviare una chat con lui) e mandare un messaggio
+      qualunque.</li>
+  <li>L'identificativo della chat si legge da
+      <code>api.telegram.org/bot&lt;token&gt;/getUpdates</code>; per un gruppo comincia
+      con il segno meno.</li>
+  <li>Salvare, attivare il canale e usare <strong>Mandare un messaggio di prova</strong>:
+      la prova interroga prima l'identita' del bot, cosi' un token sbagliato e una chat
+      sbagliata si distinguono.</li>
+</ol>
+<ul>
+  <li>Il <strong>token e' una credenziale</strong>: si sostituisce solo indicandone uno
+      nuovo e non viene mai rimandato alla pagina.</li>
+  <li>La coda delle notifiche e' <strong>una sola</strong>: il canale e' una colonna.
+      Quando un messaggio non arriva c'e' un posto dove guardare, non due.</li>
+  <li>Un canale non configurato non e' un fallimento di recapito: e' una configurazione
+      mancante, e viene distinta perche' i ritentativi non la risolverebbero.</li>
+  <li>Un messaggio su Telegram contiene indirizzi e nomi host, che sono dati personali:
+      un gruppo e' un servizio di terzi, e la scelta del canale va fatta di conseguenza.</li>
+</ul>
+<h3>Come sono fatti i messaggi di posta</h3>
+<p>
+  Tutti i generi di messaggio &mdash; incidente aperto, scalato, rientrato, credenziali
+  di una nuova utenza, resoconto quotidiano, scadenze verso l'autorita' &mdash;
+  indossano <strong>la stessa cornice</strong>: marchio, una fascia di colore che
+  dichiara il tono, titolo, i fatti in tabella, il pulsante che porta alla console, e in
+  chiusura la ragione per cui il messaggio e' arrivato a quel destinatario.
+</p>
+<ul>
+  <li>La <strong>fascia</strong> distingue i toni: critico, attenzione, sereno,
+      informativo. Un incidente aperto e un incidente rientrato non possono avere lo
+      stesso colore, altrimenti la fascia non aggiunge niente.</li>
+  <li>La <strong>riga di anteprima</strong> (quella che il telefono mostra sotto
+      l'oggetto) e' scritta a mano, messaggio per messaggio. Se non si scrive, il client
+      mostra il primo testo che trova &mdash; e in una notifica di credenziali quel
+      testo sarebbe la password. Nessun messaggio mette un segreto nell'anteprima.</li>
+  <li>Nessuna <strong>risorsa esterna</strong>: nessuna immagine, nessun carattere
+      remoto, nessun pixel di tracciamento. I client bloccano le immagini per difetto, e
+      un tracciamento in un prodotto di sicurezza sarebbe una contraddizione. I soli
+      collegamenti ammessi puntano alla console del tenant.</li>
+  <li>Il <strong>testo semplice viene per primo</strong>: e' il contenuto, l'HTML e'
+      l'alternativa. Un client che non rende l'HTML mostra un messaggio completo, non un
+      messaggio vuoto.</li>
+  <li>Il pulsante compare <strong>solo se l'indirizzo pubblico della console e'
+      configurato</strong> (Amministrazione &rarr; Impostazioni): un pulsante che non
+      porta da nessuna parte e' peggio della sua assenza.</li>
+  <li>Cio' che arriva dalla rete &mdash; nome di un controllo, dettaglio di una verifica
+      &mdash; viene sempre codificato: un banner che contenesse marcatura non puo'
+      rompere il messaggio ne' iniettarvi nulla.</li>
+</ul>
+
+<!-- ============================================================= -->
+<h2 id="report">14. Report e resoconto delle 07:00</h2>
+<p>
+  Il <strong>resoconto quotidiano</strong> lo compone e lo spedisce il server, all'ora
+  configurata, nel fuso del tenant, senza che nessuno sia collegato. Copre
+  <strong>il giorno precedente per intero</strong>: e' il solo intervallo di cui si
+  conoscono tutti gli eventi.
+</p>
+<h3>Che cosa contiene, in quest'ordine</h3>
+<ol>
+  <li><strong>Da risolvere</strong>: incidenti aperti; incidenti scalati e non presi in
+      carico (qualcuno e' stato attivato e nessuno ha risposto); controlli mai riusciti
+      dalla creazione (definizione sbagliata, non servizio caduto); sonde mute da oltre
+      quindici minuti; scansioni fallite; notifiche non recapitate.</li>
+  <li><strong>Il giorno</strong>: incidenti aperti e chiusi con la durata; finestre di
+      indisponibilita' con orario; esiti dei controlli per bersaglio; variazioni
+      dell'inventario; volumi di raccolta e stato delle sonde.</li>
+  <li><strong>Tendenze</strong>: disponibilita' e latenza al 95esimo percentile sui
+      giorni configurati. Nel corpo dell'email si rendono con caratteri di blocco, non
+      con immagini: un'immagine remota viene bloccata dai client di posta.</li>
+  <li><strong>Igiene</strong>: controlli sospesi, bersagli senza controlli, nodi non
+      identificati, perimetro e occupazione.</li>
+</ol>
+<h3>Regole da conoscere</h3>
+<ul>
+  <li><strong>Un giorno senza esecuzioni non e' disponibilita' 0%</strong>: viene
+      dichiarato non misurato. Inventare uno zero dove non e' stato eseguito nulla fa
+      leggere un crollo dove c'e' solo assenza di dati.</li>
+  <li>Nei <strong>primi sette giorni</strong> di vita di un inventario le variazioni si
+      contano ma non si elencano: il primo censimento produce una variazione per ogni
+      nodo e per ogni porta trovata.</li>
+  <li>Una variazione che riguarda <strong>oltre un quinto</strong> dei nodi diventa un
+      fatto aggregato: 264 nodi con la stessa porta aperta sono un apparato che risponde
+      per altri, non 264 eventi.</li>
+  <li>Se non c'e' nulla da segnalare il resoconto <strong>si spedisce comunque</strong>,
+      in forma breve: il silenzio non si distingue da un guasto del reporting.</li>
+  <li>Un solo resoconto per giorno, anche a fronte di riavvii. La spedizione a richiesta
+      dalla pagina <strong>ripete</strong> di proposito, per provare la configurazione.</li>
+</ul>
+<h3>Il catalogo dei report</h3>
+<p>
+  Nella scheda <strong>Catalogo dei report</strong> si scelgono genere, giorno finale e
+  ampiezza del periodo. Ogni report ha un destinatario dichiarato e risponde a una
+  domanda: un documento che serve a tutti non serve a nessuno.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead>
+      <tr><th>REPORT</th><th>PER CHI</th><th>DOMANDA</th><th>AMPIEZZE</th><th>NOTE</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Sintesi esecutiva</td><td>direzione, responsabile IT</td>
+        <td>&laquo;Siamo coperti? Sta migliorando? Dove serve una decisione?&raquo;</td>
+        <td>30, 90 giorni</td>
+        <td><strong>Nessun indirizzo IP</strong> ne' nome host: un indirizzo e' un dato
+            personale e per queste risposte non serve. Porta semafori per area,
+            confronto con il periodo precedente e <strong>tre azioni proposte</strong>
+            con l'effetto atteso.</td>
+      </tr>
+      <tr>
+        <td>Inventario e valutazione tecnica</td><td>sistemisti, rete</td>
+        <td>&laquo;Che cosa c'e' in rete, con che cosa risponde, che cosa e' cambiato&raquo;</td>
+        <td>7, 30, 90 giorni</td>
+        <td>Formato <strong>orizzontale</strong>: le tabelle hanno piu' di otto colonne.
+            Perimetro dichiarato contro osservato, nodi con confidenza
+            dell'identificazione, servizi con prodotto e versione, porte aperte su una
+            quota rilevante della rete, appendice di metodologia.</td>
+      </tr>
+      <tr>
+        <td>Esercizio NOC</td><td>turno operativo</td>
+        <td>&laquo;Che disponibilita' abbiamo dato, che cosa e' instabile, che cosa e' fermo&raquo;</td>
+        <td>1, 7 giorni</td>
+        <td>E' anche l'allegato facoltativo del resoconto delle 07:00.</td>
+      </tr>
+      <tr>
+        <td>Postura di sicurezza (SOC)</td><td>sicurezza</td>
+        <td>&laquo;Che superficie esponiamo, che cosa e' cambiato, che cosa va investigato&raquo;</td>
+        <td>7, 30 giorni</td>
+        <td>Apre con <strong>cio' che e' cambiato</strong>, per categoria di rischio; poi
+            nodi comparsi e scomparsi, identita' cambiate sullo stesso indirizzo,
+            superficie esposta, SNMP leggibile, nodi fuori perimetro, porte sospette,
+            registro delle azioni, riferimenti a NIS2, CRA, GDPR, ETSI EN 303 645.</td>
+      </tr>
+      <tr>
+        <td>Vulnerabilita' ed esposizioni</td><td>sicurezza, sistemisti</td>
+        <td>&laquo;Che vulnerabilita' abbiamo dimostrato, che cosa va accertato, da
+            quale dispositivo cominciare&raquo;</td>
+        <td>7, 30, 90 giorni</td>
+        <td>Le tre classi (confermata, da verificare, esposizione) restano separate e
+            non si sommano mai. Dichiara la <strong>qualita' del dato</strong>, cioe'
+            quante porte annunciano una versione: senza versione una vulnerabilita' non
+            e' attribuibile. Le esposizioni sono raggruppate per tipo con la tecnica
+            MITRE ATT&amp;CK, la motivazione e l'azione consigliata; in chiusura i
+            dispositivi ordinati per quanto hanno da sistemare.</td>
+      </tr>
+      <tr>
+        <td>Fascicolo di conformita'</td><td>auditor, DPO, direzione</td>
+        <td>&laquo;Provate che i controlli esistono, funzionano e sono tracciati&raquo;</td>
+        <td>30, 90, 365 giorni</td>
+        <td>Controlli in vigore con soglie e recapiti, registro degli incidenti con i
+            tempi, comunicazioni inviate, conservazione dichiarata e
+            <strong>rilievi</strong> che il sistema conosce di se stesso.</td>
+      </tr>
+      <tr>
+        <td>Conformita' europea (NIS2, CRA, GDPR)</td>
+        <td>auditor, DPO, direzione, responsabile NIS2</td>
+        <td>&laquo;Che cosa possiamo dimostrare di NIS2, CRA e GDPR, e che cosa
+            no&raquo;</td>
+        <td>30, 90, 365 giorni</td>
+        <td>Un requisito per volta, con l'articolo puntuale, la prova che il sistema
+            porta e uno di <strong>quattro esiti</strong>: dimostrato, parziale, da
+            colmare, fuori portata. Copre NIS2 (dir. UE 2022/2555 e D.lgs. 138/2024),
+            CRA (reg. UE 2024/2847), GDPR (reg. UE 2016/679), ETSI EN 303 645 e le
+            linee guida ACN/AgID con OWASP ASVS. Apre dichiarando la
+            <strong>copertura delle prove</strong>, perche' un esito calcolato su
+            mezza rete non e' un esito; chiude con i rilievi in ordine di gravita' e la
+            tavola dei riferimenti normativi. <em>Fuori portata</em> non e' una
+            promozione: dice che quel requisito non si dimostra con una scansione di
+            rete.</td>
+      </tr>
+      <tr>
+        <td>Segmentazione e zone di rete</td><td>sicurezza, architetti di rete</td>
+        <td>&laquo;La segmentazione dichiarata regge? Che cosa e' raggiungibile dove non
+            dovrebbe&raquo;</td>
+        <td>7, 30, 90 giorni</td>
+        <td>Mette a confronto la rete <strong>dichiarata</strong> con quella
+            <strong>misurata</strong>: mappa delle zone, violazioni ordinate per
+            gravita', esposizioni attese con la loro ragione, <strong>reti con zona
+            dichiarata</strong> (quali subnet stanno in quale zona, con i dispositivi
+            che contengono) e perimetro non ancora descritto. E' il documento da allegare a una valutazione del rischio
+            (NIS2, art. 21). Vedi il <a href="#zone">capitolo 18</a>.</td>
+      </tr>
+      <tr>
+        <td>Igiene dell'inventario</td><td>chi gestisce il prodotto, sistemisti</td>
+        <td>&laquo;Che cosa manca per fidarsi dei numeri, e che cosa fare per
+            migliorarli&raquo;</td>
+        <td>7, 30, 90 giorni</td>
+        <td>Il documento dei punti ciechi: quanto e' identificato, quante porte
+            dichiarano una versione, quanto del perimetro e' stato visto, chi non
+            risponde e chi non e' stato interrogato, e <strong>che cosa fare, in
+            ordine</strong>. E' il primo da leggere quando un cruscotto sembra troppo
+            pulito.</td>
+      </tr>
+      <tr>
+        <td>Rapporto di incidente</td><td>chi ha gestito, chi deve notificare</td>
+        <td>&laquo;Che cosa e' accaduto, quando, chi e' stato avvisato, come e' finita&raquo;</td>
+        <td>l'incidente stesso</td>
+        <td>Si genera dalla scheda <em>Rapporti di incidente</em>. Base per il
+            post-mortem e per la notifica NIS2.</td>
+      </tr>
+      <tr>
+        <td>Scheda dell'apparato</td><td>chi interviene, fornitori, inventario d'ufficio</td>
+        <td>&laquo;Tutto cio' che sappiamo di questo apparato, in un foglio&raquo;</td>
+        <td>il dispositivo stesso</td>
+        <td>Si genera dalla pagina del dispositivo, pulsante <em>Scheda PDF</em>:
+            identita', come e' stato riconosciuto, servizi, letture SNMP in tabella,
+            cio' che l'apparato <strong>dichiara di se'</strong> nella pagina di
+            gestione e via IPP (modello, collocazione, numero di serie),
+            riscontri, sorveglianza e storia recente. E' il foglio da allegare a una
+            richiesta di intervento, per chi non ha accesso alla console.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Le ampiezze sono soltanto quelle offerte: due edizioni con intervalli arbitrari non
+  sarebbero confrontabili, e il confronto con il periodo precedente -- che nella sintesi
+  esecutiva e' l'informazione principale -- richiede due finestre della stessa lunghezza.
+  Due ampiezze dello stesso giorno restano due documenti distinti.
+</p>
+
+<h3>Nel menu Report e resoconti</h3>
+<ul>
+  <li><strong>Anteprima</strong> di un giorno qualunque, in forma HTML o testo: non
+      spedisce nulla. La prima volta che si vede un messaggio automatico non deve essere
+      nella casella del destinatario.</li>
+  <li><strong>Report NOC in PDF</strong>: disponibilita' per bersaglio, finestre di
+      indisponibilita', incidenti con i tempi, grafici delle tendenze, stato della
+      raccolta, igiene e appendice di metodologia. Puo' essere allegato al resoconto --
+      facoltativo e <strong>spento per difetto</strong>, perche' un inventario di rete che
+      finisce in una casella esterna e' un problema di riservatezza.</li>
+  <li>I report restano <strong>su disco</strong> e si riscaricano: sopravvivono ai dati
+      che riassumono, che scadono per conservazione.</li>
+  <li>Un documento superato si <strong>elimina</strong> dalla riga dell'archivio:
+      viene chiesta conferma, si cancella prima il file e poi la riga, e l'operazione
+      resta nel registro degli eventi. Se il file non fosse cancellabile la riga
+      rimane, con un messaggio esplicito: un archivio che promette una cancellazione
+      non avvenuta e' peggio di uno che dichiara il problema. Un report eliminato si
+      puo' rigenerare identico.</li>
+  <li>Ogni report apre con un <strong>frontespizio</strong>: marchio, etichetta del
+      genere, titolo, tenant e istante, tavola dei riferimenti (versione, console,
+      intervallo, fuso, sonde), indice delle sezioni e nota di provenienza -- che
+      dichiara che <strong>nessuna scansione e' stata avviata</strong> per produrre il
+      documento.</li>
+  <li>Ogni genere ha una <strong>fascia di colore propria</strong> (direzione blu notte,
+      inventario verde petrolio, NOC verde oliva, sicurezza bordeaux, conformita'
+      indaco, incidente terra bruciata, segmentazione verde smeraldo, igiene ocra,
+      apparato ardesia), sempre accompagnata dall'etichetta in testo:
+      il colore da solo non basta per la stampa in bianco e nero.</li>
+  <li>Tutte le date e le ore, nelle pagine e nei report, sono <strong>nel fuso del
+      tenant</strong> (Impostazioni &rarr; Generali). L'unica eccezione e' dichiarata:
+      la riga <em>Generato il (UTC)</em> nella tavola dei riferimenti, che serve a
+      confrontare due documenti prodotti da fusi diversi. Le date di calendario &mdash;
+      il giorno a cui si riferisce un resoconto &mdash; non vengono convertite: un
+      giorno non ha un'ora, e convertirlo lo sposterebbe.</li>
+  <li>Tipografia <strong>PT Sans Narrow</strong> (titoli), PT Sans (corpo) e PT Mono
+      (indirizzi e porte), incorporati nel PDF. Se i file dei caratteri vengono rimossi
+      il generatore ripiega su Helvetica e lo dichiara nel pie' di pagina.</li>
+</ul>
+
+<!-- ============================================================= -->
+<h2 id="archivio">15. Archivio: dimensione, conservazione, copie</h2>
+<p>
+  In <strong>Amministrazione &rarr; Impostazioni &rarr; Archivio e copie</strong>: quanto
+  occupa cio' che si conserva, per quanto lo si conserva, e come lo si riporta in vita se
+  lo si perde.
+</p>
+<h3>Dimensione</h3>
+<ul>
+  <li>Dimensione del file, <strong>spazio riutilizzabile</strong> interno, registro WAL,
+      righe totali, spazio libero sul volume, ripartizione per tabella.</li>
+  <li>Dopo un'eliminazione <strong>il file non si riduce</strong>: lo spazio resta dentro
+      l'archivio e viene riusato. Per restituirlo al disco serve la
+      <strong>compattazione</strong>, che riscrive l'intero file ed e' percio'
+      un'operazione a se'.</li>
+</ul>
+<h3>Conservazione</h3>
+<ul>
+  <li>Una durata <strong>per genere di dato</strong>, con la motivazione accanto: i
+      campioni di raggiungibilita' sono migliaia al giorno e valgono novanta giorni, il
+      registro delle azioni vale due anni perche' e' cio' che si mostra a un auditor.</li>
+  <li><code>0</code> significa <strong>non scade</strong>. I report non scadono.</li>
+  <li><strong>Simulare l'applicazione</strong> conta senza eliminare: e' la risposta a
+      "quanto libero?" prima di un'operazione che non si annulla.</li>
+  <li>Riservata all'amministratore di sistema: vale per tutti i tenant ed e' una scelta
+      con conseguenze legali (GDPR art. 5(1)(e), NIS2).</li>
+</ul>
+<h3>Copie e ripristino</h3>
+<ul>
+  <li>La copia usa l'API di backup di SQLite, <strong>non</strong> la copia del file: un
+      file copiato mentre il server scrive puo' essere incoerente.</li>
+  <li>Ogni copia viene <strong>verificata appena prodotta</strong>; se non passa viene
+      eliminata, perche' un file parziale sarebbe indistinguibile da una copia buona.</li>
+  <li>Una copia contiene <strong>tutti i tenant</strong>, gli indirizzi di rete e le
+      credenziali di servizio: va trattata come l'archivio stesso.</li>
+  <li>Il ripristino riversa la copia <strong>dentro</strong> l'archivio in esercizio, in
+      una transazione: le connessioni aperte continuano a vedere dati validi. Prima
+      viene salvata da se' una copia dello stato corrente.</li>
+  <li>Serve una <strong>conferma digitata</strong>: e' l'operazione piu' distruttiva del
+      prodotto.</li>
+  <li>Il ripristino riporta anche il <strong>registro delle azioni</strong>: gli eventi
+      successivi alla copia non ci saranno piu'. L'unica traccia che resta e' quella del
+      ripristino stesso.</li>
+  <li>Copia, ripristino e durate sono riservati all'<strong>amministratore di
+      sistema</strong>.</li>
+</ul>

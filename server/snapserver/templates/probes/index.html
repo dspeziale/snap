@@ -1,0 +1,95 @@
+{#
+  snap server - Flotta delle sonde registrate.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Flotta sonde{% endblock %}
+{% block page_icon %}bi-broadcast-pin{% endblock %}
+{% block page_title %}Flotta Sonde{% endblock %}
+{% block page_subtitle %}
+  Il server non contatta le sonde: ogni scambio e' iniziato dalla sonda su canale cifrato.
+{% endblock %}
+
+{% block page_actions %}
+{% if has_role('tenant_admin') %}
+<a href="{{ url_for('probes.create') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-plus-lg me-1"></i> Registra nuova sonda
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h3 class="card-title mb-0"><i class="bi bi-diagram-2 me-1"></i> Sonde censite ({{ fleet|length }})</h3>
+    <small class="text-body-secondary">
+      Soglia di irraggiungibilita': {{ offline_after }} secondi
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25">
+        <thead>
+          <tr><th>STATO</th><th>CODICE</th><th>NOME</th><th>SEDE</th><th>VERSIONE</th>
+              <th>INTERVALLO</th><th>ULTIMO CONTATTO</th><th>ULTIMO CONFERIMENTO</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for probe in fleet %}
+          <tr>
+            <td>
+              <span class="snap-dot snap-dot-{{ probe.health }}"></span>
+              <span class="small">
+                {% if probe.health == 'online' %}Attiva
+                {% elif probe.health == 'pending' %}In attesa di registrazione
+                {% elif probe.health == 'revoked' %}Revocata
+                {% else %}Non raggiungibile{% endif %}
+              </span>
+            </td>
+            <td class="fw-semibold">
+              <a href="{{ url_for('probes.detail', probe_id=probe.id) }}" class="text-decoration-none">
+                {{ probe.code }}
+              </a>
+            </td>
+            <td>{{ probe.name }}</td>
+            <td class="small">{{ probe.site or '-' }}</td>
+            <td class="small">{{ probe.agent_version or '-' }}</td>
+            <td class="small">{{ probe.scan_interval_sec }} s</td>
+            <td class="small">
+              {{ probe.last_seen_at|dt }}
+              <div class="text-body-secondary">{{ probe.last_seen_at|ago }}</div>
+            </td>
+            <td class="small">
+              {{ probe.last_sync_at|dt }}
+              <div class="text-body-secondary">{{ probe.last_sync_at|ago }}</div>
+            </td>
+            <td class="text-end">
+              <a href="{{ url_for('probes.detail', probe_id=probe.id) }}"
+                 class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-gear"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="9" class="text-center text-body-secondary py-5">
+              <i class="bi bi-broadcast fs-3 d-block mb-2"></i>
+              Nessuna sonda censita per questo tenant.
+              {% if has_role('tenant_admin') %}
+              <div class="mt-2">
+                <a href="{{ url_for('probes.create') }}" class="btn btn-sm btn-primary">
+                  Registra la prima sonda
+                </a>
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

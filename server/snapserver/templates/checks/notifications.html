@@ -1,0 +1,130 @@
+{#
+  snap server - Coda delle notifiche del workflow.
+
+  Perche' una pagina: una notifica non recapitata deve restare visibile con il
+  proprio errore. Una notifica persa in silenzio e' peggio di una non inviata,
+  perche' chi la attendeva crede di essere stato avvisato.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Notifiche{% endblock %}
+{% block page_icon %}bi-envelope-paper{% endblock %}
+{% block page_title %}Notifiche del Workflow{% endblock %}
+{% block page_subtitle %}
+  Ogni passaggio di un incidente -- apertura, attivazione dell'operatore, rientro,
+  presa in carico, risoluzione -- produce una notifica. Vengono accodate qui e spedite
+  da un processo a se': un server di posta lento non deve rallentare il conferimento
+  dei dati dalle sonde.
+{% endblock %}
+
+{% block content %}
+{% if not configured %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <i class="bi bi-exclamation-triangle me-1"></i>
+    <strong>Posta non configurata.</strong> Le notifiche vengono comunque accodate e
+    restano in attesa: appena si indicano server e mittente, partono senza perdere nulla.
+  </div>
+  {% if has_role('tenant_admin') %}
+  <a href="{{ url_for('admin.settings') }}" class="btn btn-sm btn-warning">
+    Configurare la posta <i class="bi bi-arrow-right ms-1"></i>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  {% for voce in [
+      ('INVIATE', summary.sent, 'bi-check-circle', 'success'),
+      ('IN ATTESA', summary.pending, 'bi-hourglass-split',
+       'warning' if summary.pending else 'secondary'),
+      ('NON RIUSCITE', summary.failed, 'bi-x-octagon',
+       'danger' if summary.failed else 'secondary'),
+      ('SENZA RECAPITO', summary.skipped, 'bi-person-slash',
+       'warning' if summary.skipped else 'secondary')] %}
+  <div class="col-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0">{{ voce[1] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-list-ul me-1"></i> Ultime {{ notifications|length }} notifiche
+    </h3>
+    {% if has_role('analyst') %}
+    <form method="post" action="{{ url_for('checks.dispatch_notifications') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-primary">
+        <i class="bi bi-send me-1"></i> Spedire ora quanto e' in attesa
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25">
+        <thead>
+          <tr><th>STATO</th><th>MOMENTO</th><th>QUANDO</th><th>DESTINATARI</th>
+              <th>OGGETTO</th><th>TENTATIVI</th><th>ERRORE</th></tr>
+        </thead>
+        <tbody>
+          {% for n in notifications %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-{{ {'sent': 'success', 'pending': 'warning',
+                                             'failed': 'danger',
+                                             'skipped': 'secondary'}.get(n.status, 'secondary') }}">
+                {{ {'sent': 'inviata', 'pending': 'in attesa', 'failed': 'non riuscita',
+                    'skipped': 'saltata'}.get(n.status, n.status) }}
+              </span>
+            </td>
+            <td class="small">{{ events[n.event] if n.event in events else n.event }}</td>
+            <td class="small">
+              {{ (n.sent_at or n.created_at)|dt }}
+              {% if n.incident_id %}
+              <div>
+                <a href="{{ url_for('checks.incident', incident_id=n.incident_id) }}"
+                   class="text-decoration-none">incidente {{ n.incident_id }}</a>
+              </div>
+              {% endif %}
+            </td>
+            <td class="small">{{ n.recipients or '-' }}</td>
+            <td class="small">
+              <details>
+                <summary>{{ n.subject|truncate(60) }}</summary>
+                <pre class="small mb-0 mt-1" style="white-space:pre-wrap">{{ n.body }}</pre>
+              </details>
+            </td>
+            <td class="small">{{ n.attempts }}</td>
+            <td class="small">{{ n.last_error or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-body-secondary py-5">
+              <i class="bi bi-envelope fs-3 d-block mb-2"></i>
+              Nessuna notifica: arrivano con i passaggi di stato degli incidenti.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

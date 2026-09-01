@@ -1,0 +1,670 @@
+{#
+  snap server - Un controllo: definizione, esiti conservati e gestione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}{{ check.name }}{% endblock %}
+
+{% block page_icon %}bi-clipboard-check{% endblock %}
+{% block page_title %}{{ check.name }}{% endblock %}
+{% block page_subtitle %}
+  {{ kinds[check.kind] if check.kind in kinds else check.kind }} su
+  <span class="font-monospace">{{ check.address }}</span> — {{ check.description }}
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('checks.target', target_id=check.target_id) }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> {{ check.target_name }}
+  </a>
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+  {% if has_role('analyst') %}
+  <form method="post" action="{{ url_for('checks.run_now', check_id=check.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" class="btn btn-sm btn-primary">
+      <i class="bi bi-play-circle me-1"></i> Provare adesso
+    </button>
+  </form>
+  {% endif %}
+  {% if has_role('tenant_admin') %}
+  {# La configurazione si modifica nella scheda Definizione: qui basta il richiamo,
+     perche' due moduli per la stessa cosa divergono. #}
+  <button type="button" class="btn btn-sm btn-outline-primary"
+          data-snap-scheda="definizione">
+    <i class="bi bi-pencil me-1"></i> Modificare la configurazione
+  </button>
+  {% endif %}
+  </div>
+</div>
+
+{% if request.args.get('attesa') %}
+{# L'attesa e' dichiarata nella pagina: un esito che arriva senza che nulla lo
+   annunci si perde fra gli altri. Il riquadro si aggiorna da se' e scompare. #}
+<div class="alert alert-info d-flex align-items-center gap-2" id="attesa-prova"
+     data-ultimo="{{ results[0].id if results else 0 }}"
+     data-sorgente="{{ url_for('checks.latest_result', check_id=check.id) }}">
+  <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+  <span id="attesa-testo">Prova richiesta: in attesa dell'esito dalla sonda...</span>
+</div>
+{% endif %}
+
+{% set scheda_iniziale = request.args.get('scheda') %}
+{{ schede.barra([
+    ('andamento', 'Andamento delle misure', 'bi-graph-up-arrow',
+     charts|rejectattr('constant')|list|length),
+    ('definizione', 'Definizione', 'bi-sliders', none),
+    ('misure', 'Metriche raccolte', 'bi-speedometer2', metrics|length),
+    ('esiti', 'Esiti conservati', 'bi-clock-history', results|length),
+    ('incidenti', 'Incidenti', 'bi-exclamation-triangle',
+     incidents|selectattr('check_id', 'equalto', check.id)|list|length),
+], apri=scheda_iniziale) }}
+
+<div class="tab-content">
+
+<div class="tab-pane fade {{ 'show active' if scheda_iniziale == 'definizione' }}"
+     id="pane-definizione" role="tabpanel" aria-labelledby="tab-definizione">
+{% if has_role('tenant_admin') %}
+{# Modulo di modifica: la stessa maschera della creazione, precompilata. Cancellare e
+   ricreare non e' un'alternativa, perche' porterebbe via esiti, misure e incidenti. #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-pencil-square me-1"></i> Modificare la configurazione
+    </h3>
+    <small class="text-body-secondary">
+      lo storico degli esiti e delle misure non viene toccato
+    </small>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('checks.update_check', check_id=check.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-3">
+        <div class="col-12 col-md-3">
+          <label class="form-label small">GENERE</label>
+          <input type="text" class="form-control" disabled
+                 value="{{ kinds[check.kind] if check.kind in kinds else check.kind }}">
+          <div class="form-text">
+            Non si cambia: e' cio' che il controllo misura. Per un'altra verifica si
+            crea un controllo nuovo.
+          </div>
+        </div>
+        <div class="col-12 col-md-5">
+          <label class="form-label small">NOME</label>
+          <input type="text" name="name" class="form-control" maxlength="120"
+                 value="{{ check.name }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">GRAVITA</label>
+          <select name="severity" class="form-select">
+            {% for s in severities %}
+            <option value="{{ s }}" {{ 'selected' if s == check.severity }}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2 d-flex align-items-center">
+          <div class="form-check form-switch mt-4">
+            <input class="form-check-input" type="checkbox" name="is_enabled"
+                   id="controllo-attivo" {{ 'checked' if check.is_enabled }}>
+            <label class="form-check-label small" for="controllo-attivo">attivo</label>
+          </div>
+        </div>
+
+        {% if check.kind == 'ports' %}
+        <div class="col-12">
+          <label class="form-label small">PORTE DA VERIFICARE</label>
+          <input type="text" name="ports" class="form-control"
+                 value="{{ check.config.ports
+                            |map(attribute='port')|join(', ') if check.config.ports }}">
+          <div class="form-text">
+            Numeri separati da virgola; il protocollo si indica come <code>udp/161</code>.
+            Attuale: <code>{{ check.description }}</code>
+          </div>
+        </div>
+        {% elif check.kind == 'http' %}
+        <div class="col-12 col-md-7">
+          <label class="form-label small">URL DELL'ENDPOINT</label>
+          <input type="url" name="url" class="form-control" value="{{ check.config.url }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">METODO</label>
+          <select name="method" class="form-select">
+            {% for m in ['GET', 'HEAD'] %}
+            <option value="{{ m }}" {{ 'selected' if check.config.method == m }}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">STATO ATTESO</label>
+          <input type="number" name="expect_status" class="form-control" min="100" max="599"
+                 value="{{ check.config.expect_status or 200 }}">
+        </div>
+        <div class="col-12">
+          <label class="form-label small">VERIFICHE SUL CONTENUTO JSON</label>
+          <div class="form-text mb-2">
+            Una riga svuotata rimuove la verifica; le righe vuote in fondo servono ad
+            aggiungerne.
+          </div>
+          {% set verifiche = (check.config.assertions or []) %}
+          {% for indice in range(verifiche|length + 3) %}
+          {% set v = verifiche[indice] if indice < verifiche|length else none %}
+          <div class="row g-2 mb-2">
+            <div class="col-12 col-md-5">
+              <input type="text" name="assert_path" class="form-control form-control-sm"
+                     value="{{ v.path if v else '' }}" placeholder="status">
+            </div>
+            <div class="col-6 col-md-3">
+              <select name="assert_op" class="form-select form-select-sm">
+                {% for chiave, etichetta in assertion_ops.items() %}
+                <option value="{{ chiave }}"
+                        {{ 'selected' if v and v.op == chiave }}>{{ etichetta }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6 col-md-4">
+              <input type="text" name="assert_value" class="form-control form-control-sm"
+                     value="{{ v.value if v and v.value is defined else '' }}"
+                     placeholder="ok">
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="col-12">
+          {# Il modulo dichiara di portare la scelta: uno che non la contiene -- la
+             creazione -- non deve azzerarla. #}
+          <input type="hidden" name="metrics_present" value="1">
+          <label class="form-label small">DATI DA MEMORIZZARE E MOSTRARE</label>
+          <div class="form-text mb-2">
+            Senza spunte si conserva tutto cio' che la risposta contiene, fino a
+            {{ max_metrics }} valori per esito. Spuntando qualcosa si conservano
+            soltanto quei percorsi: i dati esclusi <strong>non vengono
+            cancellati</strong>, restano in archivio e scompaiono dalla vista. Il
+            tempo di risposta si conserva sempre.
+          </div>
+          {% if available_metrics %}
+          <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-snap-spunta="tutti" data-snap-gruppo="scelta-misure">
+              <i class="bi bi-check-all me-1"></i> tutti
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-snap-spunta="nessuno" data-snap-gruppo="scelta-misure">
+              <i class="bi bi-x me-1"></i> nessuno
+            </button>
+            <input type="search" class="form-control form-control-sm w-auto"
+                   placeholder="filtrare l'elenco" data-snap-filtro="scelta-misure"
+                   aria-label="filtrare i percorsi">
+            <span class="text-body-secondary small">
+              {{ available_metrics|length }} percorsi disponibili,
+              {{ selected_metrics|length or 'tutti' }} scelti
+            </span>
+          </div>
+          <div class="row g-1 border rounded p-2 mb-2 scelta-misure" id="scelta-misure">
+            {% for voce in available_metrics %}
+            <div class="col-12 col-md-6 col-xl-4" data-voce="{{ voce.name }}">
+              <div class="form-check small mb-0">
+                <input class="form-check-input" type="checkbox" name="metrics"
+                       value="{{ voce.name }}" id="misura-{{ loop.index }}"
+                       {{ 'checked' if voce.name in selected_metrics }}>
+                <label class="form-check-label text-truncate d-block"
+                       for="misura-{{ loop.index }}" title="{{ voce.name }}">
+                  <span class="font-monospace">{{ voce.label }}</span>
+                  {# Il valore accanto al percorso e' cio' che rende la scelta
+                     possibile: `metrics.5` non dice nulla, `metrics.5 = 41.2` si'. #}
+                  {% if voce.value is not none %}
+                  <span class="text-body-secondary">= {{ voce.value }}</span>
+                  {% elif voce.text_value %}
+                  <span class="text-body-secondary">= {{ voce.text_value }}</span>
+                  {% endif %}
+                  {% if not voce.stored %}
+                  <span class="badge text-bg-light border">nuovo</span>
+                  {% endif %}
+                </label>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="small text-body-secondary">
+            L'elenco compare dopo il primo esito con una risposta JSON: i percorsi si
+            ricavano da cio' che l'endpoint restituisce davvero, non si scrivono a
+            memoria.
+          </p>
+          {% endif %}
+          <label class="form-label small">ALTRI PERCORSI, UNO PER RIGA</label>
+          <textarea name="metrics_extra" class="form-control form-control-sm"
+                    rows="{{ 2 if not extra_metrics else extra_metrics|length + 1 }}"
+                    placeholder="metrics.queue_depth">{{ extra_metrics|join('\n') }}</textarea>
+          <div class="form-text">
+            Per un dato che l'endpoint restituisce solo in certe condizioni -- un
+            errore, una coda -- e che quindi non compare fra le caselle.
+          </div>
+        </div>
+        {% else %}
+        <div class="col-12">
+          <p class="small text-body-secondary mb-0">
+            La presenza in rete non ha parametri propri: si governa con cadenza, tempo
+            massimo e soglie.
+          </p>
+        </div>
+        {% endif %}
+
+        <div class="col-6 col-md-3">
+          <label class="form-label small">CADENZA (secondi)</label>
+          <input type="number" name="interval_seconds" class="form-control" min="30"
+                 max="86400" value="{{ check.interval_seconds }}">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label small">TEMPO MASSIMO (secondi)</label>
+          <input type="number" name="timeout_seconds" class="form-control" min="1" max="120"
+                 value="{{ check.timeout_seconds }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">INCIDENTE A</label>
+          <input type="number" name="failure_threshold" class="form-control" min="1" max="20"
+                 value="{{ check.failure_threshold }}">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label small">OPERATORE A</label>
+          <input type="number" name="escalation_threshold" class="form-control" min="1"
+                 max="200" value="{{ check.escalation_threshold }}">
+        </div>
+        <div class="col-12 col-md-2 d-flex align-items-end">
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-save me-1"></i> Salvare
+          </button>
+        </div>
+        <div class="col-12 col-md-6">
+          <label class="form-label small">RECAPITO DELL'OPERATORE</label>
+          <input type="email" name="escalation_email" class="form-control" maxlength="254"
+                 value="{{ check.escalation_email or '' }}"
+                 placeholder="vuoto: email di riferimento del tenant">
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-sliders me-1"></i> In vigore adesso</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5">Genere</dt>
+          <dd class="col-7">{{ kinds[check.kind] if check.kind in kinds else check.kind }}</dd>
+          <dt class="col-5">Bersaglio</dt>
+          <dd class="col-7 font-monospace">{{ check.address }}</dd>
+          <dt class="col-5">Cadenza</dt>
+          <dd class="col-7">{{ check.interval_seconds }} s</dd>
+          <dt class="col-5">Tempo massimo</dt>
+          <dd class="col-7">{{ check.timeout_seconds }} s</dd>
+          <dt class="col-5">Gravita'</dt>
+          <dd class="col-7">{{ check.severity }}</dd>
+          <dt class="col-5">Apertura incidente</dt>
+          <dd class="col-7">dopo {{ check.failure_threshold }} fallimenti consecutivi</dd>
+          <dt class="col-5">Attivazione operatore</dt>
+          <dd class="col-7">
+            dopo {{ check.escalation_threshold }} fallimenti consecutivi
+            <div class="text-body-secondary">
+              da quel momento l'incidente non si chiude piu' da se'
+            </div>
+          </dd>
+          <dt class="col-5">Recapito</dt>
+          <dd class="col-7">
+            {{ check.escalation_email or 'email di riferimento del tenant' }}
+          </dd>
+          <dt class="col-5">Stato</dt>
+          <dd class="col-7">{{ 'attivo' if check.is_enabled else 'sospeso' }}</dd>
+        </dl>
+        {% if check.kind == 'http' and check.config.assertions %}
+        <hr>
+        <p class="small text-body-secondary mb-1">VERIFICHE SUL CONTENUTO</p>
+        <ul class="small mb-0">
+          {% for v in check.config.assertions %}
+          <li><code>{{ v.path }}</code> {{ assertion_ops[v.op] if v.op in assertion_ops else v.op }}
+            {% if v.value is defined %}<code>{{ v.value }}</code>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-incidenti" role="tabpanel"
+     aria-labelledby="tab-incidenti">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-exclamation-triangle me-1"></i> Incidenti di questo controllo</h3>
+  </div>
+  <div class="card-body p-0">
+    {% set incidents = incidents|selectattr('check_id', 'equalto', check.id)|list %}
+    {% include 'checks/_incidents_table.html' %}
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade {{ '' if scheda_iniziale == 'definizione' else 'show active' }}"
+     id="pane-andamento" role="tabpanel" aria-labelledby="tab-andamento">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-graph-up-arrow me-1"></i> Andamento delle misure
+    </h3>
+    <small class="text-body-secondary">
+      {% if selected_metrics %}solo i dati scelti{% else %}tutte le misure numeriche{% endif %}:
+      {{ charts|rejectattr('constant')|list|length }} con variazioni,
+      {{ charts|selectattr('constant')|list|length }} costanti
+      {%- if charts_omitted %}, {{ charts_omitted }} oltre la guardia di pagina{% endif %}.
+      Il tracciato mostra le ultime {{ charts[0].points|length if charts else 0 }} misure.
+    </small>
+  </div>
+  <div class="card-body">
+    {% set variabili = charts|rejectattr('constant')|list %}
+    {% set costanti = charts|selectattr('constant')|list %}
+    {% if variabili %}
+    {# Quattro per riga su schermo ampio: quindici contatori applicativi devono
+       stare in una schermata, non in tre. I riferimenti numerici stanno qui in
+       intestazione, non dentro il tracciato. #}
+    <div class="row g-2">
+      {% for serie in variabili %}
+      <div class="col-12 col-sm-6 col-lg-4 col-xxl-3">
+        <div class="border rounded px-2 py-1 h-100">
+          <div class="d-flex justify-content-between align-items-baseline gap-1">
+            <span class="small font-monospace fw-semibold text-truncate"
+                  title="{{ serie.name }}">{{ serie.label }}</span>
+            <span class="small fw-semibold text-nowrap">
+              {% if serie.binary %}{{ serie.positive_ratio }}%
+              {% else %}{{ '%g'|format(serie.last) }}{% endif %}
+            </span>
+          </div>
+          <div class="text-body-secondary" style="font-size:.72rem;line-height:1.1">
+            {% if serie.binary %}
+            {# Per una serie 0/1 la media non si legge: la disponibilita' si'. #}
+            positiva su {{ serie.samples }} campioni
+            {% else %}
+            {{ '%g'|format(serie.min) }} … {{ '%g'|format(serie.max) }}
+            &middot; media {{ '%.2f'|format(serie.avg) }}
+            &middot; {{ serie.samples }} camp.
+            {% endif %}
+          </div>
+          <div class="{{ 'text-success' if serie.binary and serie.positive_ratio == 100
+                         else ('text-danger' if serie.binary else 'text-primary') }}"
+               data-snap-grafico data-compatto="1"
+               data-altezza="{{ 44 if serie.binary else 64 }}"
+               data-etichetta="{{ serie.label }}"
+               data-punti='{{ serie.points|tojson }}'></div>
+          <div class="text-end">
+            <a href="{{ url_for('checks.check', check_id=check.id, metric=serie.name) }}"
+               class="small text-decoration-none" title="Serie storica completa">
+              <i class="bi bi-arrows-angle-expand"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if costanti %}
+    {# Una retta orizzontale occupa spazio senza aggiungere nulla: il valore
+       costante si dichiara in una riga, con da quanti campioni non cambia. #}
+    <div class="{{ 'mt-3 pt-3 border-top' if variabili }}">
+      <p class="small text-body-secondary mb-2">
+        SENZA VARIAZIONI ({{ costanti|length }})
+      </p>
+      <div class="d-flex flex-wrap gap-2">
+        {% for serie in costanti %}
+        <span class="badge text-bg-light border">
+          <span class="font-monospace" title="{{ serie.name }}">{{ serie.label }}</span>
+          = {{ '%g'|format(serie.last) }}
+          <span class="text-body-secondary">su {{ serie.samples }} campioni</span>
+        </span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if not charts %}
+    <p class="text-body-secondary small mb-0 text-center py-4">
+      <i class="bi bi-graph-up fs-3 d-block mb-2"></i>
+      Nessun andamento da rappresentare: servono almeno due misure numeriche.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+</div>
+
+<div class="tab-pane fade" id="pane-misure" role="tabpanel" aria-labelledby="tab-misure">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-speedometer2 me-1"></i> Metriche raccolte ({{ metrics|length }})
+    </h3>
+    <small class="text-body-secondary">
+      Il valore corrente da solo non dice nulla: accanto c'e' la sintesi delle ultime 24 ore.
+      {% if selected_metrics %}
+      {# La vista filtrata va dichiarata: chi non sa della scelta cerchera' un dato
+         che c'e', in archivio, e non lo trovera'. #}
+      <span class="d-block">
+        <i class="bi bi-funnel me-1"></i>
+        Vista limitata ai {{ selected_metrics|length }} dati scelti nella
+        <a href="#" data-snap-scheda="definizione">Definizione</a>: gli altri restano
+        in archivio.
+      </span>
+      {% endif %}
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25"
+             data-no-sort="SERIE">
+        <thead>
+          <tr><th>MISURA</th><th>VALORE CORRENTE</th><th>MISURATA</th><th>MIN 24H</th>
+              <th>MEDIA 24H</th><th>MAX 24H</th><th>CAMPIONI</th><th>SERIE</th></tr>
+        </thead>
+        <tbody>
+          {% for m in metrics %}
+          <tr>
+            <td class="small font-monospace">{{ m.name }}</td>
+            <td class="small fw-semibold">
+              {% if m.value is not none %}{{ '%g'|format(m.value) }}{% endif %}
+              {% if m.text_value %}<span class="fw-normal">{{ m.text_value }}</span>{% endif %}
+            </td>
+            <td class="small">{{ m.measured_at|dt }}</td>
+            <td class="small">{{ '%g'|format(m.min_24h) if m.min_24h is not none else '-' }}</td>
+            <td class="small">{{ '%.2f'|format(m.avg_24h) if m.avg_24h is not none else '-' }}</td>
+            <td class="small">{{ '%g'|format(m.max_24h) if m.max_24h is not none else '-' }}</td>
+            <td class="small">
+              {{ m.samples }}
+              {% if m.value is none and m.distinct_texts > 1 %}
+              <span class="badge text-bg-warning ms-1"
+                    title="valori distinti osservati">{{ m.distinct_texts }} valori</span>
+              {% endif %}
+            </td>
+            <td class="text-end">
+              <a href="{{ url_for('checks.check', check_id=check.id, metric=m.name) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Vedere la serie storica">
+                <i class="bi bi-graph-up"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="8" class="text-center text-body-secondary py-5">
+              <i class="bi bi-speedometer2 fs-3 d-block mb-2"></i>
+              Nessuna misura: arrivano con gli esiti di questo controllo.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if series_name %}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-graph-up me-1"></i> Serie di
+      <span class="font-monospace" title="{{ series_name }}">{{ series_label }}</span>
+      ({{ series|length }} misure)
+    </h3>
+    <a href="{{ url_for('checks.check', check_id=check.id) }}"
+       class="btn btn-sm btn-outline-secondary">Chiudere</a>
+  </div>
+  <div class="card-body">
+    <div class="text-primary mb-3" data-snap-grafico data-altezza="200"
+         data-etichetta="{{ series_label }}"
+         data-punti='{{ series_points|tojson }}'></div>
+  </div>
+  <div class="card-body p-0 pt-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead><tr><th>MISURATA</th><th>VALORE</th></tr></thead>
+        <tbody>
+          {% for s in series %}
+          <tr>
+            <td class="small">{{ s.measured_at|dt }}</td>
+            <td class="small">
+              {% if s.value is not none %}{{ '%g'|format(s.value) }}{% endif %}
+              {% if s.text_value %}<span class="text-body-secondary">{{ s.text_value }}</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="text-center text-body-secondary py-4">
+            Nessuna misura con questo nome.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+</div>
+
+<div class="tab-pane fade" id="pane-esiti" role="tabpanel" aria-labelledby="tab-esiti">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-clock-history me-1"></i> Esiti conservati ({{ results|length }})</h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25">
+        <thead>
+          <tr><th>ESITO</th><th>ESEGUITO</th><th>LATENZA</th><th>DETTAGLIO</th>
+              <th>RISPOSTA</th><th>SONDA</th></tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if r.status == 'ok' else ('danger' if r.status == 'fail' else 'warning') }}">
+                {{ r.status }}
+              </span>
+            </td>
+            <td class="small">{{ r.executed_at|dt }}</td>
+            <td class="small">{{ '%.0f ms'|format(r.latency_ms) if r.latency_ms is not none else '-' }}</td>
+            <td class="small">{{ r.detail or '-' }}</td>
+            <td class="small">
+              {% if r.payload_json %}
+              <details>
+                <summary class="text-body-secondary">vedere</summary>
+                <pre class="small mb-0 mt-1" style="white-space:pre-wrap">{{ r.payload_json }}</pre>
+              </details>
+              {% else %}-{% endif %}
+            </td>
+            <td class="small text-body-secondary">{{ r.probe_name or '-' }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="6" class="text-center text-body-secondary py-5">
+              <i class="bi bi-clock-history fs-3 d-block mb-2"></i>
+              Nessun esito: il controllo non e' ancora stato eseguito da alcuna sonda.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  /* Attesa dell'esito della prova: si interroga l'ultimo esito finche' non ne
+     compare uno nuovo rispetto a quello mostrato al caricamento. Senza un limite
+     l'interrogazione continuerebbe per sempre su una sonda che non risponde. */
+  (function () {
+    "use strict";
+    var riquadro = document.getElementById("attesa-prova");
+    if (!riquadro) { return; }
+
+    var testo = document.getElementById("attesa-testo");
+    var ultimo = parseInt(riquadro.getAttribute("data-ultimo") || "0", 10);
+    var sorgente = riquadro.getAttribute("data-sorgente");
+    var tentativi = 0;
+    var MASSIMO = 30;   /* trenta tentativi da due secondi: un minuto */
+
+    function annuncia(esito) {
+      riquadro.classList.remove("alert-info");
+      riquadro.classList.add(esito.stato === "ok" ? "alert-success" : "alert-warning");
+      riquadro.querySelector(".spinner-border").remove();
+      testo.textContent = "Esito della prova: " + esito.stato + " — " +
+        (esito.dettaglio || "") +
+        (esito.latenza_ms !== null && esito.latenza_ms !== undefined
+          ? " (" + Math.round(esito.latenza_ms) + " ms)" : "");
+      /* La pagina si ricarica per mostrare l'esito fra gli altri e le misure. */
+      window.setTimeout(function () { window.location.reload(); }, 2500);
+    }
+
+    function interroga() {
+      tentativi += 1;
+      if (tentativi > MASSIMO) {
+        riquadro.classList.replace("alert-info", "alert-secondary");
+        var attesa = riquadro.querySelector(".spinner-border");
+        if (attesa) { attesa.remove(); }
+        testo.textContent = "Nessun esito entro un minuto: la sonda potrebbe essere " +
+          "irraggiungibile o le scansioni sospese. L'esito comparira' quando arriva.";
+        return;
+      }
+      fetch(sorgente, { headers: { "Accept": "application/json" } })
+        .then(function (risposta) { return risposta.json(); })
+        .then(function (dati) {
+          if (dati.presente && dati.id > ultimo) {
+            annuncia(dati);
+            return;
+          }
+          window.setTimeout(interroga, 2000);
+        })
+        .catch(function () {
+          /* Errore di rete verso la console locale: si riprova, e il limite dei
+             tentativi impedisce che duri per sempre. */
+          window.setTimeout(interroga, 2000);
+        });
+    }
+
+    window.setTimeout(interroga, 1500);
+  })();
+</script>
+{% endblock %}

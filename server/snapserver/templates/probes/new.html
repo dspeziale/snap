@@ -1,0 +1,105 @@
+{#
+  snap server - Creazione di una sonda e generazione del token di registrazione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Registra sonda{% endblock %}
+{% block page_icon %}bi-plus-square{% endblock %}
+{% block page_title %}Registrazione di una nuova sonda{% endblock %}
+{% block page_subtitle %}
+  Al salvataggio viene emesso un token monouso da inserire nell'interfaccia della sonda.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-broadcast-pin me-1"></i> Dati della sonda</h3>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('probes.create') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="code">Codice identificativo</label>
+              <input type="text" class="form-control" id="code" name="code" required
+                     value="{{ form.get('code', '') }}" placeholder="sonda-sede-01"
+                     pattern="[a-z0-9][a-z0-9._\-]{2,31}">
+              <div class="form-text">Minuscolo, 3-32 caratteri. Univoco nel tenant.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="name">Nome descrittivo</label>
+              <input type="text" class="form-control" id="name" name="name" required
+                     value="{{ form.get('name', '') }}" placeholder="Sonda sede centrale">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="site">Sede o collocazione</label>
+              <input type="text" class="form-control" id="site" name="site"
+                     value="{{ form.get('site', '') }}" placeholder="Milano - piano 2">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="scan_interval_sec">Intervallo di raccolta (secondi)</label>
+              <input type="number" class="form-control" id="scan_interval_sec"
+                     name="scan_interval_sec" min="30" max="86400"
+                     value="{{ form.get('scan_interval_sec', 300) }}">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="description">Descrizione</label>
+              <textarea class="form-control" id="description" name="description"
+                        rows="3">{{ form.get('description', '') }}</textarea>
+            </div>
+          </div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-key me-1"></i> Crea sonda ed emetti token
+            </button>
+            <a href="{{ url_for('probes.index') }}" class="btn btn-outline-secondary">Annulla</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-shield-lock me-1"></i> Come avviene la registrazione</h3>
+      </div>
+      <div class="card-body">
+        <ol class="small ps-3 mb-3">
+          <li class="mb-2">
+            Il server emette un <strong>token monouso</strong> con scadenza e ne conserva
+            solo l'impronta e la chiave derivata.
+          </li>
+          <li class="mb-2">
+            Il token viene inserito nell'interfaccia della sonda insieme all'URL del
+            server: sono le uniche informazioni che la sonda riceve.
+          </li>
+          <li class="mb-2">
+            La sonda genera una coppia di chiavi <strong>X25519</strong> e invia la parte
+            pubblica cifrata con la chiave derivata dal token.
+          </li>
+          <li class="mb-2">
+            Il server risponde con la propria chiave pubblica: entrambe le parti
+            derivano la chiave di sessione (<strong>AES-256-GCM</strong>) usata per tutti
+            gli scambi successivi.
+          </li>
+          <li>
+            Da quel momento il canale e' cifrato punto a punto e autenticato; il
+            server <strong>non conosce</strong> l'indirizzo della sonda e non la contatta mai.
+          </li>
+        </ol>
+        <div class="alert alert-info small mb-0">
+          <i class="bi bi-info-circle me-1"></i>
+          Il token e' mostrato una sola volta al termine della creazione: conservarlo
+          fino al completamento della registrazione.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

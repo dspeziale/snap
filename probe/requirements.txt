@@ -1,0 +1,7 @@
+# snap probe - Dipendenze di esercizio.
+# remarks: Autore: Daniele Speziale - Data: 2026-08-26 - licenza MIT
+Flask>=3.0,<4.0
+Flask-WTF>=1.2,<2.0
+cryptography>=42.0
+requests>=2.31
+tzdata>=2024.1

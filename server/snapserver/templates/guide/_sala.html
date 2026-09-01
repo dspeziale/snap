@@ -1,0 +1,100 @@
+{#
+  snap server - Guida: sala operativa (NOC, SOC, ricerca).
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<!-- ============================================================= -->
+<h2 id="sala">17. Sala operativa</h2>
+<p>
+  Tre pagine per tre modi di lavorare sullo stesso dato gia' raccolto. Nessuna avvia
+  scansioni e nessuna contatta le sonde: sono viste, e si aprono in un secondo.
+</p>
+
+<h3>Quadro NOC &mdash; il turno</h3>
+<p>
+  Si guarda in piedi e deve dire in dieci secondi se il turno e' tranquillo: la prima
+  riga e' una <strong>frase</strong> (&laquo;turno tranquillo&raquo; oppure
+  &laquo;3 controlli in errore&raquo;), perche' un colore da solo non si legge da
+  lontano e non si ripete al telefono.
+</p>
+<ul>
+  <li><strong>Non funziona adesso</strong>: per ogni controllo si guarda
+      l'<em>ultimo</em> esito. Uno che ha fallito alle tre ma alle quattro e' tornato
+      a posto non e' un problema aperto, e non compare.</li>
+  <li><strong>Va e viene</strong>: i controlli che cambiano stato di continuo. Un
+      servizio fermo si vede; uno instabile consuma il turno e non compare in nessun
+      elenco di errori, perche' quando lo si guarda funziona.</li>
+  <li><strong>In silenzio</strong>: dispositivi che <em>sono stati interrogati e non
+      hanno risposto</em>, con l'ultima verifica e l'indicazione se sono sorvegliati
+      da un controllo. Si chiama silenzio e non guasto: spento di proposito e rotto
+      danno lo stesso risultato.</li>
+  <li><strong>Non interrogati</strong>: dispositivi che nelle ultime 24 ore la
+      sorveglianza non ha raggiunto affatto. Non hanno un guasto: manca la copertura.
+      Se l'elenco cresce di giorno in giorno il problema e' la cadenza del
+      monitoraggio o il numero di nodi per passata, non i singoli indirizzi.</li>
+  <li><strong>Lentezza</strong>: i bersagli piu' lenti delle 24 ore. La lentezza
+      precede spesso il guasto.</li>
+  <li><strong>Sonde</strong> e <strong>andamenti</strong>: chi raccoglie i dati e come
+      e' andata la giornata.</li>
+</ul>
+
+<h3>Quadro SOC &mdash; che cosa e' cambiato</h3>
+<p>
+  Apre con la <strong>variazione</strong>, non con lo stato: una porta aperta da
+  sempre e' architettura nota, la stessa porta aperta ieri e' un evento. La finestra
+  si sceglie fra 24 ore, 7 e 30 giorni.
+</p>
+<ul>
+  <li><strong>Variazioni</strong>: porte aperte di recente, dispositivi comparsi,
+      identita' cambiate sullo stesso indirizzo &mdash; un indirizzo che era una
+      stampante e adesso e' un server non e' un aggiornamento del catalogo.</li>
+  <li><strong>Da cui cominciare</strong>: i dispositivi con riscontri aperti, prima
+      quelli con vulnerabilita' sfruttate attivamente.</li>
+  <li><strong>Segmentazione</strong>: quante esposizioni sono <em>attese</em> nel
+      contesto in cui si trovano, quante sono <em>violazioni</em> della zona
+      dichiarata e quanta parte del perimetro non ha ancora una zona
+      (<a href="#zone">capitolo 18</a>).</li>
+  <li><strong>Superficie esposta</strong> per categoria di rischio, la misura di
+      che cosa consegna SNMP a chi interroga con la community di fabbrica, le
+      <strong>tecniche ATT&amp;CK</strong> che la superficie renderebbe possibili, le
+      porte apertesi nella finestra e l'andamento della superficie su 30 giorni.
+      Le tecniche dicono che cosa <em>sarebbe</em> possibile, non che cosa e'
+      accaduto.</li>
+  <li><strong>Anomalie</strong>: nodi fuori perimetro e porte iniettate dalla rete.</li>
+  <li><strong>Registro e regole</strong>: eventi gravi, regole scattate, accessi non
+      riusciti. Se una regola non scatta mai, o e' scritta male o quell'evento non
+      accade.</li>
+</ul>
+
+<h3>Ricerca nella base dati</h3>
+<p>
+  Un campo solo: si scrive quello che si ha in mano &mdash; un indirizzo, un nome
+  host, un MAC, un prodotto, una CVE, un pezzo di messaggio &mdash; e il prodotto
+  cerca fra dispositivi, servizi, riscontri, letture SNMP, controlli, perimetro,
+  registro eventi e catalogo delle CVE, dicendo in quale genere di dato ha trovato.
+  Servono almeno due caratteri: con uno solo il risultato sarebbe mezzo inventario.
+</p>
+<p>
+  Sotto, <strong>sedici domande gia' scritte</strong>, ciascuna con la ragione per cui
+  esiste: chi espone il desktop remoto, chi parla in chiaro, quali banche dati sono
+  raggiungibili, quali servizi dichiarano la versione, che cosa e' comparso questa
+  settimana, chi tace da oltre una settimana, quali porte sono piu' diffuse, quali
+  prodotti, chi risponde a SNMP, quali vulnerabilita' risultano sfruttate attivamente,
+  quali controlli falliscono di piu', quali bersagli sono piu' lenti, quanto e'
+  coperto il perimetro, quali eventi gravi sono stati annotati, quali conferimenti
+  sono stati rifiutati.
+</p>
+<p>
+  Ogni risultato si <strong>esporta in CSV</strong> (punto e virgola, UTF-8: si apre
+  in colonne senza chiedere nulla). L'esportazione e' <strong>tracciata</strong> nel
+  registro con chi l'ha chiesta e quante righe ha portato via: un CSV finisce in una
+  cartella condivisa e puo' contenere indirizzi e nomi host.
+</p>
+<p class="text-body-secondary">
+  Nessun SQL scritto a mano raggiunge la banca dati: le domande pronte sono dichiarate
+  nel codice e la ricerca libera confronta il testo con campi dichiarati. Un campo che
+  accettasse SQL sarebbe una porta aperta sul database di tutti i clienti.
+</p>

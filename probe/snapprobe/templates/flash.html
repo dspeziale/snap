@@ -1,0 +1,21 @@
+{#
+  snap probe - Messaggi di esito, resi anche come notifiche (AWN).
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+  <div data-snap-flash>
+    {% for category, message in messages %}
+    {% set categoria = 'danger' if category == 'error' else category %}
+    <div class="alert alert-{{ categoria }} alert-dismissible fade show" role="alert"
+         data-flash-category="{{ categoria }}" data-flash-message="{{ message }}">
+      {{ message }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Chiudi"></button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endwith %}

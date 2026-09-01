@@ -1,0 +1,424 @@
+{#
+  snap server - Comunicazioni ad ACN: l'obbligo, le scadenze, lo stato.
+
+  Il portale delle segnalazioni si usa con identita' digitale: questa pagina prepara e
+  registra, non invia. E' scritto nella pagina, non solo nella documentazione: chi la
+  usa alle tre di notte non ha tempo di cercare il perche' altrove.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Comunicazioni ACN{% endblock %}
+{% block page_icon %}bi-send-exclamation{% endblock %}
+{% block page_title %}Comunicazioni ad ACN{% endblock %}
+{% block page_subtitle %}
+  Art. 23 della direttiva (UE) 2022/2555, recepita dal D.lgs. 138/2024: preallarme
+  entro 24 ore, notifica entro 72, relazione finale entro un mese dalla
+  <strong>conoscenza</strong> dell'incidente.
+{% endblock %}
+
+{% block content %}
+
+{# Il vincolo, per primo: e' la cosa che spiega la forma di tutta la pagina. #}
+<div class="alert alert-info d-flex gap-2 align-items-start">
+  <i class="bi bi-info-circle fs-5"></i>
+  <div class="small">
+    Il portale <a href="{{ portale }}" target="_blank" rel="noopener noreferrer">{{ portale }}</a>
+    si usa con <strong>SPID, CIE o CNS</strong> del punto di contatto designato: non
+    esiste un modo per un programma di inviare al posto suo, e snap non conserva
+    identita' digitali. Qui si <strong>prepara</strong> il fascicolo, si tiene
+    l'orologio e si <strong>registra</strong> cio' che e' stato inviato -- con il numero
+    di protocollo, che e' quello che dimostra i tempi in un'ispezione.
+  </div>
+</div>
+
+{{ schede.barra([
+    ('dovute', 'Comunicazioni del fascicolo', 'bi-send-check', comunicazioni|length),
+    ('valutare', 'Incidenti da valutare', 'bi-question-circle', senza_fascicolo|length),
+    ('registro', 'Registro e termini', 'bi-clipboard-check', registro.totale),
+]) }}
+
+<div class="tab-content">
+
+{# --------------------------------------------------- comunicazioni dovute #}
+<div class="tab-pane fade show active" id="pane-dovute" role="tabpanel"
+     aria-labelledby="tab-dovute">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-send-check me-1"></i> Comunicazioni del fascicolo
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead>
+          <tr><th>INCIDENTE</th><th>STADIO</th><th>STATO</th><th>SCADENZA</th>
+              <th>MARGINE</th><th>PROTOCOLLO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for c in comunicazioni %}
+          <tr>
+            <td class="small">
+              <a href="{{ url_for('acn.incidente', incident_id=c.incident_id) }}"
+                 class="text-decoration-none">#{{ c.incident_id }}</a>
+              <div class="text-body-secondary">
+                conoscenza {{ c.known_at|dt }}
+              </div>
+            </td>
+            <td class="small fw-semibold">{{ c.stadio_nome }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if c.status in ('inviata','riscontro')
+                                            else ('secondary' if c.status == 'non_dovuta'
+                                                  else 'warning') }}">
+                {{ c.stato_nome }}
+              </span>
+            </td>
+            <td class="small">{{ c.deadline_at|dt if c.deadline_at else 'senza termine' }}</td>
+            <td class="small">
+              {% if c.termine.residuo is not none %}
+              <span class="badge text-bg-{{ 'danger' if c.termine.scaduto
+                                            else ('warning' if c.termine.urgente else 'light') }}
+                           {{ '' if c.termine.scaduto or c.termine.urgente else 'text-dark border' }}">
+                {{ c.termine.residuo }} h
+              </span>
+              {% endif %}
+              <div class="text-body-secondary">{{ c.termine.stato }}</div>
+            </td>
+            <td class="small font-monospace snap-wrap">{{ c.reference or '-' }}</td>
+            <td class="text-end text-nowrap">
+              <a href="{{ url_for('acn.dettaglio', comunicazione_id=c.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Campi da copiare e prove">
+                <i class="bi bi-eye"></i>
+              </a>
+              <a href="{{ url_for('acn.fascicolo_pdf', comunicazione_id=c.id) }}"
+                 class="btn btn-sm btn-outline-secondary" title="Fascicolo in PDF">
+                <i class="bi bi-file-earmark-pdf"></i>
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-body-secondary py-5">
+              <i class="bi bi-send fs-3 d-block mb-2"></i>
+              Nessuna comunicazione nel fascicolo: si apre da un incidente, dopo la
+              valutazione di significativita'.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# I pannelli delle azioni stanno FUORI dalla tabella: una riga collassabile dentro il
+   corpo rompe il modello delle colonne della libreria (vedi docs/05, 5.1.2-ter). #}
+{% for c in comunicazioni %}
+{% if c.status in ('da_preparare', 'preparata') %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      Incidente #{{ c.incident_id }} &middot; {{ c.stadio_nome }}
+      <span class="badge text-bg-{{ 'danger' if c.termine.scaduto
+                                    else ('warning' if c.termine.urgente else 'secondary') }} ms-1">
+        {{ c.termine.stato }}
+      </span>
+    </h3>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-12 col-lg-6">
+        <form method="post"
+              action="{{ url_for('acn.inviata', comunicazione_id=c.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label small">
+            Protocollo restituito dal portale <span class="text-danger">*</span>
+          </label>
+          <input type="text" name="protocollo" class="form-control form-control-sm"
+                 maxlength="80" required
+                 placeholder="es. ACN-2026-000123">
+          <div class="form-text">
+            Senza il protocollo l'invio non e' dimostrabile: e' la prima cosa che
+            chiede un ispettore.
+          </div>
+          <label class="form-label small mt-2">Note dell'invio</label>
+          <textarea name="note" class="form-control form-control-sm" rows="2"
+                    maxlength="2000"></textarea>
+          <button type="submit" class="btn btn-sm btn-primary mt-2">
+            <i class="bi bi-check2-circle me-1"></i> Registra l'invio
+          </button>
+        </form>
+      </div>
+      <div class="col-12 col-lg-6">
+        <form method="post"
+              action="{{ url_for('acn.non_dovuta', comunicazione_id=c.id) }}"
+              data-confirm="Dichiarare NON DOVUTO lo stadio &quot;{{ c.stadio_nome }}&quot; dell'incidente #{{ c.incident_id }}? La motivazione resta nel fascicolo.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label small">
+            Motivazione della non dovutezza <span class="text-danger">*</span>
+          </label>
+          <textarea name="motivo" class="form-control form-control-sm" rows="4"
+                    maxlength="2000" required
+                    placeholder="es. incidente non significativo: nessuna perturbazione operativa, servizio ripristinato in 12 minuti, nessun sospetto di atto illecito."></textarea>
+          <div class="form-text">
+            Distingue "non serviva" da "ce ne siamo dimenticati", che e' precisamente
+            la domanda di un ispettore.
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-secondary mt-2">
+            <i class="bi bi-slash-circle me-1"></i> Dichiara non dovuta
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% elif c.status == 'inviata' %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      Incidente #{{ c.incident_id }} &middot; {{ c.stadio_nome }} &middot; inviata
+      <span class="font-monospace small">{{ c.reference }}</span>
+    </h3>
+  </div>
+  <div class="card-body">
+    <form method="post" action="{{ url_for('acn.riscontro', comunicazione_id=c.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="form-label small">Riscontro dell'autorita'</label>
+      <textarea name="note" class="form-control form-control-sm" rows="3"
+                maxlength="2000"
+                placeholder="es. richiesta di aggiornamento entro il ..., oppure presa d'atto."></textarea>
+      <button type="submit" class="btn btn-sm btn-outline-primary mt-2">
+        <i class="bi bi-reply me-1"></i> Annota il riscontro
+      </button>
+    </form>
+    <form method="post" class="mt-3"
+          action="{{ url_for('acn.aggiornamento', incident_id=c.incident_id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="form-label small">
+        Aggiungere uno stadio di aggiornamento (su richiesta dell'autorita')
+      </label>
+      <input type="text" name="motivo" class="form-control form-control-sm"
+             maxlength="500" placeholder="motivo dell'aggiornamento">
+      <button type="submit" class="btn btn-sm btn-outline-secondary mt-2">
+        <i class="bi bi-plus-circle me-1"></i> Aggiungi aggiornamento
+      </button>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endfor %}
+</div>
+
+{# ---------------------------------------------------- incidenti da valutare #}
+<div class="tab-pane fade" id="pane-valutare" role="tabpanel"
+     aria-labelledby="tab-valutare">
+{# Registrare un incidente a mano: gli incidenti che contano di piu' non li rileva
+   una sonda -- li porta una telefonata, una segnalazione del CSIRT, un riscatto
+   comparso su uno schermo. #}
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-pencil-square me-1"></i> Registra un incidente da valutare
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Per gli incidenti che non nascono da un controllo. Si registra qui, si valuta, e
+      se e' significativo si apre il fascicolo. Finche' non e' stata inviata nessuna
+      comunicazione all'autorita', l'incidente si puo' <strong>eliminare</strong>.
+    </p>
+    <form method="post" action="{{ url_for('acn.registra') }}" class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-12 col-lg-5">
+        <label class="form-label small" for="titolo">
+          Titolo <span class="text-danger">*</span>
+        </label>
+        <input type="text" name="titolo" id="titolo" maxlength="300" required
+               class="form-control form-control-sm"
+               placeholder="es. cifratura dei file su un server di produzione">
+      </div>
+      <div class="col-12 col-lg-4">
+        <label class="form-label small" for="soggetto">Servizio o sistema interessato</label>
+        <input type="text" name="soggetto" id="soggetto" maxlength="300"
+               class="form-control form-control-sm"
+               placeholder="es. 10.10.5.20, gestionale, posta">
+      </div>
+      <div class="col-6 col-lg-3">
+        <label class="form-label small" for="gravita">Gravita'</label>
+        <select name="gravita" id="gravita" class="form-select form-select-sm">
+          {% for g in gravita %}
+          <option value="{{ g }}" {{ 'selected' if g == 'critical' }}>{{ g }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-lg-4">
+        <label class="form-label small" for="conosciuto">
+          Istante di conoscenza (UTC)
+        </label>
+        <input type="text" name="conosciuto_alle" id="conosciuto" maxlength="19"
+               class="form-control form-control-sm" value="{{ adesso_utc }}">
+        <div class="form-text">
+          I termini decorrono da qui. Se se ne e' saputo prima, si corregge.
+        </div>
+      </div>
+      <div class="col-12 col-lg-8">
+        <label class="form-label small" for="descrizione">Descrizione</label>
+        <textarea name="descrizione" id="descrizione" rows="2" maxlength="2000"
+                  class="form-control form-control-sm"
+                  placeholder="che cosa e' stato osservato, da chi, con quali effetti"></textarea>
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-sm btn-warning">
+          <i class="bi bi-plus-circle me-1"></i> Registra e valuta
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-question-circle me-1"></i> Incidenti aperti senza fascicolo
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Per ciascuno la domanda e' una: <strong>e' un incidente significativo?</strong>
+      La valutazione e' dell'organizzazione; snap mostra i criteri e cio' che i dati
+      dicono. Aprire il fascicolo fa partire l'orologio dei termini.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>INCIDENTE</th><th>ORIGINE</th><th>APERTO</th><th>GRAVITA'</th>
+              <th>BERSAGLIO</th><th>DETTAGLIO</th><th>AZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for i in senza_fascicolo %}
+          <tr>
+            <td class="small">
+              #{{ i.id }}
+              <div class="text-body-secondary snap-wrap">{{ i.controllo }}</div>
+            </td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'info' if i.origine == 'manual' else 'light' }}
+                           {{ '' if i.origine == 'manual' else 'text-dark border' }}">
+                {{ 'registrato a mano' if i.origine == 'manual' else 'da un controllo' }}
+              </span>
+            </td>
+            <td class="small">{{ i.opened_at|dt }}<div class="text-body-secondary">{{ i.opened_at|ago }}</div></td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if i.severity == 'critical' else 'warning' }}">
+                {{ i.severity }}
+              </span>
+            </td>
+            <td class="small font-monospace snap-wrap">{{ i.bersaglio }}</td>
+            <td class="small snap-wrap">{{ i.first_detail or '-' }}</td>
+            <td class="text-end text-nowrap">
+              <a href="{{ url_for('acn.incidente', incident_id=i.id) }}"
+                 class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-clipboard-check me-1"></i> Valuta
+              </a>
+              {% if i.origine == 'manual' %}
+              {# Solo gli incidenti registrati a mano si eliminano: quelli aperti da un
+                 controllo sono un fatto della sorveglianza. #}
+              <form method="post" class="d-inline"
+                    action="{{ url_for('acn.elimina', incident_id=i.id) }}"
+                    data-confirm="Eliminare l'incidente &quot;{{ i.controllo }}&quot; (#{{ i.id }})? Se una comunicazione e' gia' stata inviata all'autorita', l'eliminazione viene rifiutata.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-sm btn-outline-danger"
+                        title="Elimina l'incidente registrato a mano">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="text-center text-body-secondary py-5">
+              <i class="bi bi-check2-circle fs-3 d-block mb-2"></i>
+              Nessun incidente aperto in attesa di valutazione.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</div>
+
+{# ------------------------------------------------------------- il registro #}
+<div class="tab-pane fade" id="pane-registro" role="tabpanel"
+     aria-labelledby="tab-registro">
+<div class="row g-3 mb-3">
+  {% for etichetta, valore, tono in [
+      ('COMUNICAZIONI', registro.totale, 'primary'),
+      ('INVIATE NEI TERMINI', registro.nei_termini, 'success'),
+      ('FUORI TERMINE', registro.fuori_termine, 'danger' if registro.fuori_termine else 'secondary'),
+      ('ANCORA DA INVIARE', registro.da_inviare, 'warning' if registro.da_inviare else 'secondary'),
+      ('NON DOVUTE (MOTIVATE)', registro.non_dovute, 'secondary'),
+      ('INCIDENTI COINVOLTI', registro.incidenti, 'info')] %}
+  <div class="col-6 col-lg-2">
+    <div class="small-box text-bg-{{ tono }}">
+      <div class="inner">
+        <h3 class="mb-0">{{ valore }}</h3>
+        <p class="mb-0 small">{{ etichetta }}</p>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-clipboard-check me-1"></i> Che cosa chiede la norma, stadio per stadio
+    </h3>
+  </div>
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>STADIO</th><th>TERMINE</th><th>CHE COSA CONTIENE</th></tr>
+        </thead>
+        <tbody>
+          {% for s in stadi %}
+          <tr>
+            <td class="small fw-semibold text-nowrap">{{ s.nome }}</td>
+            <td class="small">{{ s.termine }}</td>
+            <td class="small">{{ s.contenuto }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <h4 class="h6 mt-4">Canali</h4>
+    <ul class="small mb-0">
+      {% for chiave, canale in canali.items() %}
+      <li>
+        <strong>{{ canale.nome }}</strong>
+        <span class="badge text-bg-{{ 'success' if canale.disponibile else 'secondary' }}">
+          {{ 'disponibile' if canale.disponibile else 'non disponibile' }}
+        </span>
+        &mdash; {{ canale.nota }}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

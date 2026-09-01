@@ -1,0 +1,210 @@
+{#
+  snap server - Guida: le comunicazioni all'autorita' (ACN).
+
+  Capitolo a se' perche' risponde a una domanda diversa da tutte le altre: non "che
+  cosa c'e' in rete" ma "che cosa dobbiamo dire, a chi, entro quando, e come lo
+  dimostriamo". Chi lo legge di solito lo legge mentre l'orologio corre.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<!-- ============================================================= -->
+<h2 id="acn">19. Comunicazioni all'autorita' (ACN)</h2>
+<p>
+  La voce <em>Sicurezza &rarr; Comunicazioni ACN</em> serve a una cosa sola: portare un
+  incidente dal momento in cui se ne e' avuta conoscenza al momento in cui la
+  comunicazione all'autorita' e' stata inviata e protocollata, <strong>senza perdere i
+  termini</strong> e lasciando dietro di se' le prove di quando e' stato fatto che cosa.
+</p>
+<div class="alert alert-warning">
+  <strong>snap non invia nulla all'autorita'.</strong> Il portale
+  <code>segnalazioni.acn.gov.it</code> si usa con identita' digitale (SPID, CIE, CNS)
+  del <em>punto di contatto</em> designato: l'invio e' un atto di una persona, che
+  impegna il soggetto. snap prepara il fascicolo, calcola le scadenze, avvisa quando
+  stanno per cadere e conserva la tracciabilita'. Il pulsante <em>Portale ACN</em> apre
+  il sito in una finestra nuova; la riga si chiude registrando il
+  <strong>protocollo</strong> che il portale restituisce.
+</div>
+<p class="small text-body-secondary">
+  L'Agenzia non pubblica un'interfaccia di programmazione per l'invio: il canale
+  automatico esiste come posto dichiarato non disponibile. Se un giorno esistesse, il
+  percorso descritto in questo capitolo non cambierebbe &mdash; cambierebbe solo chi
+  preme il tasto finale.
+</p>
+
+<h3>I quattro stadi e i loro termini</h3>
+<p>
+  Sono quelli della direttiva NIS2 (art. 23) come recepita dal D.lgs. 138/2024. I
+  termini corrono <strong>dalla conoscenza dell'incidente</strong>, non dalla sua
+  apertura in snap e non dal suo inizio tecnico: e' la data che si dichiara al portale
+  ed e' l'unica da cui si possa contare.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>STADIO</th><th>TERMINE</th><th>CHE COSA CONTIENE</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Preallarme</strong></td>
+        <td>entro <strong>24 ore</strong> dalla conoscenza</td>
+        <td>Che e' avvenuto un incidente significativo; se si sospetta un atto illecito
+            o doloso; se puo' avere impatto in altri Stati membri. Non serve sapere
+            ancora quasi nulla: serve avvisare.</td>
+      </tr>
+      <tr>
+        <td><strong>Notifica dell'incidente</strong></td>
+        <td>entro <strong>72 ore</strong> dalla conoscenza</td>
+        <td>Valutazione iniziale: gravita', impatto, indicatori di compromissione,
+            aggiornamento di cio' che stava nel preallarme.</td>
+      </tr>
+      <tr>
+        <td><strong>Aggiornamento</strong></td>
+        <td>su richiesta dell'autorita', o quando il quadro cambia</td>
+        <td>Cio' che si e' saputo dopo la notifica: nuove evidenze, estensione
+            dell'impatto, misure aggiuntive. Se ne apre uno ogni volta che serve.</td>
+      </tr>
+      <tr>
+        <td><strong>Relazione finale</strong></td>
+        <td>entro <strong>un mese</strong> dalla notifica</td>
+        <td>Descrizione dettagliata, gravita' e impatto, tipo di minaccia e causa
+            probabile, misure di attenuazione applicate ed effetti trasfrontalieri.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3>Valutare se la comunicazione e' dovuta</h3>
+<p>
+  Dalla riga di un incidente (pagina <em>Incidenti</em>, oppure l'elenco in fondo alle
+  <em>Comunicazioni ACN</em>) il pulsante <em>Valuta</em> apre la pagina della
+  significativita'. snap <strong>propone</strong>, non decide: mostra criterio per
+  criterio che cosa dicono i dati, e la decisione resta dell'organizzazione.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>CRITERIO</th><th>LA DOMANDA</th><th>CHE COSA GUARDA snap</th></tr></thead>
+    <tbody>
+      <tr><td>Gravita' dichiarata</td>
+          <td>l'incidente e' classificato critico dal controllo che lo ha aperto?</td>
+          <td>la gravita' della riga (soglia predefinita: <code>critical</code>)</td></tr>
+      <tr><td>Durata dell'indisponibilita'</td>
+          <td>il servizio e' rimasto giu' oltre la soglia dichiarata?</td>
+          <td>ore fra apertura e chiusura, o fra apertura e adesso (soglia: 4 ore)</td></tr>
+      <tr><td>Estensione</td>
+          <td>riguarda piu' servizi o piu' apparati insieme?</td>
+          <td>incidenti aperti nella stessa finestra (soglia: 3 servizi)</td></tr>
+      <tr><td>Sospetto di atto illecito</td>
+          <td>indizi di accesso non autorizzato, cifratura dei dati, esfiltrazione?</td>
+          <td><strong>nessun dato tecnico decide</strong>: e' una dichiarazione umana</td></tr>
+      <tr><td>Effetti trasfrontalieri</td>
+          <td>ripercussioni su terzi o oltre confine?</td>
+          <td>dichiarazione umana</td></tr>
+      <tr><td>Dati personali</td>
+          <td>indizi di violazione di dati personali?</td>
+          <td>dichiarazione umana. <strong>Attenzione</strong>: se si', va valutata
+              <em>anche</em> la notifica al Garante (GDPR art. 33, 72 ore). Le due
+              notifiche sono indipendenti: una non sostituisce l'altra.</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Le soglie sono dichiarate e modificabili: non sono la legge, sono un aiuto a non far
+  passare inosservato cio' che va valutato. Dalla stessa pagina si apre il fascicolo:
+  si scelgono gli stadi da preparare e si dichiara l'istante di conoscenza.
+</p>
+
+<h3>Gli stati di una comunicazione</h3>
+<p>
+  Ogni stadio e' una riga con un proprio stato. I passaggi ammessi sono espliciti,
+  perche' nessuno deve poter dichiarare &laquo;inviata&raquo; una comunicazione che non
+  e' mai stata composta.
+</p>
+<div class="table-responsive">
+  <table class="table table-sm table-bordered align-middle" data-snap-table
+         data-page-size="100" data-no-search="true">
+    <thead><tr><th>STATO</th><th>SIGNIFICATO</th><th>DA QUI SI PUO' ANDARE A</th></tr></thead>
+    <tbody>
+      <tr><td>da preparare</td><td>la riga esiste, il contenuto no</td>
+          <td>preparata, non dovuta</td></tr>
+      <tr><td>preparata, da inviare dal portale</td>
+          <td>il fascicolo PDF e' stato generato: i campi sono pronti da copiare</td>
+          <td>inviata, non dovuta, e indietro a da preparare</td></tr>
+      <tr><td>inviata al portale</td>
+          <td>registrata con il <strong>protocollo</strong> restituito dal portale:
+              senza protocollo l'invio non si registra</td>
+          <td>riscontro ricevuto</td></tr>
+      <tr><td>riscontro ricevuto</td><td>l'autorita' ha risposto; la risposta e' agli atti</td>
+          <td>altri riscontri</td></tr>
+      <tr><td>non dovuta (motivata)</td>
+          <td>si e' deciso di non comunicare, <strong>con la motivazione scritta</strong>:
+              la riga resta nell'elenco e nei report</td>
+          <td>si riapre, se il quadro cambia</td></tr>
+    </tbody>
+  </table>
+</div>
+<p>
+  Generare il fascicolo PDF porta da se' la riga da <em>da preparare</em> a
+  <em>preparata</em>: il documento esiste, dirlo altrimenti sarebbe falso. Nessun altro
+  stato si raggiunge in automatico.
+</p>
+
+<h3>Il fascicolo e i campi da copiare</h3>
+<ul>
+  <li>La pagina dello stadio mette in tabella <strong>i campi del modulo del
+      portale</strong> con il valore da inserire, uno per riga: soggetto notificante,
+      riferimento interno, istanti (conoscenza, apertura, presa in carico, chiusura),
+      servizio, controllo che ha rilevato, gravita', descrizione, situazione attuale,
+      misure adottate, recapito. Le date sono <strong>nel fuso del tenant</strong>,
+      come si scrivono nel portale.</li>
+  <li>I campi marcati <em>da dichiarare</em> non sono vuoti per dimenticanza: sono
+      valutazioni che nessuna misura tecnica puo' stabilire.</li>
+  <li>Sotto, le <strong>prove</strong>: cronologia delle verifiche dopo l'apertura,
+      misure adottate e comunicazioni interne (queste ultime non hanno valore di
+      notifica &mdash; dimostrano <em>quando</em> l'organizzazione ha saputo).</li>
+  <li>Il <strong>fascicolo PDF</strong> raccoglie tutto questo in un documento con la
+      stessa grafica degli altri report: e' cio' che si allega al carteggio interno e
+      si consegna a un'ispezione.</li>
+</ul>
+
+<h3>Registrare un incidente a mano</h3>
+<p>
+  Gli incidenti che contano di piu' non li rileva una sonda: li porta una telefonata,
+  una segnalazione del CSIRT, un riscatto comparso su uno schermo. In fondo alla pagina
+  <em>Comunicazioni ACN</em> il riquadro <em>Registra un incidente da valutare</em>
+  chiede titolo, soggetto interessato, gravita', istante di conoscenza e descrizione.
+</p>
+<ul>
+  <li>L'istante di conoscenza non puo' essere nel futuro: i termini decorrerebbero da un
+      momento non ancora arrivato.</li>
+  <li>L'incidente entra nel registro con l'origine <strong>&laquo;a mano&raquo;</strong>
+      e da quel momento segue lo stesso percorso di uno rilevato dai controlli.</li>
+  <li>Si <strong>elimina</strong> &mdash; con conferma &mdash; solo finche' nulla e'
+      stato inviato all'autorita': un protocollo restituito dal portale e' la prova dei
+      tempi e non si cancella. Se si rivela un falso allarme, lo si dichiara nella
+      relazione finale. Un incidente aperto da un <em>controllo</em> non si elimina
+      mai: si chiude, con la sua motivazione.</li>
+</ul>
+
+<h3>Gli avvisi di scadenza</h3>
+<p>
+  Un sorvegliante indipendente controlla i termini ogni cinque minuti e manda
+  <strong>due</strong> avvisi per comunicazione, mai ripetuti: uno <em>sei ore
+  prima</em> della scadenza, uno quando la scadenza e' <strong>passata</strong> senza
+  invio.
+</p>
+<ul>
+  <li>Gli eventi sono <code>acn.deadline.approaching</code> e
+      <code>acn.deadline.passed</code>: <strong>non</strong> si possono silenziare con
+      le regole di notifica &mdash; un termine di legge non e' rumore da filtrare.</li>
+  <li>Vanno ai recapiti degli amministratori di tenant sui canali attivi (posta e bot).</li>
+  <li>La pastiglia rossa accanto alla voce di menu conta le comunicazioni urgenti o
+      scadute: si vede senza aprire la pagina.</li>
+</ul>
+<p class="small text-body-secondary">
+  Le comunicazioni preparate e inviate compaiono nella sezione <em>Comunicazioni
+  all'autorita' (ACN)</em> del <a href="#report">fascicolo di conformita'</a> e nel
+  fascicolo di conformita' europea: e' la voce che un auditor cerca per prima.
+</p>

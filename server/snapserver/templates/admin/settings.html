@@ -1,0 +1,273 @@
+{#
+  snap server - Impostazioni di sistema e manutenzione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}Impostazioni{% endblock %}
+{% block page_icon %}bi-gear{% endblock %}
+{% block page_title %}Impostazioni Sistema{% endblock %}
+{% block page_subtitle %}Parametri del canale sonde, conservazione dei dati e stato dell'istanza.{% endblock %}
+
+{% block content %}
+{{ schede.barra([
+    ('notifiche', 'Notifiche del workflow', 'bi-envelope-paper', none),
+    ('canali', 'Canali e resoconto', 'bi-send', none),
+    ('archivio', 'Archivio e copie', 'bi-database', none),
+    ('istanza', 'Server e istanza', 'bi-hdd-network', none),
+], apri=request.args.get('scheda')) }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-notifiche" role="tabpanel"
+     aria-labelledby="tab-notifiche">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-envelope-paper me-1"></i> Notifiche del workflow
+    </h3>
+    <span class="badge text-bg-{{ 'success' if smtp_configured else 'warning' }}">
+      {{ 'posta configurata' if smtp_configured else 'posta non configurata' }}
+    </span>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Le notifiche dei passaggi di stato degli incidenti vengono accodate e spedite da un
+      processo a se'. Senza posta configurata restano in attesa: nulla va perduto, e
+      partono appena la configurazione e' completa.
+    </p>
+    <form method="post" action="{{ url_for('admin.save_notification_settings') }}"
+          class="row g-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="col-12 col-md-4">
+        <label class="form-label small">SERVER DI POSTA</label>
+        <input type="text" name="smtp_host" class="form-control" maxlength="253"
+               value="{{ smtp.host }}" placeholder="smtp.azienda.local">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small">PORTA</label>
+        <input type="number" name="smtp_port" class="form-control" min="1" max="65535"
+               value="{{ smtp.port }}">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small">SICUREZZA</label>
+        <select name="smtp_security" class="form-select">
+          {% for chiave, etichetta in [('none', 'nessuna'), ('starttls', 'STARTTLS'),
+                                        ('ssl', 'SSL/TLS')] %}
+          <option value="{{ chiave }}" {{ 'selected' if smtp.security == chiave }}>{{ etichetta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12 col-md-3 d-flex align-items-center">
+        <div class="form-check form-switch mt-4">
+          <input class="form-check-input" type="checkbox" name="notifications_enabled"
+                 id="notifiche-attive" {{ 'checked' if smtp.enabled }}>
+          <label class="form-check-label small" for="notifiche-attive">notifiche attive</label>
+        </div>
+      </div>
+
+      <div class="col-12 col-md-4">
+        <label class="form-label small">UTENZA (se richiesta)</label>
+        <input type="text" name="smtp_username" class="form-control" maxlength="254"
+               value="{{ smtp.username }}" autocomplete="off">
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small">
+          PASSWORD
+          {% if smtp_password_set %}
+          <span class="text-body-secondary">(impostata: lasciare vuoto per non cambiarla)</span>
+          {% endif %}
+        </label>
+        <input type="password" name="smtp_password" class="form-control" autocomplete="off">
+        {% if smtp_password_set %}
+        <div class="form-check mt-1">
+          <input class="form-check-input" type="checkbox" name="smtp_password_clear"
+                 id="password-rimuovi" value="1">
+          <label class="form-check-label small" for="password-rimuovi">rimuovere la password</label>
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small">MITTENTE</label>
+        <input type="email" name="smtp_sender" class="form-control" maxlength="254"
+               value="{{ smtp.sender }}" placeholder="snap@azienda.local">
+        <input type="text" name="smtp_sender_name" class="form-control mt-1"
+               maxlength="80" value="{{ smtp.sender_name }}" placeholder="nome del mittente">
+      </div>
+
+      <div class="col-12">
+        <label class="form-label small">MOMENTI DA NOTIFICARE</label>
+        <div class="d-flex flex-wrap gap-3">
+          {% for chiave, etichetta in notify_events.items() %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="notify_events"
+                   value="{{ chiave }}" id="momento-{{ loop.index }}"
+                   {{ 'checked' if chiave in notify_enabled }}>
+            <label class="form-check-label small" for="momento-{{ loop.index }}">
+              {{ etichetta }}
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="form-text">
+          Nessuna scelta equivale a notificare tutti i momenti: un workflow che tace su un
+          passaggio importante e' una sorpresa.
+        </div>
+      </div>
+
+      <div class="col-12 d-flex gap-2">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-save me-1"></i> Salvare la configurazione
+        </button>
+      </div>
+    </form>
+
+    <hr>
+    <form method="post" action="{{ url_for('admin.test_notification') }}"
+          class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-12 col-md-6">
+        <label class="form-label small">PROVA DI INVIO</label>
+        <input type="email" name="recipient" class="form-control"
+               placeholder="indirizzo a cui inviare la prova" required>
+      </div>
+      <div class="col-12 col-md-3">
+        <button type="submit" class="btn btn-outline-primary w-100">
+          <i class="bi bi-send me-1"></i> Inviare la prova
+        </button>
+      </div>
+      <div class="col-12">
+        <div class="form-text">
+          L'invio e' immediato e non passa dalla coda: l'eventuale errore del server di
+          posta viene mostrato per esteso.
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-canali" role="tabpanel"
+     aria-labelledby="tab-canali">
+{% include 'admin/_canali.html' %}
+</div>
+
+<div class="tab-pane fade" id="pane-archivio" role="tabpanel"
+     aria-labelledby="tab-archivio">
+{% include 'admin/_archivio.html' %}
+</div>
+
+<div class="tab-pane fade" id="pane-istanza" role="tabpanel" aria-labelledby="tab-istanza">
+{{ schede.barra([
+    ('ist-indirizzo', 'Indirizzo e stato', 'bi-hdd-network', none),
+    ('ist-volumi', 'Volumi del tenant', 'bi-database', none),
+], classe='nav-pills mb-3') }}
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="pane-ist-indirizzo" role="tabpanel"
+     aria-labelledby="tab-ist-indirizzo">
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-hdd-network me-1"></i> Indirizzo pubblico del server</h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          URL con cui le sonde raggiungono il server. Viene inserito nel pacchetto di
+          registrazione consegnato a ogni nuova sonda.
+        </p>
+        <form method="post" action="{{ url_for('admin.save_settings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
+            <input type="url" class="form-control" name="public_url" value="{{ public_url }}"
+                   placeholder="http://192.168.1.10:5500" {{ 'disabled' if not is_superadmin }}>
+            <button type="submit" class="btn btn-primary" {{ 'disabled' if not is_superadmin }}>
+              <i class="bi bi-save me-1"></i> Salva
+            </button>
+          </div>
+        </form>
+        {% if not is_superadmin %}
+        <p class="small text-body-secondary mt-2 mb-0">
+          Modifica riservata all'amministratore di sistema.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-info-circle me-1"></i> Stato dell'istanza</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6">Versione piattaforma</dt><dd class="col-6">snap {{ config.version }}</dd>
+          <dt class="col-6">Database</dt><dd class="col-6"><code>{{ config.database }}</code></dd>
+          <dt class="col-6">Validita' token di registrazione</dt>
+          <dd class="col-6">{{ config.enrollment_ttl }} ore</dd>
+          <dt class="col-6">Soglia sonda non raggiungibile</dt>
+          <dd class="col-6">{{ config.offline_after }} secondi</dd>
+          <dt class="col-6">Protocollo canale sonde</dt>
+          <dd class="col-6">SNAP-SEC/1 (X25519 + AES-256-GCM)</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  </div>
+</div>
+
+<div class="tab-pane fade" id="pane-ist-volumi" role="tabpanel"
+     aria-labelledby="tab-ist-volumi">
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-database me-1"></i> Volumi del tenant corrente</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-8">Sonde</dt><dd class="col-4 text-end">{{ stats.probes }}</dd>
+          <dt class="col-8">Utenti</dt><dd class="col-4 text-end">{{ stats.users }}</dd>
+          <dt class="col-8">Conferimenti</dt><dd class="col-4 text-end">{{ stats.batches }}</dd>
+          <dt class="col-8">Record acquisiti</dt><dd class="col-4 text-end">{{ stats.records }}</dd>
+          <dt class="col-8">Comandi</dt><dd class="col-4 text-end">{{ stats.commands }}</dd>
+          <dt class="col-8">Eventi di audit</dt><dd class="col-4 text-end">{{ stats.audit }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-eraser me-1"></i> Conservazione dei dati</h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Applica la politica di conservazione del tenant ({{ current_tenant['retention_days'] }}
+          giorni) rimuovendo le voci del registro di audit e i conferimenti piu' vecchi
+          della soglia. Sonde, utenti e configurazioni non vengono toccati.
+        </p>
+        <form method="post" action="{{ url_for('admin.apply_retention') }}"
+              data-confirm="Applicare la politica di conservazione? I dati storici oltre soglia saranno rimossi.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-warning">
+            <i class="bi bi-play me-1"></i> Applica conservazione
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</div>
+</div>       {# schede della pagina #}
+{% endblock %}

@@ -1,0 +1,393 @@
+{#
+  snap server - Mappa della rete come albero.
+
+  Non un disegno: un albero di testo, apribile e chiudibile. Un grafo di mille nodi
+  sarebbe una nuvola illeggibile, e le adiacenze fra dispositivi non si deducono da
+  una scansione: su una rete commutata cio' che si sa e' CHI ha visto CHE COSA e
+  DOVE. Quella e' una gerarchia -- sonda, perimetro, dispositivo -- e un albero la
+  dice per quello che e'.
+
+  L'albero e' fatto di <details>: si apre e si chiude senza JavaScript, si cerca con
+  la ricerca del browser, si stampa e si copia come testo.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-29
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Mappa della rete{% endblock %}
+{% block page_icon %}bi-diagram-3{% endblock %}
+{% block page_title %}Mappa della rete{% endblock %}
+{% block page_subtitle %}
+  Come il prodotto vede la rete: quale sonda osserva, dentro quale perimetro
+  dichiarato, quali dispositivi ci sono. {{ tree.nodi }} dispositivi in
+  {{ tree.subnet }} subnet, su {{ tree.subnet_dichiarate }} dichiarate nel perimetro.
+  Il perimetro e' del tenant e viene consegnato a <strong>tutte</strong> le sonde: le
+  subnet in cui non e' stato trovato nulla non appartengono a una sonda in
+  particolare, e stanno raccolte sotto l'albero, per blocco di rete.
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('inventory.network_map', attivi='0' if solo_attivi else '1') }}"
+   class="btn btn-sm {{ 'btn-primary' if solo_attivi else 'btn-outline-secondary' }}">
+  <i class="bi bi-funnel me-1"></i>
+  {{ 'Mostra anche gli assenti' if solo_attivi else 'Solo dispositivi attivi' }}
+</a>
+<a href="{{ url_for('inventory.network_map_graphic',
+                    attivi='1' if solo_attivi else none) }}"
+   class="btn btn-sm btn-outline-primary">
+  <i class="bi bi-bezier2 me-1"></i> Vista grafica
+</a>
+<a href="{{ url_for('inventory.nodes') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-list-ul me-1"></i> Elenco
+</a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  {% for etichetta, valore, icona, tono in [
+      ('DISPOSITIVI', tree.nodi, 'bi-hdd-network', 'primary'),
+      ('ATTIVI ADESSO', tree.attivi, 'bi-check-circle',
+       'success' if tree.attivi else 'secondary'),
+      ('SUBNET CON DISPOSITIVI', tree.subnet, 'bi-bounding-box', 'info'),
+      ('SUBNET SENZA DISPOSITIVI', tree.subnet_mai_viste, 'bi-bounding-box-circles',
+       'warning' if tree.subnet_mai_viste else 'secondary'),
+      ('SONDE CHE OSSERVANO', tree.sonde|length, 'bi-broadcast-pin', 'info'),
+      ('SUBNET SENZA ZONA', tree.senza_zona|length, 'bi-question-circle',
+       'warning' if tree.senza_zona else 'success')] %}
+  <div class="col-6 col-xl-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-center">
+          <div>
+            <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+            <p class="snap-stat-value mb-0">{{ valore }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# Due letture della stessa rete: per sonda (dove sta una cosa) e per zona (che
+   cosa e' quel posto). Non sono due alberi da tenere allineati: la seconda si ricava
+   dalla prima. #}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#mappa-sonde"
+            type="button" role="tab">
+      <i class="bi bi-broadcast-pin me-1"></i> Per sonda e perimetro
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#mappa-zone"
+            type="button" role="tab">
+      <i class="bi bi-diagram-3 me-1"></i> Per zona di rete
+      {% if tree.senza_zona %}
+      <span class="badge text-bg-warning ms-1">{{ tree.senza_zona|length }} senza</span>
+      {% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+<div class="tab-pane fade show active" id="mappa-sonde" role="tabpanel">
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-diagram-3 me-1"></i> Albero della rete</h3>
+    <small class="text-body-secondary">
+      i rami si aprono e si chiudono; la ricerca del browser (Ctrl+F) trova solo cio'
+      che e' aperto
+    </small>
+  </div>
+  <div class="card-body">
+    {% if not tree.sonde %}
+    <p class="text-body-secondary small mb-0">
+      Nessun dispositivo in inventario: la mappa si popola con le prime scansioni.
+    </p>
+    {% endif %}
+
+    <ul class="snap-albero mb-0">
+      {% for sonda in tree.sonde %}
+      <li>
+        <details open>
+          <summary>
+            <i class="bi bi-broadcast-pin me-1 text-primary"></i>
+            <strong>{{ sonda.nome }}</strong>
+            {% if sonda.codice %}
+            <span class="font-monospace small text-body-secondary">{{ sonda.codice }}</span>
+            {% endif %}
+            <span class="badge text-bg-secondary ms-1">{{ sonda.nodi }} dispositivi</span>
+            <span class="badge text-bg-success">{{ sonda.attivi }} attivi</span>
+          </summary>
+
+          <ul>
+            {% for subnet in sonda.subnet %}
+            <li>
+              <details>
+                <summary>
+                  <i class="bi bi-bounding-box me-1 text-info"></i>
+                  <span class="font-monospace">{{ subnet.cidr }}</span>
+                  {% if subnet.etichetta %}
+                  <span class="text-body-secondary">{{ subnet.etichetta }}</span>
+                  {% endif %}
+                  {# La zona sul ramo: una subnet dichiarata nel posto sbagliato si
+                     vede qui, non leggendo i riscontri che ne derivano. #}
+                  {% set zona = zone_per_chiave.get(subnet.zona) %}
+                  {% if zona %}
+                  <span class="badge text-bg-{{ zona.tono }} ms-1" title="{{ zona.descrizione|truncate(150) }}">
+                    <i class="bi {{ zona.icona }} me-1"></i>{{ zona.nome }}
+                  </span>
+                  {% elif subnet.cidr != 'fuori perimetro' %}
+                  <span class="badge text-bg-warning ms-1"
+                        title="Vale come rete di utenza, il giudizio piu' severo.">
+                    <i class="bi bi-question-circle me-1"></i>senza zona
+                  </span>
+                  {% endif %}
+                  <span class="badge text-bg-secondary ms-1">{{ subnet.totale }} nodi</span>
+                  {% if subnet.host_teorici %}
+                  <span class="small text-body-secondary">
+                    su {{ subnet.host_teorici }} indirizzi possibili
+                  </span>
+                  {% endif %}
+                  {% if subnet.riscontri %}
+                  <span class="badge text-bg-warning">{{ subnet.riscontri }} riscontri</span>
+                  {% endif %}
+                  {% if subnet.cidr != 'fuori perimetro' and not subnet.attiva %}
+                  <span class="badge text-bg-danger">subnet sospesa</span>
+                  {% endif %}
+                </summary>
+
+                {# Che cosa c'e' dentro, prima dell'elenco: su una subnet di duecento
+                   dispositivi il riepilogo per tipo dice piu' dei duecento indirizzi. #}
+                <p class="small text-body-secondary mt-1 mb-2 ms-3">
+                  {% for tipo, quanti in subnet.per_tipo %}
+                  {{ quanti }} {{ tipo }}{% if not loop.last %} &middot; {% endif %}
+                  {% endfor %}
+                </p>
+
+                <ul>
+                  {% for nodo in subnet.nodi %}
+                  <li class="snap-albero-foglia">
+                    <span class="snap-dot snap-dot-{{ 'online' if nodo.status == 'up' else 'offline' }}"></span>
+                    <a href="{{ url_for('inventory.node', node_id=nodo.id) }}"
+                       class="font-monospace">{{ nodo.ip }}</a>
+                    {% if nodo.hostname %}
+                    <span class="small">{{ nodo.hostname }}</span>
+                    {% endif %}
+                    <span class="small text-body-secondary">
+                      {{ nodo.device_label or 'non identificato' }}{% if (nodo.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}
+                      {%- if nodo.device_confidence %} ({{ nodo.device_confidence }}%){% endif %}
+                    </span>
+                    {% if nodo.porte %}
+                    <span class="badge text-bg-light border">{{ nodo.porte }} porte</span>
+                    {% endif %}
+                    {% if nodo.snmp %}
+                    <span class="badge text-bg-light border" title="letture SNMP">SNMP</span>
+                    {% endif %}
+                    {% if nodo.riscontri %}
+                    <span class="badge text-bg-warning">{{ nodo.riscontri }}</span>
+                    {% endif %}
+                  </li>
+                  {% endfor %}
+                </ul>
+
+                {% if subnet.troncato %}
+                <p class="small text-body-secondary ms-3 mb-0">
+                  e altri {{ subnet.troncato }} dispositivi:
+                  <a href="{{ url_for('inventory.nodes', subnet=subnet.id) }}">
+                    l'elenco completo di questa subnet
+                  </a>
+                </p>
+                {% endif %}
+              </details>
+            </li>
+            {% endfor %}
+          </ul>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% set muto = tree.perimetro_muto %}
+{% if muto and muto.totale %}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-bounding-box-circles me-1"></i>
+      Perimetro dichiarato senza dispositivi
+      <span class="badge text-bg-warning ms-1">{{ muto.totale }} subnet</span>
+      <span class="badge text-bg-secondary">{{ muto.indirizzi|intero }} indirizzi</span>
+    </h3>
+    <small class="text-body-secondary">
+      raggruppate per blocco /16; i rami si aprono e si chiudono
+    </small>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Queste reti sono nel perimetro ma non hanno prodotto alcun dispositivo. Non sono
+      un vuoto da nascondere: la ragione del silenzio e' un dato operativo.
+      {% if muto.mai_scansionate %}
+      <strong>{{ muto.mai_scansionate }}</strong> non sono ancora state scansionate --
+      la sonda le raggiungera' con i cicli successivi.
+      {% endif %}
+      {% if muto.senza_esiti %}
+      <strong>{{ muto.senza_esiti }}</strong> sono state scansionate e non hanno
+      risposto: quelle reti sono spente, filtrate o non usate.
+      {% endif %}
+      {% if muto.sospese %}
+      <strong>{{ muto.sospese }}</strong> sono sospese per scelta.
+      {% endif %}
+    </p>
+
+    <ul class="snap-albero mb-0">
+      {% for blocco in muto.blocchi %}
+      <li>
+        <details>
+          <summary>
+            <i class="bi bi-diagram-2 me-1 text-body-secondary"></i>
+            <span class="font-monospace">{{ blocco.rete }}</span>
+            <span class="badge text-bg-secondary ms-1">
+              {{ blocco.subnet|length }} subnet
+            </span>
+            <span class="badge text-bg-light text-dark border">
+              {{ blocco.indirizzi|intero }} indirizzi
+            </span>
+            {% if blocco.mai_scansionate %}
+            <span class="badge text-bg-info">{{ blocco.mai_scansionate }} da scansionare</span>
+            {% endif %}
+            {% if blocco.senza_esiti %}
+            <span class="badge text-bg-warning">{{ blocco.senza_esiti }} senza risposta</span>
+            {% endif %}
+            {% if blocco.sospese %}
+            <span class="badge text-bg-secondary">{{ blocco.sospese }} sospese</span>
+            {% endif %}
+            {% if blocco.ultima_scansione %}
+            <span class="text-body-secondary small">
+              &middot; ultima scansione {{ blocco.ultima_scansione|dt }}
+            </span>
+            {% endif %}
+          </summary>
+          <ul>
+            {% for subnet in blocco.subnet %}
+            <li class="snap-albero-foglia">
+              <i class="bi bi-bounding-box me-1 text-body-secondary"></i>
+              <span class="font-monospace">{{ subnet.cidr }}</span>
+              {% if subnet.etichetta %}
+              <span class="text-body-secondary">{{ subnet.etichetta }}</span>
+              {% endif %}
+              {% if subnet.zona %}
+              {% set zona = zone_per_chiave.get(subnet.zona) %}
+              <span class="badge text-bg-{{ zona.tono if zona else 'secondary' }}">
+                {{ zona.nome if zona else subnet.zona }}
+              </span>
+              {% endif %}
+              <span class="badge text-bg-light text-dark border">
+                {{ subnet.stato }}
+              </span>
+              <span class="text-body-secondary small">
+                {{ subnet.host_teorici }} indirizzi possibili
+              </span>
+            </li>
+            {% endfor %}
+          </ul>
+        </details>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+{% endif %}
+
+</div>
+
+{# --------------------------------------------------------------- per zona #}
+<div class="tab-pane fade" id="mappa-zone" role="tabpanel">
+  <div class="card">
+    <div class="card-header">
+      <h3 class="card-title mb-0">
+        <i class="bi bi-diagram-3 me-1"></i> La rete per contesto dichiarato
+      </h3>
+    </div>
+    <div class="card-body">
+      <p class="small text-body-secondary">
+        La stessa rete raggruppata per <strong>zona</strong> invece che per sonda: e'
+        il modo in cui si legge la segmentazione. Una zona dichiarata e mai usata
+        compare comunque, con zero dispositivi: e' un'informazione, non un vuoto.
+      </p>
+
+      <ul class="snap-albero mb-0">
+        {% for zona in tree.zone %}
+        <li>
+          <details {{ 'open' if zona.chiave == '' and zona.subnet }}>
+            <summary>
+              <span class="badge text-bg-{{ zona.tono }} me-1">
+                <i class="bi {{ zona.icona }}"></i>
+              </span>
+              <strong>{{ zona.nome }}</strong>
+              <span class="badge text-bg-secondary ms-1">{{ zona.subnet|length }} subnet</span>
+              <span class="badge text-bg-secondary">{{ zona.nodi|intero }} dispositivi</span>
+              {% if zona.attivi %}
+              <span class="badge text-bg-success">{{ zona.attivi|intero }} attivi</span>
+              {% endif %}
+              {% if zona.riscontri %}
+              <span class="badge text-bg-danger">{{ zona.riscontri }} riscontri aperti</span>
+              {% endif %}
+            </summary>
+            <div class="small text-body-secondary px-3 py-1">
+              {{ zona.descrizione|truncate(240) }}
+            </div>
+            {% if zona.subnet %}
+            <ul>
+              {% for subnet in zona.subnet %}
+              <li class="snap-albero-foglia">
+                <i class="bi bi-bounding-box me-1 text-info"></i>
+                <span class="font-monospace">{{ subnet.cidr }}</span>
+                {% if subnet.etichetta %}
+                <span class="text-body-secondary">{{ subnet.etichetta }}</span>
+                {% endif %}
+                <span class="badge text-bg-light text-dark border ms-1">
+                  {{ subnet.nodi }} dispositivi
+                </span>
+                {% if subnet.riscontri %}
+                <span class="badge text-bg-danger">{{ subnet.riscontri }}</span>
+                {% endif %}
+                <span class="text-body-secondary">&middot; sonda {{ subnet.sonda }}</span>
+                {% if subnet.nodi %}
+                <a href="{{ url_for('inventory.nodes', zone=zona.chiave or 'senza') }}"
+                   class="ms-1">dispositivi</a>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <ul>
+              <li class="snap-albero-foglia text-body-secondary">
+                Nessuna subnet dichiarata in questa zona: finche' resta cosi', la zona
+                non cambia nessun giudizio.
+              </li>
+            </ul>
+            {% endif %}
+          </details>
+        </li>
+        {% endfor %}
+      </ul>
+
+      {% if has_role('tenant_admin') %}
+      <div class="mt-3 d-flex gap-2 flex-wrap">
+        <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-outline-primary">
+          <i class="bi bi-bounding-box me-1"></i> Dichiara le zone sulle subnet
+        </a>
+        <a href="{{ url_for('inventory.zone_index') }}" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-diagram-3 me-1"></i> Governa le zone
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+</div>
+{% endblock %}

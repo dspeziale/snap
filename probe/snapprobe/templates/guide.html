@@ -1,0 +1,115 @@
+{#
+  snap probe - Guida della sonda, servita come documento a se'.
+
+  Pagina autonoma: si apre in una finestra propria, non porta la barra di
+  navigazione -- sarebbe un menu dentro una finestra che serve a leggere -- e si
+  stampa come un documento.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<!doctype html>
+<html lang="it" data-bs-theme="{{ settings.get('ui_theme', 'light') }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guida della sonda &middot; {{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/probe.css') }}">
+  <style>
+    .guida-corpo { max-width: 62rem; }
+    .guida-corpo h2 { font-size: 1.35rem; font-weight: 700; margin-top: 2.2rem; padding-top: .6rem;
+                      border-top: 1px solid var(--bs-border-color); }
+    .guida-corpo h3 { font-size: 1.08rem; font-weight: 700; margin-top: 1.4rem; }
+    .guida-corpo p, .guida-corpo li { line-height: 1.6; }
+    .guida-corpo code { background: var(--bs-tertiary-bg); padding: .1rem .3rem; border-radius: .2rem; }
+    .guida-corpo table { font-size: .93rem; }
+    .guida-indice { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }
+    @media print {
+      .guida-nostampa { display: none !important; }
+      .guida-corpo { max-width: none; }
+      .guida-corpo h2 { page-break-after: avoid; }
+    }
+  </style>
+</head>
+<body class="bg-body">
+
+<header class="border-bottom bg-body-tertiary guida-nostampa">
+  <div class="container py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-book text-primary fs-3"></i>
+      <div>
+        <h1 class="h5 mb-0">Guida della sonda</h1>
+        <p class="small text-body-secondary mb-0">
+          {{ app_name }} probe v{{ app_version }}
+          {% if settings.get('probe_name') %}&middot; {{ settings.get('probe_name') }}{% endif %}
+        </p>
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      {% if settings.get('server_url') %}
+      {# La guida della console sta sul server: si apre in un'altra finestra, perche'
+         questa e' gia' una finestra di sola lettura. #}
+      <a href="{{ settings.get('server_url') }}/guida" target="_blank" rel="noopener"
+         class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-box-arrow-up-right me-1"></i> Guida della console
+      </a>
+      {% endif %}
+      <a href="{{ url_for('probe.index') }}" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-activity me-1"></i> Stato della sonda
+      </a>
+      <button type="button" class="btn btn-sm btn-outline-primary" onclick="window.print()">
+        <i class="bi bi-printer me-1"></i> Stampare
+      </button>
+    </div>
+  </div>
+</header>
+
+<div class="container py-4">
+  <div class="row g-4">
+    <div class="col-12 col-lg-3 guida-nostampa">
+      <nav class="guida-indice">
+        <p class="small text-body-secondary fw-bold mb-2">INDICE</p>
+        <ol class="list-unstyled small mb-0">
+          {% for chiave, titolo in [
+              ('cosa', 'Che cosa fa la sonda'),
+              ('installazione', 'Installazione e requisiti'),
+              ('registrazione', 'Registrazione'),
+              ('interfaccia', "L'interfaccia locale"),
+              ('accesso', "Accesso all'interfaccia"),
+              ('scelte', 'Scelte locali e del server'),
+              ('autonomia', 'Autonomia e coda'),
+              ('controlli', 'Controlli eseguiti dalla sonda'),
+              ('azzeramento', 'Ricominciare da zero'),
+              ('diagnosi', 'Quando qualcosa non torna')] %}
+          <li class="mb-1"><a href="#{{ chiave }}" class="text-decoration-none">{{ loop.index }}. {{ titolo }}</a></li>
+          {% endfor %}
+        </ol>
+      </nav>
+    </div>
+
+    <div class="col-12 col-lg-9">
+      <div class="guida-corpo">
+        {% include 'guide_body.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer class="border-top bg-body-tertiary py-3 mt-4 guida-nostampa">
+  <div class="container small text-body-secondary d-flex justify-content-between flex-wrap gap-2">
+    <span>{{ app_name }} probe v{{ app_version }} &middot; guida della sonda</span>
+    <span>(c) 2024-26 DS Consulting &middot; licenza MIT</span>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/snap-tables.js') }}"></script>
+</body>
+</html>

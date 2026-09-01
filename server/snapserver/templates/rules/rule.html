@@ -1,0 +1,162 @@
+{#
+  snap server - Una regola: definizione e storico delle corrispondenze.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-28
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% import 'rules/_form.html' as maschera %}
+{% block title %}{{ rule.name }}{% endblock %}
+{% block page_icon %}bi-sliders2{% endblock %}
+{% block page_title %}{{ rule.name }}{% endblock %}
+{% block page_subtitle %}
+  {{ rule.source }} / <span class="font-monospace">{{ rule.event_type }}</span> &mdash;
+  {{ rule.channels }}, al massimo {{ rule.max_per_window }} messaggi ogni
+  {{ rule.window_seconds }} secondi
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('rules.index') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Regole di notifica
+  </a>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <span class="badge text-bg-{{ 'success' if rule.is_enabled else 'secondary' }}">
+      {{ 'attiva' if rule.is_enabled else 'sospesa' }}
+    </span>
+    {% if has_role('tenant_admin') %}
+    <form method="post" action="{{ url_for('rules.test_existing', rule_id=rule.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-primary">
+        <i class="bi bi-clipboard-data me-1"></i> Provare sugli ultimi eventi
+      </button>
+    </form>
+    <form method="post" action="{{ url_for('rules.toggle', rule_id=rule.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-{{ 'pause' if rule.is_enabled else 'play' }} me-1"></i>
+        {{ 'Sospendere' if rule.is_enabled else 'Attivare' }}
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if rule.broken %}
+<div class="alert alert-danger">
+  <i class="bi bi-exclamation-octagon me-1"></i>
+  Le condizioni di questa regola non sono interpretabili: la regola <strong>non
+  scatta</strong>. Va salvata di nuovo dalla maschera qui sotto.
+</div>
+{% endif %}
+
+{{ schede.barra([
+    ('definizione', 'Definizione', 'bi-sliders', none),
+    ('storia', 'Corrispondenze', 'bi-clock-history', matches|length),
+], apri=request.args.get('scheda')) }}
+
+<div class="tab-content">
+
+<div class="tab-pane fade show active" id="pane-definizione" role="tabpanel"
+     aria-labelledby="tab-definizione">
+<div class="row g-3">
+  <div class="col-12 col-xl-8">
+    {% if has_role('tenant_admin') %}
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-pencil-square me-1"></i> Modificare la regola
+        </h3>
+      </div>
+      <div class="card-body">
+        {{ maschera.modulo(url_for('rules.update', rule_id=rule.id), catalog, ops,
+                           severities, channel_labels, channels, rule=rule,
+                           test_action=url_for('rules.test_existing', rule_id=rule.id),
+                           submit_label='Salvare') }}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-info-circle me-1"></i> In vigore</h3>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-5">Sorgente</dt><dd class="col-7">{{ rule.source }}</dd>
+          <dt class="col-5">Evento</dt>
+          <dd class="col-7 font-monospace">{{ rule.event_type }}</dd>
+          <dt class="col-5">Gravita'</dt><dd class="col-7">{{ rule.severity }}</dd>
+          <dt class="col-5">Canali</dt><dd class="col-7">{{ rule.channels }}</dd>
+          <dt class="col-5">Destinatari</dt>
+          <dd class="col-7">{{ rule.recipients or 'email di riferimento del tenant' }}</dd>
+          <dt class="col-5">Chat Telegram</dt>
+          <dd class="col-7">{{ rule.telegram_chat_id or 'chat predefinita del bot' }}</dd>
+          <dt class="col-5">Anti-alluvione</dt>
+          <dd class="col-7">{{ rule.max_per_window }} ogni {{ rule.window_seconds }} s</dd>
+          <dt class="col-5">Corrispondenze</dt><dd class="col-7">{{ rule.matches_total }}</dd>
+          <dt class="col-5">Ultima</dt>
+          <dd class="col-7">{{ rule.last_matched_at|dt if rule.last_matched_at else 'mai' }}</dd>
+          <dt class="col-5">Creata</dt><dd class="col-7">{{ rule.created_at|dt }}</dd>
+        </dl>
+        {% if rule.conditions %}
+        <hr>
+        <p class="small text-body-secondary mb-1">CONDIZIONI</p>
+        <ul class="small mb-0">
+          {% for c in rule.conditions %}
+          <li class="font-monospace">{{ c.field }} {{ c.op }} {{ c.value or '' }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="tab-pane fade" id="pane-storia" role="tabpanel" aria-labelledby="tab-storia">
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-clock-history me-1"></i> Corrispondenze di questa regola
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>QUANDO</th><th>EVENTO</th><th>SOGGETTO</th><th>DETTAGLIO</th>
+              <th>ESITO</th></tr>
+        </thead>
+        <tbody>
+          {% for m in matches %}
+          <tr>
+            <td class="small text-nowrap">{{ m.created_at|dt }}</td>
+            <td class="font-monospace small">{{ m.event_type }}</td>
+            <td class="font-monospace small">{{ m.subject }}</td>
+            <td class="small">{{ m.detail }}</td>
+            <td class="small">
+              {% if m.notified %}<span class="badge text-bg-success">notificata</span>
+              {% elif m.suppressed %}<span class="badge text-bg-warning">soppressa</span>
+              {% else %}<span class="badge text-bg-light border">solo registrata</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not matches %}
+    <p class="p-3 mb-0 text-body-secondary small">Nessuna corrispondenza finora.</p>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+# snap - Dipendenze di sviluppo e collaudo.
+# Autore: Daniele Speziale - Data: 2026-08-26 - licenza MIT
+-r server/requirements.txt
+-r probe/requirements.txt
+pytest>=8.0
+pytest-cov>=5.0

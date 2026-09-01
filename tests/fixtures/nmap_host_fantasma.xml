@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sS -Pn --top-ports 200 192.0.2.240" version="7.99" start="1787820000">
+<scaninfo type="syn" protocol="tcp" numservices="200" services="1-200"/>
+<host><status state="up" reason="echo-reply" reason_ttl="116"/>
+<address addr="192.0.2.240" addrtype="ipv4"/>
+<hostnames/>
+</host>
+<runstats><finished time="1787820010" elapsed="10.00" exit="success"/></runstats>
+</nmaprun>

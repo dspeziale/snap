@@ -1,0 +1,11 @@
+# snap server - Dipendenze di esercizio.
+# remarks: Autore: Daniele Speziale - Data: 2026-08-26 - licenza MIT
+Flask>=3.0,<4.0
+Flask-WTF>=1.2,<2.0
+cryptography>=42.0
+pyotp>=2.9
+qrcode[pil]>=8.0
+tzdata>=2024.1
+# Generazione dei report in PDF (licenza BSD, puro Python, nessuna libreria nativa).
+# Concordata: vedi docs/08_REPORT.md, decisione D1.
+reportlab>=4.0,<6.0

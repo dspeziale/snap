@@ -1,0 +1,71 @@
+{#
+  snap server - Tabella degli incidenti, condivisa fra la pagina dei controlli e
+  quella dello storico: una sola forma per la stessa informazione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<div class="table-responsive">
+  <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="25"
+         data-no-sort="AZIONI">
+    <thead>
+      <tr><th>STATO</th><th>GRAVITA</th><th>APERTO</th><th>CONTROLLO</th><th>BERSAGLIO</th>
+          <th>FALLIMENTI</th><th>OPERATORE</th><th>DETTAGLIO</th><th>AZIONI</th></tr>
+    </thead>
+    <tbody>
+      {% for i in incidents %}
+      <tr>
+        <td class="small">
+          <span class="badge text-bg-{{ 'danger' if i.status == 'open' else ('warning' if i.status == 'acknowledged' else 'success') }}">
+            {{ {'open': 'aperto', 'acknowledged': 'in carico', 'resolved': 'risolto'}[i.status] }}
+          </span>
+        </td>
+        <td class="small">
+          <span class="badge text-bg-{{ 'danger' if i.severity == 'critical' else ('warning' if i.severity == 'warning' else 'secondary') }}">
+            {{ i.severity }}
+          </span>
+        </td>
+        <td class="small">{{ i.opened_at|dt }}</td>
+        <td class="small">
+          <a href="{{ url_for('checks.check', check_id=i.check_id) }}"
+             class="text-decoration-none">{{ i.check_name }}</a>
+        </td>
+        <td class="small font-monospace">{{ i.address }}</td>
+        <td class="small">{{ i.failure_count }}</td>
+        <td class="small">
+          {% if i.escalated_at %}
+          <span class="badge text-bg-danger">operatore attivato</span>
+          <div class="text-body-secondary">{{ i.escalated_to or 'nessun recapito' }}</div>
+          {% else %}
+          <span class="text-body-secondary">automatico</span>
+          {% endif %}
+        </td>
+        <td class="small">{{ (i.last_detail or i.first_detail or '-')|truncate(80) }}</td>
+        <td class="text-end text-nowrap">
+          <a href="{{ url_for('checks.incident', incident_id=i.id) }}"
+             class="btn btn-sm btn-outline-secondary" title="Aprire l'incidente">
+            <i class="bi bi-box-arrow-in-right"></i>
+          </a>
+          {# La domanda "va comunicato ad ACN?" si pone qui, dove si vede l'incidente:
+             una pagina separata da cercare e' una domanda che nessuno si pone. #}
+          {% if has_role('tenant_admin') %}
+          <a href="{{ url_for('acn.incidente', incident_id=i.id) }}"
+             class="btn btn-sm btn-outline-secondary"
+             title="Valutare la comunicazione ad ACN (art. 23 NIS2)">
+            <i class="bi bi-send-exclamation"></i>
+          </a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="9" class="text-center text-body-secondary py-5">
+          <i class="bi bi-check2-circle fs-3 d-block mb-2"></i>
+          Nessun incidente: i controlli attivi rispondono come atteso.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

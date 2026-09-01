@@ -1,0 +1,234 @@
+{#
+  snap server - Una comunicazione ACN: i campi da copiare nel portale e le prove.
+
+  I campi stanno a schermo, uno per riga, con il pulsante per copiarli: chi sta
+  notificando alle tre di notte non deve cercarli in cinque pagine diverse.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-31
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}{{ stadio.nome }} - incidente #{{ incidente.id }}{% endblock %}
+{% block page_icon %}bi-send-exclamation{% endblock %}
+{% block page_title %}{{ stadio.nome }} &middot; incidente #{{ incidente.id }}{% endblock %}
+{% block page_subtitle %}
+  {{ stadio.termine }}. {{ stadio.contenuto }}
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-8">
+    <div class="alert alert-{{ 'danger' if termine.scaduto else ('warning' if termine.urgente else 'secondary') }} mb-0">
+      <div class="d-flex justify-content-between flex-wrap gap-2">
+        <div class="small">
+          <strong>{{ termine.stato|capitalize }}.</strong>
+          Scadenza: {{ comunicazione.deadline_at|dtz if comunicazione.deadline_at else 'senza termine' }}.
+          {% if termine.residuo is not none %}
+          Margine: <strong>{{ termine.residuo }} ore</strong>.
+          {% endif %}
+          Conoscenza dell'incidente: {{ comunicazione.known_at|dtz }}.
+        </div>
+        <div class="text-nowrap">
+          <a href="{{ url_for('acn.fascicolo_pdf', comunicazione_id=comunicazione.id) }}"
+             class="btn btn-sm btn-primary">
+            <i class="bi bi-file-earmark-pdf me-1"></i> Fascicolo PDF
+          </a>
+          <a href="{{ portale }}" target="_blank" rel="noopener noreferrer"
+             class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-box-arrow-up-right me-1"></i> Portale ACN
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card card-body h-100 py-2">
+      <dl class="row mb-0 small">
+        <dt class="col-6">Stato</dt>
+        <dd class="col-6">{{ stati.get(comunicazione.status, comunicazione.status) }}</dd>
+        <dt class="col-6">Protocollo</dt>
+        <dd class="col-6 font-monospace snap-wrap">{{ comunicazione.reference or '-' }}</dd>
+        <dt class="col-6">Inviata il</dt>
+        <dd class="col-6">{{ comunicazione.sent_at|dtz if comunicazione.sent_at else '-' }}</dd>
+        <dt class="col-6">Da</dt>
+        <dd class="col-6 snap-wrap">{{ comunicazione.sent_by or '-' }}</dd>
+      </dl>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-clipboard me-1"></i> Campi da compilare nel portale
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Il portale si usa con identita' digitale del punto di contatto: questi sono i
+      valori da inserire. I campi marcati <em>da dichiarare</em> non sono vuoti per
+      dimenticanza -- sono valutazioni che nessuna misura tecnica puo' stabilire.
+    </p>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-search="true">
+        <thead>
+          <tr><th>CAMPO DEL MODULO</th><th>VALORE DA INSERIRE</th></tr>
+        </thead>
+        <tbody>
+          {% set campi = [
+            ('Soggetto notificante', tenant.nome),
+            ('Riferimento interno', '#' ~ incidente.id),
+            ('Stadio', stadio.nome),
+            {# Questi valori si COPIANO nel portale: vanno nel fuso dichiarato,
+               come ogni altra data mostrata. Un istante UTC incollato in un modulo che
+               chiede l'ora locale sposta l'incidente di due ore. #}
+            ('Conoscenza dell\'incidente', comunicazione.known_at|dtz),
+            ('Apertura dell\'incidente', incidente.opened_at|dtz),
+            ('Presa in carico', incidente.acknowledged_at|dtz
+                                if incidente.acknowledged_at else 'non ancora'),
+            ('Chiusura', incidente.resolved_at|dtz
+                         if incidente.resolved_at else 'ancora aperto'),
+            ('Servizio interessato', incidente.bersaglio),
+            ('Controllo che ha rilevato', incidente.controllo),
+            ('Gravita\' dichiarata', incidente.severity),
+            ('Descrizione sintetica', incidente.first_detail or '-'),
+            ('Situazione attuale', incidente.last_detail or '-'),
+            ('Misure adottate', incidente.resolution or 'in corso'),
+            ('Recapito per i riscontri', tenant.recapito or 'da indicare'),
+          ] %}
+          {% for etichetta, valore in campi %}
+          <tr>
+            <td class="small fw-semibold">{{ etichetta }}</td>
+            <td class="small snap-wrap">{{ valore }}</td>
+          </tr>
+          {% endfor %}
+          {% for c in criteri %}
+          {% if valutazione.esiti.get(c.chiave) is none %}
+          <tr>
+            <td class="small fw-semibold">{{ c.titolo }}</td>
+            <td class="small text-body-secondary">da dichiarare &mdash; {{ c.domanda }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-clock-history me-1"></i> Cronologia dei fatti
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="15" data-no-search="true">
+            <thead><tr><th>QUANDO</th><th>ESITO</th><th>DETTAGLIO</th></tr></thead>
+            <tbody>
+              {% for r in cronologia %}
+              <tr>
+                <td class="small text-nowrap">{{ r.executed_at|dt }}</td>
+                <td class="small">{{ r.status }}</td>
+                <td class="small snap-wrap">{{ r.detail or '' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="3" class="text-center text-body-secondary py-4">
+                  Nessuna verifica registrata dopo l'apertura.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-journal-text me-1"></i> Misure adottate e comunicazioni interne
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="15" data-no-search="true">
+            <thead><tr><th>QUANDO</th><th>CHE COSA</th><th>OPERATORE</th></tr></thead>
+            <tbody>
+              {% for r in misure %}
+              <tr>
+                <td class="small text-nowrap">{{ r.created_at|dt }}</td>
+                <td class="small snap-wrap">{{ r.description or r.event_type }}</td>
+                <td class="small snap-wrap">{{ r.actor or 'sistema' }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="3" class="text-center text-body-secondary py-4">
+                  Nessun evento registrato dopo l'apertura.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if notifiche %}
+        <div class="card-body pt-2">
+          <p class="small text-body-secondary mb-1">
+            Comunicazioni <strong>interne</strong> (non hanno valore di notifica
+            all'autorita': dimostrano quando l'organizzazione ha saputo).
+          </p>
+          <ul class="small mb-0">
+            {% for n in notifiche %}
+            <li>
+              {{ n.channel }} &rarr; <span class="snap-wrap">{{ n.recipients }}</span>
+              &middot; {{ n.status }}
+              {% if n.sent_at %}&middot; {{ n.sent_at|dt }}{% endif %}
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if altre %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-diagram-2 me-1"></i> Gli altri stadi di questo incidente
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead><tr><th>STADIO</th><th>STATO</th><th>SCADENZA</th><th>PROTOCOLLO</th></tr></thead>
+        <tbody>
+          {% for a in altre %}
+          <tr>
+            <td class="small fw-semibold">{{ a.stadio_nome }}</td>
+            <td class="small">{{ a.stato_nome }}</td>
+            <td class="small">{{ a.deadline_at|dt if a.deadline_at else '-' }}</td>
+            <td class="small font-monospace snap-wrap">{{ a.reference or '-' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

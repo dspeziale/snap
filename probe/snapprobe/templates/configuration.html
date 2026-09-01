@@ -1,0 +1,303 @@
+{#
+  snap probe - Configurazione locale e diagnostica della coda.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-08-26
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Configurazione{% endblock %}
+{% block page_icon %}bi-sliders{% endblock %}
+{% block page_title %}Configurazione della sonda{% endblock %}
+{% block page_subtitle %}
+  Parametri locali e stato della coda. La configurazione operativa e' comunque
+  riallineata dal server a ogni contatto.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-gear me-1"></i> Parametri locali</h2>
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('probe.save_configuration') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3">
+            <label class="form-label" for="scan_interval_sec">Intervallo di raccolta (secondi)</label>
+            <input type="number" class="form-control" id="scan_interval_sec"
+                   name="scan_interval_sec" min="30" max="86400"
+                   value="{{ settings.get('scan_interval_sec', '300') }}">
+            <div class="form-text">
+              Valore usato in autonomia; il server puo' sovrascriverlo al contatto successivo.
+            </div>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="paused" name="paused"
+                   {{ 'checked' if status.paused }}>
+            <label class="form-check-label" for="paused">
+              Sospendi raccolta e conferimento
+            </label>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i> Salva parametri
+          </button>
+        </form>
+
+        <hr>
+        <h3 class="h6"><i class="bi bi-shield-lock me-1"></i> Password dell'interfaccia</h3>
+        <p class="small text-body-secondary">
+          Protegge questa interfaccia, non il canale verso il server: quello e'
+          cifrato e autenticato dalle chiavi della registrazione.
+          {% if settings.get('ui_password_set_at') %}
+          Impostata il {{ settings.get('ui_password_set_at')|dt }}.
+          {% endif %}
+        </p>
+        <form method="post" action="{{ url_for('auth.cambia_password') }}"
+              autocomplete="off">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <label class="form-label" for="attuale">Password attuale</label>
+            <input type="password" class="form-control" id="attuale" name="attuale" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label" for="nuova">Nuova password</label>
+            <input type="password" class="form-control" id="nuova" name="nuova" required>
+            <div class="form-text">
+              Almeno 10 caratteri, con una maiuscola, una minuscola e una cifra.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label" for="conferma">Ripetere la nuova password</label>
+            <input type="password" class="form-control" id="conferma" name="conferma" required>
+          </div>
+          <button type="submit" class="btn btn-outline-primary">
+            <i class="bi bi-key me-1"></i> Cambia password
+          </button>
+        </form>
+
+        <hr>
+        <h3 class="h6">Indirizzo del server</h3>
+        <form method="post" action="{{ url_for('probe.update_server_url') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
+            <input type="url" class="form-control" name="server_url"
+                   value="{{ settings.get('server_url', '') }}"
+                   placeholder="http://192.168.1.10:5500">
+            <button type="submit" class="btn btn-outline-primary">Aggiorna</button>
+          </div>
+          <div class="form-text">
+            Utile se il server cambia indirizzo: la registrazione resta valida.
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-cloud-check me-1"></i> Configurazione ricevuta dal server</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row small">
+          <dt class="col-6">Tenant</dt>
+          <dd class="col-6">{{ settings.get('tenant_name') or '-' }}</dd>
+          <dt class="col-6">Codice tenant</dt>
+          <dd class="col-6">{{ settings.get('tenant_code') or '-' }}</dd>
+          <dt class="col-6">Fuso orario</dt>
+          <dd class="col-6">{{ settings.get('tenant_timezone') or '-' }}</dd>
+          <dt class="col-6">Nome sonda</dt>
+          <dd class="col-6">{{ settings.get('probe_name') or '-' }}</dd>
+        </dl>
+        <p class="small text-body-secondary mb-1">Opzioni aggiuntive consegnate:</p>
+        <pre class="probe-code mb-0">{{ options|tojson(indent=2) }}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-inboxes me-1"></i> Coda locale
+          ({{ status.queue_size }} record{% if status.queue_breakdown %}:
+          {% for kind, count in status.queue_breakdown.items() %}{{ count }} {{ kind }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %})
+        </h2>
+        <div class="d-flex gap-2">
+          <form method="post" action="{{ url_for('probe.action_flush') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-primary" {{ 'disabled' if not status.enrolled }}>
+              <i class="bi bi-cloud-arrow-up me-1"></i> Conferisci ora
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm mb-0" data-snap-table data-page-size="15">
+            <thead>
+              <tr><th>ID</th><th>TIPO</th><th>ACCODATO</th>
+                  <th class="text-end">BYTE</th><th>LOTTO PRENOTATO</th></tr>
+            </thead>
+            <tbody>
+              {% for record in queue %}
+              <tr>
+                <td class="small">{{ record['id'] }}</td>
+                <td class="small">{{ record['kind'] }}</td>
+                <td class="small">{{ record['created_at']|dt }}</td>
+                <td class="text-end small">{{ record['size'] }}</td>
+                <td class="small">
+                  {% if record['locked_batch'] %}
+                    <code>{{ record['locked_batch'][:12] }}</code>
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-body-secondary py-3">
+                Coda vuota: tutti i dati sono stati conferiti al server.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer small text-body-secondary">
+        I record prenotati appartengono a un lotto in attesa di conferma: verranno
+        ritrasmessi con lo stesso identificativo, che il server riconosce come duplicato.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card border-danger">
+      <div class="card-header bg-danger-subtle">
+        <h2 class="h6 mb-0 text-danger-emphasis">
+          <i class="bi bi-trash3 me-1"></i> Azzeramento dell'archivio: ricominciare da zero
+        </h2>
+      </div>
+      <div class="card-body">
+        <p class="small mb-3">
+          Rimuove <strong>tutto</strong> quello che la sonda ha in casa: nodi e profili in
+          lavorazione, stato delle fasi, prenotazioni, coda da conferire, storico dei
+          conferimenti, stato dei controlli e diario. Lo spazio viene restituito al sistema.
+          <br>
+          <strong>L'inventario sul server non viene toccato:</strong> i nodi gia' conferiti
+          restano li'. Per ricominciare anche di la', va svuotato dalla console.
+        </p>
+        <div class="row g-3">
+          <div class="col-12 col-lg-6">
+            <div class="border rounded p-3 h-100">
+              <h3 class="h6">Azzera i dati, conserva la registrazione</h3>
+              <p class="small text-body-secondary">
+                La sonda resta registrata: al contatto successivo riceve di nuovo perimetro,
+                cadenze e controlli, e <strong>riparte dalla scoperta</strong> senza alcun
+                intervento. E' la scelta ordinaria per rifare l'inventario da zero.
+                <br>Digitare <code>AZZERA I DATI</code> per confermare.
+              </p>
+              <form method="post" action="{{ url_for('probe.action_reset') }}"
+                    class="d-flex gap-2"
+                    data-confirm="Azzerare i dati raccolti dalla sonda? Nodi, profili, coda e diario vengono rimossi. La registrazione resta e la sonda riparte dalla scoperta."
+                    data-confirm-destructive>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="scope" value="dati">
+                <input type="text" class="form-control form-control-sm" name="confirm"
+                       placeholder="AZZERA I DATI" autocomplete="off">
+                <button type="submit" class="btn btn-sm btn-outline-danger text-nowrap">
+                  <i class="bi bi-eraser me-1"></i> Azzera i dati
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <div class="col-12 col-lg-6">
+            <div class="border border-danger rounded p-3 h-100">
+              <h3 class="h6 text-danger-emphasis">Azzera tutto, registrazione compresa</h3>
+              <p class="small text-body-secondary">
+                L'archivio torna allo stato successivo all'installazione: se ne vanno anche
+                chiavi, credenziali e ogni impostazione. La sonda
+                <strong>va registrata di nuovo</strong> dalla console, altrimenti resta ferma.
+                <br>Digitare <code>AZZERA TUTTO</code> per confermare.
+              </p>
+              <form method="post" action="{{ url_for('probe.action_reset') }}"
+                    class="d-flex gap-2"
+                    data-confirm="Azzerare COMPLETAMENTE l'archivio, registrazione compresa? La sonda dovra' essere registrata di nuovo dalla console prima di poter riprendere."
+                    data-confirm-destructive>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="scope" value="tutto">
+                <input type="text" class="form-control form-control-sm" name="confirm"
+                       placeholder="AZZERA TUTTO" autocomplete="off">
+                <button type="submit" class="btn btn-sm btn-danger text-nowrap">
+                  <i class="bi bi-trash3 me-1"></i> Azzera tutto
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card border-warning">
+      <div class="card-header">
+        <h2 class="h6 mb-0 text-warning">
+          <i class="bi bi-exclamation-triangle me-1"></i> Operazioni di manutenzione
+        </h2>
+      </div>
+      <div class="card-body">
+        <div class="row g-3">
+          <div class="col-12 col-lg-4">
+            <h3 class="h6">Azzera il contatore dei cicli</h3>
+            <p class="small text-body-secondary">
+              Riporta a zero la numerazione dei cicli di raccolta. I dati gia'
+              conferiti al server non vengono toccati.
+            </p>
+            <form method="post" action="{{ url_for('probe.action_reset_collector') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-sm btn-outline-secondary">
+                <i class="bi bi-arrow-repeat me-1"></i> Azzera
+              </button>
+            </form>
+          </div>
+
+          <div class="col-12 col-lg-4">
+            <h3 class="h6">Svuota la coda senza conferire</h3>
+            <p class="small text-body-secondary">
+              I record verranno perduti. Digitare <code>SVUOTA</code> per confermare.
+            </p>
+            <form method="post" action="{{ url_for('probe.action_clear_queue') }}"
+                  class="d-flex gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" class="form-control form-control-sm" name="confirm"
+                     placeholder="SVUOTA" style="max-width:9rem">
+              <button type="submit" class="btn btn-sm btn-outline-danger text-nowrap">
+                <i class="bi bi-trash me-1"></i> Svuota
+              </button>
+            </form>
+          </div>
+
+          <div class="col-12 col-lg-4">
+            <h3 class="h6">Azzera la registrazione</h3>
+            <p class="small text-body-secondary">
+              Elimina chiavi e credenziali mantenendo i dati in coda. Digitare
+              <code>AZZERA</code> per confermare.
+            </p>
+            <form method="post" action="{{ url_for('probe.enroll_reset') }}" class="d-flex gap-2">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" class="form-control form-control-sm" name="confirm"
+                     placeholder="AZZERA" style="max-width:9rem">
+              <button type="submit" class="btn btn-sm btn-outline-warning text-nowrap">
+                <i class="bi bi-shield-slash me-1"></i> Azzera
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
