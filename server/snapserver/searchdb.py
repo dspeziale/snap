@@ -339,13 +339,30 @@ def run_saved(tenant_id: int, chiave: str, limit: int = MAX_RIGHE) -> dict:
     if voce is None:
         return {}
     parametri = tuple(voce["parametri"](tenant_id)) + (int(limit),)
-    righe = query(voce["sql"] + " LIMIT ?", parametri)
+    righe = [list(r) for r in query(voce["sql"] + " LIMIT ?", parametri)]
+
+    # Quando la prima colonna e' un indirizzo di nodo, si porta accanto a ogni riga
+    # l'identificativo del nodo, cosi' la pagina puo' rendere l'indirizzo cliccabile
+    # verso la scheda del dispositivo. La colonna dei valori NON cambia (l'export CSV
+    # resta identico): l'identificativo viaggia a parte.
+    colonna_indirizzo = (voce["colonne"].index("indirizzo")
+                         if "indirizzo" in voce["colonne"] else None)
+    nodi = []
+    if colonna_indirizzo is not None and righe:
+        mappa = {r["ip"]: int(r["id"]) for r in query(
+            "SELECT id, ip FROM nodes WHERE tenant_id = ?", (tenant_id,))}
+        nodi = [mappa.get(riga[colonna_indirizzo]) for riga in righe]
+
     return {
         "chiave": voce["chiave"],
         "titolo": voce["titolo"],
         "domanda": voce["domanda"],
         "colonne": voce["colonne"],
-        "righe": [list(r) for r in righe],
+        "righe": righe,
+        # Indice della colonna dell'indirizzo (o None) e id del nodo per riga: servono
+        # solo alla pagina, per il collegamento.
+        "colonna_indirizzo": colonna_indirizzo,
+        "nodi": nodi,
         "troncato": len(righe) >= limit,
         "limite": limit,
     }

@@ -326,6 +326,49 @@ def test_un_interrogazione_inventata_non_esegue_nulla(server_app):
         assert run_saved(tenant_id, "inventata") == {}
 
 
+def test_un_interrogazione_per_nodo_porta_l_id_per_il_collegamento(server_app):
+    """La colonna dell'indirizzo deve poter diventare un collegamento alla scheda del
+    nodo: run_saved allega l'id del nodo di ciascuna riga, senza alterare le colonne
+    (l'export CSV resta identico)."""
+    from snapserver.searchdb import run_saved
+
+    tenant_id = _tenant_id(server_app)
+    node_id = _nodo(server_app, tenant_id, "10.9.0.31", [("tcp", 3389)])
+    with server_app.app_context():
+        esito = run_saved(tenant_id, "desktop_remoto")
+
+    assert esito["colonna_indirizzo"] == 0, "l'indirizzo e' la prima colonna"
+    assert esito["righe"] and esito["righe"][0][0] == "10.9.0.31"
+    assert esito["nodi"][0] == node_id, "ogni riga porta l'id del proprio nodo"
+    # Le colonne non cambiano: il numero di celle resta pari alle colonne dichiarate.
+    assert len(esito["righe"][0]) == len(esito["colonne"])
+
+
+def test_un_interrogazione_non_per_nodo_non_ha_colonna_indirizzo(server_app):
+    """Le domande che non partono da un indirizzo (porte diffuse, prodotti) non
+    espongono un collegamento al nodo: non ne hanno uno."""
+    from snapserver.searchdb import run_saved
+
+    tenant_id = _tenant_id(server_app)
+    _nodo(server_app, tenant_id, "10.9.0.32", [("tcp", 443)])
+    with server_app.app_context():
+        esito = run_saved(tenant_id, "porte_diffuse")
+    assert esito["colonna_indirizzo"] is None
+    assert esito["nodi"] == []
+
+
+def test_la_pagina_rende_cliccabile_l_indirizzo_nelle_domande_pronte(logged_client,
+                                                                     server_app):
+    tenant_id = _tenant_id(server_app)
+    node_id = _nodo(server_app, tenant_id, "10.9.0.33", [("tcp", 3389)])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+    pagina = logged_client.get("/ops/search?pronta=desktop_remoto").get_data(
+        as_text=True)
+    assert "/inventory/nodes/%d" % node_id in pagina, (
+        "l'indirizzo deve linkare alla scheda del nodo")
+
+
 def test_l_esportazione_csv_e_tracciata(logged_client, server_app):
     """Un CSV finisce in una cartella condivisa e puo' contenere indirizzi e nomi
     host: chi lo ha chiesto e quante righe si e' portato via restano nel registro."""

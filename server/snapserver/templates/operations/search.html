@@ -295,10 +295,18 @@
         </thead>
         <tbody>
           {% for riga in pronta.righe %}
+          {% set riga_idx = loop.index0 %}
           <tr>
             {% for cella in riga %}
             <td class="small {{ 'font-monospace' if loop.index0 == 0 }}">
+              {# La colonna dell'indirizzo diventa un collegamento alla scheda del nodo,
+                 quando il nodo e' noto: chi trova un dispositivo in un'interrogazione ci
+                 arriva con un clic, invece di ricopiarne l'indirizzo nel filtro. #}
+              {% if loop.index0 == pronta.colonna_indirizzo and pronta.nodi[riga_idx] %}
+              <a href="{{ url_for('inventory.node', node_id=pronta.nodi[riga_idx]) }}">{{ cella }}</a>
+              {% else %}
               {{ cella if cella is not none else '-' }}
+              {% endif %}
             </td>
             {% endfor %}
           </tr>
