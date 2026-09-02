@@ -121,4 +121,10 @@ def seed_initial_data() -> list[str]:
             messages.append("Zone di rete iniziali create per %s (%d)"
                             % (definition["code"], quante))
 
+        # Le regole di rilevazione SIEM sono anch'esse un dato del tenant.
+        from .siem.seed import semina_se_serve as semina_regole_siem
+
+        if semina_regole_siem(tenant_id):
+            messages.append("Regole SIEM iniziali create per %s" % definition["code"])
+
     return messages

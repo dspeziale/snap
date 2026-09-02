@@ -231,6 +231,8 @@ MIGRATIONS = [
     ("nodes", "device_type_by", "TEXT"),
     ("nodes", "device_type_at", "TEXT"),
     ("nodes", "device_type_reason", "TEXT"),
+    # Gravita' minima perche' un evento conti per una regola SIEM (vedi siem/detect).
+    ("siem_rules", "min_severity", "TEXT"),
 ]
 
 
@@ -355,6 +357,17 @@ def _semina_zone(connection) -> int:
     return seminati
 
 
+def _semina_regole_siem(connection) -> int:
+    """Copia il catalogo delle regole di rilevazione SIEM nei tenant che non ne hanno.
+
+    Come per le zone: un'installazione aggiornata deve trovare le regole gia'
+    dichiarate, non un elenco vuoto la prima volta che si apre il SIEM.
+    """
+    from .siem.seed import semina_regole
+
+    return semina_regole(connection, utc_now_str())
+
+
 def _fill_cwe_links(connection) -> int:
     """Riempie ti_cve_cwe dalla colonna testuale, una volta sola.
 
@@ -395,7 +408,10 @@ def init_db() -> None:
     ricostruite = _apply_structural_migrations(connection, schema)
     riempiti = _fill_cwe_links(connection)
     seminate = _semina_zone(connection)
+    regole_siem = _semina_regole_siem(connection)
     connection.commit()
+    if regole_siem:
+        current_app.logger.info("Regole SIEM iniziali create per %d tenant", regole_siem)
     if aggiunte:
         current_app.logger.info("Colonne aggiunte allo schema: %s", ", ".join(aggiunte))
     if ricostruite:

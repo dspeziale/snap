@@ -1,0 +1,47 @@
+# -----------------------------------------------------------------
+# docker-compose.yml — collettore di log SIEM (Vector) per snap
+# Copyright (c) 2024-26 DS Consulting — Licenza: MIT
+# -----------------------------------------------------------------
+# Un solo servizio: Vector riceve il syslog degli apparati e lo inoltra al server
+# snap. Nessun database nel container (gli eventi vivono nel server), immagine
+# ufficiale con versione bloccata, utente non-root, nessun segreto nell'immagine.
+#
+# Avvio:
+#   1. Nella console: SIEM > Sorgenti log > crea un collettore, copia il token.
+#   2. Copia .env.example in .env e incolla il token e l'indirizzo del server.
+#   3. docker compose up -d
+#
+# Gli apparati vanno poi configurati per inviare il proprio syslog a
+# <host-docker>:5514 (UDP o TCP).
+
+services:
+  vector:
+    # Versione bloccata (regola no-CDN / supply chain del progetto): aggiornarla
+    # e' una decisione, non un effetto collaterale di un pull.
+    image: timberio/vector:0.40.0-debian
+    container_name: snap-siem-vector
+    restart: unless-stopped
+    # Utente non-root: principio del minimo privilegio.
+    user: "10000:10000"
+    ports:
+      - "5514:5514/udp"
+      - "5514:5514/tcp"
+    environment:
+      # Il token del collettore e l'indirizzo del server: solo da .env, mai
+      # scritti nell'immagine ne' in questo file.
+      SNAP_COLLECTOR_TOKEN: "${SNAP_COLLECTOR_TOKEN:?token del collettore mancante: vedi .env}"
+      SNAP_INGEST_URI: "${SNAP_INGEST_URI:-http://host.docker.internal:5500/api/siem/ingest}"
+    volumes:
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      - vector-data:/var/lib/vector
+    # host.docker.internal risolve l'host anche su Linux (su Windows/Mac e' nativo).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "vector", "validate", "--no-environment", "/etc/vector/vector.toml"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  vector-data:

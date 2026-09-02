@@ -122,6 +122,12 @@ def create_tenant():
 
     semina_se_serve(tenant_id)
 
+    # Anche le regole di rilevazione SIEM sono un dato del tenant: un tenant nuovo
+    # deve partire con il catalogo gia' dichiarato, non con un elenco vuoto.
+    from ..siem.seed import semina_se_serve as semina_regole_siem
+
+    semina_regole_siem(tenant_id)
+
     log_event(
         "tenant.created",
         "Tenant %s (%s) creato" % (name, code),
@@ -190,6 +196,18 @@ def delete_tenant(tenant_id: int):
             "warning",
         )
         return redirect(url_for("admin.tenants"))
+
+    # Gli eventi SIEM stanno in un archivio separato che nessuna chiave esterna
+    # raggiunge: vanno cancellati a parte, altrimenti i log di un tenant eliminato
+    # sopravvivrebbero al tenant (GDPR). Un errore qui non deve impedire
+    # l'eliminazione del tenant, che e' l'atto principale.
+    try:
+        from ..siem import store as siem_store
+
+        siem_store.delete_tenant_events(tenant_id)
+    except Exception as errore:  # noqa: BLE001 - la cancellazione del tenant ha priorita'
+        current_app.logger.warning(
+            "Eventi SIEM del tenant %s non cancellati: %s", tenant_id, errore)
 
     execute("DELETE FROM tenants WHERE id = ?", (tenant_id,))
 

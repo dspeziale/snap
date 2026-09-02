@@ -945,3 +945,116 @@ CREATE INDEX IF NOT EXISTS ix_acn_tenant
     ON acn_communications(tenant_id, status, deadline_at);
 CREATE INDEX IF NOT EXISTS ix_acn_incidente
     ON acn_communications(incident_id, stage);
+
+-- =========================================================================== #
+-- SIEM: onboarding dei log, eventi di sicurezza e correlazione con la TI
+-- =========================================================================== #
+
+-- Collettore: il punto d'ingresso autenticato dei log (il container Vector, o il
+-- listener syslog integrato). Il token viene conservato SOLO come impronta, come
+-- l'api_key delle sonde: chi perde il token lo rigenera, non lo rilegge.
+CREATE TABLE IF NOT EXISTS siem_collectors (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id     INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name          TEXT    NOT NULL,
+    kind          TEXT    NOT NULL DEFAULT 'vector',
+    token_hash    TEXT    NOT NULL,
+    is_enabled    INTEGER NOT NULL DEFAULT 1,
+    last_seen_at  TEXT,
+    events_total  INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL,
+    UNIQUE (tenant_id, name)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_siem_collector_token
+    ON siem_collectors(token_hash);
+
+-- Sorgente: un apparato (o una classe di apparati) di cui si e' dichiarato
+-- l'onboarding. Gli eventi si attribuiscono per host o indirizzo di provenienza;
+-- il legame col nodo dell'inventario permette la correlazione con la TI.
+CREATE TABLE IF NOT EXISTS siem_sources (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id     INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name          TEXT    NOT NULL,
+    kind          TEXT    NOT NULL DEFAULT 'other',
+    vendor        TEXT,
+    -- Come si riconoscono gli eventi di questa sorgente: hostname dichiarato nel
+    -- syslog oppure indirizzo IP di provenienza. Confronto esatto, senza pattern:
+    -- una allowlist, non una blocklist.
+    match_host    TEXT,
+    match_ip      TEXT,
+    node_id       INTEGER REFERENCES nodes(id) ON DELETE SET NULL,
+    is_enabled    INTEGER NOT NULL DEFAULT 1,
+    last_event_at TEXT,
+    events_total  INTEGER NOT NULL DEFAULT 0,
+    notes         TEXT,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL,
+    UNIQUE (tenant_id, name)
+);
+CREATE INDEX IF NOT EXISTS ix_siem_sources_tenant ON siem_sources(tenant_id);
+
+-- Regole di rilevazione: soglie su finestre temporali sopra gli eventi
+-- normalizzati. Il catalogo viene seminato per tenant e resta modificabile.
+CREATE TABLE IF NOT EXISTS siem_rules (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    code           TEXT    NOT NULL,
+    name           TEXT    NOT NULL,
+    description    TEXT,
+    event_kind     TEXT    NOT NULL,
+    -- Campo su cui raggruppare i conteggi: src_ip, username, host.
+    group_by       TEXT    NOT NULL DEFAULT 'src_ip',
+    threshold      INTEGER NOT NULL DEFAULT 1,
+    window_seconds INTEGER NOT NULL DEFAULT 300,
+    severity       TEXT    NOT NULL DEFAULT 'medium',
+    -- Gravita' minima dell'evento perche' conti per la regola: vuoto significa
+    -- "qualunque". Serve alle regole che devono scattare solo su eventi gia' gravi
+    -- (un allarme di apparato critico si apre subito, con soglia 1).
+    min_severity   TEXT,
+    technique_id   TEXT,
+    is_enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at     TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL,
+    UNIQUE (tenant_id, code)
+);
+
+-- Allarmi: gli eventi di sicurezza rilevati. Un allarme aperto per la stessa
+-- (regola, origine) si AGGIORNA con il conteggio, non si duplica: mille tentativi
+-- di accesso sono un attacco, non mille allarmi.
+CREATE TABLE IF NOT EXISTS siem_alerts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id      INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    rule_id        INTEGER REFERENCES siem_rules(id) ON DELETE SET NULL,
+    rule_code      TEXT    NOT NULL,
+    title          TEXT    NOT NULL,
+    severity       TEXT    NOT NULL DEFAULT 'medium',
+    status         TEXT    NOT NULL DEFAULT 'open',
+    event_kind     TEXT,
+    group_value    TEXT,
+    src_ip         TEXT,
+    username       TEXT,
+    host           TEXT,
+    node_id        INTEGER REFERENCES nodes(id) ON DELETE SET NULL,
+    -- La correlazione con la threat intelligence: i riscontri aperti sul nodo
+    -- coinvolto, come elenco JSON di {id, cve, severita'}. La gravita'
+    -- dell'allarme viene alzata quando il nodo risulta gia' esposto.
+    ti_refs_json   TEXT,
+    evidence       TEXT    NOT NULL,
+    events_count   INTEGER NOT NULL DEFAULT 1,
+    first_event_at TEXT    NOT NULL,
+    last_event_at  TEXT    NOT NULL,
+    notified_at    TEXT,
+    note           TEXT,
+    decided_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    decided_at     TEXT,
+    created_at     TEXT    NOT NULL,
+    updated_at     TEXT    NOT NULL
+);
+-- Un solo allarme APERTO per (regola, origine): la chiusura libera la chiave e
+-- un attacco che riprende apre un allarme nuovo, con la propria storia.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_siem_alert_aperto
+    ON siem_alerts(tenant_id, rule_code, IFNULL(group_value, ''))
+    WHERE status IN ('open', 'ack');
+CREATE INDEX IF NOT EXISTS ix_siem_alerts_tenant
+    ON siem_alerts(tenant_id, status, severity);

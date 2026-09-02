@@ -162,6 +162,12 @@ def navbar_indicators() -> dict:
             "SELECT COUNT(*) FROM ti_findings WHERE tenant_id = ? AND status = 'open'",
             (tenant_id,),
         ),
+        # Allarmi SIEM aperti: nel menu dice se i log stanno segnalando qualcosa da
+        # guardare adesso, come gli incidenti per i controlli.
+        "siem_alerts_open": scalar(
+            "SELECT COUNT(*) FROM siem_alerts WHERE tenant_id = ?"
+            " AND status IN ('open', 'ack')", (tenant_id,),
+        ),
     }
 
 

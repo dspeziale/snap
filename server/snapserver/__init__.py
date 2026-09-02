@@ -89,6 +89,7 @@ def create_app(config_object=Config) -> Flask:
         from .notifications import start_dispatcher
         from .reports.daily import start_scheduler
         from .rules import start_evaluator
+        from .siem.detect import start_detector
 
         start_dispatcher(app)
         # Il resoconto quotidiano e le regole sono compito del SERVER: i due thread
@@ -99,6 +100,15 @@ def create_app(config_object=Config) -> Flask:
         # I termini dell'art. 23 NIS2 cadono di notte e di sabato: la sorveglianza
         # vive nel processo del server e non richiede che qualcuno sia collegato.
         start_watcher(app)
+        # La rilevazione SIEM analizza gli eventi raccolti dai log e apre gli allarmi:
+        # e' compito del server, come le regole, e vale la stessa regola dell'uno per
+        # processo (altrimenti due thread aprirebbero lo stesso allarme due volte).
+        start_detector(app)
+        # Ascolto syslog integrato: solo se richiesto (chi non usa il container Vector).
+        if app.config.get("SIEM_LISTENER"):
+            from .siem.listener import start_listener
+
+            start_listener(app)
     _register_csrf(app)
     _register_hooks(app)
     _register_error_handlers(app)
@@ -121,6 +131,8 @@ def _register_blueprints(app: Flask) -> None:
     from .blueprints.probes import bp as probes_bp
     from .blueprints.reports import bp as reports_bp
     from .blueprints.rules_views import bp as rules_bp
+    from .blueprints.siem import bp as siem_bp
+    from .blueprints.api_siem import bp as api_siem_bp
     from .blueprints.threat import bp as threat_bp
 
     app.register_blueprint(auth_bp)
@@ -132,6 +144,8 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(reports_bp)
     app.register_blueprint(rules_bp)
     app.register_blueprint(threat_bp)
+    app.register_blueprint(siem_bp)
+    app.register_blueprint(api_siem_bp)
     app.register_blueprint(operations_bp)
     app.register_blueprint(guide_bp)
     app.register_blueprint(audit_bp)
@@ -169,9 +183,13 @@ def _register_csrf(app: Flask) -> None:
     from flask_wtf.csrf import CSRFError, CSRFProtect
 
     from .blueprints.api_probe import bp as api_probe_bp
+    from .blueprints.api_siem import bp as api_siem_bp
 
     csrf = CSRFProtect(app)
     csrf.exempt(api_probe_bp)
+    # Il canale di ingestione dei log e' autenticato dal token del collettore
+    # (Bearer), non da un cookie di sessione: la protezione CSRF non lo riguarda.
+    csrf.exempt(api_siem_bp)
 
     @app.errorhandler(CSRFError)
     def _csrf_error(error):

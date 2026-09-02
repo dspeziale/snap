@@ -1,0 +1,68 @@
+# -----------------------------------------------------------------
+# vector.toml — configurazione del collettore Vector per il SIEM di snap
+# Copyright (c) 2024-26 DS Consulting — Licenza: MIT
+# -----------------------------------------------------------------
+# Vector riceve il syslog degli apparati (UDP e TCP sulla porta 5514, dentro il
+# range 5500-5600 del progetto), estrae dall'involucro di trasporto l'host e
+# l'indirizzo di provenienza, e inoltra le righe A LOTTI al server snap, che le
+# riconosce e le normalizza. Qui NON si fa parsing per apparato: la conoscenza dei
+# formati sta nel server (parsers.py), in un punto solo, cosi' una firma nuova non
+# richiede di ridistribuire il container.
+#
+# Il token del collettore e la destinazione arrivano da variabili d'ambiente
+# (docker-compose): nessun segreto in questo file.
+
+data_dir = "/var/lib/vector"
+
+# --- Ingresso: syslog UDP e TCP ------------------------------------------------
+[sources.syslog_udp]
+type = "syslog"
+address = "0.0.0.0:5514"
+mode = "udp"
+
+[sources.syslog_tcp]
+type = "syslog"
+address = "0.0.0.0:5514"
+mode = "tcp"
+
+# --- Trasformazione: si tiene solo cio' che serve al server --------------------
+# Vector ha gia' separato l'host e l'indirizzo di provenienza; il testo integrale
+# del messaggio resta, perche' e' il server a riconoscerlo.
+[transforms.prepara]
+type = "remap"
+inputs = ["syslog_udp", "syslog_tcp"]
+source = '''
+. = {
+  "message": to_string(.message) ?? to_string(.) ?? "",
+  "host": to_string(.hostname) ?? to_string(.host) ?? "",
+  "src_ip": to_string(.source_ip) ?? ""
+}
+'''
+
+# --- Uscita: lotti HTTP verso il server snap -----------------------------------
+[sinks.snap]
+type = "http"
+inputs = ["prepara"]
+uri = "${SNAP_INGEST_URI:-http://host.docker.internal:5500/api/siem/ingest}"
+method = "post"
+encoding.codec = "json"
+# Il server accetta {"events": [...]}: si avvolge il lotto sotto quella chiave.
+framing.method = "newline_delimited"
+payload_prefix = '{"events":'
+payload_suffix = '}'
+
+  [sinks.snap.batch]
+  # Un lotto ogni due secondi o al raggiungimento della soglia: veloce senza
+  # tempestare il server di richieste minuscole.
+  max_events = 500
+  timeout_secs = 2
+
+  [sinks.snap.request.headers]
+  Authorization = "Bearer ${SNAP_COLLECTOR_TOKEN}"
+
+  [sinks.snap.buffer]
+  # Se il server e' momentaneamente irraggiungibile, il buffer su disco evita di
+  # perdere i log: la continuita' operativa e' un requisito (NIS2).
+  type = "disk"
+  max_size = 268435488
+  when_full = "block"

@@ -274,7 +274,17 @@ html.snap-layout-wide .app-content-header > .container-fluid {
 .app-sidebar .nav-header {
   font-size: .7rem;
   font-weight: 700;
-  letter-spacing: .04em;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color);
+  padding: .85rem 1rem .35rem;
+  margin-top: .35rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+/* La prima etichetta apre il menu: niente riga sopra ne' spazio in cima. */
+.app-sidebar .sidebar-menu > .nav-header:first-child {
+  border-top: 0;
+  margin-top: 0;
 }
 .app-sidebar .sidebar-brand {
   border-bottom: 1px solid var(--bs-border-color);

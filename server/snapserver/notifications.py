@@ -65,6 +65,10 @@ NOTIFY_EVENTS = {
     # momento. Non passa dalla scelta in Amministrazione: e' un'azione esplicita di un
     # operatore, non un momento del workflow che qualcuno potrebbe aver disattivato.
     "report.delivery": "Report inviato a richiesta",
+    # Allarme di sicurezza rilevato dal SIEM analizzando i log. Non passa dalla
+    # scelta in Amministrazione: un allarme di sicurezza silenziato per una scelta
+    # fatta tempo prima e' esattamente il modo in cui si perde un attacco.
+    "siem.alert": "Allarme SIEM rilevato dai log",
     "rule.match": "Regola soddisfatta",
     # La credenziale provvisoria di un utente appena creato. Non e' un momento del
     # workflow degli incidenti: non passa dalla scelta in Amministrazione, perche'

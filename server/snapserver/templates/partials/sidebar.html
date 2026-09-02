@@ -29,6 +29,7 @@
 {% set in_controlli = endpoint.startswith('checks.') or endpoint.startswith('rules.') %}
 {% set in_sicurezza = endpoint.startswith('threat.') or endpoint.startswith('audit.')
                       or endpoint.startswith('acn.') %}
+{% set in_siem = endpoint.startswith('siem.') %}
 {% set in_sonde = endpoint.startswith('probes.') %}
 {% set in_admin = endpoint.startswith('admin.') %}
 {% set in_sala = endpoint.startswith('operations.') %}
@@ -38,6 +39,7 @@
 {% set incidenti = (indicators.incidents_open if indicators else 0) or 0 %}
 {% set minacce = (indicators.threat_confirmed if indicators else 0) or 0 %}
 {% set minacce_aperte = (indicators.threat_open if indicators else 0) or 0 %}
+{% set allarmi_siem = (indicators.siem_alerts_open if indicators else 0) or 0 %}
 
 {# Nessun data-bs-theme qui: il menu deve seguire il tema scelto dall'utente,
    che e' dichiarato sulla radice del documento. #}
@@ -54,6 +56,10 @@
     <nav class="mt-2">
       <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview"
           role="navigation" data-snap-menu>
+
+        {# Etichette di sezione: dividono il menu in blocchi con un'intestazione fissa
+           (non cliccabile), cosi' si trova a colpo d'occhio dove si sta guardando. #}
+        <li class="nav-header">MONITOR</li>
 
         <li class="nav-item">
           <a href="{{ url_for('dashboard.index') }}"
@@ -311,6 +317,63 @@
             {% endif %}
           </ul>
         </li>
+
+        <li class="nav-header">SIEM</li>
+
+        {# --- SIEM: cio' che i log raccontano, correlato all'esposizione ------ #}
+        <li class="nav-item {% if in_siem %}menu-open{% endif %}" data-snap-gruppo="siem">
+          <a href="#" class="nav-link {% if in_siem %}active{% endif %}">
+            <i class="nav-icon bi bi-file-earmark-ruled"></i>
+            <p>
+              SIEM
+              {% if allarmi_siem %}
+              <span class="badge text-bg-danger snap-badge-gruppo"
+                    title="allarmi SIEM aperti">{{ allarmi_siem }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('siem.index', scheda='quadro') }}"
+                 class="nav-link {% if endpoint == 'siem.index' and request.args.get('scheda') in (none, '', 'quadro') %}active{% endif %}">
+                <i class="nav-icon bi bi-speedometer2"></i><p>Quadro SIEM</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('siem.index', scheda='sorgenti') }}"
+                 class="nav-link {% if request.args.get('scheda') == 'sorgenti' %}active{% endif %}">
+                <i class="nav-icon bi bi-hdd-stack"></i><p>Sorgenti log</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('siem.index', scheda='eventi') }}"
+                 class="nav-link {% if request.args.get('scheda') == 'eventi' %}active{% endif %}">
+                <i class="nav-icon bi bi-list-columns"></i><p>Eventi</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('siem.index', scheda='regole') }}"
+                 class="nav-link {% if request.args.get('scheda') == 'regole' %}active{% endif %}">
+                <i class="nav-icon bi bi-sliders"></i><p>Regole di rilevazione</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('siem.index', scheda='allarmi') }}"
+                 class="nav-link {% if endpoint == 'siem.alert' or request.args.get('scheda') == 'allarmi' %}active{% endif %}">
+                <i class="nav-icon bi bi-bell"></i>
+                <p>
+                  Allarmi
+                  {% if allarmi_siem %}
+                  <span class="badge text-bg-danger">{{ allarmi_siem }}</span>
+                  {% endif %}
+                </p>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <li class="nav-header">AMMINISTRAZIONE E GUIDA</li>
 
         {# Un gruppo con una voce sola sarebbe un clic in piu' per niente: i report
            restano una voce diretta. #}

@@ -1,0 +1,74 @@
+{#
+  snap server - SIEM: regole di rilevazione. Soglie su finestre temporali, con la
+  tecnica ATT&CK che le lega alla threat intelligence.
+  remarks: Autore: Daniele Speziale - Data: 2026-09-02
+#}
+<div class="card">
+  <div class="card-header"><h3 class="card-title mb-0">
+    <i class="bi bi-sliders me-1"></i> Regole di rilevazione</h3></div>
+  <div class="card-body p-0"><div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" data-snap-table
+           data-page-size="25" data-no-sort="SOGLIA,AZIONI">
+      <thead><tr><th>REGOLA</th><th>GENERE</th><th>RAGGRUPPA</th><th>SOGLIA</th>
+          <th>GRAVITA'</th><th>ATT&CK</th><th>STATO</th><th>AZIONI</th></tr></thead>
+      <tbody>
+        {% for r in rules %}
+        <tr>
+          <td>
+            <div class="small fw-semibold">{{ r.name }}</div>
+            <div class="small text-body-secondary">{{ r.description }}</div>
+          </td>
+          <td class="small">{{ event_kinds.get(r.event_kind, r.event_kind) }}</td>
+          <td class="small font-monospace">{{ r.group_by }}</td>
+          <td class="small">
+            {% if has_role('analyst') %}
+            <form method="post" action="{{ url_for('siem.update_rule', rule_id=r.id) }}"
+                  class="d-flex gap-1 align-items-center">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="number" min="1" class="form-control form-control-sm"
+                     style="width:5rem" name="threshold" value="{{ r.threshold }}"
+                     title="eventi">
+              <span class="text-body-secondary">in</span>
+              <input type="number" min="30" step="30" class="form-control form-control-sm"
+                     style="width:6rem" name="window_seconds" value="{{ r.window_seconds }}"
+                     title="secondi">
+              <span class="text-body-secondary">s</span>
+              <select name="severity" class="form-select form-select-sm" style="width:7rem">
+                {% for s in ['critical','high','medium','low','info'] %}
+                <option value="{{ s }}" {{ 'selected' if r.severity == s }}>
+                  {{ severity_labels[s] }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm btn-outline-primary" title="Salva">
+                <i class="bi bi-check-lg"></i></button>
+            </form>
+            {% else %}
+            {{ r.threshold }} in {{ r.window_seconds }} s
+            {% endif %}
+          </td>
+          <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}[r.severity] }}">
+            {{ severity_labels[r.severity] }}</span></td>
+          <td class="small font-monospace">{{ r.technique_id or '-' }}</td>
+          <td><span class="badge text-bg-{{ 'success' if r.is_enabled else 'secondary' }}">
+            {{ 'attiva' if r.is_enabled else 'sospesa' }}</span></td>
+          <td>
+            {% if has_role('analyst') %}
+            <form method="post" action="{{ url_for('siem.toggle_rule', rule_id=r.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-secondary"
+                      title="{{ 'Sospendi' if r.is_enabled else 'Attiva' }}">
+                <i class="bi bi-{{ 'pause' if r.is_enabled else 'play' }}"></i></button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  <div class="card-footer small text-body-secondary">
+    La gravita' indicata e' quella di partenza: sale di un grado quando il nodo
+    coinvolto porta gia' un riscontro di sicurezza aperto (correlazione con la threat
+    intelligence).
+  </div>
+</div>

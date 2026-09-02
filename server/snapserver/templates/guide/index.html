@@ -98,6 +98,7 @@
               ('sala', 'Sala operativa: NOC, SOC, ricerca'),
               ('zone', 'Zone di rete'),
               ('acn', "Comunicazioni all'autorita' (ACN)"),
+              ('siem', 'SIEM: i log come fonte di sicurezza'),
               ('sicurezza', 'Sicurezza e conformita'),
               ('diagnosi', 'Quando qualcosa non torna'),
               ('glossario', 'Glossario')] %}
@@ -1212,7 +1213,9 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
 
         {% include 'guide/_acn.html' %}
 
-<h2 id="sicurezza">20. Sicurezza e conformita'</h2>
+        {% include 'guide/_siem.html' %}
+
+<h2 id="sicurezza">21. Sicurezza e conformita'</h2>
         <ul>
           <li>
             <strong>Canale cifrato.</strong> Ogni scambio fra sonda e server e' cifrato
@@ -1246,7 +1249,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="diagnosi">21. Quando qualcosa non torna</h2>
+        <h2 id="diagnosi">22. Quando qualcosa non torna</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">
@@ -1302,7 +1305,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </div>
 
         <!-- ============================================================= -->
-        <h2 id="glossario">22. Glossario</h2>
+        <h2 id="glossario">23. Glossario</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">

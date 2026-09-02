@@ -1,0 +1,252 @@
+{#
+  snap server - SIEM: onboarding dei log, eventi di sicurezza, allarmi correlati.
+
+  Le schede sono COLLEGAMENTI, non pannelli: il contenuto di eventi e allarmi dipende
+  da filtri applicati dal server e da un volume che non si porta tutto in pagina.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-02
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% import 'partials/tabs.html' as schede %}
+{% block title %}SIEM{% endblock %}
+{% block page_icon %}bi-file-earmark-ruled{% endblock %}
+{% block page_title %}SIEM{% endblock %}
+{% block page_subtitle %}
+  Cio' che gli apparati raccontano nei loro log diventa eventi normalizzati, e gli
+  eventi che superano una soglia diventano allarmi. Ogni allarme viene legato al nodo
+  dell'inventario e ai suoi riscontri di threat intelligence: un attacco verso una
+  macchina gia' esposta pesa piu' dello stesso attacco verso una macchina sana.
+{% endblock %}
+
+{% block content %}
+
+{{ schede.barra_collegamenti([
+    ('quadro', 'Quadro SIEM', 'bi-speedometer2', none,
+     url_for('siem.index', scheda='quadro')),
+    ('sorgenti', 'Sorgenti log', 'bi-hdd-stack', sources|length,
+     url_for('siem.index', scheda='sorgenti')),
+    ('eventi', 'Eventi', 'bi-list-columns', none,
+     url_for('siem.index', scheda='eventi')),
+    ('regole', 'Regole di rilevazione', 'bi-sliders', rules|length,
+     url_for('siem.index', scheda='regole')),
+    ('allarmi', 'Allarmi', 'bi-bell', alert_counts.aperti,
+     url_for('siem.index', scheda='allarmi')),
+], attiva=scheda) }}
+
+{# ===================================================================== QUADRO #}
+{% if scheda == 'quadro' %}
+<div class="row g-3 mb-3">
+  {% for etichetta, valore, icona, tono in [
+      ('EVENTI TOTALI', eventi_sintesi.totale, 'bi-list-columns', 'secondary'),
+      ('ULTIME 24 ORE', eventi_sintesi.ultime_24h, 'bi-activity', 'primary'),
+      ('ALLARMI APERTI', alert_counts.aperti, 'bi-bell',
+       'danger' if alert_counts.aperti else 'success'),
+      ('SORGENTI', sources|length, 'bi-hdd-stack', 'secondary'),
+      ('COLLETTORI', collectors|length, 'bi-broadcast', 'secondary')] %}
+  <div class="col-6 col-xl">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+          <p class="snap-stat-value mb-0" style="font-size:1.1rem">{{ valore }}</p>
+        </div>
+        <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+      </div>
+    </div></div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title mb-0">
+        <i class="bi bi-bell me-1"></i> Allarmi aperti</h3></div>
+      <div class="card-body p-0"><div class="table-responsive">
+        <table class="table table-hover align-middle mb-0" data-snap-table
+               data-page-size="10" data-no-sort="AZIONI">
+          <thead><tr><th>GRAVITA'</th><th>ALLARME</th><th>NODO</th><th>TI</th>
+              <th>EVENTI</th><th>AZIONI</th></tr></thead>
+          <tbody>
+            {% for a in allarmi_recenti %}
+            <tr>
+              <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}[a.severity] }}">
+                {{ severity_labels[a.severity] }}</span></td>
+              <td class="small">{{ a.title }}</td>
+              <td class="small">{{ a.node_ip or a.host or a.src_ip or '-' }}</td>
+              <td class="small">
+                {% if a.ti_refs_json and a.ti_refs_json != 'null' and a.ti_refs_json != '[]' %}
+                <span class="badge text-bg-danger" title="riscontri correlati">
+                  <i class="bi bi-link-45deg"></i> correlato</span>
+                {% else %}<span class="text-body-secondary">-</span>{% endif %}
+              </td>
+              <td class="text-end small">{{ a.events_count }}</td>
+              <td><a href="{{ url_for('siem.alert', alert_id=a.id) }}"
+                     class="btn btn-sm btn-outline-primary">Apri</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+      {% if not allarmi_recenti %}
+      <p class="p-3 mb-0 text-body-secondary small">Nessun allarme aperto. Bene.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header"><h3 class="card-title mb-0">
+        <i class="bi bi-question-circle me-1"></i> Host che mandano log ma non dichiarati</h3></div>
+      <div class="card-body p-0"><div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+               data-page-size="10">
+          <thead><tr><th>HOST</th><th>APP</th><th>EVENTI</th></tr></thead>
+          <tbody>
+            {% for h in host_ignoti %}
+            <tr><td class="small font-monospace">{{ h.host }}</td>
+                <td class="small">{{ h.app or '-' }}</td>
+                <td class="text-end small">{{ h.n }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+      {% if not host_ignoti %}
+      <p class="p-3 mb-0 text-body-secondary small">
+        Nessun host non dichiarato di recente: ogni sorgente e' riconosciuta, oppure
+        non arriva ancora nessun log.</p>
+      {% else %}
+      <div class="card-footer small text-body-secondary">
+        Dichiararli come sorgenti nella scheda <strong>Sorgenti log</strong> per
+        attribuirne gli eventi e correlarli.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# =================================================================== SORGENTI #}
+{% elif scheda == 'sorgenti' %}
+{% include 'siem/_sorgenti.html' %}
+
+{# ===================================================================== EVENTI #}
+{% elif scheda == 'eventi' %}
+<div class="card">
+  <div class="card-header">
+    <form method="get" action="{{ url_for('siem.index') }}" class="row g-2 align-items-end">
+      <input type="hidden" name="scheda" value="eventi">
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="kind">Genere</label>
+        <select class="form-select form-select-sm" id="kind" name="kind" data-autosubmit>
+          <option value="">Tutti</option>
+          {% for k, etichetta in event_kinds.items() %}
+          <option value="{{ k }}" {{ 'selected' if filtri.kind == k }}>{{ etichetta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="host">Host</label>
+        <input type="text" class="form-control form-control-sm" id="host" name="host"
+               value="{{ filtri.host }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="ip">Indirizzo</label>
+        <input type="text" class="form-control form-control-sm" id="ip" name="ip"
+               value="{{ filtri.ip }}">
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="q">Testo</label>
+        <input type="search" class="form-control form-control-sm" id="q" name="q"
+               value="{{ filtri.q }}" placeholder="messaggio, utenza, app">
+      </div>
+      <div class="col-12 col-md-1">
+        <button type="submit" class="btn btn-sm btn-primary w-100">
+          <i class="bi bi-funnel"></i></button>
+      </div>
+    </form>
+  </div>
+  <div class="card-body p-0"><div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+           data-page-size="50">
+      <thead><tr><th>RICEVUTO</th><th>GRAVITA'</th><th>GENERE</th><th>HOST</th>
+          <th>ORIGINE</th><th>UTENZA</th><th>MESSAGGIO</th></tr></thead>
+      <tbody>
+        {% for e in eventi %}
+        <tr>
+          <td class="small text-nowrap">{{ e.received_at|dt }}</td>
+          <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}.get(e.severity, 'secondary') }}">
+            {{ e.severity }}</span></td>
+          <td class="small">{{ event_kinds.get(e.event_kind, e.event_kind) }}</td>
+          <td class="small font-monospace">{{ e.host or '-' }}</td>
+          <td class="small font-monospace">{{ e.src_ip or '-' }}</td>
+          <td class="small">{{ e.username or '-' }}</td>
+          <td class="small text-truncate" style="max-width:420px"
+              title="{{ e.message }}">{{ e.message }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% if not eventi %}
+  <p class="p-3 mb-0 text-body-secondary small">
+    Nessun evento per questi filtri. Se non arriva nulla, verificare che il collettore
+    spedisca al server e che una sorgente sia dichiarata.</p>
+  {% endif %}
+</div>
+
+{# ===================================================================== REGOLE #}
+{% elif scheda == 'regole' %}
+{% include 'siem/_regole.html' %}
+
+{# ==================================================================== ALLARMI #}
+{% elif scheda == 'allarmi' %}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-bell me-1"></i> Allarmi</h3>
+    <div class="btn-group btn-group-sm">
+      <a href="{{ url_for('siem.index', scheda='allarmi') }}"
+         class="btn btn-outline-secondary">Tutti</a>
+      <a href="{{ url_for('siem.index', scheda='allarmi', stato='open') }}"
+         class="btn btn-outline-primary">Aperti</a>
+      <a href="{{ url_for('siem.index', scheda='allarmi', stato='ack') }}"
+         class="btn btn-outline-primary">Presi in carico</a>
+      <a href="{{ url_for('siem.index', scheda='allarmi', stato='closed') }}"
+         class="btn btn-outline-secondary">Chiusi</a>
+    </div>
+  </div>
+  <div class="card-body p-0"><div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" data-snap-table
+           data-page-size="25" data-no-sort="AZIONI">
+      <thead><tr><th>GRAVITA'</th><th>STATO</th><th>ALLARME</th><th>NODO</th>
+          <th>CORRELAZIONE TI</th><th>EVENTI</th><th>ULTIMO</th><th>AZIONI</th></tr></thead>
+      <tbody>
+        {% for a in alerts %}
+        <tr>
+          <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}[a.severity] }}">
+            {{ severity_labels[a.severity] }}</span></td>
+          <td><span class="badge text-bg-{{ {'open':'danger','ack':'warning','closed':'secondary','false_positive':'secondary'}[a.status] }}">
+            {{ alert_statuses[a.status] }}</span></td>
+          <td class="small">{{ a.title }}</td>
+          <td class="small font-monospace">{{ a.node_ip or a.host or a.src_ip or '-' }}</td>
+          <td class="small">
+            {% if a.ti_refs_json and a.ti_refs_json not in ('null', '[]') %}
+            <span class="badge text-bg-danger"><i class="bi bi-link-45deg"></i> nodo esposto</span>
+            {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+          </td>
+          <td class="text-end small">{{ a.events_count }}</td>
+          <td class="small text-nowrap">{{ a.last_event_at|dt }}</td>
+          <td><a href="{{ url_for('siem.alert', alert_id=a.id) }}"
+                 class="btn btn-sm btn-outline-primary">Apri</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% if not alerts %}
+  <p class="p-3 mb-0 text-body-secondary small">Nessun allarme per questo filtro.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}

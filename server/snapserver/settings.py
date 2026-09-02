@@ -61,11 +61,24 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.1.0"
+    APP_VERSION = "1.2.4"
     APP_SUBTITLE = "Secure Network Assessment Platform"
 
     SECRET_KEY = load_secret_key()
     DATABASE = os.environ.get("SNAP_SERVER_DATABASE", str(DATA_DIR / "snap_server.sqlite3"))
+    # Archivio degli eventi SIEM: un file separato dal database della console, cosi'
+    # un flusso di migliaia di log al minuto non contende le pagine. Vuoto significa
+    # "accanto al database principale" (snap_siem.sqlite3), che e' il caso di sviluppo.
+    SIEM_DATABASE = os.environ.get("SNAP_SERVER_SIEM_DATABASE", "")
+    # Giorni di conservazione degli eventi SIEM. I log contengono utenze e indirizzi:
+    # tenerli per sempre e' una violazione (GDPR art. 5). La purga gira col motore.
+    SIEM_RETENTION_DAYS = _int("SNAP_SERVER_SIEM_RETENTION_DAYS", 90)
+    # Ascolto syslog integrato: alternativa al container Vector per chi non ha Docker.
+    # Spento per difetto (secure by default): si accende esplicitamente. La porta sta
+    # nel range del progetto (5500-5600).
+    SIEM_LISTENER = _bool("SNAP_SERVER_SIEM_LISTENER", False)
+    SIEM_LISTENER_PORT = _int("SNAP_SERVER_SIEM_LISTENER_PORT", 5514)
+    SIEM_LISTENER_HOST = os.environ.get("SNAP_SERVER_SIEM_LISTENER_HOST", "0.0.0.0")
 
     # Diario su file, in aggiunta a quello a schermo. Serve all'avvio assistito:
     # la finestra mostra cio' che accade, il file lo conserva per una diagnosi a

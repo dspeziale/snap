@@ -1,0 +1,153 @@
+{#
+  snap server - SIEM: dettaglio di un allarme, con la correlazione alla threat
+  intelligence e gli eventi grezzi a corredo.
+  remarks: Autore: Daniele Speziale - Data: 2026-09-02
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Allarme SIEM{% endblock %}
+{% block page_icon %}bi-bell{% endblock %}
+{% block page_title %}Allarme SIEM #{{ alert.id }}{% endblock %}
+{% block page_subtitle %}{{ alert.title }}{% endblock %}
+
+{% block content %}
+{% set toni = {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'} %}
+
+<div class="mb-3">
+  <a href="{{ url_for('siem.index', scheda='allarmi') }}"
+     class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i> Torna agli allarmi</a>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0">Riepilogo</h3>
+        <span class="badge text-bg-{{ toni[alert.severity] }}">
+          {{ severity_labels[alert.severity] }}</span>
+      </div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr><th style="width:12rem">Stato</th>
+              <td>{{ alert_statuses[alert.status] }}</td></tr>
+          <tr><th>Regola</th><td class="font-monospace small">{{ alert.rule_code }}</td></tr>
+          <tr><th>Genere di evento</th>
+              <td>{{ event_kinds.get(alert.event_kind, alert.event_kind) }}</td></tr>
+          <tr><th>Origine coinvolta</th>
+              <td class="font-monospace">{{ alert.group_value }}</td></tr>
+          <tr><th>Nodo in inventario</th>
+              <td>
+                {% if alert.node_id %}
+                <a href="{{ url_for('inventory.node', node_id=alert.node_id) }}">
+                  {{ alert.node_ip or alert.node_hostname }}</a>
+                {% else %}
+                <span class="text-body-secondary">nessun nodo corrisponde a questa origine</span>
+                {% endif %}
+              </td></tr>
+          <tr><th>Eventi conteggiati</th><td>{{ alert.events_count }}</td></tr>
+          <tr><th>Primo evento</th><td>{{ alert.first_event_at|dt }}</td></tr>
+          <tr><th>Ultimo evento</th><td>{{ alert.last_event_at|dt }}</td></tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><h3 class="card-title mb-0">Evidenza</h3></div>
+      <div class="card-body">
+        <pre class="small mb-0" style="white-space:pre-wrap">{{ alert.evidence }}</pre>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header"><h3 class="card-title mb-0">
+        <i class="bi bi-list-columns me-1"></i> Eventi a corredo</h3></div>
+      <div class="card-body p-0"><div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+               data-page-size="20">
+          <thead><tr><th>RICEVUTO</th><th>UTENZA</th><th>MESSAGGIO</th></tr></thead>
+          <tbody>
+            {% for e in eventi %}
+            <tr><td class="small text-nowrap">{{ e.received_at|dt }}</td>
+                <td class="small">{{ e.username or '-' }}</td>
+                <td class="small text-truncate" style="max-width:520px"
+                    title="{{ e.message }}">{{ e.message }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div></div>
+      {% if not eventi %}
+      <p class="p-3 mb-0 text-body-secondary small">
+        Gli eventi originali potrebbero essere stati rimossi dalla retention.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    {# --- La correlazione con la threat intelligence: il punto dell'allarme --- #}
+    <div class="card border-danger">
+      <div class="card-header bg-danger-subtle">
+        <h3 class="card-title mb-0"><i class="bi bi-link-45deg me-1"></i>
+          Correlazione con la Threat Intelligence</h3>
+      </div>
+      <div class="card-body">
+        {% if riscontri %}
+        <p class="small mb-2">
+          Il nodo coinvolto porta gia' <strong>{{ riscontri|length }}</strong> riscontro/i
+          di sicurezza aperto/i: per questo la gravita' dell'allarme e' stata alzata.
+          Un attacco verso una macchina esposta va guardato per primo.
+        </p>
+        <ul class="list-group list-group-flush">
+          {% for r in riscontri %}
+          <li class="list-group-item px-0">
+            <span class="badge text-bg-{{ toni[r.severity] }}">{{ r.severity }}</span>
+            {% if r.cve_id %}<span class="font-monospace small">{{ r.cve_id }}</span>{% endif %}
+            <div class="small">{{ r.title }}</div>
+            <a class="small" href="{{ url_for('threat.index', scheda='riscontri') }}">
+              vedi nei riscontri</a>
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          Nessun riscontro di sicurezza aperto sul nodo coinvolto (o l'origine non
+          corrisponde a un nodo dell'inventario). L'allarme resta alla gravita' della
+          regola.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if has_role('analyst') and alert.status in ('open', 'ack') %}
+    <div class="card mt-3">
+      <div class="card-header"><h3 class="card-title mb-0">Decidi</h3></div>
+      <div class="card-body">
+        <form method="post"
+              action="{{ url_for('siem.set_alert_status', alert_id=alert.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="note">Nota (facoltativa)</label>
+            <textarea class="form-control form-control-sm" id="note" name="note"
+                      rows="2"></textarea>
+          </div>
+          <div class="d-grid gap-2">
+            {% if alert.status == 'open' %}
+            <button class="btn btn-sm btn-warning" name="status" value="ack">
+              <i class="bi bi-person-check me-1"></i> Prendi in carico</button>
+            {% endif %}
+            <button class="btn btn-sm btn-outline-success" name="status" value="closed"
+                    data-confirm="Chiudere l'allarme? Se l'attacco riprende ne verra' aperto uno nuovo.">
+              <i class="bi bi-check-lg me-1"></i> Chiudi (risolto)</button>
+            <button class="btn btn-sm btn-outline-secondary" name="status"
+                    value="false_positive"
+                    data-confirm="Segnare come falso positivo? L'allarme viene chiuso.">
+              <i class="bi bi-x-circle me-1"></i> Falso positivo</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

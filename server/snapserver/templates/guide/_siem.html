@@ -1,0 +1,81 @@
+{#
+  snap server - Guida: il SIEM (raccolta log, eventi di sicurezza, allarmi).
+  remarks: Autore: Daniele Speziale - Data: 2026-09-02
+#}
+<h2 id="siem">20. SIEM: i log come fonte di sicurezza</h2>
+<p>
+  Il <strong>SIEM</strong> raccoglie i log degli apparati (firewall, Windows, Linux,
+  switch e router) e ne ricava <strong>eventi di sicurezza</strong>. Gli eventi che
+  superano una soglia diventano <strong>allarmi</strong>, e ogni allarme viene legato al
+  nodo dell'inventario e ai suoi <strong>riscontri di threat intelligence</strong>: un
+  attacco verso una macchina gia' esposta pesa piu' dello stesso attacco verso una
+  macchina sana.
+</p>
+
+<h3>Come arrivano i log</h3>
+<p>
+  Un <strong>collettore</strong> riceve il syslog degli apparati e lo consegna al
+  server. Sono previsti due modi, equivalenti per la console:
+</p>
+<ul>
+  <li><strong>Container Vector</strong> (consigliato): un solo container, veloce e
+    affidabile, con buffer su disco che non perde i log se il server e' momentaneamente
+    irraggiungibile. Le istruzioni sono in <code>docker/siem/README.md</code>.</li>
+  <li><strong>Listener integrato</strong>: nessun container, si accende con
+    <code>SNAP_SERVER_SIEM_LISTENER=1</code>. Piu' semplice, adatto a un server dedicato
+    a un solo tenant.</li>
+</ul>
+<p>
+  In entrambi i casi gli apparati vanno configurati per inviare il syslog alla porta
+  <strong>5514</strong> (UDP o TCP). Il collettore si autentica con un <strong>token</strong>,
+  creato in <strong>SIEM &rarr; Sorgenti log</strong> e mostrato una sola volta.
+</p>
+
+<h3>Onboarding di una sorgente</h3>
+<p>
+  Quando i log iniziano ad arrivare, il <strong>Quadro SIEM</strong> mostra gli
+  <strong>host non ancora dichiarati</strong>: sono i candidati. Per ciascun apparato si
+  dichiara una <strong>sorgente</strong> indicando:
+</p>
+<ul>
+  <li>la <strong>tipologia</strong> (firewall, Windows, Linux, apparato di rete): guida
+    il riconoscimento del formato dei log;</li>
+  <li>l'<strong>host</strong> dichiarato nel syslog e/o l'<strong>indirizzo</strong> di
+    provenienza: attribuiscono gli eventi alla sorgente;</li>
+  <li>il <strong>nodo dell'inventario</strong> corrispondente: e' cio' che abilita la
+    correlazione con la threat intelligence.</li>
+</ul>
+<p>
+  Un log che nessun riconoscimento capisce non viene perso: resta un evento
+  <em>non classificato</em>, con il suo testo integrale, cercabile fra gli eventi.
+</p>
+
+<h3>Regole di rilevazione</h3>
+<p>
+  Le regole sono <strong>soglie su finestre temporali</strong> ("dieci accessi falliti
+  dallo stesso indirizzo in cinque minuti"). Il tenant parte con un catalogo gia'
+  pronto — forza bruta, password spraying, cancellazione dei registri, modifiche di
+  configurazione a raffica, malware segnalato, scansioni — e ogni regola resta
+  <strong>modificabile</strong>: la soglia giusta dipende dalla rete. Ogni regola cita
+  la <strong>tecnica ATT&CK</strong> corrispondente, la stessa lingua della threat
+  intelligence.
+</p>
+
+<h3>Allarmi e correlazione</h3>
+<p>
+  Un allarme non si duplica: un attacco che dura un'ora e' <strong>un</strong> allarme
+  che cresce nel conteggio, non centinaia di righe. La <strong>gravita' di partenza</strong>
+  della regola <strong>sale di un grado</strong> quando il nodo coinvolto porta gia' un
+  riscontro di sicurezza aperto, e l'allarme lo <strong>cita</strong>: chi guarda il
+  quadro vede l'attacco e l'esposizione insieme, e sa da dove cominciare. Le notifiche
+  seguono lo stesso freno degli incidenti: un promemoria al massimo ogni cinque minuti.
+  Ogni allarme ha un ciclo di vita (aperto, preso in carico, chiuso, falso positivo).
+</p>
+
+<h3>Conservazione</h3>
+<p>
+  I log contengono utenze e indirizzi. Gli eventi si conservano per un periodo
+  <strong>configurabile</strong> (<code>SNAP_SERVER_SIEM_RETENTION_DAYS</code>, 90 giorni
+  per difetto) e i piu' vecchi vengono cancellati automaticamente (GDPR art. 5). Alla
+  cancellazione di un tenant, i suoi eventi vengono rimossi con lui.
+</p>
