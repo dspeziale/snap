@@ -423,6 +423,21 @@ def treemap(pesi: list[float], x: float, y: float,
     return fuori
 
 
+def _restringi(rett: dict, margine: float) -> tuple:
+    """Restringe un rettangolo del margine dato, senza mai uscirne.
+
+    Un margine fisso sottratto a un rettangolo piu' stretto del margine stesso darebbe
+    una larghezza negativa, e la cella finirebbe fuori dal proprio spazio. Qui il
+    margine non supera mai un terzo del lato: su un riquadro minuscolo si assottiglia
+    invece di sfondarlo. Restituisce (x, y, larghezza, altezza).
+    """
+    mx = min(margine / 2, rett["w"] * 0.33)
+    my = min(margine / 2, rett["h"] * 0.33)
+    # rett["w"] - 2*mx >= 0.34 * rett["w"] > 0: sempre positivo e dentro il rettangolo.
+    return (rett["x"] + mx, rett["y"] + my,
+            rett["w"] - 2 * mx, rett["h"] - 2 * my)
+
+
 def _icone_dominanti(albero: dict) -> dict:
     """Per ogni subnet osservata, l'icona del tipo di dispositivo piu' presente."""
     icone = {}
@@ -469,10 +484,7 @@ def mappa_zone(albero: dict) -> dict:
 
     zone_out, reti_totali = [], 0
     for (zona, reti), rett in zip(utili, rettangoli):
-        zx = rett["x"] + MARGINE_ZONA / 2
-        zy = rett["y"] + MARGINE_ZONA / 2
-        zw = max(1.0, rett["w"] - MARGINE_ZONA)
-        zh = max(1.0, rett["h"] - MARGINE_ZONA)
+        zx, zy, zw, zh = _restringi(rett, MARGINE_ZONA)
         # La banda del titolo non supera il 40% dell'altezza: in una zona bassa e larga
         # un titolo alto quanto in una zona grande mangerebbe tutto lo spazio delle reti.
         titolo_h = min(ALTEZZA_TITOLO_ZONA, zh * 0.4)
@@ -485,10 +497,9 @@ def mappa_zone(albero: dict) -> dict:
         for subnet, cr in zip(reti, celle_rett):
             riscontri = int(subnet.get("riscontri") or 0)
             attivi = int(subnet.get("attivi") or 0)
+            cx, cy, cw, ch = _restringi(cr, MARGINE_RETE)
             celle.append({
-                "x": cr["x"] + MARGINE_RETE / 2, "y": cr["y"] + MARGINE_RETE / 2,
-                "w": max(0.5, cr["w"] - MARGINE_RETE),
-                "h": max(0.5, cr["h"] - MARGINE_RETE),
+                "x": cx, "y": cy, "w": cw, "h": ch,
                 "subnet_id": subnet.get("id"),
                 "cidr": subnet.get("cidr") or "fuori perimetro",
                 "etichetta": subnet.get("etichetta") or "",
