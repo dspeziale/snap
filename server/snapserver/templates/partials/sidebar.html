@@ -19,6 +19,7 @@
 
 {# Appartenenza della pagina in corso a ciascun gruppo: decide quale si apre. #}
 {% set in_rete = endpoint in ('inventory.nodes', 'inventory.node', 'inventory.network_map',
+                              'inventory.network_map_graphic', 'inventory.network_map_zones',
                               'monitor.status',
                               'monitor.changes', 'inventory.subnets',
                               'inventory.zone_index',
@@ -141,6 +142,15 @@
               <a href="{{ url_for('inventory.network_map_graphic') }}"
                  class="nav-link {% if endpoint == 'inventory.network_map_graphic' %}active{% endif %}">
                 <i class="nav-icon bi bi-bezier2"></i><p>Mappa grafica</p>
+              </a>
+            </li>
+            {# La terza vista: le subnet dentro la zona che le contiene, a treemap. Dice
+               la segmentazione -- che cosa sta in quale contesto -- che le altre due non
+               mostrano a colpo d'occhio. #}
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.network_map_zones') }}"
+                 class="nav-link {% if endpoint == 'inventory.network_map_zones' %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-3-fill"></i><p>Mappa per zone</p>
               </a>
             </li>
             <li class="nav-item">

@@ -720,6 +720,136 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
 }
 
 /* ------------------------------------------------------------------------- */
+/* Mappa per zone: treemap annidata (le subnet dentro la zona)               */
+/* ------------------------------------------------------------------------- */
+/* Stesso piano logico della mappa a bolle: un contenitore con proporzioni fisse su cui
+   zone e subnet sono posizionate in percentuale. */
+.snap-zmappa {
+  position: relative;
+  width: 100%;
+  aspect-ratio: var(--snap-mappa-rapporto, 850 / 1200);
+  min-height: 26rem;
+  overflow: hidden;
+  border-radius: var(--bs-border-radius);
+  background: var(--bs-tertiary-bg);
+}
+/* La zona: il rettangolo di sfondo che contiene le sue subnet. La tinta (bg-*-subtle)
+   arriva dalle classi di Bootstrap, cosi' segue il tono dichiarato per la zona. */
+.snap-zona {
+  position: absolute;
+  border-radius: .5rem;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+.snap-zona-titolo {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  padding: 0 .5rem;
+  min-height: 1.2rem;
+  font-size: .72rem;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.snap-zona-titolo > .bi { flex: 0 0 auto; }
+.snap-zona-nome { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.snap-zona-conti { font-weight: 400; opacity: .92; overflow: hidden; text-overflow: ellipsis; }
+
+/* La subnet: un riquadro cliccabile sopra lo sfondo della zona. Diventa un contenitore
+   di query, cosi' le etichette compaiono solo dove c'e' spazio per leggerle. */
+.snap-zrete {
+  position: absolute;
+  container-type: size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: .1rem;
+  border: 1px solid var(--bs-border-color);
+  border-left-width: 3px;
+  border-radius: .35rem;
+  background: var(--bs-body-bg);
+  color: inherit;
+  text-decoration: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: outline-color .12s ease, transform .12s ease;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+}
+.snap-zrete:hover, .snap-zrete:focus-visible {
+  z-index: 3;
+  outline-color: var(--bs-primary);
+  color: inherit;
+}
+.snap-zrete-corpo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .05rem;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.1;
+}
+.snap-zrete-icona { font-size: 1rem; color: var(--bs-secondary-color); }
+.snap-zrete-cidr {
+  font-family: var(--bs-font-monospace);
+  font-size: .66rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snap-zrete-conto { font-size: .72rem; font-weight: 700; }
+.snap-zrete-etichetta {
+  font-size: .6rem;
+  color: var(--bs-secondary-color);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.snap-zrete-allarme {
+  position: absolute;
+  top: .1rem;
+  right: .15rem;
+  min-width: 1rem;
+  padding: 0 .2rem;
+  border-radius: .6rem;
+  background: var(--bs-danger);
+  color: #fff;
+  font-size: .58rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-align: center;
+}
+/* Lo stato colora il bordo sinistro e l'icona: verde attivo, rosso con riscontri,
+   tratteggiato assente. */
+.snap-zrete-attivo  { border-left-color: var(--bs-success); }
+.snap-zrete-attivo  .snap-zrete-icona { color: var(--bs-success); }
+.snap-zrete-critico { border-left-color: var(--bs-danger); background: color-mix(in srgb, var(--bs-danger) 6%, var(--bs-body-bg)); }
+.snap-zrete-critico .snap-zrete-icona { color: var(--bs-danger); }
+.snap-zrete-assente { border-left-style: dashed; opacity: .82; }
+.snap-zrete-assente .snap-zrete-icona { color: var(--bs-secondary-color); }
+
+/* Dove il riquadro e' piccolo, si tiene solo l'essenziale: prima cade l'etichetta, poi
+   il CIDR, cosi' un riquadro minuscolo mostra almeno il numero e l'icona. */
+@container (max-height: 44px) { .snap-zrete-etichetta { display: none; } }
+@container (max-width: 66px), (max-height: 34px) {
+  .snap-zrete-cidr { display: none; }
+}
+@container (max-width: 40px), (max-height: 26px) {
+  .snap-zrete-icona, .snap-zrete-conto { font-size: .6rem; }
+}
+
+@media print {
+  .snap-zmappa { background: none; border: 1px solid #999; }
+  .snap-stampa-mappa .snap-zmappa { aspect-ratio: auto; height: 92vh; min-height: 0; }
+  .snap-zrete { background: #fff; }
+}
+
+/* ------------------------------------------------------------------------- */
 /* Filtri dell'inventario: gruppi e pastiglie dei filtri attivi              */
 /* ------------------------------------------------------------------------- */
 /* L'intestazione di un gruppo di filtri: dice a quale domanda risponde il

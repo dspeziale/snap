@@ -151,6 +151,142 @@ def test_una_rete_inesistente_non_ha_disposizione(server_app, contesto):
 
 
 # --------------------------------------------------------------------------- #
+# Mappa per zone: la treemap annidata
+# --------------------------------------------------------------------------- #
+def _rete_zona(server_app, tenant_id, cidr, zona, quanti=10, con_riscontri=0):
+    """Una subnet assegnata a una zona, con dispositivi (alcuni con riscontri)."""
+    with server_app.app_context():
+        from snapserver.db import execute, query, utc_now_str
+
+        adesso = utc_now_str()
+        probe = query("SELECT id FROM probes WHERE tenant_id = ?", (tenant_id,), one=True)
+        probe_id = int(probe["id"]) if probe else execute(
+            "INSERT INTO probes (tenant_id, probe_uid, code, name, status, created_at,"
+            " updated_at) VALUES (?, 'uid-zona', 'PZ', 'Sonda zona', 'active', ?, ?)",
+            (tenant_id, adesso, adesso))
+        subnet_id = execute(
+            "INSERT INTO subnets (tenant_id, cidr, zone, host_count, is_enabled,"
+            " imported_at, created_at, updated_at) VALUES (?, ?, ?, 254, 1, ?, ?, ?)",
+            (tenant_id, cidr, zona, adesso, adesso, adesso))
+        base = cidr.rsplit(".", 1)[0]
+        for i in range(quanti):
+            node_id = execute(
+                "INSERT INTO nodes (tenant_id, subnet_id, probe_id, ip, status,"
+                " device_type, device_label, device_confidence, first_seen_at,"
+                " last_seen_at, created_at, updated_at)"
+                " VALUES (?, ?, ?, ?, 'up', 'workstation_windows', 'Postazione Windows',"
+                " 80, ?, ?, ?, ?)",
+                (tenant_id, subnet_id, probe_id, "%s.%d" % (base, i + 1),
+                 adesso, adesso, adesso, adesso))
+            if i < con_riscontri:
+                execute(
+                    "INSERT INTO ti_findings (tenant_id, node_id, kind, title, evidence,"
+                    " severity, status, first_seen_at, last_seen_at)"
+                    " VALUES (?, ?, 'exposure', 'x', 'x', 'high', 'open', ?, ?)",
+                    (tenant_id, node_id, adesso, adesso))
+        return subnet_id
+
+
+def test_il_treemap_copre_il_piano_e_conserva_l_ordine():
+    """L'area di ogni riquadro e' proporzionale al peso, i riquadri riempiono il piano
+    e tornano nell'ordine dei pesi in ingresso."""
+    from snapserver import map_graphic as mg
+
+    pesi = [50, 30, 15, 5]
+    rects = mg.treemap(pesi, 0.0, 0.0, mg.LARGHEZZA, mg.ALTEZZA)
+
+    assert len(rects) == len(pesi)
+    area = sum(r["w"] * r["h"] for r in rects)
+    assert abs(area - mg.LARGHEZZA * mg.ALTEZZA) < 1.0, "il treemap riempie il piano"
+    for r in rects:
+        assert -1e-6 <= r["x"] and r["x"] + r["w"] <= mg.LARGHEZZA + 1e-6, r
+        assert -1e-6 <= r["y"] and r["y"] + r["h"] <= mg.ALTEZZA + 1e-6, r
+    assert rects[0]["w"] * rects[0]["h"] > rects[-1]["w"] * rects[-1]["h"], (
+        "il peso maggiore occupa piu' area")
+    assert mg.treemap([], 0, 0, 10, 10) == []
+
+
+def test_la_mappa_per_zone_mette_le_reti_dentro_la_zona(server_app, contesto):
+    """Il cuore della vista: ogni subnet e' disegnata DENTRO il rettangolo della sua
+    zona, sotto la banda del titolo. E' cosi' che si legge il contenimento."""
+    from snapserver.inventory_queries import network_tree
+    from snapserver import map_graphic
+
+    _rete_zona(server_app, contesto, "10.50.0.0/24", "datacenter", quanti=12,
+               con_riscontri=3)
+    _rete_zona(server_app, contesto, "10.1.0.0/24", "utenza", quanti=20)
+    _rete_zona(server_app, contesto, "10.2.0.0/24", "utenza", quanti=8)
+    with server_app.app_context():
+        albero = network_tree(contesto)
+    mappa = map_graphic.mappa_zone(albero)
+
+    per_nome = {z["nome"]: z for z in mappa["zone"]}
+    assert "Datacenter" in per_nome and "Rete di utenza" in per_nome
+    # La zona di utenza (28 nodi) e' piu' grande del datacenter (12): area ~ dispositivi.
+    utenza, dc = per_nome["Rete di utenza"], per_nome["Datacenter"]
+    assert utenza["w"] * utenza["h"] > dc["w"] * dc["h"]
+    assert utenza["n_reti"] == 2, "le due subnet di utenza stanno nella stessa zona"
+
+    for z in mappa["zone"]:
+        for r in z["reti"]:
+            assert z["x"] - 0.01 <= r["x"] and r["x"] + r["w"] <= z["x"] + z["w"] + 0.01
+            assert (z["y"] + z["titolo_h"] - 0.01 <= r["y"]
+                    and r["y"] + r["h"] <= z["y"] + z["h"] + 0.01), (
+                "la rete sta sotto il titolo, dentro la zona")
+    # Il datacenter ha riscontri aperti: la sua subnet e' 'critico'.
+    assert any(r["stato"] == "critico" for r in dc["reti"])
+
+
+def test_le_zone_e_le_reti_senza_dispositivi_si_contano_ma_non_si_disegnano(
+        server_app, contesto):
+    """Una subnet dichiarata e non ancora osservata, o una zona tutta vuota, avrebbero
+    area nulla: non si disegnano, ma il conteggio le dichiara."""
+    from snapserver.inventory_queries import network_tree
+    from snapserver import map_graphic
+    from snapserver.db import execute, utc_now_str
+
+    _rete_zona(server_app, contesto, "10.3.0.0/24", "utenza", quanti=6)
+    with server_app.app_context():
+        adesso = utc_now_str()
+        # Una subnet in una zona diversa, dichiarata ma senza dispositivi.
+        execute("INSERT INTO subnets (tenant_id, cidr, zone, host_count, is_enabled,"
+                " imported_at, created_at, updated_at)"
+                " VALUES (?, '10.80.0.0/24', 'dmz', 254, 1, ?, ?, ?)",
+                (contesto, adesso, adesso, adesso))
+        albero = network_tree(contesto)
+    mappa = map_graphic.mappa_zone(albero)
+
+    nomi = {z["nome"] for z in mappa["zone"]}
+    assert "DMZ" not in nomi, "una zona senza dispositivi non si disegna"
+    assert mappa["reti_vuote"] >= 1 or mappa["zone_vuote"] >= 1, (
+        "cio' che non si disegna si conta")
+
+
+def test_la_pagina_della_mappa_per_zone_risponde(logged_client, server_app, contesto):
+    _rete_zona(server_app, contesto, "10.50.0.0/24", "datacenter", quanti=10)
+    logged_client.post("/switch-tenant", data={"tenant_id": contesto},
+                       follow_redirects=True)
+    pagina = logged_client.get("/inventory/map/zone").get_data(as_text=True)
+
+    assert "snap-zmappa" in pagina, "il contenitore della treemap"
+    assert "snap-zona" in pagina, "il rettangolo della zona"
+    assert "snap-zrete" in pagina, "il rettangolo della subnet dentro la zona"
+    assert "Datacenter" in pagina
+    assert "<script>" not in pagina, "la CSP vieta il JavaScript in pagina"
+
+
+def test_la_guida_spiega_i_riscontri_ben_in_vista(logged_client):
+    """La parola ricorre ovunque: la guida deve definirla, in una sezione propria e con
+    un richiamo in evidenza in cima."""
+    pagina = logged_client.get("/guida/").get_data(as_text=True)
+
+    assert 'id="riscontri"' in pagina, "serve una sezione ancorata sui riscontri"
+    assert "Che cosa sono i" in pagina and "riscontri" in pagina
+    assert "vulnerabilita" in pagina.lower() and "esposizione" in pagina.lower()
+    assert "#riscontri" in pagina, "il richiamo in cima porta alla sezione"
+
+
+# --------------------------------------------------------------------------- #
 # La pagina
 # --------------------------------------------------------------------------- #
 def test_la_pagina_risponde_col_panorama(logged_client, server_app, contesto):

@@ -313,6 +313,208 @@ def rete(albero: dict, subnet_id: int) -> dict | None:
     }
 
 
+# --------------------------------------------------------------------------- #
+# Mappa per zone: le subnet dentro il contesto che le contiene (treemap annidata)
+# --------------------------------------------------------------------------- #
+# Perche' una treemap e non le solite bolle: la domanda "quali subnet stanno in quale
+# zona" e' una domanda di CONTENIMENTO, e il contenimento si legge quando una cosa sta
+# DENTRO l'altra, non quando due bolle hanno lo stesso colore. La zona e' un rettangolo,
+# le sue subnet sono rettangoli piu' piccoli dentro di esso, e l'area di ciascuno vale
+# quanti dispositivi contiene: una rete da 300 nodi occupa piu' spazio di una da 3, e la
+# segmentazione si vede a colpo d'occhio senza leggere un solo numero.
+#
+# Il calcolo e' l'algoritmo "squarified treemap" (Bruls, Huizing, van Wijk, 2000): a
+# parita' d'area preferisce i rettangoli vicini al quadrato, che sono quelli che si
+# leggono e si cliccano. E' deterministico -- la posizione di ogni rete e' il risultato
+# di una funzione, verificabile con una prova -- come tutto il resto di questa mappa.
+ALTEZZA_TITOLO_ZONA = 34.0   # banda in alto per il nome della zona
+MARGINE_ZONA = 8.0           # spazio attorno a ciascuna zona
+MARGINE_RETE = 4.0           # spazio attorno a ciascuna subnet dentro la zona
+
+
+def _normalizza(pesi: list[float], area: float) -> list[float]:
+    """Porta i pesi a coprire esattamente l'area data, conservandone le proporzioni."""
+    totale = sum(pesi) or 1.0
+    return [peso * area / totale for peso in pesi]
+
+
+def _disponi_striscia(aree: list[float], x: float, y: float,
+                      larghezza: float, altezza: float) -> list[dict]:
+    """Dispone una striscia di rettangoli lungo il lato piu' corto del riquadro."""
+    coperta = sum(aree)
+    rettangoli = []
+    if larghezza >= altezza:
+        lato = (coperta / altezza) if altezza else 0.0
+        cursore = y
+        for area in aree:
+            h = (area / lato) if lato else 0.0
+            rettangoli.append({"x": x, "y": cursore, "w": lato, "h": h})
+            cursore += h
+    else:
+        lato = (coperta / larghezza) if larghezza else 0.0
+        cursore = x
+        for area in aree:
+            w = (area / lato) if lato else 0.0
+            rettangoli.append({"x": cursore, "y": y, "w": w, "h": lato})
+            cursore += w
+    return rettangoli
+
+
+def _spazio_residuo(aree: list[float], x: float, y: float,
+                    larghezza: float, altezza: float) -> tuple:
+    """Il riquadro che resta dopo aver posato una striscia."""
+    coperta = sum(aree)
+    if larghezza >= altezza:
+        lato = (coperta / altezza) if altezza else 0.0
+        return (x + lato, y, larghezza - lato, altezza)
+    lato = (coperta / larghezza) if larghezza else 0.0
+    return (x, y + lato, larghezza, altezza - lato)
+
+
+def _rapporto_peggiore(aree: list[float], x: float, y: float,
+                       larghezza: float, altezza: float) -> float:
+    """Il rapporto d'aspetto peggiore di una striscia: piu' e' vicino a 1, meglio e'."""
+    peggiore = 0.0
+    for rettangolo in _disponi_striscia(aree, x, y, larghezza, altezza):
+        w, h = rettangolo["w"], rettangolo["h"]
+        if w <= 0 or h <= 0:
+            return float("inf")
+        peggiore = max(peggiore, w / h, h / w)
+    return peggiore
+
+
+def _squarify(aree: list[float], x: float, y: float,
+              larghezza: float, altezza: float) -> list[dict]:
+    """Treemap "squarified": posa le aree in strisce scegliendo dove spezzare la riga
+    per tenere i rettangoli il piu' possibile quadrati."""
+    aree = list(aree)
+    if not aree:
+        return []
+    if len(aree) == 1:
+        return _disponi_striscia(aree, x, y, larghezza, altezza)
+    taglio = 1
+    while (taglio < len(aree)
+           and _rapporto_peggiore(aree[:taglio], x, y, larghezza, altezza)
+           >= _rapporto_peggiore(aree[:taglio + 1], x, y, larghezza, altezza)):
+        taglio += 1
+    corrente, resto = aree[:taglio], aree[taglio:]
+    rx, ry, rw, rh = _spazio_residuo(corrente, x, y, larghezza, altezza)
+    return (_disponi_striscia(corrente, x, y, larghezza, altezza)
+            + _squarify(resto, rx, ry, rw, rh))
+
+
+def treemap(pesi: list[float], x: float, y: float,
+            larghezza: float, altezza: float) -> list[dict]:
+    """Rettangoli d'area proporzionale ai pesi, nell'ordine dei pesi in ingresso.
+
+    Restituisce per ogni peso un `{x, y, w, h}`. I pesi vengono ordinati per il calcolo
+    (l'algoritmo rende meglio dal piu' grande al piu' piccolo) e poi rimessi nell'ordine
+    di partenza, cosi' chi chiama non deve preoccuparsi dell'ordinamento.
+    """
+    numero = len(pesi)
+    if numero == 0:
+        return []
+    ordine = sorted(range(numero), key=lambda i: -pesi[i])
+    aree = _normalizza([max(pesi[i], 1e-9) for i in ordine], larghezza * altezza)
+    disposti = _squarify(aree, x, y, larghezza, altezza)
+    fuori: list = [None] * numero
+    for posizione, rettangolo in zip(ordine, disposti):
+        fuori[posizione] = rettangolo
+    return fuori
+
+
+def _icone_dominanti(albero: dict) -> dict:
+    """Per ogni subnet osservata, l'icona del tipo di dispositivo piu' presente."""
+    icone = {}
+    for sonda in albero.get("sonde") or []:
+        for subnet in sonda.get("subnet") or []:
+            sid = subnet.get("id")
+            per_tipo = subnet.get("per_tipo") or []
+            if not sid or not per_tipo:
+                continue
+            etichetta = per_tipo[0][0]
+            chiave = next((n.get("device_type") for n in (subnet.get("nodi") or [])
+                           if (n.get("device_label") or "") == etichetta), None)
+            icone[int(sid)] = icona(chiave)
+    return icone
+
+
+def mappa_zone(albero: dict) -> dict:
+    """Disposizione a treemap annidata: le zone, e dentro ciascuna le sue subnet.
+
+    `albero` e' `inventory_queries.network_tree`, che gia' raggruppa le subnet per zona
+    con i conteggi. Qui si trasforma quel raggruppamento in rettangoli: la zona occupa
+    un'area proporzionale ai suoi dispositivi, ogni subnet un'area proporzionale ai
+    propri, dentro la zona. Le subnet senza dispositivi e le zone tutte vuote non si
+    disegnano (avrebbero area nulla) ma si contano, perche' "dichiarata e non ancora
+    osservata" e' un'informazione.
+    """
+    icone = _icone_dominanti(albero)
+
+    utili, reti_vuote, zone_vuote = [], 0, 0
+    for zona in albero.get("zone") or []:
+        con_nodi = [s for s in (zona.get("subnet") or []) if int(s.get("nodi") or 0) > 0]
+        reti_vuote += len(zona.get("subnet") or []) - len(con_nodi)
+        if con_nodi:
+            utili.append((zona, con_nodi))
+        else:
+            zone_vuote += 1
+
+    if not utili:
+        return {"zone": [], "larghezza": LARGHEZZA, "altezza": ALTEZZA,
+                "reti_totali": 0, "reti_vuote": reti_vuote, "zone_vuote": zone_vuote}
+
+    pesi_zone = [sum(int(s.get("nodi") or 0) for s in reti) for _, reti in utili]
+    rettangoli = treemap(pesi_zone, 0.0, 0.0, LARGHEZZA, ALTEZZA)
+
+    zone_out, reti_totali = [], 0
+    for (zona, reti), rett in zip(utili, rettangoli):
+        zx = rett["x"] + MARGINE_ZONA / 2
+        zy = rett["y"] + MARGINE_ZONA / 2
+        zw = max(1.0, rett["w"] - MARGINE_ZONA)
+        zh = max(1.0, rett["h"] - MARGINE_ZONA)
+        # La banda del titolo non supera il 40% dell'altezza: in una zona bassa e larga
+        # un titolo alto quanto in una zona grande mangerebbe tutto lo spazio delle reti.
+        titolo_h = min(ALTEZZA_TITOLO_ZONA, zh * 0.4)
+
+        reti = sorted(reti, key=lambda s: -int(s.get("nodi") or 0))
+        pesi_reti = [max(int(s.get("nodi") or 0), 1) for s in reti]
+        celle_rett = treemap(pesi_reti, zx, zy + titolo_h, zw, max(1.0, zh - titolo_h))
+
+        celle = []
+        for subnet, cr in zip(reti, celle_rett):
+            riscontri = int(subnet.get("riscontri") or 0)
+            attivi = int(subnet.get("attivi") or 0)
+            celle.append({
+                "x": cr["x"] + MARGINE_RETE / 2, "y": cr["y"] + MARGINE_RETE / 2,
+                "w": max(0.5, cr["w"] - MARGINE_RETE),
+                "h": max(0.5, cr["h"] - MARGINE_RETE),
+                "subnet_id": subnet.get("id"),
+                "cidr": subnet.get("cidr") or "fuori perimetro",
+                "etichetta": subnet.get("etichetta") or "",
+                "totale": int(subnet.get("nodi") or 0),
+                "attivi": attivi, "riscontri": riscontri,
+                "icona": icone.get(int(subnet["id"])) if subnet.get("id") else ICONA_RETE,
+                "stato": "critico" if riscontri else ("attivo" if attivi else "assente"),
+            })
+        reti_totali += len(celle)
+
+        zone_out.append({
+            "chiave": zona.get("chiave") or "",
+            "nome": zona.get("nome") or "Senza zona dichiarata",
+            "icona": zona.get("icona") or "bi-diagram-3",
+            "tono": zona.get("tono") or "secondary",
+            "x": zx, "y": zy, "w": zw, "h": zh, "titolo_h": titolo_h,
+            "reti": celle, "n_reti": len(celle),
+            "nodi": int(zona.get("nodi") or 0),
+            "attivi": int(zona.get("attivi") or 0),
+            "riscontri": int(zona.get("riscontri") or 0),
+        })
+
+    return {"zone": zone_out, "larghezza": LARGHEZZA, "altezza": ALTEZZA,
+            "reti_totali": reti_totali, "reti_vuote": reti_vuote, "zone_vuote": zone_vuote}
+
+
 def legenda(albero: dict) -> list[dict]:
     """Tipi presenti nella rete, con la loro icona e quanti sono.
 

@@ -84,6 +84,7 @@
               ('perimetro', 'Perimetro di scansione'),
               ('scansione', 'Come lavora la scansione'),
               ('inventario', 'Inventario e riconoscimento'),
+              ('riscontri', 'I riscontri di sicurezza'),
               ('monitoraggio', 'Monitoraggio e scostamenti'),
               ('controlli', 'Controlli periodici'),
               ('incidenti', 'Workflow, soglie e notifiche'),
@@ -119,6 +120,22 @@
             perimetro, governare le sonde, leggere l'inventario, definire i controlli e
             gestire gli incidenti. Per l'interfaccia locale della sonda c'e'
             <a href="{{ url_for('guide.probe_guide') }}">la guida della sonda</a>.
+          </div>
+        </div>
+
+        {# Parola ricorrente in tutta la console e nelle mappe: va definita subito e
+           bene, con un rimando alla spiegazione per esteso. #}
+        <div class="alert alert-warning d-flex gap-2">
+          <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+          <div>
+            <strong>Che cosa sono i «riscontri».</strong> Un <strong>riscontro</strong> e'
+            un <strong>problema di sicurezza rilevato su un nodo</strong> &mdash; una
+            <em>vulnerabilita' nota</em> (una CVE che riguarda un prodotto e una versione
+            trovati) o un'<em>esposizione</em> (un servizio raggiungibile che in quel
+            contesto non dovrebbe esserlo). Un riscontro <strong>aperto</strong> e' uno su
+            cui c'e' ancora una decisione da prendere; il numero rosso che vedi sulle
+            mappe, sui nodi e nella dashboard conta proprio quelli.
+            <a href="#riscontri" class="alert-link">Spiegazione per esteso &rarr;</a>
           </div>
         </div>
 
@@ -813,6 +830,87 @@
           sul nodo, e l'indirizzo resta in quarantena per una settimana per non essere
           riscoperto subito.
         </p>
+
+        <!-- ============================================================= -->
+        <h2 id="riscontri">I riscontri di sicurezza</h2>
+        <p>
+          <strong>Riscontro</strong> e' la parola che ricorre in tutta la console e su
+          tutte le mappe. Un riscontro e' un <strong>problema di sicurezza rilevato su un
+          nodo</strong>: qualcosa che vale la pena guardare, con scritta accanto la
+          ragione per cui e' stato segnalato. Ogni riscontro ha un nodo, una gravita', una
+          motivazione verificabile e uno stato.
+        </p>
+        <p>Ci sono due modi in cui nasce un riscontro:</p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead><tr><th>GENERE</th><th>CHE COS'E'</th><th>DA DOVE VIENE</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Vulnerabilita'</strong></td>
+                <td>Una debolezza nota (una <strong>CVE</strong>) che riguarda un prodotto
+                  e una versione trovati su quel nodo.</td>
+                <td>Dalla ricerca di vulnerabilita' con nmap e dalla
+                  <a href="#threat">correlazione con la Threat Intelligence</a>: e' la
+                  versione dichiarata (dalla pagina di gestione, da SNMP, dai banner) che
+                  rende la CVE attribuibile a <em>quella</em> istanza.</td>
+              </tr>
+              <tr>
+                <td><strong>Esposizione</strong></td>
+                <td>Un servizio raggiungibile che, <em>in quel contesto</em>, non dovrebbe
+                  esserlo: un desktop remoto verso una rete di utenza, una banca dati
+                  aperta, un pannello di amministrazione.</td>
+                <td>Dalle regole di esposizione applicate alle porte aperte, pesate dalla
+                  <a href="#zone">zona</a> della subnet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Aperto, e perche' proprio quel numero</h3>
+        <p>
+          Il numero rosso che vedi sull'icona di un nodo, sulle bolle e sui riquadri delle
+          mappe, nella colonna <em>Sicurezza</em> dei nodi e nella dashboard conta i
+          riscontri <strong>aperti</strong>: quelli su cui c'e' ancora una decisione da
+          prendere. Un riscontro <strong>non e' un allarme che urla</strong> e nemmeno una
+          colpa: e' un punto all'ordine del giorno.
+        </p>
+        <ul>
+          <li><strong>Aperto</strong> &mdash; rilevato e non ancora trattato. E' quello
+            che si conta.</li>
+          <li><strong>Atteso nel contesto</strong> &mdash; l'esposizione appartiene alla
+            zona (SSH in un datacenter, per dire): il riscontro <em>si conserva con la sua
+            motivazione</em> ma non pesa fra quelli aperti. Se domani la zona cambia, torna
+            aperto da se'. Non si cancella nulla: qualificare e' piu' onesto che
+            nascondere.</li>
+          <li><strong>Chiuso da se'</strong> &mdash; quando la condizione sparisce (la
+            porta si chiude, il prodotto si aggiorna a una versione non piu' vulnerabile),
+            alla passata successiva il riscontro si chiude da solo. Non serve toccarlo a
+            mano.</li>
+        </ul>
+
+        <div class="alert alert-info d-flex gap-2">
+          <i class="bi bi-info-circle fs-5"></i>
+          <div>
+            <strong>Riscontro non e' incidente.</strong> Il <em>riscontro</em> e' un
+            problema di sicurezza su un <em>nodo</em> (una vulnerabilita' o
+            un'esposizione). L'<a href="#incidenti"><em>incidente</em></a> nasce invece da
+            un <em>controllo periodico</em> che fallisce (un servizio che non risponde, un
+            certificato in scadenza): riguarda un servizio sorvegliato, non un nodo. Due
+            cose diverse, due elenchi diversi.
+          </div>
+        </div>
+
+        <h3>Dove si vedono</h3>
+        <ul>
+          <li>sulla <strong>pagina del nodo</strong>, con la motivazione di ciascuno e la
+            prova su cui poggia;</li>
+          <li>nell'inventario <em>Nodi</em>, con il filtro <em>Sicurezza &rarr; con
+            riscontri aperti</em>;</li>
+          <li>sulle <strong>mappe</strong> (a bolle, ad albero, per zone): il colore rosso
+            e il numero dicono dove guardare per primo;</li>
+          <li>in <a href="#threat">Threat Intelligence</a>, raccolti e correlati.</li>
+        </ul>
 
         <!-- ============================================================= -->
         <h2 id="monitoraggio">7. Monitoraggio e scostamenti</h2>

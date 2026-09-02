@@ -265,6 +265,34 @@ def network_map():
     )
 
 
+@bp.get("/map/zone")
+@login_required
+def network_map_zones():
+    """Mappa per zone: le subnet disegnate DENTRO la zona che le contiene.
+
+    Una treemap annidata (la disposizione la calcola `map_graphic.mappa_zone`): ogni
+    zona e' un rettangolo grande quanto i suoi dispositivi, e dentro ci sono le sue
+    subnet, ciascuna grande quanto i propri. E' il modo in cui si legge la
+    segmentazione: che cosa sta in quale contesto, e quanto pesa.
+    """
+    tenant_id = current_tenant_id()
+    solo_attivi = request.args.get("attivi") == "1"
+    albero = network_tree(tenant_id, solo_attivi=solo_attivi)
+
+    foglio = request.args.get("foglio")
+    if foglio not in _FOGLI_STAMPA:
+        foglio = "a4-landscape"
+
+    return render_template(
+        "inventory/map_zone.html",
+        mappa=map_graphic.mappa_zone(albero),
+        zone_catalogo=zones.catalogo(tenant_id),
+        solo_attivi=solo_attivi,
+        foglio=foglio,
+        fogli_stampa=_FOGLI_STAMPA,
+    )
+
+
 @bp.get("/map/grafica")
 @login_required
 def network_map_graphic():
