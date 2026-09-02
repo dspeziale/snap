@@ -236,6 +236,26 @@ def test_prove_scarse_producono_un_verdetto_incerto():
     assert fp.needs_deep_scan(esito) is True
 
 
+def test_la_sola_porta_rdp_basta_a_dire_che_e_windows():
+    """RDP (ms-wbt-server, tcp/3389) e' un servizio esclusivo di Windows: un PC che
+    espone solo quella non e' "non identificato", e' una postazione Windows. Caso reale:
+    10.118.138.43, con il firewall che lascia passare solo il desktop remoto."""
+    esito = fp.identify(prove(ports=[("tcp", 3389, "ms-wbt-server")]))
+
+    assert esito["device_type"] == "workstation_windows"
+    assert esito["confidence"] >= 90
+    assert esito["device_type"] != fp.UNKNOWN["key"]
+
+
+def test_rdp_con_servizi_da_server_e_un_server_windows():
+    """La stessa porta su un controller di dominio o un server: la distinzione fra
+    postazione e server la fanno gli altri servizi (LDAP, Kerberos, SQL)."""
+    esito = fp.identify(prove(ports=[("tcp", 3389, "ms-wbt-server"),
+                                     ("tcp", 389, "ldap"), ("tcp", 88, "kerberos")]))
+
+    assert esito["device_type"] == "server_windows"
+
+
 def test_un_nodo_senza_prove_non_solleva_eccezioni():
     esito = fp.identify({"ip": "10.0.0.1"})
     assert esito["device_type"] == fp.UNKNOWN["key"]

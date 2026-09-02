@@ -13,6 +13,7 @@ license: MIT
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from flask import (
@@ -336,7 +337,17 @@ _ETICHETTE_FATTI_WEB = {
     "revisione_hw": "Revisione hardware",
     "gestore_chiamate": "Gestore chiamate (CUCM)",
     "server_tftp": "Server TFTP",
+    # Misure di stato di un UPS MGE/Eaton (la diagnosi vera e' a parte, vedi sotto).
+    "alimentazione": "Alimentazione",
+    "carico_uscita": "Carico in uscita",
+    "capacita_batteria": "Capacita' batteria",
+    "autonomia_batteria": "Autonomia batteria",
+    "stato_batteria": "Stato batteria",
 }
+# La diagnosi dell'UPS non e' una riga fra le altre: e' l'esito dell'analisi dei
+# registri e va mostrata in evidenza (verde se tutto bene, in avviso se ci sono
+# problemi). Non compare quindi fra i "dati aggiuntivi".
+_DIAGNOSI_OK = "Nessun problema rilevato"
 # Fatti gia' esposti come campo dedicato: non vanno ripetuti fra i "dati aggiuntivi".
 _FATTI_WEB_GIA_MOSTRATI = frozenset((
     "nome_dispositivo", "modello", "posizione", "nome_host", "seriale", "firmware",
@@ -369,6 +380,27 @@ def _fatti_aggiuntivi(facts_json: str | None) -> list[dict]:
     return aggiuntivi
 
 
+def _diagnosi_web(facts_json: str | None) -> dict:
+    """La diagnosi ricavata dai registri dell'apparato (oggi lo UPS MGE/Eaton).
+
+    Restituisce `{"problemi": [...], "ok": bool}` oppure {} se non c'e' una diagnosi.
+    I problemi arrivano dalla sonda come un'unica stringa separata da "; "."""
+    if not facts_json:
+        return {}
+    try:
+        fatti = json.loads(facts_json)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(fatti, dict):
+        return {}
+    testo = (fatti.get("diagnosi_ups") or "").strip()
+    if not testo:
+        return {}
+    if testo == _DIAGNOSI_OK:
+        return {"problemi": [], "ok": True}
+    return {"problemi": [p.strip() for p in testo.split(";") if p.strip()], "ok": False}
+
+
 # Etichette leggibili per i dati del certificato TLS, nell'ordine in cui si leggono
 # davanti a un certificato: chi, chi lo ha emesso, per quanto e' valido, com'e' fatto.
 _ETICHETTE_CERT = (
@@ -394,6 +426,37 @@ _ETICHETTE_CERT = (
 # Chiavi da rendere in monospazio (impronte, seriale) e chiavi-elenco (liste).
 _CERT_MONOSPAZIO = frozenset(("cert_seriale", "cert_sha256", "cert_sha1"))
 _CERT_ELENCHI = frozenset(("cert_uso", "cert_uso_esteso", "cert_nomi", "cert_nomi_ip"))
+
+
+def _mac_da_snmp(snmp_tabelle: list) -> list[str]:
+    """I MAC che l'agente SNMP dichiara nelle proprie interfacce, senza ripetizioni.
+
+    E' l'unico modo di conoscere il MAC di un apparato su un'altra rete, dove l'ARP non
+    arriva e la colonna del nodo resta vuota. Si saltano i segnaposto (00:00:00:00:00:00)
+    e i valori non simili a un MAC.
+    """
+    fuori = []
+    for tabella in snmp_tabelle or []:
+        if tabella.get("script_id") != "snmp-interfaces":
+            continue
+        colonne = tabella.get("colonne") or []
+        if "MAC" not in colonne:
+            continue
+        indice = colonne.index("MAC")
+        for riga in tabella.get("righe") or []:
+            if indice >= len(riga):
+                continue
+            # La cella puo' contenere il MAC seguito dal costruttore fra parentesi
+            # ("00:1A:2B:... (Aruba)"): si estrae il solo indirizzo.
+            trovato = re.search(r"(?i)\b([0-9a-f]{2}(?::[0-9a-f]{2}){5})\b",
+                                riga[indice] or "")
+            if not trovato:
+                continue
+            mac = trovato.group(1).upper()
+            if mac == "00:00:00:00:00:00" or mac in fuori:
+                continue
+            fuori.append(mac)
+    return fuori
 
 
 def _certificato_leggibile(cert_json: str | None) -> dict:
@@ -474,7 +537,9 @@ def node(node_id: int):
     # dettaglio, accanto ai campi principali. Lo stesso per il certificato TLS: dove c'e'
     # HTTPS, si mostra tutto cio' che dichiara.
     for pagina in pagine_web:
-        pagina["extra"] = _fatti_aggiuntivi(pagina.pop("facts_json", None))
+        facts_json = pagina.pop("facts_json", None)
+        pagina["extra"] = _fatti_aggiuntivi(facts_json)
+        pagina["diagnosi"] = _diagnosi_web(facts_json)
         pagina["cert"] = _certificato_leggibile(pagina.pop("cert_json", None))
 
     # Letture SNMP: dove la 161 risponde, e' la fonte piu' ricca sull'apparato.
@@ -506,16 +571,21 @@ def node(node_id: int):
                 current_app.logger.warning(
                     "riassunto SNMP illeggibile per il nodo %s", node_id)
 
+    snmp_tabelle = parse_all([v for v in letture if v["script_id"] != "summary"])
+
     return render_template(
         "inventory/node.html",
         node=riga,
         web=pagine_web,
         produttore=_produttore(riga, pagine_web),
+        # MAC dichiarati dall'agente SNMP (dalle interfacce): sono l'unico modo di
+        # conoscere il MAC di un apparato su un'altra rete, dove l'ARP non arriva.
+        mac_snmp=_mac_da_snmp(snmp_tabelle),
         ports=porte,
         open_ports=aperte,
         findings=riscontri,
         findings_aperti=[f for f in riscontri if f["status"] == "open"],
-        snmp=parse_all([v for v in letture if v["script_id"] != "summary"]),
+        snmp=snmp_tabelle,
         snmp_summary=riassunto_snmp,
         smb=smb_parse_all([v for v in letture_smb if v["script_id"] != "summary"]),
         smb_summary=riassunto_smb,

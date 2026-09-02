@@ -811,7 +811,47 @@ def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
         if dichiarato.get(chiave):
             esito[chiave] = dichiarato[chiave]
             esito.setdefault("fonte_identita", "pagina dell'apparato")
+
+    # UPS con scheda MGE/Eaton: oltre a marca e modello si legge lo stato e i tre
+    # registri, e se ne ricava una diagnosi (batteria, orologio). Vale per QUALUNQUE
+    # apparato di questa famiglia -- e' la parte "replicabile su tutti i nodi simili".
+    if esito.get("firma") == "mge-ups" and time.monotonic() < scadenza:
+        diagnosi = _diagnostica_ups(ip, port, schema, scadenza)
+        if diagnosi:
+            esito.setdefault("fatti", {}).update(diagnosi)
     return esito
+
+
+# Pagine di sola lettura che ogni scheda MGE/Eaton espone allo stesso indirizzo: lo
+# stato corrente e i tre registri del menu "Logs" (eventi, sistema, misure).
+PAGINE_UPS = {
+    "status": "/ups_propStatus.htm",
+    "eventi": "/ups_loge.htm",
+    "sistema": "/ups_logs.htm",
+    "misure": "/ups01_logMeasures.htm",
+}
+
+
+def _diagnostica_ups(ip: str, port: int, schema: str, scadenza: float) -> dict:
+    """Legge stato e registri di uno UPS MGE/Eaton e ne ricava la diagnosi.
+
+    Sono pagine di sola lettura (GET), come il resto della fase web: nessun comando,
+    nessuna credenziale. Se il tempo per questa porta e' finito si legge cio' che si
+    puo' e ci si ferma -- una passata riguarda centinaia di indirizzi.
+    """
+    from . import web_facts
+
+    contenuti = {}
+    for nome, percorso in PAGINE_UPS.items():
+        if time.monotonic() > scadenza:
+            break
+        risposta, corpo, errore = _scarica("%s://%s:%d%s" % (schema, ip, port, percorso), ip)
+        if errore or risposta is None or risposta.status_code >= 400:
+            continue
+        contenuti[nome] = _decodifica(corpo, risposta.headers.get("Content-Type") or "")
+    if not contenuti:
+        return {}
+    return web_facts.diagnosi_ups(**contenuti)
 
 
 def _percorsi_noti(chiave_firma: str) -> tuple:

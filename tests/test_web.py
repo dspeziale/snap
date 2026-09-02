@@ -682,6 +682,73 @@ def test_il_certificato_completo_compare_nel_dettaglio(logged_client, server_app
     assert "autofirmato" in pagina, "l'esito di sicurezza va visto a colpo d'occhio"
 
 
+LETTURA_UPS = {
+    "port": 80, "scheme": "http", "stato": 200, "titolo": "HP UPS Network Module",
+    "marca": "HP", "modello": "R5000", "firma": "mge-ups",
+    "prodotto": "UPS con scheda di gestione di rete (MGE/Eaton)",
+    "tipo_probabile": "ups", "corpo_impronta": "ups1", "corpo_byte": 500,
+    "fatti": {"alimentazione": "AC Power", "carico_uscita": "9%",
+              "capacita_batteria": "28% (Fault)", "autonomia_batteria": "24 mn 17 s",
+              "stato_batteria": "Aborted",
+              "diagnosi_ups": "batteria in stato anomalo: Aborted; la batteria risulta "
+              "scollegata e ricollegata 80 volte: connettore o pacco batteria da "
+              "verificare; orologio non affidabile (6 azzeramenti, 6 correzioni "
+              "manuali): conviene configurare l'NTP"},
+    "pagine": [{"percorso": "/", "origine": "radice", "stato": 200},
+               {"percorso": "/ups_prop.htm", "origine": "percorso noto", "stato": 200}],
+}
+
+
+def test_la_diagnosi_dell_ups_compare_nel_dettaglio(logged_client, server_app):
+    """La diagnosi ricavata dai registri va vista a colpo d'occhio: le misure come
+    dati, i problemi come avviso in evidenza con l'elenco."""
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.50")
+    _applica_web(server_app, tenant_id, "10.6.9.50", [LETTURA_UPS])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    pagina = logged_client.get("/inventory/nodes/%d" % node_id).get_data(as_text=True)
+
+    # L'apostrofo nelle etichette viene reso come &#39; da Jinja: si verifica sui
+    # valori e sulle frasi senza apostrofo, che bastano a provare che il blocco c'e'.
+    assert "28% (Fault)" in pagina
+    assert "Stato batteria" in pagina and "Aborted" in pagina
+    assert "Diagnosi dai registri: problemi rilevati" in pagina
+    assert "scollegata e ricollegata 80 volte" in pagina
+    assert "NTP" in pagina
+
+
+def test_una_diagnosi_senza_problemi_e_verde(logged_client, server_app):
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.51")
+    lettura = dict(LETTURA_UPS)
+    lettura["fatti"] = dict(lettura["fatti"], diagnosi_ups="Nessun problema rilevato")
+    _applica_web(server_app, tenant_id, "10.6.9.51", [lettura])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    pagina = logged_client.get("/inventory/nodes/%d" % node_id).get_data(as_text=True)
+
+    assert "Diagnosi dai registri: nessun problema rilevato" in pagina
+
+
+def test_il_mac_dichiarato_da_snmp_si_estrae_dalle_interfacce():
+    """Su un'altra rete l'ARP non arriva: il MAC lo dice l'agente SNMP nelle proprie
+    interfacce, anche quando la cella porta il costruttore fra parentesi."""
+    from snapserver.blueprints.inventory import _mac_da_snmp
+    from snapserver.snmp_tables import parse_all
+
+    uscita = ("Vlan1\n"
+              "    IP address: 10.0.0.5  Netmask: 255.255.255.0\n"
+              "    MAC address: 00:11:22:33:44:55 (Cisco Systems)\n"
+              "    Type: ethernetCsmacd  Speed: 1 Gbps\n"
+              "  GigabitEthernet0/1\n"
+              "    MAC address: 00:00:00:00:00:00\n")
+    tabelle = parse_all([{"script_id": "snmp-interfaces", "output": uscita}])
+
+    assert _mac_da_snmp(tabelle) == ["00:11:22:33:44:55"], (
+        "il MAC valido si estrae, lo zero si scarta")
+
+
 def test_una_pagina_protetta_si_conserva_come_tale(server_app):
     """La pagina con i dati esiste ma chiede le credenziali: va detto, altrimenti
     sembra che l'apparato non dichiari niente."""

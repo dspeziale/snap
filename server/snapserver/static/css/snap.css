@@ -287,6 +287,18 @@ html.snap-layout-wide .app-content-header > .container-fluid {
 .app-sidebar .nav-treeview > .nav-item > .nav-link {
   font-size: .92rem;
 }
+/* Il gruppo aperto (intestazione + sottovoci) siede su uno sfondo un po' piu' marcato,
+   cosi' si capisce a colpo d'occhio quale sezione e' aperta e dove ci si trova. Il
+   colore si ricava dal tema, quindi funziona sia in chiaro sia in scuro; il fallback
+   (per i browser senza color-mix) usa lo sfondo terziario di Bootstrap. */
+.app-sidebar .nav-item.menu-open {
+  background-color: var(--bs-tertiary-bg);
+  background-color: color-mix(in srgb, var(--bs-emphasis-color) 7%, transparent);
+  border-radius: .5rem;
+}
+.app-sidebar .nav-item.menu-open > .nav-link {
+  border-radius: .5rem .5rem 0 0;
+}
 
 /* --- Tabelle interattive (DataTables) e notifiche (AWN) ----------------- */
 /* La libreria inserisce i propri controlli sopra e sotto la tabella: qui si

@@ -1155,8 +1155,19 @@ modello scritto in grassetto (*HP R5000*) nella pagina "Power Source" e la telem
 aggiornata via JavaScript. La firma scatta gia' dal titolo *... UPS Network Module* e un
 percorso noto porta alla pagina del modello anche quando i frame non si raggiungono in
 tempo; marca, modello e genere (`ups`, che classifica il nodo come gruppo di
-continuita') si leggono. La posizione e la telemetria non hanno un'etichetta e cambiano
-a ogni lettura, quindi non si conservano.
+continuita') si leggono.
+
+Per questa famiglia la lettura va oltre l'identita': la sonda apre la pagina di stato e
+i **tre registri** del menu *Logs* (eventi, sistema, misure) -- tutte pagine di sola
+lettura -- e ne ricava una **diagnosi** valida per qualunque apparato MGE/Eaton, non per
+un solo modello. Registra alimentazione, carico in uscita, capacita', autonomia e stato
+della batteria, e segnala i problemi ricorrenti: batteria in stato anomalo
+(*Aborted*, *Fault*, *Replace*), capacita' ferma e bassa pur essendo alimentati dalla
+rete (non sta caricando), batteria che si scollega e ricollega di continuo (connettore o
+pacco da verificare), orologio che si azzera ai riavvii senza NTP. Il dettaglio del nodo
+mostra la diagnosi in evidenza: verde se non ci sono problemi, in avviso con l'elenco
+altrimenti. La telemetria istantanea non si conserva come dato d'inventario -- cambia a
+ogni lettura -- ma alimenta la diagnosi al momento della lettura.
 
 ### 14.3-ter-cert Il certificato TLS, per intero
 

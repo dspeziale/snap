@@ -567,6 +567,49 @@ def test_lo_ups_hp_si_riconosce_e_ne_esce_marca_e_modello(rete_hp_ups):
     assert "/ups_prop.htm" in [p["percorso"] for p in esito["pagine"]]
 
 
+def test_la_diagnosi_ups_legge_stato_e_registri_e_trova_i_problemi():
+    """Vale per qualunque UPS con scheda MGE/Eaton: dallo stato e dai tre registri si
+    ricavano le misure e i problemi. Le pagine sono quelle vere di un HP R5000, con i
+    dati resi anonimi ma la struttura intatta."""
+    from snapprobe.web_facts import diagnosi_ups
+
+    d = diagnosi_ups(
+        status=pagina("web_hp_ups_status.html"),
+        eventi=pagina("web_hp_ups_eventlog.html"),
+        sistema=pagina("web_hp_ups_systemlog.html"),
+        misure=pagina("web_hp_ups_datalog.html"))
+
+    assert d["alimentazione"] == "AC Power"
+    assert d["carico_uscita"] == "9%"
+    assert d["stato_batteria"] == "Aborted"
+    assert d["autonomia_batteria"].startswith("24 mn")
+    assert "28%" in d["capacita_batteria"] and "Fault" in d["capacita_batteria"]
+    diagnosi = d["diagnosi_ups"]
+    assert "Aborted" in diagnosi, "lo stato anomalo della batteria e' un problema"
+    assert "non sta caricando" in diagnosi, "capacita' ferma al 28% sotto rete"
+    assert "scollegata e ricollegata 80 volte" in diagnosi
+    assert "orologio non affidabile" in diagnosi
+
+
+def test_la_diagnosi_ups_dice_anche_quando_va_tutto_bene():
+    """Uno UPS sano: batteria carica, nessun evento anomalo. La diagnosi deve dirlo,
+    altrimenti "nessun problema" e "non controllato" si confonderebbero."""
+    from snapprobe.web_facts import diagnosi_ups
+
+    status = ("<table>"
+              "<tr><td>Power source :</td><td>AC Power</td></tr>"
+              "<tr><td>Output load level :</td><td>20%</td></tr>"
+              "<tr><td>Battery Capacity :</td><td>100 %</td></tr>"
+              "<tr><td>Remaining backup time :</td><td>45 mn</td></tr>"
+              "<tr><td>Battery status :</td><td>Resting</td></tr></table>")
+
+    d = diagnosi_ups(status=status, eventi="<table></table>", sistema="", misure="")
+
+    assert d["capacita_batteria"] == "100%"
+    assert d["stato_batteria"] == "Resting"
+    assert d["diagnosi_ups"] == "Nessun problema rilevato"
+
+
 def test_la_codifica_dichiarata_viene_rispettata():
     """Un apparato letto con la codifica sbagliata restituisce un fatto illeggibile, e
     quello finirebbe nell'inventario."""

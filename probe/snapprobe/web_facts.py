@@ -436,6 +436,161 @@ def fatti_xml(documento: str) -> dict:
     return trovati
 
 
+# --------------------------------------------------------------------------- #
+# Diagnosi degli UPS con scheda di gestione MGE/Eaton
+# --------------------------------------------------------------------------- #
+# Le schede MGE/Eaton (rivendute da HP, Dell, Lenovo) espongono sempre le stesse
+# pagine di sola lettura: lo stato (ups_propStatus.htm), i tre registri (eventi,
+# sistema, misure). Leggere quelle pagine e ricavarne una diagnosi vale per QUALUNQUE
+# apparato di questa famiglia, non per un solo modello: e' il senso di "replicabile su
+# tutti i nodi simili". Sono dati tecnici, nessun dato personale.
+_STATI_BATTERIA_ANOMALI = re.compile(
+    r"(?i)\b(fault|aborted|failure|failed|replace|defect|ko|degraded|discharg)")
+
+
+def _testo_piano(html_grezzo: str) -> str:
+    """Il testo di una pagina senza marcatura, con gli spazi normalizzati."""
+    ripulita = RE_COMMENTO_HTML.sub(" ", RE_SCRIPT.sub(" ", html_grezzo or ""))
+    return RE_SPAZI.sub(" ", html.unescape(RE_TAG.sub(" ", ripulita))).strip()
+
+
+def _coppie_stato(html_grezzo: str):
+    """Le coppie etichetta/valore della pagina di stato, e i frammenti grezzi.
+
+    La pagina di stato e' una tabella: l'etichetta ("Battery status :") sta in una cella
+    e il valore ("Aborted") in quella accanto, cioe' nel frammento successivo. Sul testo
+    appiattito i due si confondono ("... AC Power Output load level : ..."); sui
+    frammenti no, ed e' l'unico modo di leggerli con sicurezza.
+    """
+    pezzi = frammenti(html_grezzo)
+    coppie = {}
+    for indice, pezzo in enumerate(pezzi):
+        if not pezzo.rstrip().endswith(":"):
+            continue
+        etichetta = pezzo.rstrip().rstrip(":").strip().lower()
+        valore = pezzi[indice + 1] if indice + 1 < len(pezzi) else ""
+        if valore.rstrip().endswith(":"):
+            valore = ""  # e' l'etichetta seguente: questo campo e' vuoto
+        coppie.setdefault(etichetta, valore.strip())
+    return coppie, pezzi
+
+
+def diagnosi_ups(status: str = "", eventi: str = "", sistema: str = "",
+                 misure: str = "") -> dict:
+    """Stato e problemi di un UPS MGE/Eaton, dalle sue pagine di stato e dai registri.
+
+    Riceve il contenuto (HTML grezzo) delle quattro pagine. Restituisce un dizionario
+    di fatti gia' leggibili -- alimentazione, carico, capacita' e stato della batteria,
+    autonomia -- piu' `diagnosi_ups`, cioe' i problemi trovati oppure "Nessun problema
+    rilevato". Funzione pura, senza rete: si collauda su pagine salvate.
+    """
+    coppie, pezzi = _coppie_stato(status)
+    fuori = {}
+    problemi = []
+
+    alimentazione = coppie.get("power source", "")
+    carico = coppie.get("output load level", "")
+    autonomia = coppie.get("remaining backup time", "")
+    stato_batt = coppie.get("battery status", "")
+    # Capacita': il valore ("28 %") e' nella cella accanto all'etichetta; un eventuale
+    # "Fault" e' nella cella ancora dopo, e va colto perche' e' un guasto dichiarato.
+    capacita = None
+    guasto_capacita = ""
+    grezzo_cap = coppie.get("battery capacity", "")
+    cap = re.search(r"(\d{1,3})", grezzo_cap)
+    if cap:
+        capacita = int(cap.group(1))
+        for indice, pezzo in enumerate(pezzi):
+            if pezzo.rstrip().rstrip(":").strip().lower() == "battery capacity":
+                seguito = " ".join(pezzi[indice + 1:indice + 3])
+                if _STATI_BATTERIA_ANOMALI.search(seguito):
+                    guasto_capacita = "Fault"
+                break
+        fuori["capacita_batteria"] = "%d%%%s" % (
+            capacita, " (%s)" % guasto_capacita if guasto_capacita else "")
+    if alimentazione:
+        fuori["alimentazione"] = alimentazione
+    if carico:
+        fuori["carico_uscita"] = carico
+    if autonomia:
+        fuori["autonomia_batteria"] = autonomia
+    if stato_batt:
+        fuori["stato_batteria"] = stato_batt
+
+    # Dal registro delle misure: l'ultima capacita' e se e' rimasta ferma. Su rete
+    # presente la batteria dovrebbe risalire: una capacita' bloccata e bassa vuol dire
+    # che non carica.
+    capacita_serie = _serie_capacita(misure)
+    if capacita_serie:
+        capacita = capacita_serie[-1]
+        fuori.setdefault("capacita_batteria", "%d%%" % capacita)
+
+    su_rete = bool(re.search(r"(?i)ac power|normal|utility|mains|on line|rete",
+                             alimentazione or ""))
+
+    # Stato della batteria dichiarato anomalo (Aborted, Fault, Replace...).
+    if stato_batt and _STATI_BATTERIA_ANOMALI.search(stato_batt):
+        problemi.append("batteria in stato anomalo: %s" % stato_batt)
+    if guasto_capacita:
+        problemi.append("la scheda segnala un guasto sulla capacita' della batteria")
+    # Capacita' bassa mentre l'apparato e' alimentato dalla rete: non sta caricando.
+    if capacita is not None and capacita < 60 and (su_rete or not alimentazione):
+        fermo = (len(set(capacita_serie)) == 1 and len(capacita_serie) >= 5)
+        problemi.append(
+            "capacita' della batteria ferma al %d%% pur essendo alimentato dalla rete: "
+            "non sta caricando" % capacita if fermo else
+            "capacita' della batteria bassa (%d%%) con alimentazione di rete presente"
+            % capacita)
+
+    # Registro eventi: batteria che si scollega/ricollega, sostituzione, batteria bassa.
+    ev = _testo_piano(eventi)
+    scollegamenti = len(re.findall(r"(?i)battery disconnected(?!\s*cleared)", ev))
+    if scollegamenti >= 5:
+        problemi.append(
+            "la batteria risulta scollegata e ricollegata %d volte: connettore o pacco "
+            "batteria da verificare" % scollegamenti)
+    if re.search(r"(?i)replace battery|battery (?:fault|failure|needs replacement)", ev):
+        problemi.append("l'apparato segnala di sostituire la batteria")
+    bassa = len(re.findall(r"(?i)low battery|battery low", ev))
+    if bassa >= 3:
+        problemi.append("eventi ripetuti di batteria bassa (%d)" % bassa)
+
+    # Registro di sistema: orologio che si azzera e correzioni manuali = NTP assente.
+    sy = _testo_piano(sistema)
+    azzeramenti = len(re.findall(r"1970/01/01", sy))
+    correzioni = len(re.findall(r"(?i)time changed by user", sy))
+    if azzeramenti >= 2 or correzioni >= 3:
+        problemi.append(
+            "orologio non affidabile (%d azzeramenti, %d correzioni manuali): "
+            "conviene configurare l'NTP" % (azzeramenti, correzioni))
+
+    fuori["diagnosi_ups"] = "; ".join(problemi) if problemi else "Nessun problema rilevato"
+    return fuori
+
+
+def _serie_capacita(misure: str) -> list:
+    """La colonna "Capacity(%)" del registro misure, riga per riga.
+
+    Le righe hanno data, ora e una sequenza di numeri; capacita' e autonomia sono le
+    ultime due colonne. Si leggono senza conoscere le intestazioni, che cambiano lingua.
+    """
+    serie = []
+    piano = _testo_piano(misure)
+    # Il testo e' su una sola riga: si spezza su ogni marca temporale "AAAA/MM/GG hh:mm:ss".
+    for riga in re.split(r"(?=\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2})", piano):
+        trovato = re.match(
+            r"\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}\s+(.+)", riga.strip())
+        if not trovato:
+            continue
+        numeri = re.findall(r"-?\d+(?:\.\d+)?", trovato.group(1))
+        if len(numeri) >= 2:
+            try:
+                serie.append(int(float(numeri[-2])))
+            except ValueError:
+                continue
+    return serie
+
+
 def _e_etichetta(frammento: str) -> bool:
     """Vero se il frammento e' a sua volta un'etichetta del vocabolario."""
     return any(e.match(frammento)

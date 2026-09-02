@@ -143,7 +143,22 @@
         <dl class="row mb-0 small">
           <dt class="col-5">Indirizzo</dt><dd class="col-7">{{ node.ip }}</dd>
           <dt class="col-5">Nome host</dt><dd class="col-7">{{ node.hostname or '-' }}</dd>
-          <dt class="col-5">Indirizzo MAC</dt><dd class="col-7">{{ node.mac or 'non disponibile' }}</dd>
+          <dt class="col-5">Indirizzo MAC</dt>
+          <dd class="col-7">
+            {% if node.mac %}
+            {{ node.mac }}
+            {% elif mac_snmp %}
+            {# Su un'altra rete l'ARP non arriva: se l'agente SNMP dichiara il MAC delle
+               proprie interfacce, e' l'unico modo di conoscerlo. #}
+            {{ mac_snmp[0] }}
+            <span class="text-body-secondary" title="Dichiarato dall'agente SNMP nelle proprie interfacce, non ricavato dall'ARP">(da SNMP)</span>
+            {% if mac_snmp|length > 1 %}
+            <div class="text-body-secondary">e altri {{ mac_snmp|length - 1 }} (vedi Interfacce SNMP)</div>
+            {% endif %}
+            {% else %}
+            non disponibile
+            {% endif %}
+          </dd>
           <dt class="col-5">Produttore</dt>
           <dd class="col-7">
             {% if produttore.nome %}
@@ -563,12 +578,14 @@
                           + web|selectattr('location')|list
                           + web|selectattr('host_name')|list
                           + web|selectattr('serial')|list
-                          + web|selectattr('extra')|list %}
+                          + web|selectattr('extra')|list
+                          + web|selectattr('diagnosi')|list %}
       {% if dichiarate %}
       <div class="row g-3 mb-3">
         {% for pagina in web %}
         {% if pagina.device_name or pagina.location or pagina.host_name
-              or pagina.serial or pagina.firmware or pagina.contact or pagina.extra %}
+              or pagina.serial or pagina.firmware or pagina.contact or pagina.extra
+              or pagina.diagnosi %}
         <div class="col-12 col-xl-6">
           <div class="card card-body bg-body-tertiary h-100">
             <div class="d-flex justify-content-between align-items-start mb-2">
@@ -624,6 +641,24 @@
                   ['Indirizzo MAC', 'Server TFTP', 'Gestore chiamate (CUCM)'] }}">{{ dato.valore }}</dd>
               {% endfor %}
             </dl>
+            {# Diagnosi dai registri dell'apparato (oggi lo UPS MGE/Eaton): in evidenza,
+               verde se tutto bene, in avviso con l'elenco dei problemi altrimenti. #}
+            {% if pagina.diagnosi %}
+            {% if pagina.diagnosi.ok %}
+            <div class="alert alert-success py-2 px-3 mb-0 mt-2 small">
+              <i class="bi bi-check-circle me-1"></i> Diagnosi dai registri: nessun problema rilevato
+            </div>
+            {% else %}
+            <div class="alert alert-warning py-2 px-3 mb-0 mt-2 small">
+              <div class="fw-semibold mb-1">
+                <i class="bi bi-exclamation-triangle me-1"></i> Diagnosi dai registri: problemi rilevati
+              </div>
+              <ul class="mb-0 ps-3">
+                {% for p in pagina.diagnosi.problemi %}<li>{{ p }}</li>{% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% endif %}
           </div>
         </div>
         {% endif %}

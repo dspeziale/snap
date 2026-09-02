@@ -32,7 +32,7 @@ import re
 
 # Il verdetto conserva la versione del catalogo che lo ha prodotto: al variare
 # della versione l'inventario e' rideterminabile a partire dalle prove.
-CATALOG_VERSION = "1.0.0"
+CATALOG_VERSION = "1.1.0"
 
 # Punteggio oltre il quale le prove si considerano abbondanti. Non basta il
 # peso: una porta e il nome di servizio che le corrisponde sono una sola
@@ -321,8 +321,9 @@ DEVICE_CLASSES = [
         "label": "Postazione Windows",
         "icon": "bi-windows",
         "ports": {("tcp", 445): 2, ("tcp", 139): 2, ("tcp", 135): 2, ("tcp", 5357): 3,
-                  ("udp", 137): 2, ("udp", 5353): 1},
-        "services": {"netbios-ssn": 2, "microsoft-ds": 2, "wsdapi": 3},
+                  ("tcp", 3389): 2, ("udp", 137): 2, ("udp", 5353): 1},
+        "services": {"netbios-ssn": 2, "microsoft-ds": 2, "wsdapi": 3,
+                     "ms-wbt-server": 2},
         "os_families": {"windows": 3},
         "products": [(r"(?i)windows (7|8|10|11)\b", 5)],
         "hostnames": [(r"(?i)(pc|desktop|nb|lt|wks)[-_0-9]", 2)],
@@ -673,6 +674,21 @@ def _decisive_rules(evidence, aperte, servizi, prodotti):
 
     if ("tcp", 37777) in aperte or "onvif" in servizi:
         return ("ip_camera", 93, "protocollo di videosorveglianza attivo")
+
+    # RDP (ms-wbt-server, tcp/3389) e' un servizio esclusivo di Windows: dove risponde,
+    # l'apparato e' Windows anche se non ha aperto nient'altro. E' il caso di una
+    # postazione con il firewall che lascia passare solo il desktop remoto e blocca SMB.
+    # Workstation o server lo dicono gli altri servizi: senza segnali da server (LDAP,
+    # Kerberos, SQL, DNS di dominio) e' una postazione.
+    if ("tcp", 3389) in aperte or "ms-wbt-server" in servizi:
+        da_server = aperte & {("tcp", 389), ("tcp", 636), ("tcp", 3268), ("tcp", 3269),
+                              ("tcp", 88), ("tcp", 1433), ("tcp", 53)}
+        if da_server or "server" in tipo_nmap:
+            return ("server_windows", 90,
+                    "RDP (tcp/3389) aperto insieme a servizi tipici di un server Windows")
+        return ("workstation_windows", 90,
+                "la porta RDP (ms-wbt-server, tcp/3389) risponde: e' un servizio"
+                " esclusivo di Windows, e nessun servizio da server e' esposto")
 
     return None
 
