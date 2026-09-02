@@ -936,6 +936,57 @@ def test_il_fascicolo_di_conformita_dichiara_i_rilievi(server_app):
         "senza copie dell'archivio il rilievo e' critico e va dichiarato")
 
 
+def test_il_fascicolo_eu_spiega_come_dimostrare_con_esempi_reali(server_app, tmp_path):
+    """Ogni requisito porta i passi per dimostrarlo, un esempio VERO della rete in
+    esame, e alla fine c'e' l'appendice col contenuto di ogni allegato citato."""
+    tenant = _tenant(server_app)
+    tid = int(tenant["id"])
+    with server_app.app_context():
+        from snapserver.db import execute, utc_now_str
+        from snapserver.reports import eu_compliance
+        from snapserver.reports.render_eu import eu_compliance_report
+        from snapserver.reports.windows import today_local, zone_of
+
+        adesso = utc_now_str()
+        sub = execute(
+            "INSERT INTO subnets (tenant_id, cidr, zone, host_count, is_enabled,"
+            " imported_at, created_at, updated_at)"
+            " VALUES (?, '10.77.0.0/24', 'datacenter', 254, 1, ?, ?, ?)",
+            (tid, adesso, adesso, adesso))
+        node = execute(
+            "INSERT INTO nodes (tenant_id, subnet_id, ip, status, device_type,"
+            " device_label, device_confidence, first_seen_at, last_seen_at, created_at,"
+            " updated_at) VALUES (?, ?, '10.77.0.10', 'up', 'printer', 'Stampante', 90,"
+            " ?, ?, ?, ?)", (tid, sub, adesso, adesso, adesso, adesso))
+        execute("INSERT INTO node_ports (tenant_id, node_id, protocol, port, state,"
+                " service_name, first_seen_at, last_seen_at)"
+                " VALUES (?, ?, 'tcp', 23, 'open', 'telnet', ?, ?)",
+                (tid, node, adesso, adesso))
+        execute("INSERT INTO node_web (tenant_id, node_id, port, scheme, status_code,"
+                " brand, model, firmware, collected_at) VALUES (?, ?, 80, 'http', 200,"
+                " 'Brother', 'MFC-L9570CDW', 'ZX-1.2', ?)", (tid, node, adesso))
+
+        zona = zone_of(tenant)
+        dati = eu_compliance.pacchetto(tenant, zona, today_local(zona), 90)
+        percorso = eu_compliance_report(str(tmp_path / "eu.pdf"), dati)
+
+    # Ogni requisito e' arricchito.
+    for voce in dati["requisiti"]:
+        assert "come" in voce and "dettaglio" in voce and "esempio" in voce
+    assert any(v["come"] for v in dati["requisiti"]), "i passi per dimostrare ci sono"
+    esempi = " ".join(v["esempio"] for v in dati["requisiti"])
+    assert "10.77.0.10" in esempi, "gli esempi citano la rete VERA in esame"
+
+    pypdf = pytest.importorskip("pypdf")
+    testo = "\n".join(p.extract_text() or ""
+                      for p in pypdf.PdfReader(percorso).pages)
+    assert "Come arrivare a dimostrarlo" in testo
+    assert "Esempio conforme alla rete in esame" in testo
+    assert "Contenuto degli allegati e dei riferimenti citati" in testo
+    assert "che cosa chiede la norma" in testo
+    assert "MFC-L9570CDW" in testo, "l'esempio reale compare nel PDF"
+
+
 def test_il_rapporto_di_incidente_porta_la_cronologia(server_app):
     tenant = _tenant(server_app)
     check_id, _ = _controllo(server_app, int(tenant["id"]))

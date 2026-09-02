@@ -58,6 +58,7 @@ SEZIONI = [
     "Linee guida ACN / AgID e OWASP",
     "Rilievi in ordine di gravita'",
     "Riferimenti normativi",
+    "Contenuto degli allegati e dei riferimenti citati",
 ]
 
 # Colore dell'esito: la stessa scala degli altri documenti, cosi' il significato non
@@ -92,26 +93,54 @@ def _quota(parte: int, totale: int) -> int:
     return int(round(parte * 100.0 / totale)) if totale else 0
 
 
+def _box_requisito(foglio, voce: dict) -> None:
+    """Un requisito in un riquadro: che cosa chiede, che cosa si prova, COME arrivare a
+    dimostrarlo (i passi concreti) e un esempio reale della rete in esame. La barra e il
+    colore dell'intestazione dicono l'esito a colpo d'occhio."""
+    colore = COLORE.get(voce["esito"], INCHIOSTRO)
+    elementi = [
+        {"testo": "%s  —  %s" % (voce["riferimento"], voce["esito"].upper()),
+         "grassetto": True, "corpo": 10.5, "colore": colore},
+        {"testo": "Che cosa chiede: %s" % voce["requisito"],
+         "colore": INCHIOSTRO, "spazio_prima": 5},
+        {"testo": "Che cosa si prova: %s" % voce["prova"],
+         "colore": INCHIOSTRO_2, "spazio_prima": 4},
+    ]
+    if voce.get("come"):
+        elementi.append({"testo": "Come arrivare a dimostrarlo:", "grassetto": True,
+                         "colore": INCHIOSTRO, "spazio_prima": 6})
+        for passo in voce["come"]:
+            elementi.append({"testo": "•  %s" % passo, "colore": INCHIOSTRO_2,
+                             "rientro": 8})
+    if voce.get("esempio"):
+        elementi.append({"testo": "Esempio conforme alla rete in esame: %s"
+                                  % voce["esempio"], "colore": INCHIOSTRO_2,
+                         "spazio_prima": 6})
+    if voce.get("limite"):
+        elementi.append({"testo": "Limite dichiarato: %s" % voce["limite"],
+                         "colore": INCHIOSTRO_3, "spazio_prima": 6})
+    foglio.box(elementi, colore_barra=colore)
+
+
 def _sezione_norma(foglio, chiave: str, dati: dict) -> None:
-    """Una norma: la sintesi in tabella, poi ogni requisito con la sua prova."""
+    """Una norma: la sintesi in tabella, poi ogni requisito nel suo riquadro."""
     voci = dati["per_norma"].get(chiave) or []
     foglio.titolo_sezione(TITOLI_NORMA[chiave], "%d requisiti valutati" % len(voci))
     if not voci:
+        foglio.a_capo()
         foglio.paragrafo("Nessun requisito valutato per questa norma.", INCHIOSTRO_3)
         return
 
+    foglio.a_capo()
     foglio.tabella(
         ["riferimento", "requisito", "esito"],
         [[v["riferimento"], v["requisito"], v["esito"].upper()] for v in voci],
         larghezze=[1.8, 3.4, 1.0], allineamento=["l", "l", "r"])
 
+    # Un ritorno a capo prima di ogni riquadro: i requisiti non si toccano l'un l'altro.
     for voce in voci:
-        foglio.paragrafo("%s - %s" % (voce["riferimento"], voce["esito"].upper()),
-                         COLORE.get(voce["esito"], INCHIOSTRO))
-        foglio.paragrafo("Che cosa chiede: %s" % voce["requisito"], INCHIOSTRO_2)
-        foglio.paragrafo("Che cosa si prova: %s" % voce["prova"], INCHIOSTRO_2)
-        if voce["limite"]:
-            foglio.paragrafo("Limite dichiarato: %s" % voce["limite"], INCHIOSTRO_3)
+        foglio.a_capo()
+        _box_requisito(foglio, voce)
 
 
 def eu_compliance_report(percorso, dati: dict) -> str:
@@ -155,6 +184,7 @@ def eu_compliance_report(percorso, dati: dict) -> str:
 
     # --- 1 ----------------------------------------------------------------- #
     foglio.titolo_sezione("Che cosa dimostra questo fascicolo")
+    foglio.a_capo()
     foglio.paragrafo(
         "Un inventario di rete dimostra i FATTI TECNICI: che cosa esiste, che cosa"
         " espone, che cosa e' cambiato, chi ha fatto che cosa e quando. Non dimostra le"
@@ -162,8 +192,10 @@ def eu_compliance_report(percorso, dati: dict) -> str:
         " valutazione del rischio: quelle sono carte di organizzazione e vanno allegate"
         " a parte. Dirlo qui non e' una excusatio: e' la ragione per cui le parti"
         " tecniche di questo documento si possono prendere per buone.", INCHIOSTRO_2)
+    foglio.a_capo()
     foglio.elenco(["%s: %s" % (esito.upper(), spiegazione)
                    for esito, spiegazione in GLOSSARIO])
+    foglio.a_capo()
     foglio.paragrafo(
         "Il fascicolo copre il quadro europeo che riguarda una rete in esercizio:"
         " NIS2 (con il recepimento italiano, D.lgs. 138/2024), Cyber Resilience Act,"
@@ -174,10 +206,12 @@ def eu_compliance_report(percorso, dati: dict) -> str:
     copertura = _quota(m["subnet_scansionate"], m["subnet_totali"])
     foglio.titolo_sezione("Copertura delle prove",
                           "%d%% del perimetro dichiarato" % copertura)
+    foglio.a_capo()
     foglio.paragrafo(
         "Senza questo numero ogni altro numero del documento e' senza scala: un"
         " \"nessun riscontro critico\" vale molto se la rete e' osservata per intero e"
         " niente se se ne guarda un quarto.", INCHIOSTRO_2)
+    foglio.a_capo()
     foglio.tabella(
         ["misura", "valore", "che cosa significa"],
         [["Subnet dichiarate nel perimetro", m["subnet_totali"],
@@ -204,6 +238,7 @@ def eu_compliance_report(percorso, dati: dict) -> str:
     rilievi = dati["rilievi"]
     foglio.titolo_sezione("Rilievi in ordine di gravita'",
                           "%d da trattare" % len(rilievi))
+    foglio.a_capo()
     if rilievi:
         foglio.tabella(
             ["norma", "riferimento", "esito", "che cosa manca"],
@@ -223,15 +258,53 @@ def eu_compliance_report(percorso, dati: dict) -> str:
 
     # --- 9 ----------------------------------------------------------------- #
     foglio.titolo_sezione("Riferimenti normativi")
+    foglio.a_capo()
     foglio.tabella(
         ["norma", "recepimento / stato", "ambito"],
         [[n["titolo"], n["recepimento"], n["ambito"]] for n in dati["norme"]],
         larghezze=[2.2, 1.8, 3.0])
+    foglio.a_capo()
     foglio.paragrafo(
         "I riferimenti puntuali (articoli, allegati, provision) sono indicati in"
         " ciascun requisito. Il documento e' redatto secondo la struttura documentale"
         " della ISO/IEC/IEEE 29148:2018 per la parte di requisiti e verifica.",
         INCHIOSTRO_3)
 
+    # --- 10 - appendice: il contenuto di ogni riferimento citato ----------- #
+    _appendice_allegati(foglio, dati)
+
     foglio.salva()
     return str(percorso)
+
+
+def _appendice_allegati(foglio, dati: dict) -> None:
+    """Alla fine del documento, che cosa dice ciascun allegato/riferimento citato.
+
+    Chi legge trova nel fascicolo sigle come \"allegato I, parte I\" o \"art. 21(2)(e)\":
+    qui, raccolto in un posto solo, il loro contenuto, cosi' il documento e'
+    autosufficiente e non costringe a tenere aperto il testo delle norme accanto.
+    """
+    foglio.titolo_sezione("Contenuto degli allegati e dei riferimenti citati")
+    foglio.a_capo()
+    foglio.paragrafo(
+        "Per ciascun riferimento citato nei requisiti -- articolo, allegato o provision"
+        " -- che cosa chiede la norma, in sintesi. E' un promemoria: il testo che fa"
+        " fede resta quello ufficiale, indicato nella sezione dei riferimenti"
+        " normativi.", INCHIOSTRO_2)
+
+    for norma in dati["norme"]:
+        voci = dati["per_norma"].get(norma["chiave"]) or []
+        righe, visti = [], set()
+        for voce in voci:
+            rif = voce["riferimento"]
+            if rif in visti or not voce.get("dettaglio"):
+                continue
+            visti.add(rif)
+            righe.append([rif, voce["dettaglio"]])
+        if not righe:
+            continue
+        foglio.a_capo()
+        foglio.paragrafo(norma["titolo"], INCHIOSTRO, dimensione=10)
+        foglio.tabella(
+            ["riferimento", "che cosa chiede la norma"], righe,
+            larghezze=[1.9, 4.3], allineamento=["l", "l"])

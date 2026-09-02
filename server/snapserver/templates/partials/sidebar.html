@@ -24,6 +24,8 @@
                               'monitor.changes', 'inventory.subnets',
                               'inventory.zone_index',
                               'inventory.deliveries', 'inventory.delivery') %}
+{% set in_mappa = endpoint in ('inventory.network_map', 'inventory.network_map_graphic',
+                               'inventory.network_map_zones') %}
 {% set in_controlli = endpoint.startswith('checks.') or endpoint.startswith('rules.') %}
 {% set in_sicurezza = endpoint.startswith('threat.') or endpoint.startswith('audit.')
                       or endpoint.startswith('acn.') %}
@@ -129,29 +131,35 @@
                 <i class="nav-icon bi bi-pc-display"></i><p>Nodi</p>
               </a>
             </li>
-            <li class="nav-item">
-              <a href="{{ url_for('inventory.network_map') }}"
-                 class="nav-link {% if endpoint == 'inventory.network_map' %}active{% endif %}">
-                <i class="nav-icon bi bi-diagram-3"></i><p>Mappa della rete</p>
+            {# La mappa ha tre viste della stessa rete: ad albero (testo, si cerca e si
+               stampa), a bolle (grafica, si guarda) e per zone (la segmentazione). Sono
+               tre modi di guardare la stessa cosa, quindi stanno sotto un unico
+               sottomenu "Mappa" invece di occupare tre righe di primo livello. #}
+            <li class="nav-item {% if in_mappa %}menu-open{% endif %}">
+              <a href="#" class="nav-link {% if in_mappa %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-3"></i>
+                <p>Mappa<i class="nav-arrow bi bi-chevron-right"></i></p>
               </a>
-            </li>
-            {# Due viste della stessa gerarchia: l'albero si cerca e si stampa come
-               testo, la mappa grafica si guarda. Nessuna delle due sostituisce
-               l'altra, quindi stanno entrambe nel menu. #}
-            <li class="nav-item">
-              <a href="{{ url_for('inventory.network_map_graphic') }}"
-                 class="nav-link {% if endpoint == 'inventory.network_map_graphic' %}active{% endif %}">
-                <i class="nav-icon bi bi-bezier2"></i><p>Mappa grafica</p>
-              </a>
-            </li>
-            {# La terza vista: le subnet dentro la zona che le contiene, a treemap. Dice
-               la segmentazione -- che cosa sta in quale contesto -- che le altre due non
-               mostrano a colpo d'occhio. #}
-            <li class="nav-item">
-              <a href="{{ url_for('inventory.network_map_zones') }}"
-                 class="nav-link {% if endpoint == 'inventory.network_map_zones' %}active{% endif %}">
-                <i class="nav-icon bi bi-diagram-3-fill"></i><p>Mappa per zone</p>
-              </a>
+              <ul class="nav nav-treeview">
+                <li class="nav-item">
+                  <a href="{{ url_for('inventory.network_map') }}"
+                     class="nav-link {% if endpoint == 'inventory.network_map' %}active{% endif %}">
+                    <i class="nav-icon bi bi-diagram-3"></i><p>Ad albero</p>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a href="{{ url_for('inventory.network_map_graphic') }}"
+                     class="nav-link {% if endpoint == 'inventory.network_map_graphic' %}active{% endif %}">
+                    <i class="nav-icon bi bi-bezier2"></i><p>A bolle</p>
+                  </a>
+                </li>
+                <li class="nav-item">
+                  <a href="{{ url_for('inventory.network_map_zones') }}"
+                     class="nav-link {% if endpoint == 'inventory.network_map_zones' %}active{% endif %}">
+                    <i class="nav-icon bi bi-diagram-3-fill"></i><p>Per zone</p>
+                  </a>
+                </li>
+              </ul>
             </li>
             <li class="nav-item">
               <a href="{{ url_for('monitor.status') }}"

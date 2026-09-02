@@ -253,6 +253,28 @@ def test_il_marchio_dei_documenti_e_in_maiuscolo(server_app):
     assert PRODOTTO == "snap", "nel testo e nei metadati il prodotto tiene il suo nome"
 
 
+def test_il_frontespizio_porta_il_riferimento_del_documento(server_app, tmp_path):
+    """Sopra il pie' del frontespizio, in grassetto e a corpo grande, ci sono tenant,
+    istante di generazione e periodo di riferimento: chi riceve il report fuori dal
+    gruppo operativo lo colloca subito. Vale per tutti i report, che passano tutti dal
+    frontespizio comune."""
+    pypdf = pytest.importorskip("pypdf")
+    with server_app.app_context():
+        from snapserver.reports.render_pdf import Foglio
+
+        percorso = tmp_path / "riferimento.pdf"
+        foglio = Foglio(percorso, kind="wide", titolo="Report di prova",
+                        tenant="ACME S.p.A.",
+                        intervallo="dal 01/08/2026 al 02/09/2026",
+                        generato="2026-09-02 09:34:00", sezioni=["Prima"])
+        foglio.c.save()
+
+    testo = pypdf.PdfReader(str(percorso)).pages[0].extract_text()
+    assert "Tenant ACME S.p.A." in testo
+    assert "periodo di riferimento" in testo
+    assert "dal 01/08/2026 al 02/09/2026" in testo
+
+
 # --------------------------------------------------------------------------- #
 # Il corpo tipografico
 # --------------------------------------------------------------------------- #

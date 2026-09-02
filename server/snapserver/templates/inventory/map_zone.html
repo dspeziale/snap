@@ -1,15 +1,15 @@
 {#
-  snap server - Mappa per zone: le subnet disegnate DENTRO la zona che le contiene.
+  snap server - Mappa per zone: le subnet raggruppate nel contesto che le contiene.
 
-  Una treemap annidata. La zona e' un rettangolo grande quanto i suoi dispositivi;
-  dentro, ogni subnet e' un rettangolo grande quanto i propri. Il contenimento -- una
-  cosa dentro l'altra -- e' cio' che dice "questa rete sta in questo contesto", che due
-  bolle dello stesso colore non direbbero.
+  Ogni zona e' un pannello leggibile a prescindere da quanti dispositivi contiene;
+  dentro, ogni subnet e' una pastiglia -- comprese quelle dichiarate e non ancora
+  osservate (zero dispositivi), che sono proprio quelle da controllare. Le zone
+  dichiarate stanno prima; la grande zona residua "Senza zona dichiarata" sta in fondo,
+  cosi' non schiaccia le altre.
 
-  La disposizione la calcola il server (`map_graphic.mappa_zone`): niente librerie di
-  grafi, niente script inline, funziona senza JavaScript. Le posizioni sono in
-  percentuale su un piano logico reso con `--snap-mappa-rapporto`, quindi la mappa scala
-  con la finestra e si stampa.
+  La versione precedente era una treemap proporzionale ai dispositivi: sulla rete reale,
+  con il 99% dei nodi in subnet senza zona, le zone dichiarate diventavano invisibili.
+  Qui la domanda "quali subnet stanno in quale zona" si legge.
 
   remarks: Autore: Daniele Speziale - Data: 2026-09-02
   copyright: (c) 2024-26 DS Consulting
@@ -20,9 +20,9 @@
 {% block page_icon %}bi-diagram-3-fill{% endblock %}
 {% block page_title %}Mappa per zone{% endblock %}
 {% block page_subtitle %}
-  Ogni riquadro grande e' una zona; dentro, ogni riquadro piccolo e' una subnet. La
-  grandezza dice quanti dispositivi contiene, il colore se qualcosa richiede attenzione.
-  Si apre una subnet per vederne i dispositivi.
+  Le subnet raggruppate per <strong>zona</strong>, il contesto che decide se
+  un'esposizione e' un problema o la norma. Ogni pastiglia e' una subnet: il colore ne
+  dice lo stato, il numero quanti dispositivi. Si apre una subnet per vederne i nodi.
 {% endblock %}
 
 {% block page_actions %}
@@ -67,88 +67,104 @@
     </button>
     <span class="small text-body-secondary ms-auto">
       {% if mappa.zone %}
-      {{ mappa.zone|length }} zone, {{ mappa.reti_totali }} subnet con dispositivi
-      {%- if mappa.reti_vuote %} &middot; {{ mappa.reti_vuote }} subnet dichiarate senza
+      {{ mappa.zone|length }} zone con subnet, {{ mappa.reti_totali }} subnet in totale
+      {%- if mappa.reti_vuote %} &middot; {{ mappa.reti_vuote }} dichiarate senza
       dispositivi{% endif %}{% if mappa.zone_vuote %} &middot; {{ mappa.zone_vuote }} zone
-      ancora senza dispositivi{% endif %}.
+      dichiarate ancora senza subnet{% endif %}.
       {% endif %}
     </span>
   </div>
 </div>
 
-{# --------------------------------------------------------------------- treemap #}
-<div class="card mb-3 snap-stampa-mappa">
-  <div class="card-body">
-    {% if mappa.zone %}
-    <div class="snap-zmappa"
-         style="--snap-mappa-rapporto: {{ mappa.altezza }} / {{ mappa.larghezza }}">
-
-      {# Prima le zone: sono lo sfondo dentro cui stanno le reti. #}
-      {% for z in mappa.zone %}
-      <div class="snap-zona bg-{{ z.tono }}-subtle border border-{{ z.tono }}-subtle"
-           style="left: {{ (z.x / mappa.larghezza * 100)|round(3) }}%;
-                  top: {{ (z.y / mappa.altezza * 100)|round(3) }}%;
-                  width: {{ (z.w / mappa.larghezza * 100)|round(3) }}%;
-                  height: {{ (z.h / mappa.altezza * 100)|round(3) }}%">
-        <div class="snap-zona-titolo text-bg-{{ z.tono }}"
-             style="height: {{ (z.titolo_h / mappa.altezza * 100)|round(3) }}%">
-          <i class="bi {{ z.icona }}"></i>
-          <span class="snap-zona-nome">{{ z.nome }}</span>
-          <span class="snap-zona-conti">
-            {{ z.n_reti }} subnet &middot; {{ z.nodi }} dispositivi
-            {%- if z.attivi %} &middot; {{ z.attivi }} attivi{% endif %}
-            {%- if z.riscontri %}
-            <span class="badge text-bg-danger ms-1" title="riscontri di sicurezza aperti in questa zona">
-              <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ z.riscontri }}
-            </span>
-            {%- endif %}
-          </span>
+{% if mappa.zone %}
+{# I pannelli delle zone: le dichiarate in griglia, la residua "senza zona" a tutta
+   larghezza in fondo (ha centinaia di subnet e non deve schiacciare le altre). #}
+<div class="row g-3 snap-stampa-mappa">
+  {% for z in mappa.zone %}
+  <div class="{{ 'col-12' if z.senza_zona else 'col-12 col-md-6 col-xxl-4' }}">
+    <div class="card h-100 snap-zona-card border-{{ z.tono }}-subtle">
+      <div class="card-header bg-{{ z.tono }}-subtle border-{{ z.tono }}-subtle
+                  d-flex flex-wrap align-items-center gap-2">
+        <span class="snap-zona-icona text-bg-{{ z.tono }}"><i class="bi {{ z.icona }}"></i></span>
+        <div class="me-auto">
+          <h3 class="h6 mb-0">{{ z.nome }}</h3>
+          <div class="small text-body-secondary">
+            {{ z.n_reti }} subnet
+            {%- if z.n_vuote %} ({{ z.n_vuote }} senza dispositivi){% endif %} &middot;
+            {{ z.nodi }} dispositivi{% if z.attivi %}, {{ z.attivi }} attivi{% endif %}
+          </div>
         </div>
-      </div>
-      {% endfor %}
-
-      {# Poi le reti, sopra lo sfondo delle zone: ognuna e' un collegamento alla propria
-         mappa dei dispositivi. #}
-      {% for z in mappa.zone %}
-      {% for r in z.reti %}
-      <a class="snap-zrete snap-zrete-{{ r.stato }}"
-         style="left: {{ (r.x / mappa.larghezza * 100)|round(3) }}%;
-                top: {{ (r.y / mappa.altezza * 100)|round(3) }}%;
-                width: {{ (r.w / mappa.larghezza * 100)|round(3) }}%;
-                height: {{ (r.h / mappa.altezza * 100)|round(3) }}%"
-         href="{{ url_for('inventory.network_map_graphic', subnet=r.subnet_id,
-                          attivi='1' if solo_attivi else none) }}"
-         title="{{ r.cidr }}{% if r.etichetta %} - {{ r.etichetta }}{% endif %} | zona {{ z.nome }} | {{ r.totale }} dispositivi, {{ r.attivi }} attivi{% if r.riscontri %} | {{ r.riscontri }} riscontri aperti{% endif %}">
-        <span class="snap-zrete-corpo">
-          <i class="bi {{ r.icona }} snap-zrete-icona"></i>
-          <span class="snap-zrete-cidr">{{ r.cidr }}</span>
-          <span class="snap-zrete-conto">{{ r.totale }}</span>
+        {% if z.riscontri %}
+        <span class="badge text-bg-danger" title="riscontri di sicurezza aperti nella zona">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ z.riscontri }} riscontri
         </span>
-        {% if r.riscontri %}
-        <span class="snap-zrete-allarme" aria-hidden="true">{{ r.riscontri }}</span>
         {% endif %}
-        {% if r.etichetta %}<span class="snap-zrete-etichetta">{{ r.etichetta }}</span>{% endif %}
-      </a>
-      {% endfor %}
-      {% endfor %}
-
+      </div>
+      <div class="card-body py-2">
+        {% if z.senza_zona %}
+        <p class="small text-body-secondary mb-2">
+          <i class="bi bi-info-circle me-1"></i>
+          Subnet senza una zona dichiarata: valgono come <strong>rete di utenza</strong>,
+          il giudizio piu' severo. Dichiarare la zona in
+          <a href="{{ url_for('inventory.subnets') }}">Perimetro di scansione</a> le sposta
+          nel contesto giusto.
+        </p>
+        {% endif %}
+        <div class="snap-zchips">
+          {% for r in z.reti %}
+          <a class="snap-zchip snap-zchip-{{ r.stato }}"
+             href="{{ url_for('inventory.network_map_graphic', subnet=r.subnet_id,
+                              attivi='1' if solo_attivi else none)
+                     if r.totale else url_for('inventory.nodes', subnet=r.subnet_id) }}"
+             title="{{ r.cidr }}{% if r.etichetta %} - {{ r.etichetta }}{% endif %} | {{ r.totale }} dispositivi{% if r.attivi %}, {{ r.attivi }} attivi{% endif %}{% if r.riscontri %} | {{ r.riscontri }} riscontri aperti{% elif not r.totale %} | dichiarata, nessun dispositivo osservato{% endif %}">
+            <i class="bi {{ r.icona }} snap-zchip-icona"></i>
+            <span class="snap-zchip-testo">
+              <span class="snap-zchip-cidr">{{ r.cidr }}</span>
+              {% if r.etichetta %}<span class="snap-zchip-etichetta">{{ r.etichetta }}</span>{% endif %}
+            </span>
+            <span class="snap-zchip-conto">{{ r.totale }}</span>
+            {% if r.riscontri %}<span class="snap-zchip-allarme">{{ r.riscontri }}</span>{% endif %}
+          </a>
+          {% endfor %}
+        </div>
+        {% if z.non_disegnate %}
+        <p class="small text-body-secondary mt-2 mb-0">
+          <i class="bi bi-three-dots me-1"></i>
+          e altre {{ z.non_disegnate }} subnet:
+          <a href="{{ url_for('inventory.nodes', zona=z.chiave if z.chiave else 'senza') }}">
+            aprile nell'inventario</a>.
+        </p>
+        {% endif %}
+      </div>
     </div>
-
-    {% else %}
-    <p class="text-center text-body-secondary py-5 mb-0">
-      <i class="bi bi-diagram-3-fill fs-3 d-block mb-2"></i>
-      Nessuna subnet con dispositivi da disegnare: la mappa si riempie quando le sonde
-      hanno conferito almeno una scoperta e le subnet sono assegnate a una zona.
-      {% if mappa.zone_vuote %}
-      <br>Ci sono {{ mappa.zone_vuote }} zone dichiarate ancora senza dispositivi.
-      {% endif %}
-    </p>
-    {% endif %}
   </div>
+  {% endfor %}
 </div>
 
+{% if mappa.zone_vuote %}
+<p class="small text-body-secondary mt-3 mb-0">
+  <i class="bi bi-info-circle me-1"></i>
+  Ci sono <strong>{{ mappa.zone_vuote }}</strong> zone dichiarate a cui non e' ancora
+  assegnata nessuna subnet: compaiono qui appena una subnet viene messa in quel contesto.
+</p>
+{% endif %}
+
+{% else %}
+<div class="card">
+  <div class="card-body">
+    <p class="text-center text-body-secondary py-5 mb-0">
+      <i class="bi bi-diagram-3-fill fs-3 d-block mb-2"></i>
+      Nessuna subnet da mostrare: la mappa si riempie quando il perimetro e' dichiarato.
+      {% if mappa.zone_vuote %}
+      <br>Ci sono {{ mappa.zone_vuote }} zone dichiarate ancora senza subnet.
+      {% endif %}
+    </p>
+  </div>
+</div>
+{% endif %}
+
 {# ------------------------------------------------------------------------ legenda #}
-<div class="row g-3">
+<div class="row g-3 mt-1">
   <div class="col-12 col-xl-8">
     <div class="card h-100">
       <div class="card-header">
@@ -161,16 +177,13 @@
             <i class="bi {{ z.icona }}"></i> {{ z.nome }}
           </span>
           {% endfor %}
-          <span class="badge bg-secondary-subtle text-secondary-emphasis border d-inline-flex align-items-center gap-1">
-            <i class="bi bi-question-circle"></i> Senza zona dichiarata
-          </span>
         </div>
         <p class="small text-body-secondary mt-3 mb-0">
           La zona dice <em>che cosa</em> e' un posto (un datacenter, una rete di utenza),
           e da questo dipende se un'esposizione e' un problema o la norma. Una subnet
           senza zona dichiarata vale come rete di utenza -- il giudizio piu' severo -- e
-          qui compare sotto <strong>Senza zona dichiarata</strong>: il silenzio non fa da
-          giustificazione. La zona di ogni subnet si dichiara in
+          qui sta in fondo, sotto <strong>Senza zona dichiarata</strong>. La zona di ogni
+          subnet si dichiara in
           <a href="{{ url_for('inventory.subnets') }}">Perimetro di scansione</a>.
         </p>
       </div>
@@ -189,27 +202,22 @@
           </li>
           <li class="mb-2">
             <span class="snap-mappa-campione snap-mappa-critico"></span>
-            <strong>con riscontri aperti</strong>: contiene dispositivi con
-            vulnerabilita' o esposizioni da valutare. Il numero rosso dice quanti.
+            <strong>con riscontri aperti</strong>: dispositivi con vulnerabilita' o
+            esposizioni da valutare (i <strong>riscontri</strong>, spiegati nella
+            <a href="{{ url_for('guide.index') }}#riscontri" target="_blank" rel="noopener">guida</a>).
+          </li>
+          <li class="mb-2">
+            <span class="snap-mappa-campione snap-mappa-assente"></span>
+            <strong>assente</strong>: osservata, ma nessun dispositivo risponde ora.
           </li>
           <li>
-            <span class="snap-mappa-campione snap-mappa-assente"></span>
-            <strong>assente</strong>: nessun dispositivo ha risposto all'ultima verifica.
+            <span class="snap-mappa-campione snap-zchip-vuota"></span>
+            <strong>vuota</strong>: dichiarata nel perimetro, nessun dispositivo ancora
+            osservato.
           </li>
         </ul>
       </div>
     </div>
   </div>
-</div>
-
-<div class="alert alert-secondary mt-3 small mb-0">
-  <i class="bi bi-info-circle me-1"></i>
-  L'area di ogni riquadro e' proporzionale al numero di dispositivi: una rete da trecento
-  nodi occupa piu' spazio di una da tre, e la segmentazione si vede senza leggere un
-  numero. Non e' un grafo dei collegamenti fisici: dice <em>che cosa sta in quale
-  contesto</em>. I <strong>riscontri</strong> sono i problemi di sicurezza aperti
-  (vulnerabilita' ed esposizioni) su cui c'e' ancora una decisione da prendere &mdash;
-  spiegati per esteso nella
-  <a href="{{ url_for('guide.index') }}#riscontri" target="_blank" rel="noopener">guida</a>.
 </div>
 {% endblock %}

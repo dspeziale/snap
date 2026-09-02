@@ -333,7 +333,10 @@ def test_la_mappa_e_raggiungibile_dal_menu(logged_client, server_app):
                        follow_redirects=True)
     corpo = logged_client.get("/").get_data(as_text=True)
     menu = corpo[corpo.index("app-sidebar"):corpo.index("</aside>")]
-    assert "/inventory/map" in menu and "Mappa della rete" in menu
+    # Le tre viste stanno sotto un unico sottomenu "Mappa": ad albero, a bolle, per zone.
+    assert "/inventory/map" in menu, "la mappa ad albero resta raggiungibile"
+    assert "Ad albero" in menu and "A bolle" in menu and "Per zone" in menu, (
+        "il sottomenu Mappa raccoglie le tre viste")
 
 
 # --------------------------------------------------------------------------- #

@@ -350,7 +350,34 @@ class Foglio:
             self._nota(nota)
             fine = self.y
         self.y = min(fine, self.y) - 18
+        self._riferimento_documento()
         self._pie(frontespizio=True)
+
+    def _riferimento_documento(self):
+        """Riga di riferimento del documento, in evidenza sopra il pie' del frontespizio.
+
+        Chi riceve il report fuori dal gruppo operativo deve collocarlo subito: di chi e'
+        (tenant), quando e' stato prodotto e su quale periodo. Sta appena sopra il pie',
+        a corpo grande e in grassetto, perche' e' la prima cosa che si cerca su una
+        copertina che gira. Compare su tutti i report, che passano tutti da qui.
+        """
+        c = self.c
+        testo = "Tenant %s  ·  %s" % (self.tenant, self.generato)
+        if self.intervallo:
+            testo += "  ·  periodo di riferimento: %s" % self.intervallo
+        righe = simpleSplit(testo, self.font["corpo_grassetto"], 12.5,
+                            self.larghezza - 2 * MARGINE)
+        # Il blocco poggia appena sopra il pie' (la riga piu' bassa a MARGINE + 40),
+        # crescendo verso l'alto se va a capo, cosi' non invade mai il pie' di pagina.
+        y = MARGINE + 40 + (len(righe) - 1) * 15
+        c.setStrokeColor(LINEA)
+        c.setLineWidth(.5)
+        c.line(MARGINE, y + 16, self.larghezza - MARGINE, y + 16)
+        c.setFont(self.font["corpo_grassetto"], 12.5)
+        c.setFillColor(INCHIOSTRO)
+        for riga in righe:
+            c.drawString(MARGINE, y, riga)
+            y -= 15
 
     def _riferimenti_predefiniti(self) -> list:
         return [
@@ -531,6 +558,76 @@ class Foglio:
                 self.c.drawString(MARGINE + 16, self.y, riga)
                 self.y -= INTERLINEA
         self.y -= 2
+
+    def a_capo(self, righe=1):
+        """Un ritorno a capo: spazio verticale di una o piu' interlinee.
+
+        Serve a staccare i paragrafi l'uno dall'altro dove la sola distanza di riga non
+        basta a farli respirare (documenti densi, come il fascicolo di conformita')."""
+        for _ in range(max(1, int(righe))):
+            if not self.spazio(INTERLINEA):
+                self.y -= INTERLINEA
+
+    def box(self, elementi, colore_barra=None):
+        """Riquadro bordato con barra colorata a sinistra, per un blocco che va letto
+        come un'unita' (un requisito e la sua dimostrazione).
+
+        `elementi` e' una lista di righe descritte da un dizionario:
+          testo, grassetto, mono, corpo (dimensione), colore, rientro, spazio_prima.
+        Il riquadro si misura per intero e, se non entra nella pagina, si sposta su
+        quella dopo: un box spezzato da un cambio pagina perde il bordo e si legge peggio.
+        """
+        c = self.c
+        pad = 10
+        larghezza = self.larghezza - 2 * MARGINE
+        colore_barra = colore_barra or self.tema["accento"]
+
+        preparati = []
+        altezza = pad
+        for el in elementi:
+            corpo = el.get("corpo", CORPO)
+            rientro = el.get("rientro", 0)
+            prima = el.get("spazio_prima", 0)
+            if el.get("grassetto"):
+                font = self.font["corpo_grassetto"]
+            elif el.get("mono"):
+                font = self.font["mono"]
+            else:
+                font = self.font["corpo"]
+            righe = simpleSplit(el.get("testo", ""), font, corpo,
+                                larghezza - 2 * pad - rientro) or [""]
+            preparati.append({"righe": righe, "font": font, "corpo": corpo,
+                              "colore": el.get("colore") or INCHIOSTRO_2,
+                              "rientro": rientro, "prima": prima})
+            altezza += prima + len(righe) * (corpo + 3)
+        altezza += pad
+
+        # Un riquadro piu' alto di una pagina intera non si puo' tenere unito: in quel
+        # caso lo si lascia scorrere dalla cima della pagina nuova, che e' il meglio
+        # possibile. Negli altri casi resta intero.
+        pagina_utile = self.altezza - MARGINE - 60
+        if altezza <= pagina_utile and self.y - altezza < MARGINE + 34:
+            self._nuova_pagina()
+
+        cima = self.y
+        base = max(MARGINE + 24, cima - altezza)
+        c.setFillColor(self.tema["chiaro"])
+        c.rect(MARGINE, base, larghezza, cima - base, stroke=0, fill=1)
+        c.setStrokeColor(LINEA)
+        c.setLineWidth(.6)
+        c.rect(MARGINE, base, larghezza, cima - base, stroke=1, fill=0)
+        c.setFillColor(colore_barra)
+        c.rect(MARGINE, base, 3.5, cima - base, stroke=0, fill=1)
+
+        y = cima - pad
+        for p in preparati:
+            y -= p["prima"]
+            for riga in p["righe"]:
+                y -= p["corpo"] + 3
+                c.setFont(p["font"], p["corpo"])
+                c.setFillColor(p["colore"])
+                c.drawString(MARGINE + pad + p["rientro"], y + 2, riga)
+        self.y = base - 8
 
     def riquadri(self, voci):
         """Fascia di indicatori: valore grande, etichetta piccola, come sul cruscotto."""

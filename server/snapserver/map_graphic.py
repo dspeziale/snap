@@ -314,128 +314,26 @@ def rete(albero: dict, subnet_id: int) -> dict | None:
 
 
 # --------------------------------------------------------------------------- #
-# Mappa per zone: le subnet dentro il contesto che le contiene (treemap annidata)
+# Mappa per zone: le subnet raggruppate nel contesto (zona) che le contiene
 # --------------------------------------------------------------------------- #
-# Perche' una treemap e non le solite bolle: la domanda "quali subnet stanno in quale
-# zona" e' una domanda di CONTENIMENTO, e il contenimento si legge quando una cosa sta
-# DENTRO l'altra, non quando due bolle hanno lo stesso colore. La zona e' un rettangolo,
-# le sue subnet sono rettangoli piu' piccoli dentro di esso, e l'area di ciascuno vale
-# quanti dispositivi contiene: una rete da 300 nodi occupa piu' spazio di una da 3, e la
-# segmentazione si vede a colpo d'occhio senza leggere un solo numero.
+# La prima versione era una treemap dove l'area valeva quanti dispositivi: sulla rete
+# reale non funzionava. Il 99% dei nodi sta in subnet SENZA zona dichiarata; le zone
+# dichiarate, con pochi nodi, diventavano fette invisibili, e le subnet dichiarate ma
+# non ancora osservate (zero nodi) sparivano del tutto -- proprio quelle che si vanno a
+# controllare dopo averle dichiarate. "Non si capisce nulla", giustamente.
 #
-# Il calcolo e' l'algoritmo "squarified treemap" (Bruls, Huizing, van Wijk, 2000): a
-# parita' d'area preferisce i rettangoli vicini al quadrato, che sono quelli che si
-# leggono e si cliccano. E' deterministico -- la posizione di ogni rete e' il risultato
-# di una funzione, verificabile con una prova -- come tutto il resto di questa mappa.
-ALTEZZA_TITOLO_ZONA = 34.0   # banda in alto per il nome della zona
-MARGINE_ZONA = 8.0           # spazio attorno a ciascuna zona
-MARGINE_RETE = 4.0           # spazio attorno a ciascuna subnet dentro la zona
+# Qui ogni zona ha un PANNELLO di dimensione leggibile a prescindere da quanti nodi
+# contiene, e dentro ci sono TUTTE le sue subnet come pastiglie -- comprese quelle a
+# zero dispositivi, mostrate come vuote. Il conteggio resta scritto sulla pastiglia,
+# ma non e' piu' l'unica cosa che decide se una zona si vede. Le zone dichiarate stanno
+# prima; la grande zona residua "Senza zona dichiarata" sta in fondo, cosi' non schiaccia
+# le altre. E' meno "furbo" della treemap, ed e' molto piu' leggibile: qui la domanda e'
+# "quali subnet stanno in quale zona", e la risposta si legge.
 
-
-def _normalizza(pesi: list[float], area: float) -> list[float]:
-    """Porta i pesi a coprire esattamente l'area data, conservandone le proporzioni."""
-    totale = sum(pesi) or 1.0
-    return [peso * area / totale for peso in pesi]
-
-
-def _disponi_striscia(aree: list[float], x: float, y: float,
-                      larghezza: float, altezza: float) -> list[dict]:
-    """Dispone una striscia di rettangoli lungo il lato piu' corto del riquadro."""
-    coperta = sum(aree)
-    rettangoli = []
-    if larghezza >= altezza:
-        lato = (coperta / altezza) if altezza else 0.0
-        cursore = y
-        for area in aree:
-            h = (area / lato) if lato else 0.0
-            rettangoli.append({"x": x, "y": cursore, "w": lato, "h": h})
-            cursore += h
-    else:
-        lato = (coperta / larghezza) if larghezza else 0.0
-        cursore = x
-        for area in aree:
-            w = (area / lato) if lato else 0.0
-            rettangoli.append({"x": cursore, "y": y, "w": w, "h": lato})
-            cursore += w
-    return rettangoli
-
-
-def _spazio_residuo(aree: list[float], x: float, y: float,
-                    larghezza: float, altezza: float) -> tuple:
-    """Il riquadro che resta dopo aver posato una striscia."""
-    coperta = sum(aree)
-    if larghezza >= altezza:
-        lato = (coperta / altezza) if altezza else 0.0
-        return (x + lato, y, larghezza - lato, altezza)
-    lato = (coperta / larghezza) if larghezza else 0.0
-    return (x, y + lato, larghezza, altezza - lato)
-
-
-def _rapporto_peggiore(aree: list[float], x: float, y: float,
-                       larghezza: float, altezza: float) -> float:
-    """Il rapporto d'aspetto peggiore di una striscia: piu' e' vicino a 1, meglio e'."""
-    peggiore = 0.0
-    for rettangolo in _disponi_striscia(aree, x, y, larghezza, altezza):
-        w, h = rettangolo["w"], rettangolo["h"]
-        if w <= 0 or h <= 0:
-            return float("inf")
-        peggiore = max(peggiore, w / h, h / w)
-    return peggiore
-
-
-def _squarify(aree: list[float], x: float, y: float,
-              larghezza: float, altezza: float) -> list[dict]:
-    """Treemap "squarified": posa le aree in strisce scegliendo dove spezzare la riga
-    per tenere i rettangoli il piu' possibile quadrati."""
-    aree = list(aree)
-    if not aree:
-        return []
-    if len(aree) == 1:
-        return _disponi_striscia(aree, x, y, larghezza, altezza)
-    taglio = 1
-    while (taglio < len(aree)
-           and _rapporto_peggiore(aree[:taglio], x, y, larghezza, altezza)
-           >= _rapporto_peggiore(aree[:taglio + 1], x, y, larghezza, altezza)):
-        taglio += 1
-    corrente, resto = aree[:taglio], aree[taglio:]
-    rx, ry, rw, rh = _spazio_residuo(corrente, x, y, larghezza, altezza)
-    return (_disponi_striscia(corrente, x, y, larghezza, altezza)
-            + _squarify(resto, rx, ry, rw, rh))
-
-
-def treemap(pesi: list[float], x: float, y: float,
-            larghezza: float, altezza: float) -> list[dict]:
-    """Rettangoli d'area proporzionale ai pesi, nell'ordine dei pesi in ingresso.
-
-    Restituisce per ogni peso un `{x, y, w, h}`. I pesi vengono ordinati per il calcolo
-    (l'algoritmo rende meglio dal piu' grande al piu' piccolo) e poi rimessi nell'ordine
-    di partenza, cosi' chi chiama non deve preoccuparsi dell'ordinamento.
-    """
-    numero = len(pesi)
-    if numero == 0:
-        return []
-    ordine = sorted(range(numero), key=lambda i: -pesi[i])
-    aree = _normalizza([max(pesi[i], 1e-9) for i in ordine], larghezza * altezza)
-    disposti = _squarify(aree, x, y, larghezza, altezza)
-    fuori: list = [None] * numero
-    for posizione, rettangolo in zip(ordine, disposti):
-        fuori[posizione] = rettangolo
-    return fuori
-
-
-def _restringi(rett: dict, margine: float) -> tuple:
-    """Restringe un rettangolo del margine dato, senza mai uscirne.
-
-    Un margine fisso sottratto a un rettangolo piu' stretto del margine stesso darebbe
-    una larghezza negativa, e la cella finirebbe fuori dal proprio spazio. Qui il
-    margine non supera mai un terzo del lato: su un riquadro minuscolo si assottiglia
-    invece di sfondarlo. Restituisce (x, y, larghezza, altezza).
-    """
-    mx = min(margine / 2, rett["w"] * 0.33)
-    my = min(margine / 2, rett["h"] * 0.33)
-    # rett["w"] - 2*mx >= 0.34 * rett["w"] > 0: sempre positivo e dentro il rettangolo.
-    return (rett["x"] + mx, rett["y"] + my,
-            rett["w"] - 2 * mx, rett["h"] - 2 * my)
+# Oltre questo numero di pastiglie una zona non le elenca tutte: le prime (per numero di
+# dispositivi e riscontri) si disegnano, il resto si dichiara e si apre nell'inventario.
+# Serve solo alla zona senza dichiarazione, che sulla rete reale ha centinaia di subnet.
+MAX_RETI_PER_ZONA = 80
 
 
 def _icone_dominanti(albero: dict) -> dict:
@@ -454,76 +352,78 @@ def _icone_dominanti(albero: dict) -> dict:
     return icone
 
 
-def mappa_zone(albero: dict) -> dict:
-    """Disposizione a treemap annidata: le zone, e dentro ciascuna le sue subnet.
+def _cella_rete(subnet: dict, icone: dict) -> dict:
+    """Una subnet come pastiglia della mappa: identita', conteggi, stato e icona."""
+    riscontri = int(subnet.get("riscontri") or 0)
+    attivi = int(subnet.get("attivi") or 0)
+    totale = int(subnet.get("nodi") or 0)
+    return {
+        "subnet_id": subnet.get("id"),
+        "cidr": subnet.get("cidr") or "fuori perimetro",
+        "etichetta": subnet.get("etichetta") or "",
+        "totale": totale, "attivi": attivi, "riscontri": riscontri,
+        "icona": icone.get(int(subnet["id"])) if subnet.get("id") else ICONA_RETE,
+        # Quattro stati: con riscontri, attiva, spenta (osservata ma non risponde),
+        # oppure "vuota" -- dichiarata e non ancora osservata, che e' un caso a se'.
+        "stato": ("critico" if riscontri else
+                  ("attivo" if attivi else ("assente" if totale else "vuota"))),
+    }
 
-    `albero` e' `inventory_queries.network_tree`, che gia' raggruppa le subnet per zona
-    con i conteggi. Qui si trasforma quel raggruppamento in rettangoli: la zona occupa
-    un'area proporzionale ai suoi dispositivi, ogni subnet un'area proporzionale ai
-    propri, dentro la zona. Le subnet senza dispositivi e le zone tutte vuote non si
-    disegnano (avrebbero area nulla) ma si contano, perche' "dichiarata e non ancora
-    osservata" e' un'informazione.
+
+def mappa_zone(albero: dict) -> dict:
+    """Le subnet raggruppate per zona, pronte per una griglia di pannelli leggibili.
+
+    `albero` e' `inventory_queries.network_tree`, che gia' raggruppa TUTTE le subnet
+    dichiarate per zona (comprese quelle senza dispositivi) e le zone dichiarate anche
+    se vuote. Qui si ordina e si arricchisce per la resa: ogni zona con almeno una
+    subnet diventa un pannello; le zone dichiarate ma senza nemmeno una subnet si
+    contano a parte, perche' "dichiarata e mai usata" e' un'informazione, non un vuoto.
     """
     icone = _icone_dominanti(albero)
 
-    utili, reti_vuote, zone_vuote = [], 0, 0
+    zone_out = []
+    reti_totali = 0
+    zone_vuote = 0
+    reti_vuote = 0
     for zona in albero.get("zone") or []:
-        con_nodi = [s for s in (zona.get("subnet") or []) if int(s.get("nodi") or 0) > 0]
-        reti_vuote += len(zona.get("subnet") or []) - len(con_nodi)
-        if con_nodi:
-            utili.append((zona, con_nodi))
-        else:
+        subnet = list(zona.get("subnet") or [])
+        if not subnet:
             zone_vuote += 1
+            continue
+        # Prima le reti che meritano attenzione (riscontri), poi le popolose, infine le
+        # vuote: se una zona ne ha troppe e va troncata, non si perde cio' che conta.
+        subnet.sort(key=lambda s: (-int(s.get("riscontri") or 0),
+                                   -int(s.get("nodi") or 0), s.get("cidr") or ""))
+        reti_vuote += sum(1 for s in subnet if int(s.get("nodi") or 0) == 0)
+        troncate = max(0, len(subnet) - MAX_RETI_PER_ZONA)
+        celle = [_cella_rete(s, icone) for s in subnet[:MAX_RETI_PER_ZONA]]
+        reti_totali += len(subnet)
 
-    if not utili:
-        return {"zone": [], "larghezza": LARGHEZZA, "altezza": ALTEZZA,
-                "reti_totali": 0, "reti_vuote": reti_vuote, "zone_vuote": zone_vuote}
-
-    pesi_zone = [sum(int(s.get("nodi") or 0) for s in reti) for _, reti in utili]
-    rettangoli = treemap(pesi_zone, 0.0, 0.0, LARGHEZZA, ALTEZZA)
-
-    zone_out, reti_totali = [], 0
-    for (zona, reti), rett in zip(utili, rettangoli):
-        zx, zy, zw, zh = _restringi(rett, MARGINE_ZONA)
-        # La banda del titolo non supera il 40% dell'altezza: in una zona bassa e larga
-        # un titolo alto quanto in una zona grande mangerebbe tutto lo spazio delle reti.
-        titolo_h = min(ALTEZZA_TITOLO_ZONA, zh * 0.4)
-
-        reti = sorted(reti, key=lambda s: -int(s.get("nodi") or 0))
-        pesi_reti = [max(int(s.get("nodi") or 0), 1) for s in reti]
-        celle_rett = treemap(pesi_reti, zx, zy + titolo_h, zw, max(1.0, zh - titolo_h))
-
-        celle = []
-        for subnet, cr in zip(reti, celle_rett):
-            riscontri = int(subnet.get("riscontri") or 0)
-            attivi = int(subnet.get("attivi") or 0)
-            cx, cy, cw, ch = _restringi(cr, MARGINE_RETE)
-            celle.append({
-                "x": cx, "y": cy, "w": cw, "h": ch,
-                "subnet_id": subnet.get("id"),
-                "cidr": subnet.get("cidr") or "fuori perimetro",
-                "etichetta": subnet.get("etichetta") or "",
-                "totale": int(subnet.get("nodi") or 0),
-                "attivi": attivi, "riscontri": riscontri,
-                "icona": icone.get(int(subnet["id"])) if subnet.get("id") else ICONA_RETE,
-                "stato": "critico" if riscontri else ("attivo" if attivi else "assente"),
-            })
-        reti_totali += len(celle)
-
+        senza = (zona.get("chiave") or "") == ""
         zone_out.append({
             "chiave": zona.get("chiave") or "",
             "nome": zona.get("nome") or "Senza zona dichiarata",
             "icona": zona.get("icona") or "bi-diagram-3",
             "tono": zona.get("tono") or "secondary",
-            "x": zx, "y": zy, "w": zw, "h": zh, "titolo_h": titolo_h,
-            "reti": celle, "n_reti": len(celle),
+            "descrizione": zona.get("descrizione") or "",
+            "senza_zona": senza,
+            "reti": celle,
+            "n_reti": len(subnet),
+            "n_vuote": sum(1 for s in subnet if int(s.get("nodi") or 0) == 0),
+            "non_disegnate": troncate,
             "nodi": int(zona.get("nodi") or 0),
             "attivi": int(zona.get("attivi") or 0),
             "riscontri": int(zona.get("riscontri") or 0),
         })
 
-    return {"zone": zone_out, "larghezza": LARGHEZZA, "altezza": ALTEZZA,
-            "reti_totali": reti_totali, "reti_vuote": reti_vuote, "zone_vuote": zone_vuote}
+    # Le zone dichiarate prima (per consistenza decrescente, cosi' le piu' popolose
+    # aprono la pagina), la residua "Senza zona dichiarata" per ultima: e' un contenitore
+    # di scarto, non un contesto, e non deve stare in cima.
+    zone_out.sort(key=lambda z: (z["senza_zona"], -z["nodi"], -z["n_reti"], z["nome"]))
+
+    return {"zone": zone_out, "zone_totali": len(zone_out),
+            "reti_totali": reti_totali, "reti_vuote": reti_vuote,
+            "zone_vuote": zone_vuote}
 
 
 def legenda(albero: dict) -> list[dict]:

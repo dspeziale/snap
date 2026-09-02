@@ -151,7 +151,7 @@ def test_una_rete_inesistente_non_ha_disposizione(server_app, contesto):
 
 
 # --------------------------------------------------------------------------- #
-# Mappa per zone: la treemap annidata
+# Mappa per zone: la griglia di pannelli (una zona per pannello)
 # --------------------------------------------------------------------------- #
 def _rete_zona(server_app, tenant_id, cidr, zona, quanti=10, con_riscontri=0):
     """Una subnet assegnata a una zona, con dispositivi (alcuni con riscontri)."""
@@ -187,33 +187,16 @@ def _rete_zona(server_app, tenant_id, cidr, zona, quanti=10, con_riscontri=0):
         return subnet_id
 
 
-def test_il_treemap_copre_il_piano_e_conserva_l_ordine():
-    """L'area di ogni riquadro e' proporzionale al peso, i riquadri riempiono il piano
-    e tornano nell'ordine dei pesi in ingresso."""
-    from snapserver import map_graphic as mg
-
-    pesi = [50, 30, 15, 5]
-    rects = mg.treemap(pesi, 0.0, 0.0, mg.LARGHEZZA, mg.ALTEZZA)
-
-    assert len(rects) == len(pesi)
-    area = sum(r["w"] * r["h"] for r in rects)
-    assert abs(area - mg.LARGHEZZA * mg.ALTEZZA) < 1.0, "il treemap riempie il piano"
-    for r in rects:
-        assert -1e-6 <= r["x"] and r["x"] + r["w"] <= mg.LARGHEZZA + 1e-6, r
-        assert -1e-6 <= r["y"] and r["y"] + r["h"] <= mg.ALTEZZA + 1e-6, r
-    assert rects[0]["w"] * rects[0]["h"] > rects[-1]["w"] * rects[-1]["h"], (
-        "il peso maggiore occupa piu' area")
-    assert mg.treemap([], 0, 0, 10, 10) == []
-
-
-def test_la_mappa_per_zone_mette_le_reti_dentro_la_zona(server_app, contesto):
-    """Il cuore della vista: ogni subnet e' disegnata DENTRO il rettangolo della sua
-    zona, sotto la banda del titolo. E' cosi' che si legge il contenimento."""
+def test_ogni_zona_dichiarata_ha_il_suo_pannello_a_prescindere_dai_nodi(
+        server_app, contesto):
+    """Il difetto che rendeva la mappa inutile: le zone dichiarate con pochi nodi
+    sparivano. Ora una zona con dodici nodi e una con venti sono entrambe pannelli
+    leggibili, non fette proporzionali."""
     from snapserver.inventory_queries import network_tree
     from snapserver import map_graphic
 
-    _rete_zona(server_app, contesto, "10.50.0.0/24", "datacenter", quanti=12,
-               con_riscontri=3)
+    _rete_zona(server_app, contesto, "10.50.0.0/24", "datacenter", quanti=3,
+               con_riscontri=2)
     _rete_zona(server_app, contesto, "10.1.0.0/24", "utenza", quanti=20)
     _rete_zona(server_app, contesto, "10.2.0.0/24", "utenza", quanti=8)
     with server_app.app_context():
@@ -221,34 +204,24 @@ def test_la_mappa_per_zone_mette_le_reti_dentro_la_zona(server_app, contesto):
     mappa = map_graphic.mappa_zone(albero)
 
     per_nome = {z["nome"]: z for z in mappa["zone"]}
-    assert "Datacenter" in per_nome and "Rete di utenza" in per_nome
-    # La zona di utenza (28 nodi) e' piu' grande del datacenter (12): area ~ dispositivi.
-    utenza, dc = per_nome["Rete di utenza"], per_nome["Datacenter"]
-    assert utenza["w"] * utenza["h"] > dc["w"] * dc["h"]
-    assert utenza["n_reti"] == 2, "le due subnet di utenza stanno nella stessa zona"
-
-    for z in mappa["zone"]:
-        for r in z["reti"]:
-            assert z["x"] - 0.01 <= r["x"] and r["x"] + r["w"] <= z["x"] + z["w"] + 0.01
-            assert (z["y"] + z["titolo_h"] - 0.01 <= r["y"]
-                    and r["y"] + r["h"] <= z["y"] + z["h"] + 0.01), (
-                "la rete sta sotto il titolo, dentro la zona")
-    # Il datacenter ha riscontri aperti: la sua subnet e' 'critico'.
-    assert any(r["stato"] == "critico" for r in dc["reti"])
+    assert "Datacenter" in per_nome, "una zona con pochi nodi resta un pannello"
+    assert per_nome["Rete di utenza"]["n_reti"] == 2, "le due subnet nello stesso pannello"
+    dc = per_nome["Datacenter"]
+    assert any(r["stato"] == "critico" for r in dc["reti"]), "i riscontri colorano la rete"
+    assert dc["riscontri"] == 2
 
 
-def test_le_zone_e_le_reti_senza_dispositivi_si_contano_ma_non_si_disegnano(
+def test_le_subnet_dichiarate_senza_dispositivi_compaiono_come_vuote(
         server_app, contesto):
-    """Una subnet dichiarata e non ancora osservata, o una zona tutta vuota, avrebbero
-    area nulla: non si disegnano, ma il conteggio le dichiara."""
+    """Il caso che ha fatto arrabbiare: una subnet a cui si e' data una zona ma non
+    ancora osservata DEVE comparire nel pannello della sua zona, marcata 'vuota'. Prima
+    spariva del tutto."""
     from snapserver.inventory_queries import network_tree
     from snapserver import map_graphic
     from snapserver.db import execute, utc_now_str
 
-    _rete_zona(server_app, contesto, "10.3.0.0/24", "utenza", quanti=6)
     with server_app.app_context():
         adesso = utc_now_str()
-        # Una subnet in una zona diversa, dichiarata ma senza dispositivi.
         execute("INSERT INTO subnets (tenant_id, cidr, zone, host_count, is_enabled,"
                 " imported_at, created_at, updated_at)"
                 " VALUES (?, '10.80.0.0/24', 'dmz', 254, 1, ?, ?, ?)",
@@ -256,10 +229,46 @@ def test_le_zone_e_le_reti_senza_dispositivi_si_contano_ma_non_si_disegnano(
         albero = network_tree(contesto)
     mappa = map_graphic.mappa_zone(albero)
 
-    nomi = {z["nome"] for z in mappa["zone"]}
-    assert "DMZ" not in nomi, "una zona senza dispositivi non si disegna"
-    assert mappa["reti_vuote"] >= 1 or mappa["zone_vuote"] >= 1, (
-        "cio' che non si disegna si conta")
+    per_nome = {z["nome"]: z for z in mappa["zone"]}
+    assert "DMZ" in per_nome, "la zona con una sola subnet vuota compare comunque"
+    dmz = per_nome["DMZ"]
+    assert dmz["n_reti"] == 1 and dmz["n_vuote"] == 1
+    assert dmz["reti"][0]["stato"] == "vuota", "la subnet non osservata e' 'vuota'"
+    assert dmz["reti"][0]["cidr"] == "10.80.0.0/24"
+
+
+def test_la_zona_senza_dichiarazione_sta_in_fondo(server_app, contesto):
+    """La grande zona residua non deve stare in cima e schiacciare le dichiarate."""
+    from snapserver.inventory_queries import network_tree
+    from snapserver import map_graphic
+
+    _rete_zona(server_app, contesto, "10.50.0.0/24", "datacenter", quanti=5)
+    _rete_con_nodi(server_app, contesto, cidr="10.99.0.0/24", quanti=40)  # senza zona
+    with server_app.app_context():
+        albero = network_tree(contesto)
+    mappa = map_graphic.mappa_zone(albero)
+
+    assert mappa["zone"][-1]["senza_zona"] is True, (
+        "la zona senza dichiarazione e' l'ultimo pannello")
+    assert mappa["zone"][0]["senza_zona"] is False
+
+
+def test_una_zona_con_troppe_subnet_ne_tronca_l_elenco(server_app, contesto):
+    """La zona senza dichiarazione, sulla rete reale, ha centinaia di subnet: si
+    disegnano le prime, il resto si dichiara e si apre nell'inventario."""
+    from snapserver.inventory_queries import network_tree
+    from snapserver import map_graphic
+
+    for i in range(map_graphic.MAX_RETI_PER_ZONA + 15):
+        _rete_con_nodi(server_app, contesto, cidr="10.%d.0.0/24" % (120 + i), quanti=2)
+    with server_app.app_context():
+        albero = network_tree(contesto)
+    mappa = map_graphic.mappa_zone(albero)
+
+    senza = next(z for z in mappa["zone"] if z["senza_zona"])
+    assert len(senza["reti"]) == map_graphic.MAX_RETI_PER_ZONA
+    assert senza["non_disegnate"] >= 15
+    assert senza["n_reti"] > map_graphic.MAX_RETI_PER_ZONA, "il conteggio resta completo"
 
 
 def test_la_pagina_della_mappa_per_zone_risponde(logged_client, server_app, contesto):
@@ -268,10 +277,10 @@ def test_la_pagina_della_mappa_per_zone_risponde(logged_client, server_app, cont
                        follow_redirects=True)
     pagina = logged_client.get("/inventory/map/zone").get_data(as_text=True)
 
-    assert "snap-zmappa" in pagina, "il contenitore della treemap"
-    assert "snap-zona" in pagina, "il rettangolo della zona"
-    assert "snap-zrete" in pagina, "il rettangolo della subnet dentro la zona"
+    assert "snap-zona-card" in pagina, "il pannello della zona"
+    assert "snap-zchip" in pagina, "la pastiglia della subnet"
     assert "Datacenter" in pagina
+    assert "10.50.0.0/24" in pagina, "la subnet compare con il suo CIDR"
     assert "<script>" not in pagina, "la CSP vieta il JavaScript in pagina"
 
 

@@ -291,6 +291,78 @@ def _quota(parte: int, totale: int) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Esempi reali: righe rappresentative prese dalla rete in esame
+# --------------------------------------------------------------------------- #
+def _riga(sql: str, parametri: tuple):
+    """Una riga sola, come dizionario, o None."""
+    riga = query(sql, parametri, one=True)
+    return dict(riga) if riga is not None else None
+
+
+def esempi(tenant_id: int) -> dict:
+    """Poche righe VERE della rete del tenant, per illustrare i requisiti con esempi
+    conformi a cio' che il fascicolo sta analizzando -- non con casi inventati.
+
+    Ogni voce e' facoltativa: se la rete non ha quel caso, l'esempio si tace invece di
+    fingere. Sono dati gia' in inventario, non nuove interrogazioni sulla rete.
+    """
+    sub_zona = _riga(
+        "SELECT cidr, zone FROM subnets WHERE tenant_id = ? AND COALESCE(zone,'') <> ''"
+        " ORDER BY cidr LIMIT 1", (tenant_id,))
+    sub_muta = _riga(
+        "SELECT cidr FROM subnets s WHERE s.tenant_id = ?"
+        " AND NOT EXISTS (SELECT 1 FROM nodes n WHERE n.subnet_id = s.id)"
+        " ORDER BY cidr LIMIT 1", (tenant_id,))
+    nodo_fw = _riga(
+        "SELECT n.ip, w.model, w.firmware, w.brand FROM node_web w"
+        " JOIN nodes n ON n.id = w.node_id WHERE w.tenant_id = ?"
+        " AND COALESCE(w.firmware,'') <> '' ORDER BY n.ip LIMIT 1", (tenant_id,))
+    nodo_modello = _riga(
+        "SELECT n.ip, w.brand, w.model, w.device_name FROM node_web w"
+        " JOIN nodes n ON n.id = w.node_id WHERE w.tenant_id = ?"
+        " AND (COALESCE(w.model,'') <> '' OR COALESCE(w.device_name,'') <> '')"
+        " ORDER BY n.ip LIMIT 1", (tenant_id,))
+    esposizione = _riga(
+        "SELECT n.ip, f.title, f.severity FROM ti_findings f"
+        " JOIN nodes n ON n.id = f.node_id WHERE f.tenant_id = ? AND f.status = 'open'"
+        " AND f.kind = 'exposure' ORDER BY CASE f.severity WHEN 'critical' THEN 0"
+        " WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT 1", (tenant_id,))
+    vulnerabilita = _riga(
+        "SELECT n.ip, f.title, f.cve_id FROM ti_findings f JOIN nodes n ON n.id = f.node_id"
+        " WHERE f.tenant_id = ? AND f.status = 'open' AND f.kind = 'confirmed'"
+        " AND COALESCE(f.cve_id,'') <> '' ORDER BY n.ip LIMIT 1", (tenant_id,))
+    in_chiaro = _riga(
+        "SELECT n.ip, p.port, p.service_name FROM nodes n JOIN node_ports p"
+        " ON p.node_id = n.id WHERE n.tenant_id = ? AND p.state = 'open'"
+        " AND p.protocol = 'tcp' AND p.port IN (21, 23, 80, 512, 513, 514)"
+        " ORDER BY n.ip LIMIT 1", (tenant_id,))
+    gestione = _riga(
+        "SELECT n.ip, p.port, COALESCE(s.zone,'') AS zona FROM nodes n"
+        " JOIN node_ports p ON p.node_id = n.id LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE n.tenant_id = ? AND p.state = 'open' AND p.protocol = 'tcp'"
+        " AND p.port IN (22, 23, 3389, 5900, 623)"
+        " AND COALESCE(s.zone,'') NOT IN ('gestione', 'datacenter')"
+        " ORDER BY n.ip LIMIT 1", (tenant_id,))
+    snmp = _riga(
+        "SELECT n.ip, p.extrainfo FROM nodes n JOIN node_ports p ON p.node_id = n.id"
+        " WHERE n.tenant_id = ? AND p.state = 'open' AND p.port = 161"
+        " AND (COALESCE(p.extrainfo,'') LIKE '%public%'"
+        "      OR COALESCE(p.extrainfo,'') LIKE '%private%') ORDER BY n.ip LIMIT 1",
+        (tenant_id,))
+    zona_nomi = [r["zone"] for r in query(
+        "SELECT DISTINCT zone FROM subnets WHERE tenant_id = ? AND COALESCE(zone,'') <> ''"
+        " ORDER BY zone", (tenant_id,))]
+
+    return {
+        "subnet_zona": sub_zona, "subnet_muta": sub_muta,
+        "nodo_firmware": nodo_fw, "nodo_modello": nodo_modello,
+        "esposizione": esposizione, "vulnerabilita": vulnerabilita,
+        "in_chiaro": in_chiaro, "gestione": gestione, "snmp": snmp,
+        "zone_nomi": zona_nomi,
+    }
+
+
+# --------------------------------------------------------------------------- #
 # I requisiti: che cosa chiede la norma, che cosa se ne puo' provare
 # --------------------------------------------------------------------------- #
 def requisiti(m: dict) -> list:
@@ -546,6 +618,321 @@ def requisiti(m: dict) -> list:
     return voci
 
 
+# --------------------------------------------------------------------------- #
+# Come si dimostra un requisito, e il contenuto del riferimento citato
+# --------------------------------------------------------------------------- #
+# Per ogni requisito: i passi concreti per portarlo a "dimostrato" (`come`) e il
+# contenuto normativo del riferimento citato (`dettaglio`), che alimenta l'appendice.
+# Le chiavi sono il `riferimento` esatto del requisito, cosi' i due mondi non si
+# disallineano.
+GUIDA = {
+    "art. 21(2)(a) - analisi dei rischi": {
+        "come": [
+            "Allegare la politica di analisi e gestione del rischio approvata dalla"
+            " direzione, con data, ambito e responsabile.",
+            "Collegare a ogni rischio la misura tecnica corrispondente: l'inventario e"
+            " le esposizioni di questo fascicolo sono l'evidenza dei fatti su cui la"
+            " politica si applica.",
+            "Riesaminare la politica almeno una volta l'anno e a ogni cambiamento"
+            " rilevante del perimetro.",
+        ],
+        "dettaglio": "Chiede politiche di analisi dei rischi e di sicurezza dei sistemi"
+                     " informativi: come l'organizzazione individua, valuta e tratta i"
+                     " rischi, e chi ne risponde.",
+    },
+    "art. 21(2)(a) - inventario degli asset": {
+        "come": [
+            "Portare la copertura del perimetro verso il 100%: assegnare a una sonda le"
+            " subnet dichiarate e non ancora scansionate.",
+            "Ridurre i dispositivi non identificati dichiarando il tipo dove il"
+            " riconoscimento e' incerto (pulsante \"Dichiara tipo\" sul nodo).",
+            "Conservare questo fascicolo con la sua data: e' l'evidenza dell'inventario"
+            " alla data indicata.",
+        ],
+        "dettaglio": "La gestione del rischio presuppone la conoscenza degli asset e del"
+                     " perimetro: non si protegge cio' che non si sa di avere.",
+    },
+    "art. 21(2)(b) - gestione degli incidenti": {
+        "come": [
+            "Tenere attivi i controlli sui servizi essenziali e prendere in carico ogni"
+            " incidente: l'istante di presa in carico e' registrato.",
+            "Definire soglie di escalation e un responsabile per ciascun controllo"
+            " critico.",
+            "Esportare il registro degli incidenti del periodo come allegato: ogni"
+            " passaggio porta istante e operatore.",
+        ],
+        "dettaglio": "Chiede la capacita' di prevenire, rilevare, analizzare e gestire"
+                     " gli incidenti, con procedure e tracce di ciascuna fase.",
+    },
+    "art. 21(2)(e) - sicurezza della rete": {
+        "come": [
+            "Rimediare per primi i riscontri su vulnerabilita' sfruttate attivamente"
+            " (catalogo KEV) e quelli critici.",
+            "Attribuire una versione ai servizi che non la dichiarano, cosi' le"
+            " vulnerabilita' note diventano attribuibili all'istanza.",
+            "Ripetere la lettura dopo la correzione: un riscontro si chiude da se' quando"
+            " la condizione sparisce.",
+        ],
+        "dettaglio": "Sicurezza dell'acquisizione, sviluppo e manutenzione dei sistemi,"
+                     " inclusa la gestione e la divulgazione delle vulnerabilita'.",
+    },
+    "art. 21(2)(d) - continuita' e segmentazione": {
+        "come": [
+            "Assegnare una zona a ogni subnet del perimetro: una subnet senza zona vale"
+            " come rete di utenza, il giudizio piu' severo.",
+            "Chiudere le violazioni di zona: un servizio che non appartiene al contesto"
+            " va spostato o giustificato per iscritto.",
+            "Per provare la raggiungibilita' effettiva fra zone, prevedere una sonda per"
+            " zona e allegare le regole del firewall.",
+        ],
+        "dettaglio": "Misure sulla continuita' operativa (backup, ripristino, gestione"
+                     " delle crisi) e sulla sicurezza dei sistemi, di cui la"
+                     " segmentazione della rete e' parte.",
+    },
+    "art. 21(2)(i) - igiene e controllo accessi": {
+        "come": [
+            "Sostituire le community SNMP di fabbrica (public/private) con community"
+            " dedicate, o passare a SNMPv3.",
+            "Disattivare i protocolli in chiaro (FTP, Telnet, HTTP di gestione) a favore"
+            " delle varianti cifrate.",
+            "Ricondurre i servizi di amministrazione (SSH, RDP, VNC) alle sole zone di"
+            " gestione.",
+        ],
+        "dettaglio": "Pratiche di igiene informatica di base e politiche di controllo"
+                     " degli accessi: credenziali, minimo privilegio, servizi esposti.",
+    },
+    "art. 23 - capacita' di notifica": {
+        "come": [
+            "Tenere aggiornato il registro delle comunicazioni all'autorita' e"
+            " rispettarne i termini: 24 ore preallarme, 72 ore notifica, 1 mese"
+            " relazione finale.",
+            "Configurare almeno un canale di avviso interno funzionante (posta o"
+            " Telegram) e verificarne gli invii.",
+            "Conservare il protocollo restituito dal portale ACN come prova"
+            " dell'avvenuta notifica.",
+        ],
+        "dettaglio": "Obbligo di notifica tempestiva degli incidenti significativi"
+                     " all'autorita' competente (in Italia l'ACN), con i tre termini di"
+                     " preallarme, notifica e relazione finale.",
+    },
+    "art. 21(2)(j) - tracciamento": {
+        "come": [
+            "Conservare il registro di audit per il periodo richiesto e includerlo negli"
+            " allegati.",
+            "Verificare che ogni azione amministrativa sia attribuita a un attore"
+            " identificato.",
+        ],
+        "dettaglio": "Uso della crittografia e delle procedure per la sicurezza delle"
+                     " risorse umane, con registrazione e conservazione delle attivita'"
+                     " a supporto della notifica degli incidenti.",
+    },
+    "allegato I, parte I - sicurezza per difetto": {
+        "come": [
+            "Eliminare le credenziali predefinite dagli apparati in esercizio e imporre"
+            " una configurazione sicura di default.",
+            "Richiedere ai fornitori la dichiarazione di conformita' CRA dei prodotti"
+            " con elementi digitali.",
+        ],
+        "dettaglio": "Allegato I, parte I: requisiti essenziali di cybersicurezza del"
+                     " prodotto -- fra cui la messa in servizio senza vulnerabilita'"
+                     " note e senza credenziali predefinite universali.",
+    },
+    "allegato II - gestione delle vulnerabilita'": {
+        "come": [
+            "Richiedere l'SBOM (distinta dei componenti software) ai fabbricanti: e'"
+            " un obbligo loro, non del titolare della rete.",
+            "Mantenere l'inventario di versioni e modelli osservati come base per la"
+            " correlazione con le vulnerabilita' note.",
+        ],
+        "dettaglio": "Allegato II: obblighi di gestione delle vulnerabilita' per l'intero"
+                     " ciclo di vita -- SBOM, correzione tempestiva, divulgazione"
+                     " coordinata.",
+    },
+    "allegato I, parte I(2) - superficie di attacco": {
+        "come": [
+            "Chiudere i servizi non necessari e ridurre le esposizioni aperte.",
+            "Documentare le esposizioni attese con la loro motivazione, cosi' restano"
+            " annotate e verificabili.",
+        ],
+        "dettaglio": "Allegato I, parte I, punto 2: il prodotto deve limitare le"
+                     " superfici di attacco, comprese le interfacce esterne.",
+    },
+    "art. 5(1)(c) - minimizzazione": {
+        "come": [
+            "Inserire l'inventario nel registro dei trattamenti (art. 30) con base"
+            " giuridica, finalita' e tempi di conservazione: IP, nomi host e nomi"
+            " postazione possono essere dati personali in contesto.",
+            "Mantenere la scelta di non conservare il corpo delle pagine ne' le"
+            " credenziali.",
+        ],
+        "dettaglio": "I dati personali devono essere adeguati, pertinenti e limitati a"
+                     " quanto necessario alle finalita' del trattamento.",
+    },
+    "art. 32(1)(a,b) - misure tecniche": {
+        "come": [
+            "Pubblicare la console dietro un proxy inverso con TLS: chiude il rilievo"
+            " piu' grave quando la console e' in HTTP.",
+            "Mantenere cifrato il canale sonda-console e le password con una funzione di"
+            " derivazione moderna.",
+        ],
+        "dettaglio": "Misure tecniche adeguate al rischio: pseudonimizzazione e"
+                     " cifratura, riservatezza, integrita', disponibilita' e resilienza"
+                     " dei sistemi di trattamento.",
+    },
+    "art. 32(4) - accessi autorizzati": {
+        "come": [
+            "Rimuovere o disattivare le utenze mai entrate; limitare gli amministratori"
+            " allo stretto necessario.",
+            "Compensare l'assenza di una seconda credenziale (MFA) con l'accesso alla"
+            " sola rete di gestione.",
+        ],
+        "dettaglio": "Chi agisce sotto l'autorita' del titolare tratta i dati solo su"
+                     " istruzione: gli accessi vanno limitati alle persone autorizzate.",
+    },
+    "provision 5.1 - password predefinite": {
+        "come": [
+            "Rimuovere le credenziali di fabbrica dagli apparati connessi; dove"
+            " restano, sostituirle con credenziali uniche.",
+        ],
+        "dettaglio": "Provision 5.1: nessuna password predefinita universale sui"
+                     " dispositivi connessi di consumo.",
+    },
+    "provision 5.6 - superficie minima": {
+        "come": [
+            "Disattivare i protocolli in chiaro e l'amministrazione remota fuori dalle"
+            " zone di gestione.",
+        ],
+        "dettaglio": "Provision 5.6: ridurre al minimo le superfici di attacco esposte,"
+                     " disattivando servizi e interfacce non necessari.",
+    },
+    "provision 5.3 - aggiornabilita'": {
+        "come": [
+            "Verificare che gli apparati dichiarino la versione e siano aggiornabili;"
+            " pianificare e registrare gli aggiornamenti.",
+        ],
+        "dettaglio": "Provision 5.3: i dispositivi devono poter ricevere aggiornamenti"
+                     " software in modo sicuro e dichiarare la propria versione.",
+    },
+    "linee guida ACN - esercizio sicuro": {
+        "come": [
+            "Mantenere sonde e controlli attivi e il registro di audit; verificare la"
+            " continuita' delle consegne dalle sonde.",
+        ],
+        "dettaglio": "Linee guida ACN/AgID per l'esercizio sicuro: configurazioni"
+                     " verificate, sorveglianza continua, tracciamento delle attivita'.",
+    },
+    "OWASP ASVS - verifica applicativa": {
+        "come": [
+            "Commissionare una verifica ASVS formale dell'applicazione: questo documento"
+            " dichiara i rilievi noti ma non la sostituisce.",
+        ],
+        "dettaglio": "OWASP ASVS: standard di verifica della sicurezza applicativa, usato"
+                     " come baseline tecnica insieme alla OWASP Top 10.",
+    },
+}
+
+
+def _nodo_esempio(riga) -> str:
+    """Un nodo come 'indirizzo (modello)', o solo l'indirizzo se il modello manca."""
+    if not riga:
+        return ""
+    nome = next((riga.get(k) for k in ("model", "device_name", "brand", "title")
+                 if riga.get(k)), "")
+    return "%s%s" % (riga.get("ip", ""), " (%s)" % nome if nome else "")
+
+
+def _esempio_per(rif: str, m: dict, ex: dict) -> str:
+    """Un esempio VERO della rete in esame per il requisito indicato, o "" se la rete
+    non offre quel caso: meglio tacere che illustrare con un caso inventato."""
+    cop = _quota(m["subnet_scansionate"], m["subnet_totali"])
+    if rif == "art. 21(2)(a) - inventario degli asset":
+        e = "Rete in esame: %d dispositivi su %d subnet dichiarate, %d%% del perimetro" \
+            " scansionato." % (m["nodi"], m["subnet_totali"], cop)
+        if ex.get("subnet_muta"):
+            e += " Esempio di rete dichiarata e non ancora osservata: %s." \
+                 % ex["subnet_muta"]["cidr"]
+        return e
+    if rif == "art. 21(2)(d) - continuita' e segmentazione":
+        if ex.get("subnet_zona"):
+            return "Rete in esame: %d subnet dichiarano una zona (%s). Esempio: %s in" \
+                   " zona \"%s\"." % (m["zone_dichiarate"],
+                                      ", ".join(ex.get("zone_nomi") or []) or "-",
+                                      ex["subnet_zona"]["cidr"],
+                                      ex["subnet_zona"]["zone"])
+        return "Rete in esame: nessuna subnet dichiara ancora una zona (valgono tutte" \
+               " come rete di utenza)."
+    if rif in ("art. 21(2)(i) - igiene e controllo accessi",
+               "provision 5.6 - superficie minima"):
+        parti = []
+        if ex.get("in_chiaro"):
+            parti.append("%s espone %s in chiaro sulla porta %s"
+                         % (ex["in_chiaro"]["ip"], ex["in_chiaro"].get("service_name")
+                            or "un servizio", ex["in_chiaro"]["port"]))
+        if ex.get("gestione"):
+            parti.append("%s espone amministrazione remota (porta %s) fuori dalle zone"
+                         " di gestione" % (ex["gestione"]["ip"], ex["gestione"]["port"]))
+        return "Rete in esame: " + "; ".join(parti) + "." if parti else ""
+    if rif in ("allegato I, parte I - sicurezza per difetto",
+               "provision 5.1 - password predefinite"):
+        if ex.get("snmp"):
+            return "Rete in esame: %s risponde a una community SNMP di fabbrica." \
+                   % ex["snmp"]["ip"]
+        return "Rete in esame: nessun apparato risponde a una community SNMP di" \
+               " fabbrica."
+    if rif in ("art. 21(2)(e) - sicurezza della rete",
+               "allegato I, parte I(2) - superficie di attacco"):
+        if ex.get("vulnerabilita"):
+            return "Rete in esame: %s presenta %s (%s), confermata per versione." \
+                   % (ex["vulnerabilita"]["ip"], ex["vulnerabilita"].get("title") or
+                      "una vulnerabilita'", ex["vulnerabilita"].get("cve_id") or "CVE")
+        if ex.get("esposizione"):
+            return "Rete in esame: %s ha un'esposizione aperta \"%s\" (gravita' %s)." \
+                   % (ex["esposizione"]["ip"], ex["esposizione"].get("title") or "-",
+                      ex["esposizione"].get("severity") or "-")
+        return "Rete in esame: nessun riscontro aperto sulla superficie osservata."
+    if rif in ("allegato II - gestione delle vulnerabilita'",
+               "provision 5.3 - aggiornabilita'"):
+        if ex.get("nodo_firmware"):
+            r = ex["nodo_firmware"]
+            return "Rete in esame: %s dichiara la versione firmware \"%s\"%s." \
+                   % (r["ip"], r.get("firmware") or "-",
+                      " (%s)" % r["model"] if r.get("model") else "")
+        return "Rete in esame: %d apparati dichiarano il firmware dalle proprie" \
+               " interfacce." % m["nodi_con_firmware"]
+    if rif == "art. 32(1)(a,b) - misure tecniche":
+        return "Rete in esame: la console risulta pubblicata in %s%s." \
+               % ("HTTPS" if m["console_https"] else "HTTP",
+                  " (%s)" % m["console_url"] if m.get("console_url") else "")
+    if rif == "art. 32(4) - accessi autorizzati":
+        return "Rete in esame: %d utenze, %d con privilegi amministrativi, %d mai" \
+               " entrate." % (m["utenti"], m["amministratori"], m["utenti_mai_entrati"])
+    if rif == "art. 5(1)(c) - minimizzazione" and ex.get("nodo_modello"):
+        r = ex["nodo_modello"]
+        return "Esempio di dato conservato: dell'apparato %s si tiene il modello" \
+               " \"%s\", non il contenuto delle sue pagine." \
+               % (r["ip"], r.get("model") or r.get("device_name") or "-")
+    if rif == "art. 23 - capacita' di notifica":
+        return "Rete in esame: %d comunicazioni all'autorita' registrate, %d inviate," \
+               " %d oltre il termine." % (m["acn_totale"], m["acn_inviate"],
+                                          m["acn_fuori_termine"])
+    if rif == "art. 21(2)(b) - gestione degli incidenti":
+        return "Rete in esame: %d controlli attivi, %d incidenti nel periodo, %d presi" \
+               " in carico, %d risolti." % (m["controlli_attivi"], m["incidenti"],
+                                            m["incidenti_con_presa"],
+                                            m["incidenti_risolti"])
+    return ""
+
+
+def _arricchisci(voci: list, m: dict, ex: dict) -> None:
+    """Aggiunge a ogni requisito i passi per dimostrarlo, l'esempio reale e il contenuto
+    normativo del riferimento citato."""
+    for voce in voci:
+        guida = GUIDA.get(voce["riferimento"], {})
+        voce["come"] = list(guida.get("come") or [])
+        voce["dettaglio"] = guida.get("dettaglio") or ""
+        voce["esempio"] = _esempio_per(voce["riferimento"], m, ex)
+
+
 def pacchetto(tenant: dict, zona, giorno_fine, giorni: int = 90) -> dict:
     """Tutto cio' che serve al documento, in una struttura sola.
 
@@ -558,9 +945,11 @@ def pacchetto(tenant: dict, zona, giorno_fine, giorni: int = 90) -> dict:
     tenant_id = int(tenant["id"])
     base = _comune(tenant, zona, giorno_fine, giorni)
     inizio, fine = base["inizio_utc"], base["fine_utc"]
-    intervallo = base["intervallo"]
     m = misure(tenant_id, inizio, fine)
     voci = requisiti(m)
+    # Ogni requisito riceve i passi per dimostrarlo, un esempio reale della rete e il
+    # contenuto normativo del riferimento (per l'appendice degli allegati citati).
+    _arricchisci(voci, m, esempi(tenant_id))
     per_norma = {}
     for voce in voci:
         per_norma.setdefault(voce["norma"], []).append(voce)

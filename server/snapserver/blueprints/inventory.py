@@ -268,12 +268,12 @@ def network_map():
 @bp.get("/map/zone")
 @login_required
 def network_map_zones():
-    """Mappa per zone: le subnet disegnate DENTRO la zona che le contiene.
+    """Mappa per zone: le subnet raggruppate nel contesto (zona) che le contiene.
 
-    Una treemap annidata (la disposizione la calcola `map_graphic.mappa_zone`): ogni
-    zona e' un rettangolo grande quanto i suoi dispositivi, e dentro ci sono le sue
-    subnet, ciascuna grande quanto i propri. E' il modo in cui si legge la
-    segmentazione: che cosa sta in quale contesto, e quanto pesa.
+    Una griglia di pannelli (li raccoglie `map_graphic.mappa_zone`): ogni zona e' una
+    card leggibile a prescindere dai suoi dispositivi, e dentro ci sono tutte le sue
+    subnet come pastiglie -- comprese quelle dichiarate e non ancora osservate. E' il
+    modo in cui si legge la segmentazione: che cosa sta in quale contesto.
     """
     tenant_id = current_tenant_id()
     solo_attivi = request.args.get("attivi") == "1"

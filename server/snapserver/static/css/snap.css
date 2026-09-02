@@ -720,133 +720,116 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
 }
 
 /* ------------------------------------------------------------------------- */
-/* Mappa per zone: treemap annidata (le subnet dentro la zona)               */
+/* Mappa per zone: una griglia di pannelli, uno per zona, con le sue subnet   */
 /* ------------------------------------------------------------------------- */
-/* Stesso piano logico della mappa a bolle: un contenitore con proporzioni fisse su cui
-   zone e subnet sono posizionate in percentuale. */
-.snap-zmappa {
-  position: relative;
-  width: 100%;
-  aspect-ratio: var(--snap-mappa-rapporto, 850 / 1200);
-  min-height: 26rem;
-  overflow: hidden;
-  border-radius: var(--bs-border-radius);
-  background: var(--bs-tertiary-bg);
-}
-/* La zona: il rettangolo di sfondo che contiene le sue subnet. La tinta (bg-*-subtle)
-   arriva dalle classi di Bootstrap, cosi' segue il tono dichiarato per la zona. */
-.snap-zona {
-  position: absolute;
-  border-radius: .5rem;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-.snap-zona-titolo {
-  position: absolute;
-  inset: 0 0 auto 0;
-  display: flex;
-  align-items: center;
-  gap: .35rem;
-  padding: 0 .5rem;
-  min-height: 1.2rem;
-  font-size: .72rem;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.snap-zona-titolo > .bi { flex: 0 0 auto; }
-.snap-zona-nome { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
-.snap-zona-conti { font-weight: 400; opacity: .92; overflow: hidden; text-overflow: ellipsis; }
-
-/* La subnet: un riquadro cliccabile sopra lo sfondo della zona. Diventa un contenitore
-   di query, cosi' le etichette compaiono solo dove c'e' spazio per leggerle. */
-.snap-zrete {
-  position: absolute;
-  container-type: size;
-  display: flex;
+/* Ogni zona e' una card leggibile a prescindere dai suoi dispositivi; dentro, le subnet
+   sono pastiglie che vanno a capo. Niente aree proporzionali: sulla rete reale rendevano
+   invisibili le zone dichiarate. */
+.snap-zona-card .card-header { padding: .5rem .75rem; }
+.snap-zona-icona {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: .1rem;
+  width: 2rem;
+  height: 2rem;
+  border-radius: .5rem;
+  font-size: 1.05rem;
+  flex: 0 0 auto;
+}
+
+/* Le pastiglie delle subnet: una accanto all'altra, a capo quando finisce lo spazio. */
+.snap-zchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+}
+.snap-zchip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  min-width: 8.5rem;
+  max-width: 13rem;
+  padding: .3rem .5rem;
   border: 1px solid var(--bs-border-color);
   border-left-width: 3px;
-  border-radius: .35rem;
+  border-radius: .5rem;
   background: var(--bs-body-bg);
   color: inherit;
   text-decoration: none;
-  overflow: hidden;
-  box-sizing: border-box;
-  transition: outline-color .12s ease, transform .12s ease;
-  outline: 2px solid transparent;
-  outline-offset: -2px;
+  transition: border-color .12s ease, box-shadow .12s ease;
 }
-.snap-zrete:hover, .snap-zrete:focus-visible {
-  z-index: 3;
-  outline-color: var(--bs-primary);
+.snap-zchip:hover, .snap-zchip:focus-visible {
   color: inherit;
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 .12rem color-mix(in srgb, var(--bs-primary) 30%, transparent);
 }
-.snap-zrete-corpo {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: .05rem;
-  min-width: 0;
-  text-align: center;
-  line-height: 1.1;
-}
-.snap-zrete-icona { font-size: 1rem; color: var(--bs-secondary-color); }
-.snap-zrete-cidr {
+.snap-zchip-icona { font-size: 1.1rem; color: var(--bs-secondary-color); flex: 0 0 auto; }
+.snap-zchip-testo { min-width: 0; line-height: 1.15; }
+.snap-zchip-cidr {
+  display: block;
   font-family: var(--bs-font-monospace);
-  font-size: .66rem;
-  max-width: 100%;
+  font-size: .78rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.snap-zrete-conto { font-size: .72rem; font-weight: 700; }
-.snap-zrete-etichetta {
-  font-size: .6rem;
+.snap-zchip-etichetta {
+  display: block;
+  font-size: .68rem;
   color: var(--bs-secondary-color);
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.snap-zrete-allarme {
+.snap-zchip-conto {
+  margin-left: auto;
+  font-size: .82rem;
+  font-weight: 700;
+  color: var(--bs-body-color);
+}
+.snap-zchip-allarme {
   position: absolute;
-  top: .1rem;
-  right: .15rem;
-  min-width: 1rem;
-  padding: 0 .2rem;
+  top: -.4rem;
+  right: -.4rem;
+  min-width: 1.1rem;
+  padding: 0 .25rem;
   border-radius: .6rem;
   background: var(--bs-danger);
   color: #fff;
-  font-size: .58rem;
+  font-size: .62rem;
   font-weight: 700;
-  line-height: 1rem;
+  line-height: 1.1rem;
   text-align: center;
 }
-/* Lo stato colora il bordo sinistro e l'icona: verde attivo, rosso con riscontri,
-   tratteggiato assente. */
-.snap-zrete-attivo  { border-left-color: var(--bs-success); }
-.snap-zrete-attivo  .snap-zrete-icona { color: var(--bs-success); }
-.snap-zrete-critico { border-left-color: var(--bs-danger); background: color-mix(in srgb, var(--bs-danger) 6%, var(--bs-body-bg)); }
-.snap-zrete-critico .snap-zrete-icona { color: var(--bs-danger); }
-.snap-zrete-assente { border-left-style: dashed; opacity: .82; }
-.snap-zrete-assente .snap-zrete-icona { color: var(--bs-secondary-color); }
-
-/* Dove il riquadro e' piccolo, si tiene solo l'essenziale: prima cade l'etichetta, poi
-   il CIDR, cosi' un riquadro minuscolo mostra almeno il numero e l'icona. */
-@container (max-height: 44px) { .snap-zrete-etichetta { display: none; } }
-@container (max-width: 66px), (max-height: 34px) {
-  .snap-zrete-cidr { display: none; }
+/* Lo stato colora il bordo sinistro e l'icona. */
+.snap-zchip-attivo  { border-left-color: var(--bs-success); }
+.snap-zchip-attivo  .snap-zchip-icona { color: var(--bs-success); }
+.snap-zchip-critico {
+  border-left-color: var(--bs-danger);
+  background: color-mix(in srgb, var(--bs-danger) 6%, var(--bs-body-bg));
 }
-@container (max-width: 40px), (max-height: 26px) {
-  .snap-zrete-icona, .snap-zrete-conto { font-size: .6rem; }
+.snap-zchip-critico .snap-zchip-icona { color: var(--bs-danger); }
+.snap-zchip-assente { border-left-style: dashed; }
+.snap-zchip-assente .snap-zchip-icona { color: var(--bs-secondary-color); }
+/* Vuota: dichiarata e non ancora osservata. Tratteggiata e smorzata, ma ben presente:
+   e' proprio la subnet che si va a controllare dopo averle dato una zona. */
+.snap-zchip-vuota {
+  border-style: dashed;
+  border-left-color: var(--bs-secondary);
+  background: var(--bs-tertiary-bg);
+}
+.snap-zchip-vuota .snap-zchip-cidr,
+.snap-zchip-vuota .snap-zchip-conto { color: var(--bs-secondary-color); }
+/* Campione "vuota" nella legenda: un pallino tratteggiato smorzato. */
+.snap-mappa-campione.snap-zchip-vuota {
+  width: .85rem; height: .85rem; border-radius: 50%;
+  border: 2px dashed var(--bs-secondary); background: none;
+  padding: 0; min-width: 0;
 }
 
 @media print {
-  .snap-zmappa { background: none; border: 1px solid #999; }
-  .snap-stampa-mappa .snap-zmappa { aspect-ratio: auto; height: 92vh; min-height: 0; }
-  .snap-zrete { background: #fff; }
+  .snap-zchip { background: #fff; }
 }
 
 /* ------------------------------------------------------------------------- */
