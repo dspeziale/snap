@@ -253,6 +253,23 @@ def test_il_marchio_dei_documenti_e_in_maiuscolo(server_app):
     assert PRODOTTO == "snap", "nel testo e nei metadati il prodotto tiene il suo nome"
 
 
+def test_le_proprieta_del_documento_dichiarano_autore_e_applicazione(server_app, tmp_path):
+    """Nelle proprieta' del PDF: l'autore e' la persona, l'applicazione e' il prodotto
+    per esteso. Vale per tutti i report, che passano tutti da qui."""
+    pypdf = pytest.importorskip("pypdf")
+    with server_app.app_context():
+        from snapserver.reports.render_pdf import Foglio
+
+        percorso = tmp_path / "proprieta.pdf"
+        foglio = Foglio(percorso, kind="wide", titolo="Prova", tenant="ACME",
+                        intervallo="x", generato="2026-09-02 09:00")
+        foglio.c.save()
+
+    md = pypdf.PdfReader(str(percorso)).metadata
+    assert md.get("/Author") == "Daniele Speziale"
+    assert md.get("/Creator") == "SNAP - Secure Network Assessment Platform"
+
+
 def test_il_frontespizio_porta_il_riferimento_del_documento(server_app, tmp_path):
     """Sopra il pie' del frontespizio, in grassetto e a corpo grande, ci sono tenant,
     istante di generazione e periodo di riferimento: chi riceve il report fuori dal

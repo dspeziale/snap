@@ -278,6 +278,45 @@ def test_le_sezioni_rimosse_non_sono_piu_raggiungibili(admin_client):
         )
 
 
+# --------------------------------------------------------------------------- #
+# Audit & Eventi: filtro per attore
+# --------------------------------------------------------------------------- #
+def test_l_audit_filtra_per_attore(admin_client, server_app):
+    """Il filtro Attore mostra solo gli eventi dell'attore scelto e propone
+    l'elenco degli attori presenti nel registro."""
+    with server_app.app_context():
+        from snapserver.audit import log_event
+        from snapserver.db import query
+
+        tenant = query("SELECT id FROM tenants WHERE code = 'ised'", (), one=True)
+        tenant_id = int(tenant["id"])
+        log_event(
+            "test.audit",
+            "azione di alice",
+            tenant_id=tenant_id,
+            actor="alice@example.test",
+        )
+        log_event(
+            "test.audit",
+            "azione di bruno",
+            tenant_id=tenant_id,
+            actor="bruno@example.test",
+        )
+
+    admin_client.post("/switch-tenant", data={"tenant_id": tenant_id}, follow_redirects=True)
+
+    # Senza filtro: la tendina degli attori li propone entrambi.
+    corpo = admin_client.get("/audit/").data.decode("utf-8")
+    assert 'name="actor"' in corpo, "manca la tendina del filtro Attore"
+    assert "alice@example.test" in corpo
+    assert "bruno@example.test" in corpo
+
+    # Con il filtro: resta solo l'attore scelto.
+    filtrato = admin_client.get("/audit/?actor=alice@example.test").data.decode("utf-8")
+    assert "azione di alice" in filtrato
+    assert "azione di bruno" not in filtrato
+
+
 def _menu(client) -> str:
     corpo = client.get("/").data.decode("utf-8")
     return corpo[corpo.index("app-sidebar"):corpo.index("</aside>")]

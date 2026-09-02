@@ -1312,6 +1312,7 @@ def hygiene_report(percorso, dati: dict) -> str:
 # --------------------------------------------------------------------------- #
 SEZIONI_APPARATO = [
     "Identita'",
+    "Interfacce web, dati dichiarati e certificato",
     "Come e' stato riconosciuto",
     "Servizi raggiungibili",
     "Che cosa racconta di se' (SNMP)",
@@ -1399,23 +1400,45 @@ def device_report(percorso, dati: dict) -> str:
            and nodo.get("device_type_reason") else []),
         larghezze=[2.0, 4.0])
 
-    # Cio' che l'apparato dichiara di se': viene prima del riconoscimento, perche' una
-    # dichiarazione dell'apparato vale piu' di una deduzione del prodotto -- e perche'
-    # e' la parte che un tecnico legge per prima.
-    letture_web = [v for v in (dati.get("web") or [])
+    # --- Tutto cio' che si e' letto dalle interfacce web dell'apparato ------- #
+    # Viene prima del riconoscimento: una dichiarazione dell'apparato vale piu' di una
+    # deduzione del prodotto, ed e' la parte che un tecnico legge per prima.
+    web = dati.get("web") or []
+    if web:
+        foglio.titolo_sezione(
+            "Interfacce web raggiungibili",
+            "%d interfaccia/e" % len(web))
+        # Quali interfacce rispondono, come si presentano e se chiedono le credenziali.
+        foglio.tabella(
+            ["dove", "stato", "titolo", "server", "accesso", "TLS"],
+            [["%s/%s" % (v.get("scheme") or "http", v.get("port")),
+              str(v.get("status_code") or "-"),
+              (v.get("title") or ""),
+              (v.get("server_header") or ""),
+              ("chiede le credenziali" if (v.get("login_form")
+                                           or v.get("facts_locked")) else "aperta"),
+              (v.get("tls_version") or ("si" if v.get("scheme") == "https" else "-"))]
+             for v in web],
+            larghezze=[1.0, .7, 1.9, 1.7, 1.5, 1.0],
+            nota_vuota="Nessuna interfaccia web raggiunta.")
+
+    # Cio' che l'apparato dichiara di se' nelle sue pagine: i campi con un significato
+    # noto (marca, modello, seriale...) e i fatti aggiuntivi (interno e carichi di un
+    # telefono IP, misure di uno UPS) che non hanno una colonna propria.
+    letture_web = [v for v in web
                    if any(v.get(c) for c in ("device_name", "model", "location",
                                              "host_name", "serial", "firmware",
-                                             "contact", "brand"))]
+                                             "contact", "brand"))
+                   or v.get("extra")]
     if letture_web:
         foglio.titolo_sezione(
             "Dichiarato dall'apparato",
             "letto dalle sue pagine di gestione")
         foglio.paragrafo(
-            "La sonda ha aperto l'interfaccia di gestione dell'apparato e ne ha letto"
-            " le etichette, seguendo il percorso che l'apparato stesso indica. Il"
-            " contenuto delle pagine non viene conservato: restano i dati qui sotto."
-            " Sono dichiarazioni dell'apparato, non deduzioni del prodotto.",
-            INCHIOSTRO_2)
+            "La sonda ha aperto l'interfaccia di gestione dell'apparato e ne ha letto le"
+            " etichette, seguendo il percorso che l'apparato stesso indica. Il contenuto"
+            " delle pagine non viene conservato: restano i dati qui sotto. Sono"
+            " dichiarazioni dell'apparato, non deduzioni del prodotto.", INCHIOSTRO_2)
         righe = []
         for voce in letture_web:
             dove = "%s/%s" % (voce.get("scheme") or "http", voce.get("port"))
@@ -1429,19 +1452,58 @@ def device_report(percorso, dati: dict) -> str:
                                      ("Contatto", "contact")):
                 if voce.get(campo):
                     righe.append([dove, etichetta, voce[campo]])
+            # I fatti aggiuntivi (etichetta, valore) arrivano gia' pronti dal dato.
+            for fatto in voce.get("extra") or []:
+                righe.append([dove, fatto["etichetta"], fatto["valore"]])
             if voce.get("pages_read"):
                 righe.append([dove, "Pagine aperte per arrivarci",
                               str(voce["pages_read"])])
         foglio.tabella(["dove", "campo", "valore dichiarato"], righe,
                        larghezze=[1.0, 2.0, 4.0])
 
-    protette = [v for v in (dati.get("web") or []) if v.get("facts_locked")]
-    if protette:
+    # La diagnosi ricavata dai registri dell'apparato (oggi lo UPS MGE/Eaton) non e' una
+    # riga fra le altre: e' un esito, e va in evidenza in un riquadro colorato.
+    for voce in web:
+        diagnosi = voce.get("diagnosi") or {}
+        if not diagnosi:
+            continue
+        dove = "%s/%s" % (voce.get("scheme") or "http", voce.get("port"))
+        if diagnosi.get("ok"):
+            foglio.box(
+                [{"testo": "Diagnosi dai registri (%s): nessun problema rilevato."
+                  % dove, "grassetto": True, "colore": OK}], colore_barra=OK)
+        else:
+            elementi = [{"testo": "Diagnosi dai registri (%s): attenzione" % dove,
+                         "grassetto": True, "colore": CRITICO}]
+            for problema in diagnosi.get("problemi") or []:
+                elementi.append({"testo": "- %s" % problema, "colore": INCHIOSTRO,
+                                 "rientro": 8})
+            foglio.box(elementi, colore_barra=CRITICO)
+
+    # Il certificato TLS, per intero, dove c'e' HTTPS: soggetto, emittente, validita',
+    # chiave, usi, nomi alternativi e impronte. Gli esiti di sicurezza (scaduto,
+    # autofirmato) sono detti a parole, non lasciati dedurre da una data.
+    interfacce_cert = [v for v in web if (v.get("cert") or {}).get("righe")]
+    if interfacce_cert:
+        foglio.titolo_sezione("Certificato digitale (TLS)")
+    for voce in interfacce_cert:
+        cert = voce["cert"]
+        dove = "%s/%s" % (voce.get("scheme") or "https", voce.get("port"))
+        avvisi = []
+        if cert.get("scaduto"):
+            avvisi.append("scaduto")
+        if cert.get("non_ancora_valido"):
+            avvisi.append("non ancora valido")
+        if cert.get("autofirmato"):
+            avvisi.append("autofirmato")
+        grave = cert.get("scaduto") or cert.get("non_ancora_valido")
         foglio.paragrafo(
-            "Su %d interfaccia/e la pagina con i dati dell'apparato esiste ma chiede le"
-            " credenziali: la sonda non ne ha e non le tenta. Di quelle porte si"
-            " conosce il genere del servizio, non il modello dell'apparato."
-            % len(protette), INCHIOSTRO_3)
+            "Certificato digitale su %s%s"
+            % (dove, (" - %s" % ", ".join(avvisi)) if avvisi else ""),
+            CRITICO if grave else INCHIOSTRO)
+        foglio.tabella(["campo", "valore"],
+                       [[r["etichetta"], r["valore"]] for r in cert["righe"]],
+                       larghezze=[2.0, 4.0], nota_vuota="")
 
     foglio.titolo_sezione("Come e' stato riconosciuto",
                           "catalogo %s" % (verdetto.get("catalog_version") or "-"))

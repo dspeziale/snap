@@ -18,12 +18,12 @@
 <div class="card">
   <div class="card-header">
     <form method="get" action="{{ url_for('audit.index') }}" class="row g-2 align-items-end">
-      <div class="col-12 col-md-4">
+      <div class="col-12 col-md-3">
         <label class="form-label small mb-1" for="q">Ricerca</label>
         <input type="search" class="form-control form-control-sm" id="q" name="q"
                value="{{ filters.q }}" placeholder="descrizione o attore">
       </div>
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md-2">
         <label class="form-label small mb-1" for="type">Famiglia evento</label>
         <select class="form-select form-select-sm" id="type" name="type" data-autosubmit>
           <option value="">Tutte</option>
@@ -33,6 +33,15 @@
         </select>
       </div>
       <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="actor">Attore</label>
+        <select class="form-select form-select-sm" id="actor" name="actor" data-autosubmit>
+          <option value="">Tutti</option>
+          {% for a in actors %}
+          <option value="{{ a }}" {{ 'selected' if filters.actor == a }}>{{ a }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
         <label class="form-label small mb-1" for="severity">Gravita'</label>
         <select class="form-select form-select-sm" id="severity" name="severity" data-autosubmit>
           <option value="">Tutte</option>

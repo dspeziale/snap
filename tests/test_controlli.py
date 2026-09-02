@@ -438,6 +438,39 @@ def test_dopo_l_attivazione_dell_operatore_l_incidente_non_si_chiude_da_se(serve
         assert azioni == ["opened", "escalated", "recovered"]
 
 
+def test_il_rientro_non_ripete_la_notifica_a_ogni_giro(server_app):
+    """Il controllo gira ogni pochi secondi: se rientra ma l'incidente resta aperto
+    (attivato da un operatore), la stessa notifica NON deve ripartire a ogni giro. Un
+    solo promemoria, poi al massimo uno ogni cinque minuti."""
+    from datetime import timedelta
+
+    tenant_id, check_id, _ = _prepara(server_app, threshold=1, escalation=2)
+    with server_app.app_context():
+        from snapserver.checks import record_result
+        from snapserver.db import execute, query, utc_now, utc_str
+
+        record_result(tenant_id, check_id, None, {"status": "fail", "detail": "caduto 1"})
+        record_result(tenant_id, check_id, None, {"status": "fail", "detail": "caduto 2"})
+
+        # Rientra piu' volte di seguito, come farebbe ogni trenta secondi.
+        for i in range(5):
+            record_result(tenant_id, check_id, None,
+                          {"status": "ok", "detail": "rientrato %d" % i})
+
+        def recuperi():
+            return query("SELECT COUNT(*) AS c FROM check_incident_events"
+                         " WHERE action = 'recovered'", (), one=True)["c"]
+
+        assert recuperi() == 1, "un solo promemoria di rientro, non uno per giro"
+
+        # Trascorsi piu' di cinque minuti, un nuovo promemoria puo' ripartire.
+        incidente_id = int(query("SELECT id FROM check_incidents", (), one=True)["id"])
+        execute("UPDATE check_incidents SET recovered_notified_at = ? WHERE id = ?",
+                (utc_str(utc_now() - timedelta(minutes=6)), incidente_id))
+        record_result(tenant_id, check_id, None, {"status": "ok", "detail": "ancora su"})
+        assert recuperi() == 2, "dopo cinque minuti un promemoria puo' ripartire"
+
+
 def test_presa_in_carico_e_risoluzione_da_parte_di_un_operatore(server_app):
     tenant_id, check_id, _ = _prepara(server_app, threshold=1, escalation=1)
     with server_app.app_context():
@@ -644,8 +677,13 @@ def test_i_controlli_sono_una_sezione_autonoma_del_menu(logged_client):
     inizio_rete = menu.index('data-snap-gruppo="rete"')
     inizio_controlli = menu.index('data-snap-gruppo="controlli"')
     assert inizio_rete < inizio_controlli
-    assert menu.count("nav-treeview", inizio_rete, inizio_controlli) == 1, (
-        "fra i due gruppi deve esserci un solo sottomenu, quello della rete")
+    # La rete apre piu' di un sottomenu (il proprio e quello annidato della Mappa,
+    # che raccoglie le tre viste): non si conta quanti sono, si verifica che si
+    # chiudano tutti prima dei controlli. Se anche uno restasse aperto, i controlli
+    # sarebbero figli della rete e non fratelli.
+    fra = menu[inizio_rete:inizio_controlli]
+    assert fra.count("nav-treeview") == fra.count("</ul>"), (
+        "il gruppo dei controlli deve essere fratello della rete, non annidato")
 
 
 # --------------------------------------------------------------------------- #

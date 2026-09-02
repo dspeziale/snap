@@ -471,6 +471,9 @@ CREATE TABLE IF NOT EXISTS check_incidents (
     -- Attivazione dell'operatore: quando e a quale recapito.
     escalated_at    TEXT,
     escalated_to    TEXT,
+    -- Ultimo promemoria "controllo rientrato, incidente ancora aperto": evita di
+    -- rimandare la stessa notifica a ogni giro del controllo (vedi checks.py).
+    recovered_notified_at TEXT,
     acknowledged_at TEXT,
     acknowledged_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
     resolved_at     TEXT,

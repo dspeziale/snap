@@ -1661,6 +1661,154 @@ def test_eliminare_un_report_di_un_altro_tenant_non_e_possibile(logged_client,
 
 
 # --------------------------------------------------------------------------- #
+# Invio a richiesta di un report a un recapito
+# --------------------------------------------------------------------------- #
+def _report_reale(server_app, tenant) -> int:
+    """Genera un report vero e restituisce il suo identificativo in archivio."""
+    from pathlib import Path as _Path
+
+    with server_app.app_context():
+        from snapserver.db import query
+        from snapserver.reports.generate import generate
+        from snapserver.reports.windows import today_local, zone_of
+
+        zona = zone_of(tenant)
+        percorso = _Path(generate("inventory", tenant, today_local(zona), 30))
+        report_id = int(query("SELECT id FROM report_runs ORDER BY id DESC",
+                              (), one=True)["id"])
+    assert percorso.is_file()
+    return report_id
+
+
+def _abilita_telegram(server_app):
+    """Configura il bot Telegram: token e canale attivo. La chat NON viene impostata,
+    perche' il recapito si indica al momento dell'invio."""
+    with server_app.app_context():
+        from snapserver.db import execute, utc_now_str
+
+        adesso = utc_now_str()
+        for chiave, valore in (("telegram_bot_token", "123:ABC"),
+                               ("telegram_enabled", "1")):
+            execute("INSERT INTO system_settings (key, value, updated_at)"
+                    " VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value ="
+                    " excluded.value", (chiave, valore, adesso))
+
+
+def test_un_report_si_invia_a_un_recapito_email(logged_client, server_app):
+    """Il report esce dalla console verso un indirizzo indicato sul momento: viene
+    accodato con il suo allegato, non spedito dalla richiesta."""
+    _abilita_posta(server_app)
+    tenant = _tenant(server_app)
+    report_id = _report_reale(server_app, tenant)
+    logged_client.post("/switch-tenant", data={"tenant_id": int(tenant["id"])},
+                       follow_redirects=True)
+
+    risposta = logged_client.post("/reports/send", data={
+        "report_id": report_id,
+        "email": "destinatario@example.test"}, follow_redirects=True)
+    assert risposta.status_code == 200
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        notifica = query("SELECT * FROM notifications WHERE event = 'report.delivery'",
+                         (), one=True)
+        traccia = query("SELECT description FROM audit_events"
+                        " WHERE event_type = 'report.sent'", (), one=True)
+    assert notifica is not None, "l'invio va accodato fra le notifiche"
+    assert notifica["channel"] == "email"
+    assert notifica["recipients"] == "destinatario@example.test"
+    assert notifica["attachment_path"], "il report va allegato"
+    assert traccia is not None, "l'invio resta nel registro di audit"
+
+
+def test_un_report_si_invia_a_email_e_telegram_insieme(logged_client, server_app):
+    """Entrambi i recapiti indicati sul momento: un invio per canale, ciascuno con il
+    proprio allegato."""
+    _abilita_posta(server_app)
+    _abilita_telegram(server_app)
+    tenant = _tenant(server_app)
+    report_id = _report_reale(server_app, tenant)
+    logged_client.post("/switch-tenant", data={"tenant_id": int(tenant["id"])},
+                       follow_redirects=True)
+
+    risposta = logged_client.post("/reports/send", data={
+        "report_id": report_id,
+        "email": "destinatario@example.test",
+        "telegram": "-1001234567890"}, follow_redirects=True)
+    assert risposta.status_code == 200
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        righe = query("SELECT channel, recipients, attachment_path FROM notifications"
+                      " WHERE event = 'report.delivery' ORDER BY channel", ())
+    canali = {r["channel"]: r for r in righe}
+    assert set(canali) == {"email", "telegram"}, "un invio per ciascun canale indicato"
+    assert canali["email"]["recipients"] == "destinatario@example.test"
+    assert canali["telegram"]["recipients"] == "-1001234567890"
+    assert all(r["attachment_path"] for r in righe), "il report va allegato su entrambi"
+
+
+def test_serve_almeno_un_recapito(logged_client, server_app):
+    _abilita_posta(server_app)
+    tenant = _tenant(server_app)
+    report_id = _report_reale(server_app, tenant)
+    logged_client.post("/switch-tenant", data={"tenant_id": int(tenant["id"])},
+                       follow_redirects=True)
+
+    risposta = logged_client.post("/reports/send", data={
+        "report_id": report_id, "email": "", "telegram": ""}, follow_redirects=True)
+    assert risposta.status_code == 200
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        assert query("SELECT id FROM notifications WHERE event = 'report.delivery'",
+                     (), one=True) is None
+
+
+def test_un_recapito_non_valido_non_accoda_nulla(logged_client, server_app):
+    _abilita_posta(server_app)
+    tenant = _tenant(server_app)
+    report_id = _report_reale(server_app, tenant)
+    logged_client.post("/switch-tenant", data={"tenant_id": int(tenant["id"])},
+                       follow_redirects=True)
+
+    risposta = logged_client.post("/reports/send", data={
+        "report_id": report_id,
+        "email": "non-e-un-indirizzo"}, follow_redirects=True)
+    assert risposta.status_code == 200
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        assert query("SELECT id FROM notifications WHERE event = 'report.delivery'",
+                     (), one=True) is None
+
+
+def test_non_si_invia_su_un_canale_non_configurato(logged_client, server_app):
+    """Telegram non e' configurato (nessun token): la richiesta viene respinta prima di
+    accodare, cosi' non resta una notifica destinata a fallire per sempre."""
+    _abilita_posta(server_app)  # posta si', Telegram no
+    tenant = _tenant(server_app)
+    report_id = _report_reale(server_app, tenant)
+    logged_client.post("/switch-tenant", data={"tenant_id": int(tenant["id"])},
+                       follow_redirects=True)
+
+    risposta = logged_client.post("/reports/send", data={
+        "report_id": report_id,
+        "telegram": "123456789"}, follow_redirects=True)
+    assert risposta.status_code == 200
+
+    with server_app.app_context():
+        from snapserver.db import query
+
+        assert query("SELECT id FROM notifications WHERE event = 'report.delivery'",
+                     (), one=True) is None
+
+
+# --------------------------------------------------------------------------- #
 # La scheda dell'apparato porta cio' che l'apparato dichiara
 # --------------------------------------------------------------------------- #
 def _apparato_con_pagina(server_app):
@@ -1761,6 +1909,86 @@ def test_il_frontespizio_dice_che_indirizzo_e_quello_della_console(server_app):
 
     assert "Indirizzo della console" in testo
     assert "Console\n" not in testo, "l'etichetta nuda non deve piu' comparire"
+
+
+def _apparato_ricco(server_app):
+    """Un apparato con due interfacce web: una http con misure e diagnosi (UPS) e una
+    https con un certificato completo. E' il caso in cui la scheda deve riportare tutto:
+    interfacce, fatti aggiuntivi, diagnosi dai registri e certificato TLS."""
+    import uuid
+
+    with server_app.app_context():
+        from snapserver.db import execute, query, utc_now_str
+        from snapserver.ingest import apply_batch
+
+        tenant = dict(query("SELECT * FROM tenants ORDER BY id", (), one=True))
+        tenant_id = int(tenant["id"])
+        adesso = utc_now_str()
+        sonda = query("SELECT id FROM probes WHERE tenant_id = ?", (tenant_id,), one=True)
+        probe_id = int(sonda["id"]) if sonda else execute(
+            "INSERT INTO probes (tenant_id, probe_uid, code, name, status, created_at,"
+            " updated_at) VALUES (?, 'uid-ric', 'sonda-ric', 'Sonda', 'active', ?, ?)",
+            (tenant_id, adesso, adesso))
+        node_id = execute(
+            "INSERT INTO nodes (tenant_id, probe_id, ip, status, device_type,"
+            " device_label, device_confidence, first_seen_at, last_seen_at, created_at,"
+            " updated_at) VALUES (?, ?, '10.44.0.20', 'up', 'ups', 'UPS', 90,"
+            " ?, ?, ?, ?)",
+            (tenant_id, probe_id, adesso, adesso, adesso, adesso))
+        apply_batch(tenant_id, probe_id, {
+            "batch_uid": "ric-%s" % uuid.uuid4().hex[:8],
+            "records": {"web": [{"ip": "10.44.0.20", "pages": [
+                {"port": 80, "scheme": "http", "stato": 200,
+                 "titolo": "HP UPS Network Module", "marca": "HP", "modello": "R5000",
+                 "firma": "mge-ups", "tipo_probabile": "ups",
+                 "corpo_impronta": "ups1", "corpo_byte": 500,
+                 "fatti": {"alimentazione": "AC Power", "carico_uscita": "9%",
+                           "capacita_batteria": "28% (Fault)",
+                           "autonomia_batteria": "24 mn 17 s",
+                           "stato_batteria": "Aborted",
+                           "diagnosi_ups": "batteria in stato anomalo: Aborted; la "
+                           "batteria risulta scollegata e ricollegata 80 volte"},
+                 "pagine": [{"percorso": "/", "origine": "radice", "stato": 200}]},
+                {"port": 443, "scheme": "https", "stato": 200, "titolo": "iDRAC9",
+                 "marca": "Dell", "prodotto": "Dell iDRAC", "firma": "idrac",
+                 "tipo_probabile": "server", "modulo_accesso": True,
+                 "corpo_impronta": "aa11", "corpo_byte": 2048,
+                 "tls_versione": "TLSv1.3", "tls_cifrario": "TLS_AES_256_GCM_SHA384",
+                 "cert_soggetto": "idrac-XYZ.local", "cert_emittente": "Dell CA",
+                 "cert_soggetto_dn": "CN=idrac-XYZ.local,O=Dell",
+                 "cert_emittente_dn": "CN=Dell CA,O=Dell",
+                 "cert_a": "2027-01-01", "cert_autofirmato": True,
+                 "cert_scaduto": False, "cert_giorni_residui": 400,
+                 "cert_seriale": "1A2B3C", "cert_algoritmo_firma": "sha256",
+                 "cert_chiave": "RSA 2048 bit", "cert_sha256": "a" * 64,
+                 "cert_uso_esteso": ["autenticazione server"],
+                 "pagine": [{"percorso": "/", "origine": "radice", "stato": 200}]},
+            ]}]}})
+    return tenant, node_id
+
+
+def test_la_scheda_riporta_interfacce_fatti_diagnosi_e_certificato(server_app):
+    """La scheda deve contenere tutto cio' che si e' raccolto: le interfacce web, i
+    fatti aggiuntivi dichiarati, la diagnosi ricavata dai registri e il certificato TLS
+    per intero. Non deve mostrarne meno del dettaglio a video."""
+    tenant, node_id = _apparato_ricco(server_app)
+
+    with server_app.app_context():
+        from snapserver.reports import generate
+
+        testo = _testo_pdf(generate.generate_device(tenant, node_id))
+
+    # L'elenco delle interfacce web raggiunte.
+    assert "Interfacce web raggiungibili" in testo
+    # Un fatto aggiuntivo che non ha una colonna propria (capacita' batteria dello UPS).
+    assert "Fault" in testo
+    # La diagnosi dai registri, in evidenza.
+    assert "Diagnosi dai registri" in testo
+    # Il certificato TLS per intero: sezione, numero di serie e chiave pubblica.
+    assert "Certificato digitale" in testo
+    assert "1A2B3C" in testo
+    assert "RSA 2048 bit" in testo
+    assert "autofirmato" in testo
 
 
 def test_il_report_sulla_segmentazione_elenca_anche_le_reti_dichiarate(server_app):

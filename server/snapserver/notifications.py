@@ -61,6 +61,10 @@ NOTIFY_EVENTS = {
     "incident.acknowledged": "Incidente preso in carico",
     "incident.resolved": "Incidente risolto",
     "report.daily": "Resoconto quotidiano",
+    # Invio a richiesta di un report gia' prodotto, verso un recapito indicato sul
+    # momento. Non passa dalla scelta in Amministrazione: e' un'azione esplicita di un
+    # operatore, non un momento del workflow che qualcuno potrebbe aver disattivato.
+    "report.delivery": "Report inviato a richiesta",
     "rule.match": "Regola soddisfatta",
     # La credenziale provvisoria di un utente appena creato. Non e' un momento del
     # workflow degli incidenti: non passa dalla scelta in Amministrazione, perche'

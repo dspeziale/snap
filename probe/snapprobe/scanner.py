@@ -462,6 +462,13 @@ class NetworkScanner:
             if stage is None:
                 attesa.append(nodo)
                 continue
+            # Un host che ha gia' fatto 'ports' senza trovare porte aperte non ha piu'
+            # nulla da profilare: servizi, sistema operativo e approfondimento lavorano
+            # tutti sulle porte. Metterlo in coda per quelle fasi e' tempo sprecato -- su
+            # una rete reale sono migliaia gli host che rispondono al solo ping -- e viene
+            # invece conferito o scartato subito dopo 'ports'.
+            if stage not in ("discovery", "ports") and self._niente_da_profilare(nodo):
+                continue
             if stage not in svolte and precedenti <= svolte:
                 attesa.append(nodo)
         # Il filtro del perimetro sta qui perche' questo e' l'unico punto da cui i
@@ -538,9 +545,13 @@ class NetworkScanner:
         return None
 
     def _uncertain_nodes(self) -> list[dict]:
+        # Un host senza porte aperte non e' "incerto": e' vuoto, e l'approfondimento
+        # (UDP e script mirati sulle porte) non ci troverebbe nulla. Si esclude, altrimenti
+        # migliaia di host che rispondono al solo ping tornerebbero in coda ogni settimana.
         return [n for n in self.store.local_nodes("confirmed")
-                if int(n.get("open_ports") or 0) <= UNCERTAIN_MAX_PORTS
-                or not int(n.get("has_os") or 0)]
+                if (int(n.get("open_ports") or 0) <= UNCERTAIN_MAX_PORTS
+                    or not int(n.get("has_os") or 0))
+                and not self._niente_da_profilare(n)]
 
     # -- esecuzione ----------------------------------------------------------
     def run_due(self) -> dict | None:
@@ -1283,6 +1294,20 @@ class NetworkScanner:
             compiti.append({"stage": "discovery", "target": da_scoprire[0],
                             "hosts": [da_scoprire[0]]})
 
+        # 1-ante. Un posto riservato all'esame delle PORTE dei candidati: e' la frontiera
+        #    che trasforma un host scoperto (che risponde al solo ping) in un nodo
+        #    profilato -- o lo manda allo scarto se non ha nulla. Senza un posto
+        #    garantito, i servizi, il sistema operativo e le letture mai fatte riempiono
+        #    ogni ciclo e le porte non vengono MAI esaminate: sul campo, con migliaia di
+        #    host che rispondono al ping, il conteggio "in lavorazione" restava fermo per
+        #    ore senza che nessuno di quei candidati venisse toccato. Un compito per ciclo,
+        #    come la scoperta: le due frontiere devono avanzare insieme.
+        if len(compiti) < limite:
+            porte_attesa = [n for n in self.pending_nodes("ports")
+                            if n["ip"] not in assegnati]
+            if porte_attesa:
+                aggiungi_un_compito("ports", porte_attesa)
+
         # 1-bis. Un posto riservato alle letture MAI fatte: SNMP e pagine di
         #    gestione. Senza questo posto non arrivano mai al proprio turno -- sul
         #    campo, con 443 apparati che espongono una pagina web e centinaia di nodi
@@ -1948,10 +1973,24 @@ class NetworkScanner:
                 return True
         return False
 
-    def _fully_examined(self, svolte: set) -> bool:
-        """Vero se sono state svolte tutte le fasi che precedono lo scarto."""
+    def _niente_da_profilare(self, nodo) -> bool:
+        """Vero se un host ha fatto la fase 'ports' e NON ha porte aperte.
+
+        Le fasi successive -- servizi, sistema operativo, approfondimento, SMB, web,
+        vulnerabilita' -- lavorano tutte sulle porte: su un host che non ne ha aperte non
+        troverebbero nulla. Trattarlo come gia' esaminato evita di sprecare minuti di
+        rilevamento su migliaia di host che rispondono al solo ping, e lo porta subito a
+        conferimento (se ha un nome o un MAC) o allo scarto (se non ha nulla).
+        """
+        svolte = set((nodo.get("stages_done") or "").split(",")) - {""}
+        return "ports" in svolte and int(nodo.get("open_ports") or 0) == 0
+
+    def _fully_examined(self, nodo) -> bool:
+        """Vero se non c'e' piu' nulla da profilare: o tutte le fasi sono svolte, oppure
+        'ports' non ha trovato porte aperte (e allora le altre fasi sono inutili)."""
+        svolte = set((nodo.get("stages_done") or "").split(",")) - {""}
         richieste = set(self._required_stages()) | {"deep"}
-        return richieste <= svolte
+        return richieste <= svolte or self._niente_da_profilare(nodo)
 
     def _drop_without_information(self) -> list:
         """Scarta i nodi che, esaurite tutte le fasi, non portano informazioni.
@@ -1963,7 +2002,7 @@ class NetworkScanner:
         rimozioni = []
         for locale in self.store.local_nodes("confirmed"):
             svolte = set((locale.get("stages_done") or "").split(",")) - {""}
-            if not self._fully_examined(svolte):
+            if not self._fully_examined(locale):
                 continue
             try:
                 profilo = json.loads(locale.get("profile_json") or "{}")
@@ -1994,7 +2033,11 @@ class NetworkScanner:
 
         for locale in self.store.local_nodes("confirmed"):
             svolte = set((locale.get("stages_done") or "").split(",")) - {""}
-            if not richieste <= svolte:
+            completo = richieste <= svolte
+            # Un host senza porte aperte non completera' mai servizi e sistema operativo:
+            # non ha senso attenderli. Se ha un nome o un MAC lo si conferisce cosi'
+            # com'e' (presenza in rete); se non ha nulla, lo scarta _drop_without_information.
+            if not (completo or self._niente_da_profilare(locale)):
                 continue  # profilo incompleto: si attende la fase mancante
             conferito = locale.get("conferred_at")
             fuso = locale.get("last_merge_at")
@@ -2008,6 +2051,10 @@ class NetworkScanner:
                                "Profilo di %s illeggibile: non conferito" % locale["ip"])
                 continue
             if not profilo:
+                continue
+            if not completo and not self.profile_has_information(profilo):
+                # Niente porte e niente informazioni: non e' inventario, lo scarta
+                # _drop_without_information invece di conferirlo come nodo vuoto.
                 continue
 
             nodi.append({

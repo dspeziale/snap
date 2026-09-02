@@ -21,6 +21,7 @@ from datetime import timedelta
 
 from ..checks import INCIDENT_ACK, INCIDENT_OPEN, STATUS_OK
 from ..db import parse_utc, query, scalar
+from ..web_presentation import certificato_leggibile, diagnosi_web, fatti_aggiuntivi
 from . import dataset
 from .windows import day_bounds, days_bounds
 
@@ -1074,6 +1075,30 @@ def hygiene_pack(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
 # --------------------------------------------------------------------------- #
 # R11 - Scheda di un apparato
 # --------------------------------------------------------------------------- #
+def _web_apparato(tenant_id: int, node_id: int) -> list:
+    """Le interfacce web dell'apparato con tutto cio' che dichiarano.
+
+    Oltre ai campi con colonna propria (marca, modello, seriale...) ogni interfaccia
+    porta i fatti aggiuntivi (interno e carichi di un telefono, misure di uno UPS), la
+    diagnosi ricavata dai registri e il certificato TLS in forma leggibile. E' la
+    stessa ricchezza del dettaglio a video: la scheda PDF non deve mostrarne di meno.
+    """
+    pagine = [dict(r) for r in query(
+        "SELECT port, scheme, status_code, title, brand, model, product, version,"
+        " device_type, generator, signature, device_name, location, host_name, serial,"
+        " firmware, contact, realm, server_header, pages_read, facts_locked, login_form,"
+        " cert_subject, cert_issuer, cert_expires, cert_selfsigned, tls_version,"
+        " facts_json, cert_json, error, collected_at"
+        " FROM node_web WHERE tenant_id = ? AND node_id = ? ORDER BY port",
+        (tenant_id, node_id))]
+    for pagina in pagine:
+        facts_json = pagina.pop("facts_json", None)
+        pagina["extra"] = fatti_aggiuntivi(facts_json)
+        pagina["diagnosi"] = diagnosi_web(facts_json)
+        pagina["cert"] = certificato_leggibile(pagina.pop("cert_json", None))
+    return pagine
+
+
 def device_sheet(tenant: dict, zona, node_id: int) -> dict:
     """Tutto cio' che si sa di un singolo apparato, in un foglio.
 
@@ -1123,14 +1148,11 @@ def device_sheet(tenant: dict, zona, node_id: int) -> dict:
         "snmp": parse_all(letture),
         # Cio' che l'apparato dichiara di se' nelle proprie pagine di gestione (e via
         # IPP): e' la parte della scheda che un tecnico legge per prima, perche' dice
-        # che cosa ha davanti e dove si trova.
-        "web": [dict(r) for r in query(
-            "SELECT port, scheme, status_code, title, brand, model, product, version,"
-            " device_name, location, host_name, serial, firmware, contact, realm,"
-            " server_header, pages_read, facts_locked, login_form, cert_subject,"
-            " cert_expires, collected_at"
-            " FROM node_web WHERE tenant_id = ? AND node_id = ? ORDER BY port",
-            (tenant_id, node_id))],
+        # che cosa ha davanti e dove si trova. Oltre ai campi con colonna propria si
+        # portano i fatti aggiuntivi (interno e carichi di un telefono, misure di uno
+        # UPS), la diagnosi ricavata dai registri e tutto il certificato TLS: e' la
+        # stessa ricchezza del dettaglio a video, cosi' la scheda non ne mostra di meno.
+        "web": _web_apparato(tenant_id, node_id),
         "riscontri": [dict(r) for r in query(
             "SELECT f.kind, f.severity, f.title, f.cve_id, f.status, f.evidence,"
             " f.confidence, p.protocol, p.port"

@@ -978,6 +978,33 @@ def test_il_pdf_della_lettura_porta_i_fatti_e_il_percorso(logged_client, server_
         "il documento dice perche' non contiene l'immagine della pagina")
 
 
+def test_il_pdf_della_lettura_porta_misure_diagnosi_e_certificato(logged_client,
+                                                                  server_app):
+    """La lettura non e' solo nome e modello: quando l'apparato le dichiara, il PDF porta
+    anche le misure aggiuntive (uno UPS), la diagnosi ricavata dai registri e il
+    certificato TLS per intero -- la stessa ricchezza del dettaglio a video."""
+    pypdf = pytest.importorskip("pypdf")
+    import io
+
+    tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.60")
+    _applica_web(server_app, tenant_id, "10.6.9.60", [LETTURA_UPS, LETTURA_HTTPS])
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    dati = logged_client.get("/inventory/nodes/%d/web.pdf" % node_id).data
+    lettore = pypdf.PdfReader(io.BytesIO(dati))
+    testo = "\n".join((p.extract_text() or "") for p in lettore.pages)
+
+    # Una misura aggiuntiva dello UPS (capacita' batteria: "28% (Fault)").
+    assert "Fault" in testo
+    # La diagnosi dai registri, in evidenza.
+    assert "Diagnosi dai registri" in testo
+    # Il certificato TLS per intero: sezione, numero di serie e chiave pubblica.
+    assert "Certificato digitale" in testo
+    assert "1A2B3C" in testo
+    assert "RSA 2048 bit" in testo
+
+
 def test_lo_scarico_del_pdf_resta_nel_registro(logged_client, server_app):
     tenant_id, node_id = _tenant_e_nodo(server_app, "10.6.9.52")
     _applica_web(server_app, tenant_id, "10.6.9.52", [LETTURA_RICOH])

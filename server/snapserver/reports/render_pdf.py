@@ -212,10 +212,12 @@ class Foglio:
         self.formato = landscape(A4) if orizzontale else A4
         self.larghezza, self.altezza = self.formato
         self.c = pdf_canvas.Canvas(str(percorso), pagesize=self.formato)
-        self.c.setTitle("%s - %s" % (PRODOTTO, titolo))
-        self.c.setAuthor(PRODOTTO)
+        # Proprieta' del documento (uguali su tutti i report): l'autore e' la persona,
+        # l'applicazione che lo produce e' il prodotto per esteso.
+        self.c.setTitle("%s - %s" % (MARCHIO, titolo))
+        self.c.setAuthor("Daniele Speziale")
         self.c.setSubject(intervallo)
-        self.c.setCreator("%s - %s" % (PRODOTTO, SOTTOTITOLO_PRODOTTO))
+        self.c.setCreator("%s - %s" % (MARCHIO, SOTTOTITOLO_PRODOTTO))
         self.titolo = titolo
         # Il fuso in cui il documento scrive le date. E' dichiarato in copertina
         # ("Fuso di riferimento"), quindi ogni istante stampato deve essere in QUEL

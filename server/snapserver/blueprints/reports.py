@@ -27,9 +27,18 @@ from flask import (
 )
 from flask import redirect
 
+import re
+
 from ..audit import log_event
-from ..channels import available_channels
+from ..channels import (
+    CHANNEL_EMAIL,
+    CHANNEL_TELEGRAM,
+    CHANNELS,
+    available_channels,
+)
+from ..checks import EMAIL_PATTERN
 from ..db import query
+from ..notifications import queue_notification
 from ..reports import KIND_DAILY, KIND_NOC, REPORT_KINDS
 from ..reports import daily as resoconto
 from ..reports import storage
@@ -97,6 +106,9 @@ def index():
         reports=storage.recent(int(tenant["id"]), limit=200),
         footprint=storage.footprint(int(tenant["id"])),
         channels=available_channels(),
+        # Capacita' di invio a richiesta: qui il recapito si scrive sul momento, quindi
+        # basta che il canale sia configurato (server di posta / token del bot).
+        invio=_capacita_invio(),
         fonts=font_status(),
         recipients=resoconto.recipients_for(tenant, impostazioni, "email"),
         # Ieri e' il giorno predefinito di ogni azione: e' quello di cui si conoscono
@@ -250,6 +262,128 @@ def generate_device_sheet(node_id: int):
         return redirect(url_for("inventory.node", node_id=node_id))
     flash("Scheda dell'apparato prodotta: %s. E' nell'archivio dei report."
           % Path(percorso).name, "success")
+    return redirect(url_for("reports.index"))
+
+
+# Identificativo di una chat Telegram: numerico (anche negativo per i gruppi) oppure
+# un nome pubblico @nome (da 5 a 32 caratteri, lettere, cifre e underscore). Una
+# allowlist, non una blocklist: si accetta solo cio' che ha la forma giusta.
+_TELEGRAM_CHAT = re.compile(r"^(-?\d{1,20}|@[A-Za-z][A-Za-z0-9_]{4,31})$")
+
+
+def _capacita_invio() -> dict:
+    """Su quali canali si puo' inviare adesso indicando il recapito sul momento.
+
+    A differenza del resoconto quotidiano, qui il destinatario si scrive al momento:
+    non serve un recapito gia' configurato, serve solo la CAPACITA' del canale -- un
+    server di posta per l'email, il token del bot per Telegram. La chat Telegram
+    predefinita nelle impostazioni non e' richiesta: la si indica nel modulo.
+    """
+    from ..channels import telegram_config
+    from ..notifications import is_configured, smtp_config
+
+    posta = smtp_config()
+    telegram = telegram_config()
+    if not posta["enabled"]:
+        motivo = "notifiche disattivate in Amministrazione"
+        return {CHANNEL_EMAIL: {"pronto": False, "motivo": motivo},
+                CHANNEL_TELEGRAM: {"pronto": False, "motivo": motivo}}
+    return {
+        CHANNEL_EMAIL: {
+            "pronto": is_configured(posta),
+            "motivo": "" if is_configured(posta) else "manca il server di posta o il mittente",
+        },
+        CHANNEL_TELEGRAM: {
+            "pronto": bool(telegram["enabled"] and telegram["token"]),
+            "motivo": "" if (telegram["enabled"] and telegram["token"])
+                      else "manca il token del bot o il canale e' disattivato",
+        },
+    }
+
+
+@bp.post("/send")
+@role_required(ROLE_ANALYST)
+def send_report():
+    """Invia a richiesta un report gia' prodotto verso recapiti indicati sul momento.
+
+    I recapiti (email e/o chat Telegram) si scrivono qui, non si prendono da una
+    configurazione: si puo' indicarne uno o entrambi. Il file non viene spedito dalla
+    richiesta ma ACCODATO con il suo allegato, un invio per canale, e parte al giro
+    successivo della coda; cosi' un canale lento non blocca la pagina e ogni tentativo
+    (con il suo esito) resta nel registro delle notifiche.
+    """
+    tenant = _tenant()
+    tenant_id = int(tenant["id"])
+    try:
+        report_id = int(request.form.get("report_id") or 0)
+    except (TypeError, ValueError):
+        report_id = 0
+    percorso = storage.report_file(tenant_id, report_id)
+    if percorso is None:
+        flash("Il file del report non e' piu' disponibile: non c'e' nulla da inviare.",
+              "warning")
+        return redirect(url_for("reports.index"))
+
+    email = (request.form.get("email") or "").strip()
+    chat = (request.form.get("telegram") or "").strip()
+    if not email and not chat:
+        flash("Indicare almeno un recapito: un indirizzo di posta, una chat Telegram o"
+              " entrambi.", "warning")
+        return redirect(url_for("reports.index"))
+
+    riga = query("SELECT kind, period_key FROM report_runs WHERE id = ? AND tenant_id = ?",
+                 (report_id, tenant_id), one=True)
+    genere = REPORT_KINDS.get(riga["kind"], riga["kind"]) if riga else "Report"
+    periodo = riga["period_key"] if riga else ""
+    oggetto = "%s - %s (%s)" % (genere, periodo, tenant["name"])
+    corpo = ("In allegato il report \"%s\" relativo a %s del tenant %s, inviato dalla"
+             " console SNAP su richiesta di un operatore." % (genere, periodo, tenant["name"]))
+
+    capacita = _capacita_invio()
+    # Ogni recapito indicato diventa un invio sul proprio canale. Una richiesta puo'
+    # riuscire in parte: si accoda cio' che e' valido e configurato, e si dice con
+    # chiarezza che cosa non e' partito.
+    canali = []
+    if email:
+        canali.append((CHANNEL_EMAIL, email))
+    if chat:
+        canali.append((CHANNEL_TELEGRAM, chat))
+
+    accodati = []
+    problemi = []
+    for canale, recapito in canali:
+        if not capacita[canale]["pronto"]:
+            problemi.append("%s non disponibile (%s)"
+                            % (CHANNELS[canale], capacita[canale]["motivo"]))
+            continue
+        if canale == CHANNEL_EMAIL and (len(recapito) > 254
+                                        or not EMAIL_PATTERN.match(recapito)):
+            problemi.append("%r non e' un indirizzo di posta valido" % recapito)
+            continue
+        if canale == CHANNEL_TELEGRAM and not _TELEGRAM_CHAT.match(recapito):
+            problemi.append("%r non e' una chat Telegram valida (id numerico o @nome)"
+                            % recapito)
+            continue
+        esito = queue_notification(tenant_id, "report.delivery", [recapito], oggetto,
+                                   corpo, channel=canale, attachment=percorso)
+        if esito is None:
+            problemi.append("notifiche disattivate: %s non accodato" % CHANNELS[canale])
+            continue
+        accodati.append((canale, recapito))
+        log_event("report.sent",
+                  "Report %s (%s) accodato per %s via %s"
+                  % (genere, periodo, recapito, CHANNELS[canale]),
+                  tenant_id=tenant_id, severity="info", entity="report",
+                  entity_id=report_id)
+
+    if accodati:
+        dettaglio = ", ".join("%s via %s" % (rec, CHANNELS[c]) for c, rec in accodati)
+        coda = (" Non inviato: %s." % "; ".join(problemi)) if problemi else ""
+        flash("Report \"%s\" accodato per %s. Parte al giro successivo della coda;"
+              " l'esito compare fra le notifiche.%s" % (genere, dettaglio, coda),
+              "success" if not problemi else "warning")
+    else:
+        flash("Report non inviato: %s." % "; ".join(problemi), "warning")
     return redirect(url_for("reports.index"))
 
 

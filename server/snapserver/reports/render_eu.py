@@ -127,11 +127,9 @@ def _sezione_norma(foglio, chiave: str, dati: dict) -> None:
     voci = dati["per_norma"].get(chiave) or []
     foglio.titolo_sezione(TITOLI_NORMA[chiave], "%d requisiti valutati" % len(voci))
     if not voci:
-        foglio.a_capo()
         foglio.paragrafo("Nessun requisito valutato per questa norma.", INCHIOSTRO_3)
         return
 
-    foglio.a_capo()
     foglio.tabella(
         ["riferimento", "requisito", "esito"],
         [[v["riferimento"], v["requisito"], v["esito"].upper()] for v in voci],
@@ -184,7 +182,6 @@ def eu_compliance_report(percorso, dati: dict) -> str:
 
     # --- 1 ----------------------------------------------------------------- #
     foglio.titolo_sezione("Che cosa dimostra questo fascicolo")
-    foglio.a_capo()
     foglio.paragrafo(
         "Un inventario di rete dimostra i FATTI TECNICI: che cosa esiste, che cosa"
         " espone, che cosa e' cambiato, chi ha fatto che cosa e quando. Non dimostra le"
@@ -206,7 +203,6 @@ def eu_compliance_report(percorso, dati: dict) -> str:
     copertura = _quota(m["subnet_scansionate"], m["subnet_totali"])
     foglio.titolo_sezione("Copertura delle prove",
                           "%d%% del perimetro dichiarato" % copertura)
-    foglio.a_capo()
     foglio.paragrafo(
         "Senza questo numero ogni altro numero del documento e' senza scala: un"
         " \"nessun riscontro critico\" vale molto se la rete e' osservata per intero e"
@@ -238,7 +234,6 @@ def eu_compliance_report(percorso, dati: dict) -> str:
     rilievi = dati["rilievi"]
     foglio.titolo_sezione("Rilievi in ordine di gravita'",
                           "%d da trattare" % len(rilievi))
-    foglio.a_capo()
     if rilievi:
         foglio.tabella(
             ["norma", "riferimento", "esito", "che cosa manca"],
@@ -258,7 +253,6 @@ def eu_compliance_report(percorso, dati: dict) -> str:
 
     # --- 9 ----------------------------------------------------------------- #
     foglio.titolo_sezione("Riferimenti normativi")
-    foglio.a_capo()
     foglio.tabella(
         ["norma", "recepimento / stato", "ambito"],
         [[n["titolo"], n["recepimento"], n["ambito"]] for n in dati["norme"]],
@@ -285,7 +279,6 @@ def _appendice_allegati(foglio, dati: dict) -> None:
     autosufficiente e non costringe a tenere aperto il testo delle norme accanto.
     """
     foglio.titolo_sezione("Contenuto degli allegati e dei riferimenti citati")
-    foglio.a_capo()
     foglio.paragrafo(
         "Per ciascun riferimento citato nei requisiti -- articolo, allegato o provision"
         " -- che cosa chiede la norma, in sintesi. E' un promemoria: il testo che fa"

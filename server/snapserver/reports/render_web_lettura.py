@@ -34,6 +34,8 @@ from __future__ import annotations
 
 from .render_pdf import (
     ATTENZIONE,
+    CRITICO,
+    INCHIOSTRO,
     INCHIOSTRO_2,
     INCHIOSTRO_3,
     OK,
@@ -95,7 +97,8 @@ def lettura_web(percorso, dati: dict) -> str:
             " porta la porta e la pagina da cui viene.",
         ],
         sezioni=["Che cosa dichiara l'apparato", "Percorso seguito",
-                 "Dati tecnici del servizio", "Perche' non c'e' l'immagine della pagina"],
+                 "Dati tecnici del servizio", "Certificato digitale (TLS)",
+                 "Perche' non c'e' l'immagine della pagina"],
         nota=("Documento prodotto dai dati gia' conservati sul server: nessuna"
               " scansione e' stata avviata per produrlo e nessun apparato e' stato"
               " contattato adesso."),
@@ -120,6 +123,10 @@ def lettura_web(percorso, dati: dict) -> str:
             valore = _valore(voce, chiave)
             if valore:
                 righe.append([dove, etichetta, valore])
+        # I fatti aggiuntivi che non hanno una colonna propria (interno e carichi di un
+        # telefono IP, misure di uno UPS): arrivano gia' pronti come (etichetta, valore).
+        for fatto in voce.get("extra") or []:
+            righe.append([dove, fatto["etichetta"], fatto["valore"]])
     if righe:
         foglio.tabella(["dove", "campo", "valore dichiarato"], righe,
                        larghezze=[1.0, 2.0, 3.4])
@@ -135,6 +142,26 @@ def lettura_web(percorso, dati: dict) -> str:
         foglio.paragrafo(
             "Su %d interfaccia/e la pagina con i dati esiste ma chiede le credenziali:"
             " la sonda non ne ha e non le tenta." % len(protette), ATTENZIONE)
+
+    # La diagnosi ricavata dai registri dell'apparato (oggi lo UPS MGE/Eaton) non e' una
+    # riga fra le altre: e' un esito, e va in evidenza in un riquadro colorato, come nel
+    # dettaglio a video.
+    for voce in letture:
+        diagnosi = voce.get("diagnosi") or {}
+        if not diagnosi:
+            continue
+        dove = "%s/%s" % (voce.get("scheme") or "http", voce.get("port"))
+        if diagnosi.get("ok"):
+            foglio.box(
+                [{"testo": "Diagnosi dai registri (%s): nessun problema rilevato."
+                  % dove, "grassetto": True, "colore": OK}], colore_barra=OK)
+        else:
+            elementi = [{"testo": "Diagnosi dai registri (%s): problemi rilevati" % dove,
+                         "grassetto": True, "colore": CRITICO}]
+            for problema in diagnosi.get("problemi") or []:
+                elementi.append({"testo": "- %s" % problema, "colore": INCHIOSTRO,
+                                 "rientro": 8})
+            foglio.box(elementi, colore_barra=CRITICO)
 
     foglio.titolo_sezione("Percorso seguito",
                           "un fatto senza la pagina da cui viene non e' verificabile")
@@ -170,6 +197,31 @@ def lettura_web(percorso, dati: dict) -> str:
             tecnici.append([dove, "Letta il", foglio.istante(voce["collected_at"])])
     foglio.tabella(["dove", "campo", "valore"], tecnici, larghezze=[1.0, 2.0, 3.4],
                    nota_vuota="Nessun dato tecnico conservato per questo apparato.")
+
+    # Il certificato TLS per intero, dove c'e' HTTPS: soggetto, emittente, validita',
+    # chiave, usi, nomi alternativi e impronte. Gli esiti di sicurezza (scaduto,
+    # autofirmato) sono detti a parole, non lasciati dedurre da una data.
+    con_cert = [v for v in letture if (v.get("cert") or {}).get("righe")]
+    if con_cert:
+        foglio.titolo_sezione("Certificato digitale (TLS)")
+        for voce in con_cert:
+            cert = voce["cert"]
+            dove = "%s/%s" % (voce.get("scheme") or "https", voce.get("port"))
+            avvisi = []
+            if cert.get("scaduto"):
+                avvisi.append("scaduto")
+            if cert.get("non_ancora_valido"):
+                avvisi.append("non ancora valido")
+            if cert.get("autofirmato"):
+                avvisi.append("autofirmato")
+            grave = cert.get("scaduto") or cert.get("non_ancora_valido")
+            foglio.paragrafo(
+                "Certificato digitale su %s%s"
+                % (dove, (" - %s" % ", ".join(avvisi)) if avvisi else ""),
+                CRITICO if grave else INCHIOSTRO)
+            foglio.tabella(["campo", "valore"],
+                           [[r["etichetta"], r["valore"]] for r in cert["righe"]],
+                           larghezze=[2.0, 4.0], nota_vuota="")
 
     foglio.titolo_sezione("Perche' non c'e' l'immagine della pagina")
     foglio.paragrafo(

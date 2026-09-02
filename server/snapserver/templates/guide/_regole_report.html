@@ -203,6 +203,31 @@
   <li>Un solo resoconto per giorno, anche a fronte di riavvii. La spedizione a richiesta
       dalla pagina <strong>ripete</strong> di proposito, per provare la configurazione.</li>
 </ul>
+<h3>Inviare un report a un recapito</h3>
+<p>
+  Nella scheda <strong>Report prodotti</strong>, in cima, il riquadro
+  <strong>Invia un report</strong> spedisce un documento gia' generato a recapiti
+  indicati <strong>sul momento</strong>: si sceglie il report e si scrivono l'indirizzo
+  di <strong>posta</strong>, la <strong>chat Telegram</strong> o entrambi. I recapiti non
+  si prendono da una configurazione: si digitano ogni volta. Ogni riga dell'archivio ha
+  anche l'icona <i class="bi bi-send"></i> che preseleziona quel report nel riquadro.
+</p>
+<ul>
+  <li>Si puo' indicare <strong>uno o entrambi</strong> i recapiti: se si compilano tutti
+      e due, il report parte sia via email sia su Telegram. Ne serve almeno uno.</li>
+  <li>Il documento <strong>non parte dalla richiesta</strong>: viene <strong>accodato</strong>
+      con il suo allegato e spedito al giro successivo della coda, come ogni notifica.
+      Cosi' un canale lento non blocca la pagina e l'esito resta fra le notifiche.</li>
+  <li>Serve solo che il canale sia <strong>configurato</strong> (server di posta per
+      l'email, token del bot per Telegram): il destinatario si indica qui, non deve
+      essere gia' impostato. Un canale non pronto ha il campo disattivato, con la ragione.</li>
+  <li>Si inviano solo i report che hanno ancora il <strong>file su disco</strong>. Il
+      recapito Telegram e' un identificativo numerico (anche negativo per i gruppi) o
+      <code>@nome</code>; il report arriva come documento (limite 50 MB).</li>
+  <li>Ogni invio resta nel <strong>registro di audit</strong> (chi, quale report, a quale
+      recapito, su quale canale): un documento che lascia la console e' un atto che si
+      traccia.</li>
+</ul>
 <h3>Il catalogo dei report</h3>
 <p>
   Nella scheda <strong>Catalogo dei report</strong> si scelgono genere, giorno finale e

@@ -215,6 +215,9 @@ MIGRATIONS = [
     ("checks", "escalation_email", "TEXT"),
     ("check_incidents", "escalated_at", "TEXT"),
     ("check_incidents", "escalated_to", "TEXT"),
+    # Ultimo promemoria "controllo rientrato, incidente ancora aperto": serve a NON
+    # rimandare la stessa notifica a ogni giro del controllo (vedi checks.py).
+    ("check_incidents", "recovered_notified_at", "TEXT"),
     ("notifications", "channel", "TEXT NOT NULL DEFAULT 'email'"),
     ("notifications", "body_html", "TEXT"),
     ("notifications", "attachment_path", "TEXT"),

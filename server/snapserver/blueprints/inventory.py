@@ -52,6 +52,11 @@ from ..inventory_queries import (
 )
 from ..snmp_tables import parse_all
 from ..smb_tables import parse_all as smb_parse_all
+from ..web_presentation import (
+    certificato_leggibile,
+    diagnosi_web,
+    fatti_aggiuntivi,
+)
 from .. import map_graphic
 from .. import zones
 from ..security import ROLE_ANALYST, ROLE_TENANT_ADMIN, login_required, role_required
@@ -357,105 +362,6 @@ _FOGLI_STAMPA = {
 # colonna propria nel dettaglio (nome, modello, posizione, host, serie, firmware e
 # contatto sono gia' mostrati sopra). Chi non e' in elenco non si mostra: e' l'unico
 # modo di tenere il dettaglio pulito e di non far comparire chiavi tecniche grezze.
-_ETICHETTE_FATTI_WEB = {
-    "mac": "Indirizzo MAC",
-    "numero_interno": "Numero interno",
-    "carico_software": "Carico software (app)",
-    "carico_avvio": "Carico di avvio (boot)",
-    "revisione_hw": "Revisione hardware",
-    "gestore_chiamate": "Gestore chiamate (CUCM)",
-    "server_tftp": "Server TFTP",
-    # Misure di stato di un UPS MGE/Eaton (la diagnosi vera e' a parte, vedi sotto).
-    "alimentazione": "Alimentazione",
-    "carico_uscita": "Carico in uscita",
-    "capacita_batteria": "Capacita' batteria",
-    "autonomia_batteria": "Autonomia batteria",
-    "stato_batteria": "Stato batteria",
-}
-# La diagnosi dell'UPS non e' una riga fra le altre: e' l'esito dell'analisi dei
-# registri e va mostrata in evidenza (verde se tutto bene, in avviso se ci sono
-# problemi). Non compare quindi fra i "dati aggiuntivi".
-_DIAGNOSI_OK = "Nessun problema rilevato"
-# Fatti gia' esposti come campo dedicato: non vanno ripetuti fra i "dati aggiuntivi".
-_FATTI_WEB_GIA_MOSTRATI = frozenset((
-    "nome_dispositivo", "modello", "posizione", "nome_host", "seriale", "firmware",
-    "contatto", "marca_dichiarata",
-))
-
-
-def _fatti_aggiuntivi(facts_json: str | None) -> list[dict]:
-    """I fatti dichiarati dall'apparato che non hanno gia' un campo dedicato.
-
-    Restituisce coppie (etichetta leggibile, valore) in un ordine stabile, saltando i
-    fatti gia' mostrati e le chiavi che non sono nel vocabolario di presentazione: un
-    telefono IP Cisco dichiara interno, carichi, revisione hardware, gestore chiamate e
-    server TFTP, e questi altrimenti resterebbero solo nel dato grezzo.
-    """
-    if not facts_json:
-        return []
-    try:
-        fatti = json.loads(facts_json)
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(fatti, dict):
-        return []
-    aggiuntivi = []
-    for chiave, etichetta in _ETICHETTE_FATTI_WEB.items():
-        valore = fatti.get(chiave)
-        if chiave in _FATTI_WEB_GIA_MOSTRATI or not valore:
-            continue
-        aggiuntivi.append({"etichetta": etichetta, "valore": str(valore)})
-    return aggiuntivi
-
-
-def _diagnosi_web(facts_json: str | None) -> dict:
-    """La diagnosi ricavata dai registri dell'apparato (oggi lo UPS MGE/Eaton).
-
-    Restituisce `{"problemi": [...], "ok": bool}` oppure {} se non c'e' una diagnosi.
-    I problemi arrivano dalla sonda come un'unica stringa separata da "; "."""
-    if not facts_json:
-        return {}
-    try:
-        fatti = json.loads(facts_json)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(fatti, dict):
-        return {}
-    testo = (fatti.get("diagnosi_ups") or "").strip()
-    if not testo:
-        return {}
-    if testo == _DIAGNOSI_OK:
-        return {"problemi": [], "ok": True}
-    return {"problemi": [p.strip() for p in testo.split(";") if p.strip()], "ok": False}
-
-
-# Etichette leggibili per i dati del certificato TLS, nell'ordine in cui si leggono
-# davanti a un certificato: chi, chi lo ha emesso, per quanto e' valido, com'e' fatto.
-_ETICHETTE_CERT = (
-    ("cert_soggetto_dn", "Soggetto"),
-    ("cert_emittente_dn", "Emittente"),
-    ("cert_valido_da", "Valido dal"),
-    ("cert_valido_a", "Valido fino al"),
-    ("cert_giorni_residui", "Giorni residui"),
-    ("cert_seriale", "Numero di serie"),
-    ("cert_versione", "Versione"),
-    ("cert_algoritmo_firma", "Algoritmo di firma"),
-    ("cert_chiave", "Chiave pubblica"),
-    ("cert_uso", "Usi consentiti"),
-    ("cert_uso_esteso", "Usi estesi"),
-    ("cert_nomi", "Nomi alternativi (DNS)"),
-    ("cert_nomi_ip", "Nomi alternativi (IP)"),
-    ("cert_sha256", "Impronta SHA-256"),
-    ("cert_sha1", "Impronta SHA-1"),
-    ("tls_versione", "Protocollo TLS"),
-    ("tls_cifrario", "Cifrario"),
-    ("cert_errore", "Errore di lettura"),
-)
-# Chiavi da rendere in monospazio (impronte, seriale) e chiavi-elenco (liste).
-_CERT_MONOSPAZIO = frozenset(("cert_seriale", "cert_sha256", "cert_sha1"))
-_CERT_ELENCHI = frozenset(("cert_uso", "cert_uso_esteso", "cert_nomi", "cert_nomi_ip"))
-
-
 def _mac_da_snmp(snmp_tabelle: list) -> list[str]:
     """I MAC che l'agente SNMP dichiara nelle proprie interfacce, senza ripetizioni.
 
@@ -485,38 +391,6 @@ def _mac_da_snmp(snmp_tabelle: list) -> list[str]:
                 continue
             fuori.append(mac)
     return fuori
-
-
-def _certificato_leggibile(cert_json: str | None) -> dict:
-    """Il certificato TLS come struttura pronta per il dettaglio.
-
-    Restituisce `{"righe": [...], "autofirmato": bool, "scaduto": bool, ...}` oppure un
-    dizionario vuoto se non c'e' un certificato. Le righe sono coppie (etichetta,
-    valore) in ordine di lettura; gli esiti di sicurezza (autofirmato, scaduto, non
-    ancora valido) restano separati perche' meritano un'evidenza, non una riga."""
-    if not cert_json:
-        return {}
-    try:
-        cert = json.loads(cert_json)
-    except json.JSONDecodeError:
-        return {}
-    if not isinstance(cert, dict) or not cert:
-        return {}
-    righe = []
-    for chiave, etichetta in _ETICHETTE_CERT:
-        valore = cert.get(chiave)
-        if valore in (None, "", [], {}):
-            continue
-        if chiave in _CERT_ELENCHI and isinstance(valore, list):
-            valore = ", ".join(str(v) for v in valore)
-        righe.append({"etichetta": etichetta, "valore": str(valore),
-                      "monospazio": chiave in _CERT_MONOSPAZIO})
-    return {
-        "righe": righe,
-        "autofirmato": bool(cert.get("cert_autofirmato")),
-        "scaduto": bool(cert.get("cert_scaduto")),
-        "non_ancora_valido": bool(cert.get("cert_non_ancora_valido")),
-    }
 
 
 @bp.get("/nodes/<int:node_id>")
@@ -566,9 +440,9 @@ def node(node_id: int):
     # HTTPS, si mostra tutto cio' che dichiara.
     for pagina in pagine_web:
         facts_json = pagina.pop("facts_json", None)
-        pagina["extra"] = _fatti_aggiuntivi(facts_json)
-        pagina["diagnosi"] = _diagnosi_web(facts_json)
-        pagina["cert"] = _certificato_leggibile(pagina.pop("cert_json", None))
+        pagina["extra"] = fatti_aggiuntivi(facts_json)
+        pagina["diagnosi"] = diagnosi_web(facts_json)
+        pagina["cert"] = certificato_leggibile(pagina.pop("cert_json", None))
 
     # Letture SNMP: dove la 161 risponde, e' la fonte piu' ricca sull'apparato.
     letture = [dict(r) for r in query(
@@ -1465,7 +1339,7 @@ def node_web_pdf(node_id: int):
         " brand, model, product, version, device_type, signature, cert_subject,"
         " cert_issuer, cert_expires, tls_version, login_form, device_name, location,"
         " host_name, serial, firmware, contact, pages_read, facts_locked, body_hash,"
-        " error, details_json, collected_at"
+        " facts_json, cert_json, error, details_json, collected_at"
         " FROM node_web WHERE tenant_id = ? AND node_id = ? ORDER BY port",
         (tenant_id, node_id))]
     if not letture:
@@ -1479,6 +1353,13 @@ def node_web_pdf(node_id: int):
         except (TypeError, ValueError):
             dettaglio = {}
         voce["pagine"] = dettaglio.get("pagine") or []
+        # I fatti aggiuntivi (interno e carichi di un telefono, misure di uno UPS), la
+        # diagnosi ricavata dai registri e il certificato completo: sono cio' che il
+        # dettaglio a video mostra e che il PDF della lettura deve riportare uguale.
+        facts_json = voce.pop("facts_json", None)
+        voce["extra"] = fatti_aggiuntivi(facts_json)
+        voce["diagnosi"] = diagnosi_web(facts_json)
+        voce["cert"] = certificato_leggibile(voce.pop("cert_json", None))
 
     tenant = query("SELECT name, code, timezone FROM tenants WHERE id = ?",
                    (tenant_id,), one=True)

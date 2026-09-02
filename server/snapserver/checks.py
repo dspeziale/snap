@@ -44,10 +44,11 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+from datetime import timedelta
 from urllib.parse import urlparse
 
 from .audit import log_event
-from .db import execute, query, utc_now_str
+from .db import execute, query, utc_now, utc_now_str, utc_str
 from .notifications import incident_message, queue_notification
 
 # Generi di controllo previsti, con l'etichetta mostrata all'operatore.
@@ -83,6 +84,12 @@ MAX_FAILURE_THRESHOLD = 20
 # predefinito e' il doppio di quello di apertura: un disservizio che dura il doppio
 # del tempo necessario ad aprire un incidente non si sta risolvendo da se'.
 DEFAULT_ESCALATION_THRESHOLD = 6
+
+# Ogni quanto ricordare che un incidente attivato dall'operatore e' rientrato ma resta
+# aperto. Il controllo gira ogni pochi secondi: senza questa soglia la stessa notifica
+# partirebbe a ogni giro (una mail o un Telegram ogni 30 secondi). Un promemoria ogni
+# cinque minuti dice la stessa cosa senza sommergere la casella.
+INTERVALLO_PROMEMORIA_RIENTRO_SECONDI = 300
 MAX_ESCALATION_THRESHOLD = 200
 # Le risposte si conservano accorciate: servono a capire cosa non torna, non a
 # archiviare il traffico.
@@ -715,14 +722,24 @@ def close_incident_automatically(tenant_id: int, check: dict, detail: str) -> in
         return None
     adesso = utc_now_str()
     if aperto["escalated_at"]:
+        # Lo stato si aggiorna sempre; la NOTIFICA (e l'annotazione sulla cronologia)
+        # partono solo se non ne e' gia' andata una da poco: altrimenti, con il controllo
+        # che gira ogni pochi secondi, arriverebbe una mail o un Telegram ogni volta.
         execute("UPDATE check_incidents SET last_detail = ?, updated_at = ? WHERE id = ?",
                 ("Controllo tornato a posto, in attesa di verifica: %s" % detail,
                  adesso, aperto["id"]))
-        _incident_event(tenant_id, int(aperto["id"]), "recovered", "system",
-                        "Il controllo ha ripreso a rispondere correttamente: %s. "
-                        "L'incidente resta aperto perche' era stato attivato un "
-                        "operatore." % detail)
-        notify_workflow(tenant_id, "incident.recovered", int(aperto["id"]), check, detail)
+        ultimo = _column(aperto, "recovered_notified_at")
+        soglia = utc_str(utc_now() - timedelta(
+            seconds=INTERVALLO_PROMEMORIA_RIENTRO_SECONDI))
+        if not ultimo or ultimo < soglia:
+            execute("UPDATE check_incidents SET recovered_notified_at = ? WHERE id = ?",
+                    (adesso, aperto["id"]))
+            _incident_event(tenant_id, int(aperto["id"]), "recovered", "system",
+                            "Il controllo ha ripreso a rispondere correttamente: %s. "
+                            "L'incidente resta aperto perche' era stato attivato un "
+                            "operatore." % detail)
+            notify_workflow(tenant_id, "incident.recovered", int(aperto["id"]), check,
+                            detail)
         return int(aperto["id"])
 
     execute("UPDATE check_incidents SET status = ?, resolved_at = ?, resolution = ?,"

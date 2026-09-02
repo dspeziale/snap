@@ -25,6 +25,7 @@ def index():
     tenant_id = current_tenant_id()
     severity = (request.args.get("severity") or "").strip()
     event_type = (request.args.get("type") or "").strip()
+    actor = (request.args.get("actor") or "").strip()
     search = (request.args.get("q") or "").strip()
 
     where = ["tenant_id = ?"]
@@ -35,6 +36,11 @@ def index():
     if event_type:
         where.append("event_type LIKE ?")
         params.append("%s%%" % event_type)
+    if actor:
+        # Chi ha fatto l'azione: si filtra per attore esatto, dall'elenco di quelli
+        # presenti nel registro, cosi' "chi ha toccato che cosa" si legge subito.
+        where.append("actor = ?")
+        params.append(actor)
     if search:
         where.append("(description LIKE ? OR actor LIKE ?)")
         params.extend(["%%%s%%" % search] * 2)
@@ -52,10 +58,16 @@ def index():
         " FROM audit_events WHERE tenant_id = ? ORDER BY family",
         (tenant_id,),
     )
+    attori = query(
+        "SELECT DISTINCT actor FROM audit_events"
+        " WHERE tenant_id = ? AND COALESCE(actor, '') <> '' ORDER BY actor",
+        (tenant_id,),
+    )
     return render_template(
         "audit/index.html",
         page=page,
         badges=SEVERITY_BADGES,
         families=[row["family"] for row in families if row["family"]],
-        filters={"severity": severity, "type": event_type, "q": search},
+        actors=[row["actor"] for row in attori],
+        filters={"severity": severity, "type": event_type, "actor": actor, "q": search},
     )

@@ -479,17 +479,89 @@ def test_un_nodo_attende_una_fase_solo_se_le_precedenti_sono_svolte(sonda):
     assert indirizzi("services") == [], "i servizi non precedono le porte"
     assert indirizzi("os") == []
 
-    sonda.upsert_local_node("192.0.2.90", state="confirmed", stages_done="ports")
+    # Il nodo ha porte aperte: le fasi successive hanno di che lavorare.
+    sonda.upsert_local_node("192.0.2.90", state="confirmed", stages_done="ports",
+                            open_ports=3)
     assert indirizzi("ports") == []
     assert indirizzi("services") == ["192.0.2.90"]
     assert indirizzi("os") == []
 
-    sonda.upsert_local_node("192.0.2.90", state="confirmed", stages_done="ports,services")
+    sonda.upsert_local_node("192.0.2.90", state="confirmed",
+                            stages_done="ports,services", open_ports=3)
     assert indirizzi("services") == []
     assert indirizzi("os") == ["192.0.2.90"]
 
     # Senza fase indicata conta solo che il profilo non sia ancora conferito.
     assert [n["ip"] for n in scanner.pending_nodes()] == ["192.0.2.90"]
+
+
+def test_un_host_senza_porte_non_spreca_servizi_os_e_approfondimento(sonda):
+    """Un host che ha fatto 'ports' senza trovare porte aperte non ha piu' nulla da
+    profilare: le fasi successive lavorano sulle porte. Non va messo in coda per quelle
+    -- sono migliaia, sulla rete reale, gli host che rispondono al solo ping."""
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    sonda.upsert_local_node("192.0.2.95", state="confirmed", stages_done="ports",
+                            open_ports=0)
+
+    for fase in ("services", "os", "deep"):
+        assert "192.0.2.95" not in [n["ip"] for n in scanner.pending_nodes(fase)], fase
+    assert "192.0.2.95" not in [n["ip"] for n in scanner._uncertain_nodes()], (
+        "un host senza porte non e' 'incerto': l'approfondimento non ci trova nulla")
+    assert scanner._fully_examined(
+        {"stages_done": "ports", "open_ports": 0}), "e' gia' esaminato dopo 'ports'"
+
+
+def test_l_esame_delle_porte_dei_candidati_ha_un_posto_garantito(sonda):
+    """La frontiera dei candidati non deve essere affamata dai servizi e dalle letture:
+    sul campo, con migliaia di host che rispondono al ping, il conteggio "in lavorazione"
+    restava fermo perche' i posti del ciclo andavano tutti a SMB, web e servizi, e la
+    fase 'ports' -- che quei candidati profila -- non partiva mai."""
+    import json as _json
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    # Molti candidati mai esaminati, dentro il perimetro 192.0.2.0/24.
+    for i in range(50):
+        sonda.upsert_local_node("192.0.2.%d" % (100 + i), state="candidate")
+    # Un nodo confermato che tiene occupati gli altri posti: ha porte SMB e web aperte
+    # (letture mai fatte) e i servizi ancora da rilevare.
+    sonda.upsert_local_node(
+        "192.0.2.10", state="confirmed", stages_done="ports", open_ports=2,
+        profile_json=_json.dumps({"ip": "192.0.2.10", "ports_index": {
+            "tcp/445": {"protocol": "tcp", "port": 445, "state": "open"},
+            "tcp/80": {"protocol": "tcp", "port": 80, "state": "open"}}}))
+
+    fasi = [c["stage"] for c in scanner.plan_tasks(4)]
+    assert "ports" in fasi, "l'esame delle porte dei candidati deve avere un posto riservato"
+
+
+def test_un_host_senza_porte_ma_con_un_nome_si_conferisce_subito(sonda):
+    """Se ha un nome host (o un MAC) e' un dispositivo reale: lo si conferisce come
+    presenza in rete, senza attendere servizi e sistema operativo che non arriverebbero."""
+    import json as _json
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    sonda.upsert_local_node("192.0.2.96", state="confirmed", stages_done="ports",
+                            open_ports=0, profile_json=_json.dumps(
+                                {"ip": "192.0.2.96", "hostname": "host96"}))
+    scanner._confer_complete_profiles()
+
+    nodo = sonda.local_node("192.0.2.96")
+    assert nodo["conferred_at"], "l'host con un nome si conferisce senza altre fasi"
+
+
+def test_un_host_senza_porte_e_senza_informazioni_si_scarta_subito(sonda):
+    """Senza porte, senza nome, senza MAC: non e' inventario. Si scarta dopo 'ports',
+    invece di sprecare tre fasi e poi scartarlo comunque."""
+    import json as _json
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    sonda.upsert_local_node("192.0.2.97", state="confirmed", stages_done="ports",
+                            open_ports=0, profile_json=_json.dumps(
+                                {"ip": "192.0.2.97", "reachable": True}))
+    scanner._confer_complete_profiles()
+
+    nodo = sonda.local_node("192.0.2.97")
+    assert nodo["state"] == "discarded", "l'host vuoto lascia la coda invece di restarci"
 
 
 # --------------------------------------------------------------------------- #
@@ -700,7 +772,7 @@ def test_l_approfondimento_legge_snmp_quando_la_porta_e_aperta(sonda):
     import json as _json
 
     sonda.upsert_local_node("192.0.2.51", state="confirmed",
-                            stages_done="ports,services,os",
+                            stages_done="ports,services,os", open_ports=1,
                             profile_json=_json.dumps({"ip": "192.0.2.51", "ports_index": {
                                 "udp/161": {"protocol": "udp", "port": 161,
                                             "state": "open"}}}))

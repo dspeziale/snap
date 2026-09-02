@@ -87,6 +87,87 @@
 
 <div class="tab-pane fade {{ 'show active' if scheda in (none, '', 'prodotti') }}"
      id="pane-prodotti" role="tabpanel" aria-labelledby="tab-prodotti">
+
+{# Invio a richiesta di un report gia' prodotto verso un recapito indicato sul momento.
+   Il file viene accodato e parte al giro successivo della coda, come ogni notifica. #}
+{% if has_role('analyst') %}
+{% set inviabili = reports | selectattr('presente') | list %}
+{% set invia_id = request.args.get('invia') %}
+<div class="card mb-3" id="invia-report">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-send me-1"></i> Invia un report</h3>
+    <small class="text-body-secondary">
+      a un recapito indicato sul momento, via posta elettronica o bot Telegram
+    </small>
+  </div>
+  <div class="card-body">
+    {% if not inviabili %}
+    <p class="mb-0 text-body-secondary small">
+      Nessun report con un file da inviare. Generane uno dal catalogo: solo i report con
+      allegato su disco possono essere spediti.
+    </p>
+    {% elif not (invio.email.pronto or invio.telegram.pronto) %}
+    <p class="mb-0 text-body-secondary small">
+      Nessun canale di recapito e' pronto. Configurare la posta o il bot Telegram in
+      Amministrazione &gt; Impostazioni Sistema, poi tornare qui.
+    </p>
+    {% else %}
+    {# Il recapito si scrive qui, sul momento: si puo' indicare la posta, la chat
+       Telegram o entrambe. Non si prende da una configurazione. #}
+    <form method="post" action="{{ url_for('reports.send_report') }}"
+          class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-12 col-lg-4">
+        <label class="form-label small mb-1" for="report_id">Report da inviare</label>
+        <select class="form-select form-select-sm" id="report_id" name="report_id" required>
+          {% for r in inviabili %}
+          <option value="{{ r.id }}" {{ 'selected' if invia_id == r.id|string }}>
+            {{ kinds[r.kind] if r.kind in kinds else r.kind }} - {{ r.period_key }}
+            ({{ r.nome_file }})
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-lg-3">
+        <label class="form-label small mb-1" for="email">
+          <i class="bi bi-envelope me-1"></i>Email
+        </label>
+        <input type="email" class="form-control form-control-sm" id="email" name="email"
+               placeholder="destinatario@esempio.it"
+               {{ 'disabled' if not invio.email.pronto }}>
+        {% if not invio.email.pronto %}
+        <small class="text-body-secondary">posta non pronta: {{ invio.email.motivo }}</small>
+        {% endif %}
+      </div>
+      <div class="col-6 col-lg-3">
+        <label class="form-label small mb-1" for="telegram">
+          <i class="bi bi-telegram me-1"></i>Chat Telegram
+        </label>
+        <input type="text" class="form-control form-control-sm" id="telegram"
+               name="telegram" placeholder="id numerico o @nome"
+               {{ 'disabled' if not invio.telegram.pronto }}>
+        {% if not invio.telegram.pronto %}
+        <small class="text-body-secondary">Telegram non pronto: {{ invio.telegram.motivo }}</small>
+        {% endif %}
+      </div>
+      <div class="col-12 col-lg-2">
+        <button type="submit" class="btn btn-sm btn-primary w-100"
+                data-confirm="Inviare il report ai recapiti indicati? Il documento lascia la console verso destinatari esterni.">
+          <i class="bi bi-send me-1"></i> Invia
+        </button>
+      </div>
+      <div class="col-12">
+        <small class="text-body-secondary">
+          Indicare almeno un recapito. Se si compilano entrambi, il report parte sia via
+          email sia su Telegram.
+        </small>
+      </div>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h3 class="card-title mb-0"><i class="bi bi-archive me-1"></i> Report prodotti</h3>
@@ -133,6 +214,13 @@
                    class="btn btn-sm btn-outline-primary" title="Scaricare">
                   <i class="bi bi-download"></i>
                 </a>
+                {% if has_role('analyst') %}
+                {# Preseleziona questo report nel modulo d'invio in cima alla scheda. #}
+                <a href="{{ url_for('reports.index', scheda='prodotti', invia=r.id) }}#invia-report"
+                   class="btn btn-sm btn-outline-primary" title="Inviare via email o Telegram">
+                  <i class="bi bi-send"></i>
+                </a>
+                {% endif %}
                 {% endif %}
                 {% if has_role('analyst') %}
                 {# Con otto generi e piu' ampiezze l'elenco si riempie di prove e di
