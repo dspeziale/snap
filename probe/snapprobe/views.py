@@ -42,6 +42,67 @@ def _agent():
     return current_app.extensions["snap_agent"]
 
 
+def _riquadri_stato(agente, store) -> list[dict]:
+    """I riquadri di sintesi della dashboard, calcolati una volta sola.
+
+    La pagina li disegna e la rotta di stato (`status.json`) li rimanda uguali, cosi'
+    l'aggiornamento via AJAX aggiorna i contatori senza ricaricare la pagina e senza
+    duplicare la logica dei colori e delle note in JavaScript: qui c'e' la verita', il
+    client la applica soltanto.
+    """
+    stato = agente.status()
+    scan = agente.scan_status()
+    impostazioni = store.all_settings()
+    ago = current_app.jinja_env.filters["ago"]
+    dt = current_app.jinja_env.filters["dt"]
+    fuso = store.get_setting("tenant_timezone") or "UTC"
+
+    registrata = bool(stato.get("enrolled"))
+    online = bool(stato.get("online"))
+    coda = int(stato.get("queue_size") or 0)
+    sospesa = bool(scan.get("paused_locally") or not scan.get("enabled_by_server"))
+    ultimo = impostazioni.get("last_sync_at")
+    prossima = scan.get("next_due")
+    confermati = int(scan.get("nodes_confirmed") or 0)
+    candidati = int(scan.get("nodes_candidate") or 0)
+    profili = int(scan.get("profiles_pending") or 0)
+
+    def nota_scansione() -> str:
+        if not scan.get("enabled_by_server"):
+            return "disabilitata dal server"
+        if scan.get("paused_locally"):
+            return "sospesa in locale"
+        if prossima:
+            return "%s su %s" % (prossima[0], prossima[1])
+        return "nessuna fase scaduta"
+
+    return [
+        {"key": "canale", "etichetta": "CANALE VERSO IL SERVER", "icona": "bi-shield-lock",
+         "valore": ("Attivo" if online else "In attesa") if registrata else "Non registrata",
+         "tono": ("success" if online else "warning") if registrata else "secondary",
+         "nota": impostazioni.get("server_url") or "server non configurato"},
+        {"key": "coda", "etichetta": "CODA LOCALE", "valore": coda, "icona": "bi-inboxes",
+         "tono": "warning" if coda else "success",
+         "nota": ("in attesa dal " + dt(stato.get("oldest_queued_at")))
+                 if stato.get("oldest_queued_at") else "nessun dato in attesa"},
+        {"key": "raccolta", "etichetta": "RACCOLTA", "icona": "bi-arrow-repeat",
+         "valore": "Sospesa" if stato.get("paused") else "Attiva",
+         "tono": "warning" if stato.get("paused") else "success",
+         "nota": "ogni %s secondi" % impostazioni.get("scan_interval_sec", "300")},
+        {"key": "nodi_confermati", "etichetta": "NODI CONFERMATI", "valore": confermati,
+         "icona": "bi-hdd-network", "tono": "info" if confermati else "secondary",
+         "nota": "%d candidati, %d profili da completare" % (candidati, profili)},
+        {"key": "scansione", "etichetta": "SCANSIONE", "icona": "bi-radar",
+         "valore": "Sospesa" if sospesa else "In corso",
+         "tono": "warning" if sospesa else "success", "nota": nota_scansione()},
+        {"key": "ultimo_conferimento", "etichetta": "ULTIMO CONFERIMENTO",
+         "icona": "bi-cloud-arrow-up", "valore": ago(ultimo) if ultimo else "mai",
+         "tono": "success" if ultimo else "secondary",
+         "nota": ("%s · fuso %s" % (dt(ultimo), fuso)) if ultimo
+                 else "nessun lotto ancora inviato"},
+    ]
+
+
 @bp.get("/")
 def index():
     """Stato della sonda: registrazione, coda, ultimi conferimenti."""
@@ -56,6 +117,7 @@ def index():
         "index.html",
         status=agente.status(),
         scan=agente.scan_status(),
+        riquadri=_riquadri_stato(agente, store),
         syncs=conferimenti[:10],
         conferimenti_punti=punti,
         events=store.recent_events(12),
@@ -398,6 +460,11 @@ def status_json():
         "nodi_candidati": int(scansione.get("nodes_candidate") or 0),
         "coda": int(stato.get("queue_size") or 0),
         "online": bool(stato.get("online")),
+        # I riquadri di sintesi gia' pronti (valore, colore, nota): la pagina li disegna
+        # a lato server e qui li rimanda uguali, cosi' il client aggiorna i contatori
+        # senza ricaricare e senza rifare la logica dei colori.
+        "riquadri": [{"key": r["key"], "valore": r["valore"], "tono": r["tono"],
+                      "nota": r["nota"]} for r in _riquadri_stato(agente, _store())],
         "aggiornato_alle": utc_now_str(),
     })
 

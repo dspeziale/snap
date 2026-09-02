@@ -58,7 +58,51 @@
     }).join(" · ");
   }
 
+  /* Sostituisce la sola classe di tinta (text-bg-*) lasciando intatte le altre. */
+  function classeTono(el, tono) {
+    if (!el) { return; }
+    el.className = el.className.replace(/\btext-bg-\S+/g, "").replace(/\s+/g, " ").trim()
+      + " text-bg-" + tono;
+  }
+
+  /* I contatori di sintesi (riquadri e badge in cima): valore, colore e nota come li
+     ha gia' calcolati il server, cosi' cambiano senza ricaricare la pagina. Gli
+     elementi stanno fuori dal contenitore dell'indicatore, quindi si cercano nel
+     documento. */
+  function aggiornaSintesi(stato) {
+    (stato.riquadri || []).forEach(function (r) {
+      var card = document.querySelector('[data-card="' + r.key + '"]');
+      if (!card) { return; }
+      var valore = card.querySelector("[data-card-val]");
+      var nota = card.querySelector("[data-card-nota]");
+      if (valore) { valore.textContent = r.valore; }
+      if (nota) { nota.textContent = r.nota; }
+      classeTono(card.querySelector("[data-card-tono]"), r.tono);
+    });
+
+    document.querySelectorAll("[data-stat]").forEach(function (el) {
+      var chiave = el.getAttribute("data-stat");
+      if (Object.prototype.hasOwnProperty.call(stato, chiave)) {
+        el.textContent = stato[chiave];
+      }
+    });
+
+    var scansione = (stato.riquadri || []).filter(function (r) {
+      return r.key === "scansione";
+    })[0];
+    var badge = document.querySelector("[data-scan-badge]");
+    if (scansione && badge) {
+      classeTono(badge, scansione.tono);
+      var testo = badge.querySelector("[data-scan-badge-testo]");
+      if (testo) {
+        testo.textContent = scansione.tono === "success"
+          ? "scansione in corso" : scansione.nota;
+      }
+    }
+  }
+
   function aggiorna(stato) {
+    aggiornaSintesi(stato);
     var testo = elemento("data-stato-testo");
     var dettaglio = elemento("data-stato-dettaglio");
     var barra = elemento("data-barra-attivita");
@@ -141,16 +185,8 @@
   setInterval(interroga, INTERVALLO_MS);
 })();
 
-(function () {
-  "use strict";
-
-  // La pagina di stato si ricarica periodicamente: l'agente lavora in background
-  // e i contatori (coda, ultimo conferimento) cambiano senza interazione utente.
-  if (document.body.dataset.autorefresh === "1") {
-    window.setTimeout(function () {
-      window.location.reload();
-    }, 30000);
-  }
-
-  // Le richieste di conferma sono gestite da snap-dialogs.js con AWN.
-})();
+// I contatori (coda, nodi, ultimo conferimento, stato scansione) si aggiornano ora
+// via AJAX ogni pochi secondi dalla rotta di stato, senza ricaricare la pagina: il
+// vecchio ricaricamento completo ogni trenta secondi non serve piu' e faceva perdere
+// la scheda aperta e la posizione di scorrimento.
+// Le richieste di conferma sono gestite da snap-dialogs.js con AWN.

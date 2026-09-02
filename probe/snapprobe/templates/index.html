@@ -7,7 +7,6 @@
 #}
 {% extends 'base.html' %}
 {% block title %}Stato{% endblock %}
-{% block autorefresh %}1{% endblock %}
 {% block page_icon %}bi-activity{% endblock %}
 {% block page_title %}Stato della sonda{% endblock %}
 {% block page_subtitle %}
@@ -63,20 +62,21 @@
     <div class="d-flex align-items-center flex-wrap gap-2">
       <span class="badge text-bg-{{ 'warning' if (scan.paused_locally
                                                   or not scan.enabled_by_server)
-                                    else 'success' }}">
+                                    else 'success' }}" data-scan-badge>
         <i class="bi bi-radar me-1"></i>
-        {%- if not scan.enabled_by_server %} scansioni disabilitate dal server
-        {%- elif scan.paused_locally %} scansioni sospese in locale
-        {%- else %} scansione in corso{% endif %}
+        <span data-scan-badge-testo>
+        {%- if not scan.enabled_by_server %}scansioni disabilitate dal server
+        {%- elif scan.paused_locally %}scansioni sospese in locale
+        {%- else %}scansione in corso{% endif %}</span>
       </span>
       <span class="badge text-bg-light border text-body">
-        <i class="bi bi-hdd-network me-1"></i>{{ scan.nodes_confirmed }} confermati
+        <i class="bi bi-hdd-network me-1"></i><span data-stat="nodi_confermati">{{ scan.nodes_confirmed }}</span> confermati
       </span>
       <span class="badge text-bg-light border text-body">
-        <i class="bi bi-question-circle me-1"></i>{{ scan.nodes_candidate }} candidati
+        <i class="bi bi-question-circle me-1"></i><span data-stat="nodi_candidati">{{ scan.nodes_candidate }}</span> candidati
       </span>
       <span class="badge text-bg-light border text-body">
-        <i class="bi bi-hourglass-split me-1"></i>{{ scan.profiles_pending }} profili da completare
+        <i class="bi bi-hourglass-split me-1"></i><span data-stat="profili_in_attesa">{{ scan.profiles_pending }}</span> profili da completare
       </span>
       {% if scan.next_due %}
       <span class="badge text-bg-light border text-body">
@@ -102,54 +102,27 @@
    valore grande, nota sotto, icona colorata secondo lo stato. La tinta non e'
    decorazione -- verde cio' che va, giallo cio' che attende, rosso cio' che si e'
    fermato -- e la nota dice sempre da dove viene il numero. #}
-<div class="row g-3 mb-3">
-  {% set riquadri = [
-      ('CANALE VERSO IL SERVER',
-       ('Attivo' if status.online else 'In attesa') if status.enrolled else 'Non registrata',
-       'bi-shield-lock',
-       ('success' if status.online else 'warning') if status.enrolled else 'secondary',
-       settings.get('server_url') or 'server non configurato'),
-      ('CODA LOCALE', status.queue_size, 'bi-inboxes',
-       'warning' if status.queue_size else 'success',
-       ('in attesa dal ' ~ status.oldest_queued_at|dt) if status.oldest_queued_at
-        else 'nessun dato in attesa'),
-      ('RACCOLTA', 'Sospesa' if status.paused else 'Attiva', 'bi-arrow-repeat',
-       'warning' if status.paused else 'success',
-       'ogni ' ~ settings.get('scan_interval_sec', '300') ~ ' secondi'),
-      ('NODI CONFERMATI', scan.nodes_confirmed, 'bi-hdd-network',
-       'info' if scan.nodes_confirmed else 'secondary',
-       '%d candidati, %d profili da completare'|format(scan.nodes_candidate,
-                                                       scan.profiles_pending)),
-      ('SCANSIONE', 'Sospesa' if (scan.paused_locally or not scan.enabled_by_server)
-                    else 'In corso', 'bi-radar',
-       'warning' if (scan.paused_locally or not scan.enabled_by_server) else 'success',
-       ('disabilitata dal server' if not scan.enabled_by_server
-        else ('sospesa in locale' if scan.paused_locally
-              else (scan.next_due[0] ~ ' su ' ~ scan.next_due[1]) if scan.next_due
-              else 'nessuna fase scaduta'))),
-      ('ULTIMO CONFERIMENTO',
-       settings.get('last_sync_at')|ago if settings.get('last_sync_at') else 'mai',
-       'bi-cloud-arrow-up',
-       'success' if settings.get('last_sync_at') else 'secondary',
-       (settings.get('last_sync_at')|dt ~ ' · fuso ' ~ display_timezone)
-        if settings.get('last_sync_at') else 'nessun lotto ancora inviato'),
-  ] %}
-  {% for etichetta, valore, icona, tono, nota in riquadri %}
+<div class="row g-3 mb-3" data-snap-riquadri>
+  {# I riquadri arrivano gia' calcolati dalla vista e la rotta di stato li rimanda
+     uguali: gli attributi data-card-* sono gli appigli con cui probe.js aggiorna
+     valore, colore e nota senza ricaricare la pagina. #}
+  {% for r in riquadri %}
   {# Un numero si legge da lontano e resta grande; una frase o una data no: a corpo
      pieno occuperebbe tutta la riga e schiaccerebbe l'icona contro il bordo. #}
-  {% set testuale = valore|string|length > 10 %}
+  {% set testuale = r.valore|string|length > 10 %}
   <div class="col-6 col-lg-4 col-xxl-2">
-    <div class="card snap-stat h-100">
+    <div class="card snap-stat h-100" data-card="{{ r.key }}">
       <div class="card-body py-2">
         <div class="d-flex justify-content-between align-items-center gap-2">
           <div class="min-w-0">
-            <p class="snap-stat-label mb-0">{{ etichetta }}</p>
-            <p class="snap-stat-value {{ 'snap-stat-value-testo' if testuale }} mb-0">
-              {{ valore }}
-            </p>
-            <p class="snap-stat-foot mb-0">{{ nota }}</p>
+            <p class="snap-stat-label mb-0">{{ r.etichetta }}</p>
+            <p class="snap-stat-value {{ 'snap-stat-value-testo' if testuale }} mb-0"
+               data-card-val>{{ r.valore }}</p>
+            <p class="snap-stat-foot mb-0" data-card-nota>{{ r.nota }}</p>
           </div>
-          <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+          <span class="snap-stat-icon text-bg-{{ r.tono }}" data-card-tono>
+            <i class="bi {{ r.icona }}"></i>
+          </span>
         </div>
       </div>
     </div>

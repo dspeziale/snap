@@ -54,7 +54,7 @@ CHIAVI_ATTESE = (
     "thread_massimi", "sforzo", "fasi_in_corso", "prossima_fase", "perimetro_subnet",
     "perimetro_scoperte", "perimetro_percento", "profili_conferiti", "profili_in_attesa",
     "profili_percento", "nodi_confermati", "nodi_candidati", "coda", "online",
-    "aggiornato_alle",
+    "riquadri", "aggiornato_alle",
 )
 
 
@@ -64,6 +64,43 @@ def test_la_rotta_di_stato_dichiara_tutte_le_voci_previste(sonda_client):
     stato = esito.get_json()
     for chiave in CHIAVI_ATTESE:
         assert chiave in stato, "la rotta di stato non dichiara %s" % chiave
+
+
+def test_la_rotta_di_stato_rimanda_i_riquadri_gia_pronti(sonda_client):
+    """I riquadri di sintesi arrivano gia' calcolati -- valore, colore, nota -- cosi'
+    il client aggiorna i contatori senza ricaricare e senza rifare la logica."""
+    stato = sonda_client.get("/status.json").get_json()
+    riquadri = {r["key"]: r for r in stato["riquadri"]}
+
+    for chiave in ("canale", "coda", "raccolta", "nodi_confermati", "scansione",
+                   "ultimo_conferimento"):
+        assert chiave in riquadri, "manca il riquadro %s" % chiave
+        for campo in ("valore", "tono", "nota"):
+            assert campo in riquadri[chiave], "il riquadro %s non ha %s" % (chiave, campo)
+
+
+def test_la_dashboard_della_sonda_ha_gli_appigli_per_l_aggiornamento(sonda_client):
+    """Le schede di sintesi e i badge portano gli attributi data-* con cui lo script
+    aggiorna i contatori sul posto."""
+    pagina = sonda_client.get("/").data.decode("utf-8")
+
+    for marcatore in ("data-snap-riquadri", 'data-card="coda"',
+                      'data-card="nodi_confermati"', "data-card-val", "data-card-tono",
+                      'data-stat="nodi_confermati"', "data-scan-badge"):
+        assert marcatore in pagina, "manca l'appiglio %s" % marcatore
+
+
+def test_lo_script_aggiorna_i_contatori_e_non_ricarica_piu_la_pagina():
+    """I contatori si aggiornano via AJAX dai riquadri della rotta di stato: il
+    ricaricamento completo della pagina non deve piu' esistere."""
+    from pathlib import Path
+
+    radice = Path(__file__).resolve().parent.parent
+    script = (radice / "probe" / "snapprobe" / "static" / "js" / "probe.js").read_text(
+        encoding="utf-8")
+
+    assert "data-card" in script and "riquadri" in script, "non aggiorna i riquadri"
+    assert "location.reload" not in script, "non deve piu' ricaricare la pagina intera"
 
 
 def test_le_percentuali_dello_stato_restano_nei_limiti(sonda_client, probe_store):
