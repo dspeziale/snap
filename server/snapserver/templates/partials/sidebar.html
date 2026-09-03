@@ -38,6 +38,11 @@
 {% set in_admin = endpoint.startswith('admin.') %}
 {% set in_sala = endpoint.startswith('operations.') %}
 
+{# L'Operatore SIEM ha un menu su misura: lavora il SIEM e gli incidenti, non
+   l'inventario ne' l'amministrazione. Le sezioni non pertinenti si nascondono per
+   lui -- resta un menu pulito, centrato sul suo compito. #}
+{% set operatore_siem = current_user and current_user['role'] == 'siem_operator' %}
+
 {% set nodi = (indicators.nodes_total if indicators else 0) or 0 %}
 {% set controlli_attivi = (indicators.checks_active if indicators else 0) or 0 %}
 {% set incidenti = (indicators.incidents_open if indicators else 0) or 0 %}
@@ -77,6 +82,9 @@
           </a>
         </li>
 
+        {# All'Operatore SIEM non servono sala operativa, rete, controlli e sicurezza:
+           il suo lavoro sta nel SIEM e negli incidenti, appena sotto. #}
+        {% if not operatore_siem %}
         {# --- Sala operativa: le tre pagine con cui si lavora tutto il giorno.
                Stanno in cima perche' sono il punto di partenza del turno, non una
                sezione fra le altre. #}
@@ -313,6 +321,7 @@
             {% endif %}
           </ul>
         </li>
+        {% endif %}{# fine sezioni non pertinenti all'Operatore SIEM #}
 
         <li class="nav-header">SIEM</li>
 
@@ -406,7 +415,8 @@
           </a>
         </li>
 
-        {# --- Sonde ---------------------------------------------------------- #}
+        {# --- Sonde: la gestione della flotta non riguarda l'Operatore SIEM --- #}
+        {% if not operatore_siem %}
         <li class="nav-item {% if in_sonde %}menu-open{% endif %}" data-snap-gruppo="sonde">
           <a href="#" class="nav-link {% if in_sonde %}active{% endif %}">
             <i class="nav-icon bi bi-broadcast-pin"></i>
@@ -429,6 +439,7 @@
             {% endif %}
           </ul>
         </li>
+        {% endif %}{# fine Sonde: nascosto all'Operatore SIEM #}
 
         {# --- Amministrazione ------------------------------------------------ #}
         {% if has_role('tenant_admin') %}

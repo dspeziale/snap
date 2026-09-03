@@ -30,11 +30,19 @@ from .db import execute, query, utc_now, utc_now_str
 ROLE_SUPERADMIN = "superadmin"
 ROLE_TENANT_ADMIN = "tenant_admin"
 ROLE_ANALYST = "analyst"
+# Operatore SIEM: figura specializzata sul SIEM e sugli incidenti. Opera il SIEM a
+# pieno (stesso livello dell'analista, cosi' le azioni gia' protette da
+# `role_required(ROLE_ANALYST)` -- sorgenti, regole, decisioni sugli allarmi -- valgono
+# anche per lui) ma resta sotto l'amministrazione del tenant, e il menu gli mostra solo
+# cio' che gli serve. Il livello e' condiviso con l'analista: e' una specializzazione,
+# non un gradino gerarchico.
+ROLE_SIEM_OPERATOR = "siem_operator"
 ROLE_VIEWER = "viewer"
 
 # Livelli usati per i confronti di autorizzazione.
 ROLE_LEVELS = {
     ROLE_VIEWER: 10,
+    ROLE_SIEM_OPERATOR: 20,
     ROLE_ANALYST: 20,
     ROLE_TENANT_ADMIN: 30,
     ROLE_SUPERADMIN: 40,
@@ -42,6 +50,7 @@ ROLE_LEVELS = {
 
 ROLE_LABELS = {
     ROLE_VIEWER: "Consultazione",
+    ROLE_SIEM_OPERATOR: "Operatore SIEM",
     ROLE_ANALYST: "Analista",
     ROLE_TENANT_ADMIN: "Amministratore Tenant",
     ROLE_SUPERADMIN: "Amministratore di Sistema",

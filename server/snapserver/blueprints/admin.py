@@ -34,6 +34,7 @@ from ..db import days_ago_str, execute, query, scalar, utc_now_str
 from ..security import (
     ROLE_ANALYST,
     ROLE_LABELS,
+    ROLE_SIEM_OPERATOR,
     ROLE_SUPERADMIN,
     ROLE_TENANT_ADMIN,
     ROLE_VIEWER,
@@ -48,7 +49,7 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 TENANT_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
-ASSIGNABLE_ROLES = [ROLE_VIEWER, ROLE_ANALYST, ROLE_TENANT_ADMIN]
+ASSIGNABLE_ROLES = [ROLE_VIEWER, ROLE_SIEM_OPERATOR, ROLE_ANALYST, ROLE_TENANT_ADMIN]
 
 
 def _timezones() -> list[str]:
