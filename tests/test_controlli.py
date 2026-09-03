@@ -667,10 +667,15 @@ def test_i_controlli_sono_una_sezione_autonoma_del_menu(logged_client):
 
     assert 'data-snap-gruppo="controlli"' in menu, "manca il gruppo dei controlli"
     for voce, indirizzo in (("Bersagli e controlli", "/checks/"),
-                            ("Incidenti", "/checks/incidents"),
                             ("Notifiche", "/checks/notifications")):
         assert voce in menu, "manca la voce %r" % voce
         assert indirizzo in menu, "manca il collegamento %r" % indirizzo
+
+    # Gli incidenti NON stanno piu' dentro i controlli: hanno una sezione propria con
+    # la loro etichetta, dove confluiscono anche gli allarmi del SIEM e gli incidenti
+    # registrati a mano.
+    assert '>INCIDENTI<' in menu, "manca l'etichetta della sezione Incidenti"
+    assert "/checks/incidents" in menu, "manca il collegamento agli incidenti"
 
     # Gruppo di primo livello, fratello della rete e non figlio: il sottomenu dei
     # controlli deve cominciare DOPO la chiusura di quello della rete.

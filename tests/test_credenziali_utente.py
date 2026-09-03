@@ -159,3 +159,33 @@ def test_l_utente_viene_creato_anche_se_la_posta_non_parte(logged_client, server
 
         assert query("SELECT id FROM users WHERE email = 'creato.comunque@ised.local'",
                      (), one=True) is not None
+
+
+def test_l_email_riporta_l_indirizzo_pubblico_del_server(logged_client, posta_finta,
+                                                         server_app):
+    """L'URL del sistema nel messaggio e' quello dichiarato in "Indirizzo pubblico
+    del server": il nuovo utente deve sapere DOVE accedere, con un indirizzo su cui
+    cliccare."""
+    with server_app.app_context():
+        from snapserver.db import execute, utc_now_str
+
+        execute("INSERT INTO system_settings (key, value, updated_at)"
+                " VALUES ('public_url', ?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                ("https://snap.ente.it", utc_now_str()))
+
+    _crea_utente(logged_client, "conurl@ised.local")
+    corpo = posta_finta[0]["corpo"]
+    assert "https://snap.ente.it" in corpo, (
+        "l'email deve riportare l'indirizzo pubblico del server dichiarato")
+
+
+def test_senza_indirizzo_pubblico_l_email_usa_l_indirizzo_corrente(logged_client,
+                                                                   posta_finta):
+    """Se l'indirizzo pubblico non e' ancora stato impostato, il messaggio ripiega
+    sull'indirizzo con cui si raggiunge la console: il nuovo utente riceve COMUNQUE un
+    URL, mai un rimando generico all'amministratore."""
+    _crea_utente(logged_client, "senzaurl@ised.local")
+    corpo = posta_finta[0]["corpo"]
+    assert "http" in corpo, "senza indirizzo pubblico si ripiega sull'host corrente"
+    assert "chiedere all'amministratore" not in corpo

@@ -259,22 +259,6 @@
           </ul>
         </li>
 
-        {# --- Incidenti: un menu a se'. Vi confluiscono gli incidenti dei controlli,
-               quelli registrati a mano e gli allarmi del SIEM: tutto cio' che va
-               guardato adesso sta in un posto solo. #}
-        <li class="nav-item">
-          <a href="{{ url_for('checks.incident_list') }}"
-             class="nav-link {% if in_incidenti %}active{% endif %}">
-            <i class="nav-icon bi bi-exclamation-triangle"></i>
-            <p>
-              Incidenti
-              {% if incidenti %}
-              <span class="badge text-bg-danger">{{ incidenti }}</span>
-              {% endif %}
-            </p>
-          </a>
-        </li>
-
         {# --- Sicurezza: cio' che si e' trovato contro cio' che si sa --------- #}
         <li class="nav-item {% if in_sicurezza %}menu-open{% endif %}"
             data-snap-gruppo="sicurezza">
@@ -383,6 +367,31 @@
               </a>
             </li>
           </ul>
+        </li>
+
+        {# --- Incidenti: una sezione propria, sotto il SIEM. Vi confluiscono gli
+               incidenti dei controlli, quelli registrati a mano e gli allarmi del SIEM:
+               tutto cio' che va guardato adesso sta in un posto solo, con la sua
+               etichetta, subito dopo il SIEM che ne e' una delle fonti. #}
+        <li class="nav-header">INCIDENTI</li>
+
+        <li class="nav-item">
+          <a href="{{ url_for('checks.incident_list', status='aperti') }}"
+             class="nav-link {% if in_incidenti and request.args.get('status') in (none, '', 'aperti') %}active{% endif %}">
+            <i class="nav-icon bi bi-exclamation-triangle"></i>
+            <p>
+              Aperti
+              {% if incidenti %}
+              <span class="badge text-bg-danger">{{ incidenti }}</span>
+              {% endif %}
+            </p>
+          </a>
+        </li>
+        <li class="nav-item">
+          <a href="{{ url_for('checks.incident_list', status='tutti') }}"
+             class="nav-link {% if endpoint == 'checks.incident_list' and request.args.get('status') == 'tutti' %}active{% endif %}">
+            <i class="nav-icon bi bi-list-ul"></i><p>Tutti gli incidenti</p>
+          </a>
         </li>
 
         <li class="nav-header">AMMINISTRAZIONE E GUIDA</li>

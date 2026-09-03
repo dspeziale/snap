@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS users (
     -- virgola. Vuoto significa "mostrali tutti", che e' cio' che serve a chi
     -- apre il prodotto per la prima volta.
     pref_kpi_hidden   TEXT    NOT NULL DEFAULT '',
+    -- Identificativo della chat Telegram personale dell'utente: quando presente,
+    -- le notifiche puntuali a lui destinate gli arrivano anche sul suo Telegram,
+    -- oltre che alla chat del tenant. Vuoto significa "nessuna notifica personale".
+    telegram_chat_id  TEXT,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL
 );

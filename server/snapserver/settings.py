@@ -61,7 +61,7 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.2.4"
+    APP_VERSION = "1.2.6"
     APP_SUBTITLE = "Secure Network Assessment Platform"
 
     SECRET_KEY = load_secret_key()

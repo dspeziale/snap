@@ -21,6 +21,40 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.2.6",
+        "date": "2026-09-03",
+        "abstract": "La sonda torna a conferire i nodi senza restare bloccata sulla rete"
+                    " di migliaia di apparati, e il SIEM diventa operativo: gli allarmi"
+                    " confluiscono negli Incidenti, gli eventi si filtrano e si cancellano,"
+                    " le regole di rilevazione si creano a mano. Ogni utente puo' ricevere"
+                    " notifiche personali su Telegram.",
+        "changes": [
+            "Sonda: risolto il blocco per cui migliaia di nodi restavano \"in"
+            " lavorazione\" senza mai essere conferiti. Un host che nmap abbandona su una"
+            " fase di ispezione (servizi, sistema operativo) ora fa comunque avanzare la"
+            " fase, invece di essere ripescato a ogni ciclo; il completamento del profilo"
+            " prende piu' posti quando l'arretrato e' grande, e le passate dei servizi"
+            " sono piu' rapide.",
+            "Gli allarmi del SIEM confluiscono negli Incidenti (Controlli): chiudere o"
+            " dichiarare falso positivo un allarme risolve anche l'incidente collegato.",
+            "Incidenti: sezione propria del menu, con la sua etichetta, sotto il SIEM"
+            " -- vi confluiscono controlli, segnalazioni manuali e allarmi del SIEM.",
+            "SIEM, Eventi: filtro per OGNI colonna (data, gravita', genere, host,"
+            " indirizzo, utenza, messaggio), messaggio a capo per leggerlo per intero,"
+            " e cancellazione degli eventi (filtrati o dell'intero archivio).",
+            "SIEM, Regole di rilevazione: si creano e si eliminano dalla pagina, oltre"
+            " a quelle del catalogo.",
+            "SIEM: ascolto syslog integrato in TCP e UDP sulle porte 514 e 5514; nelle"
+            " date degli eventi compaiono anche i secondi.",
+            "Corretta la chiusura di un allarme SIEM che rispondeva \"Stato non previsto\".",
+            "Profilo e sicurezza: ogni utente puo' dichiarare il proprio ID Telegram"
+            " (con la spiegazione di come trovarlo e un invio di prova) per ricevere"
+            " notifiche personali.",
+            "L'email di benvenuto a un nuovo utente riporta sempre l'indirizzo del"
+            " sistema (quello dichiarato in \"Indirizzo pubblico del server\").",
+        ],
+    },
+    {
         "version": "1.2.4",
         "date": "2026-09-03",
         "abstract": "Arriva il SIEM: raccolta dei log degli apparati, eventi di"

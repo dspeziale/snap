@@ -187,6 +187,7 @@ MIGRATIONS = [
     ("probes", "scan_host_timeout", "TEXT"),
     ("probes", "scan_discovery_days", "INTEGER NOT NULL DEFAULT 3"),
     ("users", "pref_kpi_hidden", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "telegram_chat_id", "TEXT"),
     # Fatti dichiarati dalle pagine degli apparati (vedi web_facts nella sonda).
     ("node_web", "device_name", "TEXT"),
     ("node_web", "location", "TEXT"),

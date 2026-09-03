@@ -161,4 +161,66 @@
     </div>
   </div>
 </div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12 col-lg-8">
+    <div class="card">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-telegram me-1"></i>
+          Notifiche personali via Telegram</h3>
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary mb-3">
+          Indicando il tuo identificativo di chat Telegram, le notifiche puntuali a te
+          destinate ti arrivano anche sul tuo Telegram, oltre che ai canali del tenant.
+          Lascia il campo vuoto per non ricevere notifiche personali.
+        </p>
+
+        <div class="alert alert-info small d-flex gap-2">
+          <i class="bi bi-info-circle mt-1"></i>
+          <div>
+            <strong>Come trovare il tuo ID Telegram</strong>
+            <ol class="mb-2 ps-3">
+              <li>Apri Telegram e cerca il bot <span class="fw-semibold">@userinfobot</span>.</li>
+              <li>Avvia una conversazione e premi <span class="fw-semibold">Avvia</span>
+                  (o scrivi <span class="font-monospace">/start</span>).</li>
+              <li>Il bot risponde con il tuo <span class="fw-semibold">Id</span>: e' un
+                  numero (per esempio <span class="font-monospace">123456789</span>).
+                  Copialo qui sotto.</li>
+            </ol>
+            <span class="text-body-secondary">
+              Importante: apri anche una conversazione con il bot del sistema e premi
+              <span class="fw-semibold">Avvia</span> almeno una volta, altrimenti Telegram
+              non gli consente di scriverti.</span>
+          </div>
+        </div>
+
+        <form method="post" action="{{ url_for('auth.save_telegram') }}"
+              class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="col-sm-7">
+            <label class="form-label" for="telegram_chat_id">Il tuo ID Telegram</label>
+            <input type="text" class="form-control" id="telegram_chat_id"
+                   name="telegram_chat_id" inputmode="numeric"
+                   pattern="-?\d{5,15}" placeholder="es. 123456789"
+                   value="{{ current_user['telegram_chat_id'] or '' }}">
+            <div class="form-text">Solo cifre. Vuoto = nessuna notifica personale.</div>
+          </div>
+          <div class="col-sm-5">
+            <button type="submit" class="btn btn-primary w-100">
+              <i class="bi bi-save me-1"></i> Salva</button>
+          </div>
+        </form>
+
+        {% if current_user['telegram_chat_id'] %}
+        <form method="post" action="{{ url_for('auth.test_telegram') }}" class="mt-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-send me-1"></i> Invia un messaggio di prova</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

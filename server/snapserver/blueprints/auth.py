@@ -8,6 +8,8 @@ license: MIT
 
 from __future__ import annotations
 
+import re
+
 from flask import (
     Blueprint,
     current_app,
@@ -285,6 +287,61 @@ def change_password():
         entity_id=g.user["id"],
     )
     flash("Password aggiornata.", "success")
+    return redirect(url_for("auth.profile"))
+
+
+# Un identificativo di chat Telegram e' un intero: positivo per una chat personale,
+# eventualmente negativo per un gruppo. Si accetta con una allowlist, non si indovina.
+_TELEGRAM_CHAT = re.compile(r"^-?\d{5,15}$")
+
+
+@bp.post("/profile/telegram")
+@login_required
+def save_telegram():
+    """Salva (o cancella) l'identificativo Telegram personale dell'utente."""
+    grezzo = (request.form.get("telegram_chat_id") or "").strip()
+    if grezzo and not _TELEGRAM_CHAT.match(grezzo):
+        flash("L'ID Telegram deve essere un numero (es. 123456789). Per trovarlo,"
+              " scrivi /start al bot @userinfobot su Telegram.", "warning")
+        return redirect(url_for("auth.profile"))
+    execute("UPDATE users SET telegram_chat_id = ?, updated_at = ? WHERE id = ?",
+            (grezzo or None, utc_now_str(), int(g.user["id"])))
+    log_event("user.telegram.updated",
+              "ID Telegram personale %s" % ("impostato" if grezzo else "rimosso"),
+              tenant_id=g.user["tenant_id"], entity="user", entity_id=g.user["id"])
+    flash("Notifiche personali via Telegram %s."
+          % ("attivate" if grezzo else "disattivate"), "success")
+    return redirect(url_for("auth.profile"))
+
+
+@bp.post("/profile/telegram/test")
+@login_required
+def test_telegram():
+    """Invia un messaggio di prova alla chat Telegram personale dell'utente.
+
+    Serve a verificare, dalla pagina, che l'ID sia giusto e che l'utente abbia gia'
+    avviato una conversazione con il bot (Telegram non consente al bot di scrivere per
+    primo a chi non lo ha mai contattato)."""
+    from ..channels import ChannelError, is_telegram_configured, send_telegram, telegram_config
+
+    chat_id = (g.user["telegram_chat_id"] or "").strip() if g.user["telegram_chat_id"] else ""
+    if not chat_id:
+        flash("Prima salva il tuo ID Telegram, poi invia la prova.", "warning")
+        return redirect(url_for("auth.profile"))
+    configurazione = telegram_config()
+    if not is_telegram_configured(configurazione) or not configurazione["enabled"]:
+        flash("Il bot Telegram del sistema non e' configurato o e' disattivato:"
+              " la prova non puo' partire. Rivolgiti a un amministratore.", "warning")
+        return redirect(url_for("auth.profile"))
+    try:
+        send_telegram(configurazione, chat_id,
+                      "snap: messaggio di prova. Se lo leggi, le notifiche personali"
+                      " sono configurate correttamente.")
+    except ChannelError as errore:
+        flash("Invio non riuscito: %s Se non hai mai scritto al bot, aprilo su"
+              " Telegram e premi Avvia, poi riprova." % errore, "danger")
+        return redirect(url_for("auth.profile"))
+    flash("Messaggio di prova inviato: controlla Telegram.", "success")
     return redirect(url_for("auth.profile"))
 
 

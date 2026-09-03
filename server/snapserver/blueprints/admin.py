@@ -309,10 +309,15 @@ def create_user():
     # una credenziale che nessuno riceve e nessuno vede e' un utente inutilizzabile.
     from ..notifications import _setting, invia_credenziali
 
+    # L'indirizzo del sistema nell'email e' quello dichiarato in "Indirizzo pubblico
+    # del server" (Amministrazione > Impostazioni Sistema). Se non e' ancora stato
+    # impostato si ripiega sull'indirizzo con cui si sta raggiungendo la console adesso,
+    # cosi' il nuovo utente riceve SEMPRE un URL su cui cliccare, mai un rimando generico.
+    console_url = _setting("public_url", "").strip() or request.host_url.rstrip("/")
     esito = invia_credenziali(
         email, password, nome=(request.form.get("full_name") or "").strip(),
         ruolo=ROLE_LABELS.get(role, role), tenant_id=tenant_id,
-        console_url=_setting("public_url", ""))
+        console_url=console_url)
 
     if esito["inviata"]:
         flash("Utente creato: le credenziali provvisorie sono state spedite a %s."
