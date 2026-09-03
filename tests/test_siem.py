@@ -96,6 +96,36 @@ def test_un_token_sbagliato_non_da_accesso(server_app):
         assert data.collector_by_token("non-esiste") is None
 
 
+def test_l_ascolto_integrato_non_acquisisce_se_nulla_e_dichiarato(server_app):
+    """Un SIEM non configurato non raccoglie alla cieca: il listener integrato non
+    acquisisce finche' non c'e' almeno una sorgente o un collettore dichiarato."""
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.db import execute, utc_now_str
+        from snapserver.siem import ingest, store
+
+        # Un collettore di servizio del listener (kind 'listener'), come lo crea l'ascolto.
+        adesso = utc_now_str()
+        cid = execute(
+            "INSERT INTO siem_collectors (tenant_id, name, kind, token_hash, created_at,"
+            " updated_at) VALUES (?, 'Listener', 'listener', 'x', ?, ?)",
+            (tenant_id, adesso, adesso))
+        collettore = {"id": cid, "tenant_id": tenant_id, "kind": "listener"}
+
+        riga = "<38>Sep  3 10:00:00 h sshd[1]: Failed password for a from 10.1.1.1 port 1 ssh2"
+        esito = ingest.ingest_batch(collettore, [riga])
+        assert esito.get("non_configurato"), "senza nulla di dichiarato non si acquisisce"
+        assert esito["scritti"] == 0
+        assert not store.search(tenant_id)
+
+        # Dichiarata una sorgente: da ora il listener acquisisce.
+        from snapserver.siem import data
+
+        data.create_source(tenant_id, "Un apparato", "linux", match_ip="10.1.1.1")
+        esito2 = ingest.ingest_batch(collettore, [riga])
+        assert esito2["scritti"] == 1, "con una sorgente dichiarata si acquisisce"
+
+
 # --------------------------------------------------------------------------- #
 # Rilevazione e deduplicazione
 # --------------------------------------------------------------------------- #
@@ -210,10 +240,86 @@ def admin_client(server_app):
     return client
 
 
-@pytest.mark.parametrize("scheda", ["quadro", "sorgenti", "eventi", "regole", "allarmi"])
+@pytest.mark.parametrize("scheda",
+                         ["quadro", "sorgenti", "incolla", "eventi", "regole", "allarmi"])
 def test_le_schede_del_siem_si_aprono(admin_client, scheda):
     r = admin_client.get("/siem/?scheda=%s" % scheda)
     assert r.status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Allarmi a blocchi di un centralino (MX-ONE): riconoscimento e gestione
+# --------------------------------------------------------------------------- #
+_DUMP_MXONE = """Alarm handle ...: 318337
+Alarm code .....: 15 = Equipment Malfunction
+Severity .......: 3 = alert
+Faulty Equipment: MGW 1A
+Additional text : Fan Unit Failure
+
+Alarm handle ...: 57734
+First at........: 2026-09-02 10:13:13.955156 (UTC)
+Cleared at......: 2026-09-02 10:14:17.360012 (UTC)
+Alarm code .....: 55 = System database out of order
+Severity .......: 0 = cleared, was: 4 = critical
+Faulty Equipment: DBHOST
+Additional text : Remote Host: host1.MX-ONE, User: eri_sn_d
+
+Alarm handle ...: 99999
+Alarm code .....: 15 = Equipment Malfunction
+Severity .......: 4 = critical
+Faulty Equipment: MGW 9Z
+Additional text : Power Supply Failure
+"""
+
+
+def test_riconosce_gli_allarmi_a_blocchi_di_un_centralino():
+    from snapserver.siem import parsers
+
+    eventi = parsers.parse_mxone_alarms(_DUMP_MXONE)
+    assert len(eventi) == 3, "un evento per allarme"
+    per_host = {e["host"]: e for e in eventi}
+    # Gravita' normalizzate: alert->high, cleared->info, critical->critical.
+    assert per_host["MGW 1A"]["severity"] == "high"
+    assert per_host["host1.MX-ONE"]["severity"] == "info", "un allarme rientrato non e' un guasto"
+    assert per_host["MGW 9Z"]["severity"] == "critical"
+    assert all(e["event_kind"] == "equipment_alarm" for e in eventi)
+    # L'utenza citata nel testo dell'allarme viene estratta.
+    assert per_host["host1.MX-ONE"]["username"] == "eri_sn_d"
+
+
+def test_un_allarme_di_apparato_critico_apre_subito_un_allarme(server_app):
+    """Severity 4 (critical) va aperta e gestita subito: soglia 1 sulla gravita'
+    critica. Un allarme non critico invece non apre nulla da solo."""
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.siem import data, detect, ingest
+
+        _cid, token = data.create_collector(tenant_id, "pbx")
+        collettore = data.collector_by_token(token)
+        ingest.ingest_batch(collettore, [{"message": _DUMP_MXONE}])
+        detect.run_once()
+        allarmi = data.alerts(tenant_id)
+    codici = {a["rule_code"] for a in allarmi}
+    assert "equipment_alarm_critico" in codici, "il critico deve aprire un allarme"
+    critici = [a for a in allarmi if a["rule_code"] == "equipment_alarm_critico"]
+    assert all(a["severity"] == "critical" for a in critici)
+    # Solo il MGW 9Z (critical) apre; l'alert e il rientrato no.
+    assert {a["host"] for a in critici} == {"MGW 9Z"}
+
+
+def test_la_finestra_incolla_acquisisce_e_analizza(admin_client, server_app):
+    tenant_id = _tenant_id(server_app)
+    admin_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                      follow_redirects=True)
+    risposta = admin_client.post("/siem/paste", data={"log": _DUMP_MXONE},
+                                 follow_redirects=True)
+    assert risposta.status_code == 200
+    with server_app.app_context():
+        from snapserver.siem import data
+
+        allarmi = data.alerts(tenant_id)
+    assert any(a["rule_code"] == "equipment_alarm_critico" for a in allarmi), (
+        "il log incollato deve essere acquisito e analizzato subito")
 
 
 def test_il_menu_mostra_la_voce_siem(admin_client):

@@ -240,8 +240,15 @@ def fmt_giorno_semplice(value) -> str:
     return testo[:20]
 
 
+def fmt_datetime_sec(value) -> str:
+    """Istante nel fuso del tenant CON i secondi. Serve dove il secondo conta -- per
+    esempio gli eventi del syslog, che possono arrivare a raffica nello stesso minuto."""
+    return fmt_datetime(value, "%d/%m/%Y %H:%M:%S")
+
+
 def register_template_filters(app) -> None:
     app.jinja_env.filters["dt"] = fmt_datetime
+    app.jinja_env.filters["dts"] = fmt_datetime_sec
     app.jinja_env.filters["d"] = fmt_date
     app.jinja_env.filters["dtz"] = fmt_datetime_tz
     app.jinja_env.filters["ago"] = fmt_relative

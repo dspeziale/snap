@@ -1045,6 +1045,10 @@ CREATE TABLE IF NOT EXISTS siem_alerts (
     first_event_at TEXT    NOT NULL,
     last_event_at  TEXT    NOT NULL,
     notified_at    TEXT,
+    -- Ogni allarme SIEM diventa anche un incidente in Controlli -> Incidenti, con il
+    -- ciclo di vita completo (presa in carico, chiusura, comunicazione ACN). Qui si
+    -- tiene il legame, cosi' l'aggiornamento e la chiusura restano allineati.
+    incident_id    INTEGER REFERENCES check_incidents(id) ON DELETE SET NULL,
     note           TEXT,
     decided_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
     decided_at     TEXT,

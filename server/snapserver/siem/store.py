@@ -220,16 +220,17 @@ def window_groups(tenant_id: int, event_kind: str, group_by: str,
         ammesse = _ORDINE_GRAVITA[:_ORDINE_GRAVITA.index(min_severity) + 1]
         condizioni.append("severity IN (%s)" % ", ".join("?" * len(ammesse)))
         params.extend(ammesse)
+    # group_by e' gia' vincolato all'allowlist qui sopra: l'interpolazione e' sicura.
+    sql = (
+        "SELECT {gb} AS gruppo, COUNT(*) AS n, MIN(received_at) AS primo,"
+        " MAX(received_at) AS ultimo, MAX(COALESCE(host, '')) AS host,"
+        " MAX(COALESCE(src_ip, '')) AS src_ip,"
+        " MAX(COALESCE(username, '')) AS username,"
+        " MAX(message) AS esempio"
+        " FROM siem_events WHERE " + " AND ".join(condizioni)
+        + " GROUP BY {gb} HAVING COUNT(*) >= ?").format(gb=group_by)
     with connect(path) as connection:
-        righe = connection.execute(
-            "SELECT %s AS gruppo, COUNT(*) AS n, MIN(received_at) AS primo,"
-            " MAX(received_at) AS ultimo, MAX(COALESCE(host, '')) AS host,"
-            " MAX(COALESCE(src_ip, '')) AS src_ip,"
-            " MAX(COALESCE(username, '')) AS username,"
-            " MAX(message) AS esempio"
-            " FROM siem_events WHERE " + " AND ".join(condizioni)
-            + " GROUP BY %s HAVING COUNT(*) >= ?" % group_by,
-            params + [int(threshold)]).fetchall()
+        righe = connection.execute(sql, params + [int(threshold)]).fetchall()
     return [dict(r) for r in righe]
 
 

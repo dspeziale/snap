@@ -28,6 +28,8 @@
      url_for('siem.index', scheda='quadro')),
     ('sorgenti', 'Sorgenti log', 'bi-hdd-stack', sources|length,
      url_for('siem.index', scheda='sorgenti')),
+    ('incolla', 'Incolla log', 'bi-clipboard-plus', none,
+     url_for('siem.index', scheda='incolla')),
     ('eventi', 'Eventi', 'bi-list-columns', none,
      url_for('siem.index', scheda='eventi')),
     ('regole', 'Regole di rilevazione', 'bi-sliders', rules|length,
@@ -130,6 +132,62 @@
 {% elif scheda == 'sorgenti' %}
 {% include 'siem/_sorgenti.html' %}
 
+{# ==================================================================== INCOLLA #}
+{% elif scheda == 'incolla' %}
+<div class="card">
+  <div class="card-header">
+    <h3 class="card-title mb-0"><i class="bi bi-clipboard-plus me-1"></i> Incolla log</h3>
+    <small class="text-body-secondary">
+      finche' non e' configurato un collettore, i log si possono acquisire incollandoli qui
+    </small>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Incolla il testo dei log cosi' come lo esporti dall'apparato: syslog (una riga per
+      evento) oppure un dump di allarmi a blocchi (per esempio un centralino MX-ONE, che
+      viene spezzato in un evento per allarme). Il testo passa dallo stesso
+      riconoscimento dei log raccolti dal vivo e viene analizzato subito: un allarme
+      critico compare immediatamente.
+    </p>
+    {% if has_role('analyst') %}
+    <form method="post" action="{{ url_for('siem.paste_logs') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="row g-2">
+        <div class="col-md-8">
+          <label class="form-label small mb-1" for="log">Log da acquisire</label>
+          <textarea class="form-control font-monospace" id="log" name="log" rows="16"
+                    placeholder="Incolla qui i log (syslog a righe, o un dump di allarmi a blocchi)"
+                    required></textarea>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label small mb-1" for="source_id">
+            Attribuisci a una sorgente <span class="text-body-secondary">(facoltativo)</span>
+          </label>
+          <select class="form-select form-select-sm" id="source_id" name="source_id"
+                  data-snap-select>
+            <option value="">— nessuna (attribuzione automatica) —</option>
+            {% for s in sources %}
+            <option value="{{ s.id }}">{{ s.name }}
+              {%- if s.node_ip %} · {{ s.node_ip }}{% endif %}</option>
+            {% endfor %}
+          </select>
+          <small class="text-body-secondary d-block mt-1">
+            Scegliere la sorgente collega gli eventi al suo nodo dell'inventario: cosi'
+            un allarme viene correlato ai riscontri di threat intelligence di quella
+            macchina.
+          </small>
+          <button type="submit" class="btn btn-primary mt-3 w-100">
+            <i class="bi bi-clipboard-check me-1"></i> Acquisisci e analizza
+          </button>
+        </div>
+      </div>
+    </form>
+    {% else %}
+    <p class="text-body-secondary mb-0">L'acquisizione dei log richiede il ruolo di analista.</p>
+    {% endif %}
+  </div>
+</div>
+
 {# ===================================================================== EVENTI #}
 {% elif scheda == 'eventi' %}
 <div class="card">
@@ -174,7 +232,7 @@
       <tbody>
         {% for e in eventi %}
         <tr>
-          <td class="small text-nowrap">{{ e.received_at|dt }}</td>
+          <td class="small text-nowrap">{{ e.received_at|dts }}</td>
           <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}.get(e.severity, 'secondary') }}">
             {{ e.severity }}</span></td>
           <td class="small">{{ event_kinds.get(e.event_kind, e.event_kind) }}</td>
@@ -235,7 +293,7 @@
             {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
           </td>
           <td class="text-end small">{{ a.events_count }}</td>
-          <td class="small text-nowrap">{{ a.last_event_at|dt }}</td>
+          <td class="small text-nowrap">{{ a.last_event_at|dts }}</td>
           <td><a href="{{ url_for('siem.alert', alert_id=a.id) }}"
                  class="btn btn-sm btn-outline-primary">Apri</a></td>
         </tr>

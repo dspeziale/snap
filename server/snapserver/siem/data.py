@@ -68,10 +68,30 @@ def touch_collector(collector_id: int, quanti: int) -> None:
             (utc_now_str(), int(quanti), utc_now_str(), collector_id))
 
 
+def manual_collector(tenant_id: int) -> dict:
+    """Il collettore di servizio per l'inserimento manuale dei log, creato una volta.
+
+    Serve alla finestra "Incolla log": e' un collettore come gli altri, cosi' gli
+    eventi incollati passano dalla stessa pipeline e alimentano la stessa rilevazione.
+    """
+    riga = query("SELECT * FROM siem_collectors WHERE tenant_id = ? AND kind = 'manual'",
+                 (tenant_id,), one=True)
+    if riga:
+        return dict(riga)
+    adesso = utc_now_str()
+    cid = execute(
+        "INSERT INTO siem_collectors (tenant_id, name, kind, token_hash, created_at,"
+        " updated_at) VALUES (?, 'Inserimento manuale', 'manual', ?, ?, ?)",
+        (tenant_id, token_fingerprint(generate_api_key()), adesso, adesso))
+    return dict(query("SELECT * FROM siem_collectors WHERE id = ?", (cid,), one=True))
+
+
 def collectors(tenant_id: int) -> list:
+    # I collettori di servizio (inserimento manuale, listener integrato) non si
+    # elencano: non hanno un token da consegnare a nessuno.
     return [dict(r) for r in query(
-        "SELECT * FROM siem_collectors WHERE tenant_id = ? ORDER BY name",
-        (tenant_id,))]
+        "SELECT * FROM siem_collectors WHERE tenant_id = ?"
+        " AND kind NOT IN ('manual', 'listener') ORDER BY name", (tenant_id,))]
 
 
 def delete_collector(tenant_id: int, collector_id: int) -> bool:

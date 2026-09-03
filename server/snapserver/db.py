@@ -233,6 +233,9 @@ MIGRATIONS = [
     ("nodes", "device_type_reason", "TEXT"),
     # Gravita' minima perche' un evento conti per una regola SIEM (vedi siem/detect).
     ("siem_rules", "min_severity", "TEXT"),
+    # Ogni allarme SIEM e' anche un incidente in Controlli -> Incidenti (vedi
+    # siem/incident.py): qui il legame verso quell'incidente.
+    ("siem_alerts", "incident_id", "INTEGER"),
 ]
 
 
@@ -411,7 +414,7 @@ def init_db() -> None:
     regole_siem = _semina_regole_siem(connection)
     connection.commit()
     if regole_siem:
-        current_app.logger.info("Regole SIEM iniziali create per %d tenant", regole_siem)
+        current_app.logger.info("Regole SIEM del catalogo aggiunte: %d", regole_siem)
     if aggiunte:
         current_app.logger.info("Colonne aggiunte allo schema: %s", ", ".join(aggiunte))
     if ricostruite:

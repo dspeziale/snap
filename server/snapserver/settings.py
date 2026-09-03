@@ -77,7 +77,10 @@ class Config:
     # Spento per difetto (secure by default): si accende esplicitamente. La porta sta
     # nel range del progetto (5500-5600).
     SIEM_LISTENER = _bool("SNAP_SERVER_SIEM_LISTENER", False)
-    SIEM_LISTENER_PORT = _int("SNAP_SERVER_SIEM_LISTENER_PORT", 5514)
+    # Una o piu' porte (separate da virgola) su cui ascoltare il syslog, in UDP e TCP.
+    # Il valore predefinito 5514 sta nel range del progetto; si puo' aggiungere la 514
+    # standard per gli apparati che inviano solo a quella (es. "514,5514").
+    SIEM_LISTENER_PORT = os.environ.get("SNAP_SERVER_SIEM_LISTENER_PORT", "5514")
     SIEM_LISTENER_HOST = os.environ.get("SNAP_SERVER_SIEM_LISTENER_HOST", "0.0.0.0")
 
     # Diario su file, in aggiunta a quello a schermo. Serve all'avvio assistito:

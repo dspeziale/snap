@@ -47,6 +47,7 @@ import re
 import time
 import socket
 import ssl
+import warnings
 from datetime import datetime, timezone
 from html import unescape
 from urllib.parse import urlsplit
@@ -417,7 +418,19 @@ def dettagli_certificato(grezzo: bytes) -> dict:
         from cryptography import x509
         from cryptography.hazmat.primitives.serialization import Encoding
 
-        certificato = x509.load_der_x509_certificate(grezzo)
+        # Alcuni apparati espongono certificati fuori standard (per esempio un numero
+        # di serie non positivo, vietato dalla RFC 5280): non e' un difetto nostro e
+        # non possiamo correggere il certificato dell'apparato, ma l'avviso di
+        # deprecazione non deve riempire il diario a ogni lettura. Si silenzia SOLO
+        # quella categoria, e solo attorno alle operazioni che la emettono.
+        try:
+            from cryptography.utils import CryptographyDeprecationWarning as _AvvisoCrypto
+        except ImportError:  # categoria non piu' esportata: si ripiega sul generico
+            _AvvisoCrypto = DeprecationWarning
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", _AvvisoCrypto)
+            certificato = x509.load_der_x509_certificate(grezzo)
         # Nomi: la forma corta (CN/O) per la colonna e la tabella, la forma completa
         # (DN) per chi vuole verificare esattamente chi ha emesso e per chi.
         dati["cert_soggetto"] = _nome_x509(certificato.subject)
@@ -438,7 +451,14 @@ def dettagli_certificato(grezzo: bytes) -> dict:
         dati["cert_scaduto"] = scadenza < adesso
         dati["cert_giorni_residui"] = (scadenza - adesso).days
         # Identita' del certificato: numero di serie e versione (v3 quasi ovunque).
-        dati["cert_seriale"] = format(certificato.serial_number, "X")
+        # Il numero di serie e' l'unico campo che un certificato fuori standard puo'
+        # far fallire: si isola, cosi' non porta via il resto della lettura.
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", _AvvisoCrypto)
+                dati["cert_seriale"] = format(certificato.serial_number, "X")
+        except Exception:  # noqa: BLE001 - serie non standard: si tace, non e' fatale
+            pass
         dati["cert_versione"] = getattr(certificato.version, "name", "")
         # Algoritmo di firma: un certificato ancora firmato in SHA-1 e' un dato di
         # sicurezza (algoritmo deprecato), non un dettaglio.

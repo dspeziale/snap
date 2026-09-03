@@ -401,9 +401,9 @@ def parse_mxone_alarms(testo: str) -> list[dict]:
         rientrato = "Cleared at" in campi or gravita == "info"
         sommario = "Allarme MX-ONE %s%s%s [%s]" % (
             codice,
-            (" · %s" % apparato) if apparato else "",
-            (" · %s" % dettaglio) if dettaglio else "",
-            "rientrato" if rientrato else sev_grezza.split("=")[-1].strip() or gravita)
+            (" - %s" % apparato) if apparato else "",
+            (" - %s" % dettaglio) if dettaglio else "",
+            "rientrato" if rientrato else (sev_grezza.split("=")[-1].strip() or gravita))
         eventi.append({
             "event_kind": "equipment_alarm",
             "severity": gravita,

@@ -26,7 +26,11 @@
                               'inventory.deliveries', 'inventory.delivery') %}
 {% set in_mappa = endpoint in ('inventory.network_map', 'inventory.network_map_graphic',
                                'inventory.network_map_zones') %}
-{% set in_controlli = endpoint.startswith('checks.') or endpoint.startswith('rules.') %}
+{# Gli incidenti hanno un menu proprio: si escludono da "Controlli" perche' quando si
+   guarda un incidente e' l'incidente a dover risultare attivo, non i controlli. #}
+{% set in_incidenti = endpoint in ('checks.incident_list', 'checks.incident') %}
+{% set in_controlli = (endpoint.startswith('checks.') and not in_incidenti)
+                      or endpoint.startswith('rules.') %}
 {% set in_sicurezza = endpoint.startswith('threat.') or endpoint.startswith('audit.')
                       or endpoint.startswith('acn.') %}
 {% set in_siem = endpoint.startswith('siem.') %}
@@ -48,8 +52,12 @@
     <a href="{{ url_for('dashboard.index') }}" class="brand-link">
       <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
       <span class="brand-text fw-bold">{{ app_name }}</span>
-      <span class="badge text-bg-primary ms-2">v{{ app_version }}</span>
     </a>
+    {# Il badge della versione apre il changelog: che cosa e' arrivato di nuovo con
+       questa versione, con un clic. #}
+    <button type="button" class="badge text-bg-primary border-0 ms-1"
+            data-bs-toggle="modal" data-bs-target="#modale-changelog"
+            title="Novita' di questa versione">v{{ app_version }}</button>
   </div>
 
   <div class="sidebar-wrapper">
@@ -225,18 +233,6 @@
               <a href="{{ url_for('checks.index') }}"
                  class="nav-link {% if endpoint in ('checks.index', 'checks.target', 'checks.check') %}active{% endif %}">
                 <i class="nav-icon bi bi-list-check"></i><p>Bersagli e controlli</p>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="{{ url_for('checks.incident_list') }}"
-                 class="nav-link {% if endpoint in ('checks.incident_list', 'checks.incident') %}active{% endif %}">
-                <i class="nav-icon bi bi-exclamation-triangle"></i>
-                <p>
-                  Incidenti
-                  {% if incidenti %}
-                  <span class="badge text-bg-danger">{{ incidenti }}</span>
-                  {% endif %}
-                </p>
               </a>
             </li>
             <li class="nav-item">

@@ -310,6 +310,7 @@ def _register_error_handlers(app: Flask) -> None:
 
 
 def _register_context(app: Flask) -> None:
+    from .changelog import voci as changelog_voci
     from .queries import navbar_indicators
     from .security import ROLE_LABELS, has_role, is_superadmin
 
@@ -319,6 +320,7 @@ def _register_context(app: Flask) -> None:
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            "changelog": changelog_voci(),
             "current_user": getattr(g, "user", None),
             "current_tenant": getattr(g, "tenant", None),
             "available_tenants": getattr(g, "available_tenants", []),

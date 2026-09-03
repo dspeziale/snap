@@ -74,6 +74,45 @@
   <input type="hidden" name="layout" value="{{ pref_layout }}">
 </form>
 
+{# Changelog: si apre cliccando il badge della versione nella sidebar. #}
+<div class="modal fade" id="modale-changelog" tabindex="-1"
+     aria-labelledby="titolo-changelog" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="titolo-changelog">
+          <i class="bi bi-stars me-1"></i> Novita' di {{ app_name }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body">
+        {% for voce in changelog %}
+        <div class="{{ 'mb-4' if not loop.last }}">
+          <div class="d-flex align-items-baseline gap-2 mb-1">
+            <span class="badge text-bg-{{ 'primary' if loop.first else 'secondary' }}">
+              v{{ voce.version }}</span>
+            {% if loop.first %}<span class="badge text-bg-success">attuale</span>{% endif %}
+            <span class="text-body-secondary small">{{ voce.date }}</span>
+          </div>
+          <p class="mb-2">{{ voce.abstract }}</p>
+          <ul class="small mb-0">
+            {% for cambio in voce.changes %}
+            <li>{{ cambio }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% if not loop.last %}<hr>{% endif %}
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
+          Chiudi</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/adminlte/adminlte.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>

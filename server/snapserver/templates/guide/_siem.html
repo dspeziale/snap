@@ -30,6 +30,14 @@
   <strong>5514</strong> (UDP o TCP). Il collettore si autentica con un <strong>token</strong>,
   creato in <strong>SIEM &rarr; Sorgenti log</strong> e mostrato una sola volta.
 </p>
+<p>
+  <strong>Incolla log</strong> (SIEM &rarr; Incolla log): finche' non c'e' un collettore,
+  i log si acquisiscono incollandoli in una finestra. Vale sia per il syslog a righe sia
+  per i <strong>dump di allarmi a blocchi</strong> (per esempio un centralino Ericsson
+  MX-ONE / MD110, in cui ogni allarme e' un blocco "Campo ...: valore"): il testo viene
+  spezzato in un evento per allarme e analizzato subito. Scegliendo una sorgente, gli
+  eventi incollati si attribuiscono al suo nodo e si correlano con la threat intelligence.
+</p>
 
 <h3>Onboarding di una sorgente</h3>
 <p>

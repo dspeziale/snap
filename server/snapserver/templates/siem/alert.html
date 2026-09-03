@@ -47,8 +47,8 @@
                 {% endif %}
               </td></tr>
           <tr><th>Eventi conteggiati</th><td>{{ alert.events_count }}</td></tr>
-          <tr><th>Primo evento</th><td>{{ alert.first_event_at|dt }}</td></tr>
-          <tr><th>Ultimo evento</th><td>{{ alert.last_event_at|dt }}</td></tr>
+          <tr><th>Primo evento</th><td>{{ alert.first_event_at|dts }}</td></tr>
+          <tr><th>Ultimo evento</th><td>{{ alert.last_event_at|dts }}</td></tr>
         </table>
       </div>
     </div>
@@ -69,7 +69,7 @@
           <thead><tr><th>RICEVUTO</th><th>UTENZA</th><th>MESSAGGIO</th></tr></thead>
           <tbody>
             {% for e in eventi %}
-            <tr><td class="small text-nowrap">{{ e.received_at|dt }}</td>
+            <tr><td class="small text-nowrap">{{ e.received_at|dts }}</td>
                 <td class="small">{{ e.username or '-' }}</td>
                 <td class="small text-truncate" style="max-width:520px"
                     title="{{ e.message }}">{{ e.message }}</td></tr>

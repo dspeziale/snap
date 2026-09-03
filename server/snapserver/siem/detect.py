@@ -124,6 +124,8 @@ def _upsert_alert(tenant_id: int, regola: dict, gruppo: dict, adesso: str) -> di
         " AND status IN ('open', 'ack')",
         (tenant_id, regola["code"], group_value), one=True)
 
+    from . import incident as ponte_incidente
+
     if esistente:
         execute(
             "UPDATE siem_alerts SET events_count = ?, last_event_at = ?, severity = ?,"
@@ -131,6 +133,13 @@ def _upsert_alert(tenant_id: int, regola: dict, gruppo: dict, adesso: str) -> di
             " WHERE id = ?",
             (gruppo["n"], gruppo["ultimo"], gravita, ti_refs,
              nodo["id"] if nodo else None, evidenza, titolo, adesso, esistente["id"]))
+        # L'incidente collegato segue l'allarme (conteggio, gravita', evidenza).
+        collegato = query("SELECT incident_id FROM siem_alerts WHERE id = ?",
+                          (esistente["id"],), one=True)
+        if collegato and collegato["incident_id"]:
+            ponte_incidente.aggiorna_incidente(
+                tenant_id, collegato["incident_id"],
+                {"severity": gravita, "evidence": evidenza, "events_count": gruppo["n"]})
         return {"id": esistente["id"], "nuovo": False, "gravita": gravita,
                 "notified_at": esistente["notified_at"], "riscontri": len(riscontri)}
 
@@ -144,6 +153,11 @@ def _upsert_alert(tenant_id: int, regola: dict, gruppo: dict, adesso: str) -> di
          group_value, src_ip or None, username or None, host or None,
          nodo["id"] if nodo else None, ti_refs, evidenza, gruppo["n"],
          gruppo["primo"], gruppo["ultimo"], adesso, adesso))
+    # Ogni allarme SIEM diventa anche un incidente in Controlli -> Incidenti.
+    incident_id = ponte_incidente.apri_incidente(tenant_id, {
+        "title": titolo, "severity": gravita, "host": host, "src_ip": src_ip,
+        "group_value": group_value, "evidence": evidenza})
+    execute("UPDATE siem_alerts SET incident_id = ? WHERE id = ?", (incident_id, alert_id))
     return {"id": alert_id, "nuovo": True, "gravita": gravita, "notified_at": None,
             "riscontri": len(riscontri)}
 

@@ -188,6 +188,38 @@ UNCERTAIN_MAX_PORTS = 2
 # Quante volte si tenta di confermare un candidato prima di scartarlo.
 MAX_CANDIDATE_ATTEMPTS = 2
 
+# Quante volte un host puo' essere ABBANDONATO da nmap per scadenza prima di
+# rinunciare. Un host che scade viene riprovato con piu' tempo (fino a 300s), ma
+# oltre questa soglia non e' piu' "lento": non risponde come nmap si aspetta, e
+# insistere ruberebbe ogni ciclo agli host reali -- sul campo un host e' stato
+# abbandonato oltre 600 volte, tenendo occupato uno slot per ore senza produrre
+# nulla. Superata la soglia il candidato si scarta (verra' riscoperto se torna
+# vivo) e la fase di un nodo confermato si segna "tentata", cosi' la frontiera
+# avanza sempre e non resta mai bloccata su chi non risponde.
+MAX_TIMEOUT_ABANDONMENTS = 6
+
+# Quante volte una FASE DI ISPEZIONE puo' scadere su un nodo GIA' confermato prima di
+# rinunciare e segnarla "tentata". Uno: un nodo con le porte aperte e' gia' inventario
+# utile, e su reti dove la rilevazione dei servizi scade sistematicamente (host VoIP che
+# appendono nmap, 23 su 24 abbandonati in una passata) insistere terrebbe migliaia di
+# nodi "in lavorazione" per giorni. Un solo tentativo scaduto basta a capire che quella
+# fase non concludera': si conferisce il nodo con le porte, e i servizi/OS lo
+# arricchiranno alla ri-ispezione, se un giorno risponderanno.
+MAX_STAGE_TIMEOUTS = 1
+
+# Dimensione del gruppo di host che nmap scansiona in PARALLELO nelle fasi di
+# ispezione. Senza questo, nmap adatta il gruppo partendo da pochi host e serializza:
+# sul campo una passata di servizi su 24 host abbandonati e' durata 765s (23 su 24
+# scaduti a 180s), perche' nmap ne teneva ~6 alla volta. Forzando il gruppo alla
+# dimensione del compito la passata dura quanto il singolo host (~180s), non la somma.
+MAX_HOSTGROUP = 64
+
+# Tetto all'intensita' della rilevazione versione (-sV) nella fase dei servizi. Al
+# massimo (7) nmap invia troppe sonde per porta: su apparati che non rispondono come
+# previsto la fase si trascina per centinaia di secondi. Cinque mantiene le
+# identificazioni comuni con una frazione delle sonde.
+MAX_SERVICE_INTENSITY = 5
+
 # Fasi che devono essere state svolte prima di poter dichiarare un nodo privo di
 # informazioni: tutte quelle del profilo piu' l'approfondimento.
 STAGES_BEFORE_REMOVAL = PROFILE_STAGES + ("deep",)
@@ -911,12 +943,15 @@ class NetworkScanner:
                     continue
         return sorted(porte)
 
-    def _service_ports(self, hosts: list, profilo: dict) -> list:
-        """Porte della fase dei servizi: quelle TCP note piu' udp/161.
+    def _service_ports(self, hosts: list, profilo: dict, snmp: bool = False) -> list:
+        """Porte della fase dei servizi: le porte TCP note, piu' udp/161 SOLO dove la
+        161 e' gia' risultata aperta.
 
-        La selezione diventa esplicita per protocollo: senza il prefisso `T:`/`U:`
-        nmap applicherebbe lo stesso elenco a entrambi i protocolli e tenterebbe in
-        UDP porte che in UDP non esistono, spendendo tempo per nulla.
+        Lo scan UDP e' lento e rate-limitato: farlo su OGNI host trascinava la passata
+        a centinaia di secondi su chi non risponde (sul campo oltre 800s, quasi tutti
+        scaduti), bloccando il completamento del profilo. Lo si fa quindi solo dove
+        serve davvero -- l'apparato ha gia' mostrato la 161 aperta -- e per gli altri
+        i servizi restano una rilevazione TCP, veloce.
         """
         note = self._known_open_ports(hosts)
         if note and len(note) <= MAX_EXPLICIT_PORTS:
@@ -925,7 +960,11 @@ class NetworkScanner:
             # Senza porte note si sondano le prime porte per frequenza: l'elenco
             # esplicito serve perche' --top-ports non si combina con -p.
             tcp = "1-%d" % int(profilo["top_ports"])
-        return ["-p", "T:%s,U:%d" % (tcp, SNMP_PORT)]
+        if snmp:
+            # Prefisso di protocollo esplicito: senza, nmap applicherebbe l'elenco a
+            # entrambi i protocolli e tenterebbe in UDP porte che in UDP non esistono.
+            return ["-p", "T:%s,U:%d" % (tcp, SNMP_PORT)]
+        return ["-p", tcp]
 
     def _web_nodes(self) -> list[dict]:
         """Nodi con un'interfaccia di gestione leggibile: pagina web oppure IPP.
@@ -1101,6 +1140,12 @@ class NetworkScanner:
             return ["-p", ",".join(str(p) for p in note)]
         return ["--top-ports", str(profilo["top_ports"])]
 
+    def _hostgroup(self, hosts: list = None) -> str:
+        """Quanti host far scansionare a nmap in parallelo: tutti quelli del compito,
+        entro un tetto. E' cio' che rende una passata lunga quanto il singolo host e
+        non la somma dei suoi host lenti."""
+        return str(max(1, min(len(hosts or []) or 1, MAX_HOSTGROUP)))
+
     def _arguments_for(self, stage: str, capacita: dict, profilo: dict = None,
                        hosts: list = None) -> list:
         """Argomenti di nmap per una fase, secondo il profilo di sforzo."""
@@ -1120,25 +1165,35 @@ class NetworkScanner:
             return [("-sS" if raw else "-sT"), "-Pn", timing, "--top-ports", porte,
                     "--host-timeout", attesa]
         if stage == "services":
-            # Lo script 'banner' costa poco e restituisce il testo che i servizi
-            # annunciano: spesso identifica l'apparato meglio del prodotto.
+            # Rilevazione dei servizi in TCP: -sV sulle porte gia' trovate aperte, con
+            # lo script 'banner' (il testo che i servizi annunciano, spesso identifica
+            # l'apparato meglio del prodotto) e il set curato di arricchimento.
             #
-            # udp/161 entra sempre nella ricerca: e' una sola porta, e quando risponde
-            # SNMP dice del dispositivo piu' di dieci porte TCP. Se risulta gia'
-            # aperta su qualche bersaglio, si aggiungono gli script SNMP informativi
-            # e si legge tutto il leggibile.
-            # banner (testo annunciato) + il set curato di arricchimento, che nmap
-            # applica solo alle porte pertinenti. SNMP entra dove la 161 e' aperta.
+            # Lo scan UDP (e gli script SNMP) si aggiungono SOLO dove la 161 e' gia'
+            # risultata aperta: farli su ogni host rendeva la passata lentissima e
+            # bloccava il completamento del profilo. Per la maggioranza degli host,
+            # che non espone SNMP, i servizi restano una rilevazione TCP e veloce.
+            snmp = self._snmp_open_on(hosts)
             script = "banner," + ENRICHMENT_SCRIPTS
-            if self._snmp_open_on(hosts):
+            if snmp:
                 script = script + "," + SNMP_SCRIPTS
-            return [("-sS" if raw else "-sT"), "-sU", "-Pn", "-sV",
-                    "--version-intensity", str(profilo["version_intensity"]),
-                    "--script", script, timing] + \
-                self._service_ports(hosts, profilo) + \
+            argomenti = [("-sS" if raw else "-sT")]
+            if snmp:
+                argomenti.append("-sU")
+            # Intensita' della rilevazione versione limitata: al massimo (7) nmap invia
+            # una valanga di sonde per porta e su un apparato che non risponde come
+            # previsto (VoIP, IoT) la fase si trascina per centinaia di secondi senza
+            # concludere. Il tetto la mantiene rapida senza perdere le identificazioni
+            # comuni.
+            intensita = min(int(profilo["version_intensity"]), MAX_SERVICE_INTENSITY)
+            argomenti += ["-Pn", "-sV", "--version-intensity", str(intensita),
+                          "--min-hostgroup", self._hostgroup(hosts),
+                          "--script", script, timing]
+            return argomenti + self._service_ports(hosts, profilo, snmp) + \
                 ["--host-timeout", attesa]
         if stage == "os":
             return ["-O", "--osscan-limit", "--max-os-tries", "1", "-Pn", timing,
+                    "--min-hostgroup", self._hostgroup(hosts),
                     "--top-ports", "100", "--host-timeout", attesa]
         if stage == "snmp":
             # Lettura completa di cio' che SNMP espone: nome e descrizione del
@@ -1153,12 +1208,14 @@ class NetworkScanner:
             # Esattamente il comando chiesto: enumerazione in sola lettura di sistema
             # operativo, condivisioni e utenze su chi espone la 139 o la 445.
             return ["-p", SMB_PORTS, "-Pn", "--script", SMB_SCRIPTS,
+                    "--min-hostgroup", self._hostgroup(hosts),
                     timing, "--host-timeout", SMB_HOST_TIMEOUT]
         if stage == "vuln":
             # Ricerca di vulnerabilita' in sola rilevazione, sulle porte a rischio.
             return ["-sV", "--version-light",
                     "-p", ",".join(str(n) for n in VULN_PORT_NUMBERS), "-Pn",
                     "--script", VULN_SCRIPTS, timing,
+                    "--min-hostgroup", self._hostgroup(hosts),
                     "--host-timeout", VULN_HOST_TIMEOUT]
         if stage == "deep":
             # L'approfondimento sonda gia' le porte UDP identificative, 161 compresa:
@@ -1180,17 +1237,19 @@ class NetworkScanner:
     def _process_timeout(self, stage: str, hosts: int, profilo: dict) -> int:
         """Tempo massimo del processo nmap per un compito.
 
-        Deve crescere con il tempo per host e con il numero di bersagli: un
-        limite fisso ucciderebbe la scansione prima che nmap possa concluderla,
-        e il nodo resterebbe senza profilo senza che nulla lo dichiari.
+        Le fasi di ispezione usano `--min-hostgroup` per scansionare TUTTI gli host del
+        gruppo in parallelo: il tempo reale e' quello del singolo host, non la somma.
+        Moltiplicare per il numero di host (com'era prima) portava il limite a migliaia
+        di secondi -- sul campo una passata di servizi su host VoIP che appendono nmap
+        ha tenuto un ciclo bloccato per ore, e senza che la task si concludesse il
+        "give-up" per fase non scattava mai. Un fattore piccolo e fisso basta: da'
+        margine per l'avvio e per qualche host che nmap serializza, senza consentire a
+        un solo compito di bloccare tutto.
         """
         per_host = parse_timeout(self._host_timeout_for(stage, profilo)) or 120
-        if stage in ("discovery", "monitor"):
-            # Sweep di ping: il tempo per host non si moltiplica per i bersagli
-            # nel modo in cui accade nelle fasi di ispezione.
-            stimato = per_host * 4
-        else:
-            stimato = per_host * max(1, hosts)
+        # Sia lo sweep (discovery/monitor) sia le ispezioni scansionano in parallelo:
+        # il ceiling e' un multiplo del tempo per host, non del numero di bersagli.
+        stimato = per_host * 4
         return int(min(PROCESS_TIMEOUT_MAX_SECONDS,
                        stimato + PROCESS_TIMEOUT_MARGIN_SECONDS))
 
@@ -1222,10 +1281,19 @@ class NetworkScanner:
         return "%ds" % secondi
 
     def _qualcuno_e_scaduto(self, hosts: list) -> bool:
-        """Vero se almeno uno di questi host e' gia' stato abbandonato per scadenza."""
+        """Vero se fra questi host c'e' un CANDIDATO gia' abbandonato per scadenza.
+
+        Solo i candidati: il `timeout_count` di un nodo gia' CONFERMATO viene dalla sua
+        fase di candidato (quando scadeva sullo sweep di ping) ed e' ormai superato --
+        ha risposto alle porte. Contarlo raddoppiava il tempo per host dell'intero
+        gruppo (a 300s) per una scadenza vecchia, e bastava un solo nodo cosi' a
+        rendere lentissima la fase dei servizi su tutti gli altri.
+        """
         for ip in hosts or []:
             locale = self.store.local_node(ip)
-            if not locale or not locale.get("profile_json"):
+            if not locale or locale.get("state") != "candidate":
+                continue
+            if not locale.get("profile_json"):
                 continue
             try:
                 profilo = json.loads(locale["profile_json"]) or {}
@@ -1307,6 +1375,24 @@ class NetworkScanner:
                             if n["ip"] not in assegnati]
             if porte_attesa:
                 aggiungi_un_compito("ports", porte_attesa)
+
+        # 1-ante-2. Un posto riservato al COMPLETAMENTO del profilo: le fasi necessarie
+        #    al conferimento (servizi e, dove possibile, sistema operativo) DOPO le
+        #    porte. Il conferimento dipende solo da queste fasi, non dalle letture di
+        #    arricchimento. Senza un posto garantito qui, con pochi worker i posti
+        #    riservati all'arricchimento (SNMP, SMB, vulnerabilita', web) consumano ogni
+        #    ciclo e i nodi restano fermi a "ports": confermati ma MAI conferiti, perche'
+        #    i servizi non vengono mai interrogati -- sul campo, migliaia "in lavorazione"
+        #    per ore. Prima si porta a termine il profilo, poi lo si arricchisce.
+        if len(compiti) < limite:
+            for fase in reversed(self._required_stages()):
+                if fase == "ports":
+                    continue
+                completa = [n for n in self.pending_nodes(fase)
+                            if n["ip"] not in assegnati]
+                if completa:
+                    aggiungi_un_compito(fase, completa)
+                    break
 
         # 1-bis. Un posto riservato alle letture MAI fatte: SNMP e pagine di
         #    gestione. Senza questo posto non arrivano mai al proprio turno -- sul
@@ -1858,14 +1944,61 @@ class NetworkScanner:
         for prove in letto["nodes"]:
             self._merge_profile(prove["ip"], stage, prove)
 
-        # I candidati che l'esame delle porte non ha confermato vengono scartati:
-        # e' la regola di ammissione.
+        # Gli host che nmap non ha restituito: per la fase 'ports' e' la regola di
+        # ammissione (candidato senza porte -> si valuta lo scarto); per le fasi di
+        # ispezione (servizi, sistema operativo, SMB...) un host GIA' confermato che
+        # scade NON retrocede a candidato -- ha gia' le porte -- ma dopo troppe
+        # scadenze la fase si segna "tentata", cosi' la frontiera avanza sempre.
         for prove in letto["discarded"] + letto["candidates"]:
-            self._handle_unconfirmed(prove)
+            self._handle_inspection_miss(prove, stage)
 
         # Il conferimento non avviene qui: e' il coordinatore a deciderlo, una
         # volta sola, quando tutti i compiti del ciclo hanno terminato.
         return {}
+
+    def _handle_inspection_miss(self, prove: dict, stage: str) -> None:
+        """Un host che una fase non ha restituito. Distingue il nodo confermato
+        (che non retrocede) dal candidato ancora da ammettere."""
+        locale = self.store.local_node(prove["ip"])
+        if locale and locale.get("state") == "confirmed":
+            # Un nodo confermato non torna candidato per una fase di ispezione
+            # scaduta. Se e' scaduto, dopo troppe volte la fase si segna tentata.
+            if prove.get("timed_out"):
+                self._stage_timeout_confirmed(prove["ip"], stage, locale)
+            return
+        # Nodo non ancora confermato: e' l'esame delle porte che ne decide l'ammissione.
+        self._handle_unconfirmed(prove)
+
+    def _stage_timeout_confirmed(self, ip: str, stage: str, locale: dict) -> None:
+        """Conta le scadenze di una fase su un nodo confermato e, oltre la soglia,
+        segna la fase come TENTATA cosi' non si ripete all'infinito e non blocca il
+        conferimento. Un nodo che non risponde mai a una fase va conferito con cio'
+        che ha, non tenuto "in lavorazione" per sempre."""
+        try:
+            profilo = json.loads(locale.get("profile_json") or "{}") or {}
+        except (TypeError, ValueError):
+            profilo = {}
+        conteggi = profilo.get("stage_timeouts") or {}
+        quante = int(conteggi.get(stage) or 0) + 1
+        conteggi[stage] = quante
+        profilo["stage_timeouts"] = conteggi
+        profilo["ip"] = ip
+
+        if quante < MAX_STAGE_TIMEOUTS:
+            self.store.upsert_local_node(
+                ip, profile_json=json.dumps(profilo, ensure_ascii=False))
+            return
+
+        svolte = set((locale.get("stages_done") or "").split(",")) - {""}
+        svolte.add(stage)
+        self.store.upsert_local_node(
+            ip, state="confirmed", stages_done=",".join(sorted(svolte)),
+            profile_json=json.dumps(profilo, ensure_ascii=False))
+        self.store.log(
+            "warning",
+            "Fase %s su %s segnata come tentata dopo %d scadenze: non verra' piu'"
+            " riprovata finche' le prove non cambiano, cosi' il nodo puo' essere"
+            " conferito con cio' che ha." % (stage, ip, quante))
 
     def _merge_profile(self, ip: str, stage: str, prove: dict) -> None:
         """Unisce le prove di una fase al profilo locale del nodo."""
@@ -1936,6 +2069,19 @@ class NetworkScanner:
         svolte = set((locale or {}).get("stages_done", "").split(",")) - {""}
         svolte.add(stage)
         aperte = [p for p in porte.values() if p["state"] == "open"]
+
+        # L'host ha RISPOSTO a questa fase: la sua storia di scadenze e' superata e
+        # non deve piu' penalizzare i gruppi in cui finisce. Senza questo azzeramento
+        # un nodo confermato trascinava con se' il conteggio di quando, da candidato,
+        # scadeva sullo sweep: bastava uno di questi in un gruppo per portare TUTTI i
+        # servizi a 300s per host, gonfiare il tempo del processo a migliaia di secondi
+        # e bloccare il ciclo -- e i nodi sani non ottenevano mai la fase 'services'.
+        profilo.pop("timeout_count", None)
+        profilo.pop("timed_out_at", None)
+        # Se aveva scadenze registrate su QUESTA fase (nodo confermato), ora che ha
+        # risposto si azzerano: non e' piu' un caso di rinuncia.
+        if profilo.get("stage_timeouts", {}).get(stage):
+            profilo["stage_timeouts"].pop(stage, None)
 
         self.store.upsert_local_node(
             ip,
@@ -2194,14 +2340,40 @@ class NetworkScanner:
         profilo["ip"] = ip
         profilo["timeout_count"] = quante
         profilo["timed_out_at"] = _now_str()
+
+        # Oltre la soglia si rinuncia: un host abbandonato tante volte non e' lento,
+        # non risponde, e continuare a riprovarlo tiene occupato uno slot che serve
+        # agli host reali. Si scarta con un periodo di attesa (come un host senza
+        # informazioni): lo stato "discarded" con la data attiva il cooldown, cosi'
+        # la scoperta non lo ripesca subito. Se torna a rispondere, lo ritrovera' dopo.
+        if quante >= MAX_TIMEOUT_ABANDONMENTS:
+            adesso = _now_str()
+            profilo["giveup_reason"] = "timeout_ripetuti"
+            self.store.upsert_local_node(
+                ip, state="discarded", discarded_at=adesso,
+                profile_json=json.dumps(profilo, ensure_ascii=False))
+            messaggio = ("Host %s scartato: nmap lo ha abbandonato per scadenza %d volte "
+                         "di seguito senza mai completarlo. Se torna a rispondere verra' "
+                         "riscoperto." % (ip, quante))
+            self.store.log("warning", messaggio)
+            self.store.enqueue("event", {
+                "type": "probe.node.discarded",
+                "severity": "info",
+                "description": messaggio,
+                "created_at": adesso,
+                "detail": {"indirizzo": ip, "motivo": "scadenze ripetute",
+                           "scadenze": quante},
+            })
+            return
+
         self.store.upsert_local_node(
             ip, state="candidate",
             profile_json=json.dumps(profilo, ensure_ascii=False))
         self.store.log(
             "warning",
-            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e). Il"
+            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e su %d). Il"
             " tentativo non conta e l'host resta candidato: la prossima volta avra'"
-            " piu' tempo." % (ip, quante))
+            " piu' tempo." % (ip, quante, MAX_TIMEOUT_ABANDONMENTS))
 
     def _node_record(self, prove: dict, ports_examined: bool) -> dict:
         return {

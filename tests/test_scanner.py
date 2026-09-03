@@ -534,6 +534,73 @@ def test_l_esame_delle_porte_dei_candidati_ha_un_posto_garantito(sonda):
     assert "ports" in fasi, "l'esame delle porte dei candidati deve avere un posto riservato"
 
 
+def test_il_completamento_del_profilo_ha_la_precedenza_sulle_letture(sonda):
+    """Con pochi worker il completamento del profilo (servizi, sistema operativo) non
+    deve essere affamato dai posti riservati alle letture di arricchimento (SNMP, SMB,
+    web, vulnerabilita'). Sul campo migliaia di nodi restavano confermati ma MAI
+    conferiti, fermi a 'ports', perche' i servizi -- necessari al conferimento -- non
+    ottenevano mai uno slot: il conteggio "in lavorazione" restava fermo per ore."""
+    import json as _json
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    # Nodi confermati fermi a 'ports', con porte SMB e web aperte (letture di
+    # arricchimento pendenti) ma i servizi ancora da rilevare.
+    for i in range(30):
+        ip = "192.0.2.%d" % (10 + i)
+        sonda.upsert_local_node(
+            ip, state="confirmed", stages_done="ports", open_ports=2,
+            profile_json=_json.dumps({"ip": ip, "ports_index": {
+                "tcp/445": {"protocol": "tcp", "port": 445, "state": "open"},
+                "tcp/80": {"protocol": "tcp", "port": 80, "state": "open"}}}))
+
+    # Due soli worker, come il profilo "medio" in esercizio.
+    fasi = [c["stage"] for c in scanner.plan_tasks(2)]
+    assert "services" in fasi, (
+        "il completamento del profilo deve avere un posto riservato prima delle letture,"
+        " altrimenti i nodi non vengono mai conferiti")
+
+
+def test_un_host_che_scade_troppe_volte_viene_scartato(sonda):
+    """Un host che nmap abbandona per scadenza all'infinito non e' lento: non risponde,
+    e insistere ruberebbe ogni ciclo agli host reali. Oltre la soglia si scarta -- e se
+    torna a rispondere verra' riscoperto."""
+    from snapprobe.scanner import MAX_TIMEOUT_ABANDONMENTS
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    ip = "192.0.2.50"
+    sonda.upsert_local_node(ip, state="candidate")
+
+    for i in range(MAX_TIMEOUT_ABANDONMENTS):
+        assert sonda.local_node(ip)["state"] == "candidate", (
+            "prima della soglia l'host resta candidato (era il giro %d)" % i)
+        scanner._annota_scadenza(ip, sonda.local_node(ip))
+
+    assert sonda.local_node(ip)["state"] == "discarded", (
+        "oltre la soglia l'host va scartato, non riprovato per sempre")
+
+
+def test_una_fase_che_scade_sempre_non_retrocede_il_nodo_ma_si_segna_tentata(sonda):
+    """Un nodo GIA' confermato che scade su una fase di ispezione (servizi, SMB...) non
+    torna candidato -- ha gia' le porte. Raggiunta la soglia la fase si segna 'tentata',
+    cosi' la frontiera avanza e il nodo puo' essere conferito con cio' che ha, invece di
+    restare "in lavorazione" per sempre."""
+    from snapprobe.scanner import MAX_STAGE_TIMEOUTS
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    ip = "192.0.2.60"
+    sonda.upsert_local_node(ip, state="confirmed", stages_done="ports", open_ports=2)
+    prove = {"ip": ip, "timed_out": True}
+
+    for _ in range(MAX_STAGE_TIMEOUTS):
+        scanner._handle_inspection_miss(prove, "services")
+
+    nodo = sonda.local_node(ip)
+    assert nodo["state"] == "confirmed", (
+        "un nodo confermato non retrocede a candidato per un timeout di ispezione")
+    assert "services" in set((nodo["stages_done"] or "").split(",")), (
+        "raggiunta la soglia la fase si segna tentata, cosi' il nodo puo' conferirsi")
+
+
 def test_un_host_senza_porte_ma_con_un_nome_si_conferisce_subito(sonda):
     """Se ha un nome host (o un MAC) e' un dispositivo reale: lo si conferisce come
     presenza in rete, senza attendere servizi e sistema operativo che non arriverebbero."""
@@ -591,11 +658,11 @@ def test_i_servizi_interrogano_le_porte_gia_trovate(sonda):
     argomenti = esecutore.chiamate[-1]["arguments"]
     assert "-p" in argomenti, "la fase doveva interrogare le porte note: %s" % argomenti
     elenco = argomenti[argomenti.index("-p") + 1]
-    # Le porte sono qualificate per protocollo: senza il prefisso nmap applicherebbe
-    # lo stesso elenco a TCP e UDP. La porta SNMP entra sempre.
+    # Questo host ha gia' la 161 aperta: la fase interroga le porte TCP note piu'
+    # udp/161. Dove invece la 161 non e' aperta, i servizi restano solo TCP (veloci).
     assert elenco == "T:22,443,U:161", (
-        "solo le porte TCP risultate aperte, piu' udp/161: %s" % elenco)
-    assert "-sU" in argomenti, "udp/161 richiede la scansione UDP"
+        "porte TCP note piu' udp/161 dove la 161 e' aperta: %s" % elenco)
+    assert "-sU" in argomenti, "con la 161 aperta serve la scansione UDP"
     assert "--top-ports" not in argomenti
 
 
@@ -608,9 +675,8 @@ def test_senza_porte_note_si_torna_alle_prime_porte(sonda):
     scanner.run_stage("services", "*")
     argomenti = esecutore.chiamate[-1]["arguments"]
     elenco = argomenti[argomenti.index("-p") + 1]
-    # Senza porte note si sondano le prime porte per frequenza: l'elenco e' esplicito
-    # perche' --top-ports non si combina con la selezione per protocollo.
-    assert elenco.startswith("T:1-") and elenco.endswith(",U:161"), elenco
+    # Senza porte note si sondano le prime porte TCP per frequenza (niente UDP).
+    assert elenco.startswith("1-") and "U:" not in elenco, elenco
 
 
 def test_un_profilo_illeggibile_non_ferma_la_fase(sonda):

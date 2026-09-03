@@ -47,7 +47,7 @@ from ..siem import data, store
 
 bp = Blueprint("siem", __name__, url_prefix="/siem")
 
-SCHEDE = ("quadro", "sorgenti", "eventi", "regole", "allarmi")
+SCHEDE = ("quadro", "sorgenti", "incolla", "eventi", "regole", "allarmi")
 
 
 def _current_user_id():
@@ -79,8 +79,15 @@ def index():
     if scheda not in SCHEDE:
         scheda = "quadro"
 
+    from flask import current_app
+
     sorgenti = data.sources(tenant_id)
     conosciuti = {s["match_host"] for s in sorgenti if s.get("match_host")}
+    # Con l'ascolto syslog integrato attivo, gli apparati inviano il syslog
+    # direttamente al server: non serve creare un collettore ne' un token (che
+    # servono solo al container Vector, sul canale HTTP).
+    listener_attivo = bool(current_app.config.get("SIEM_LISTENER"))
+    from ..siem.listener import porte_configurate
     contesto = {
         "scheda": scheda,
         "source_kinds": SOURCE_KINDS,
@@ -88,6 +95,9 @@ def index():
         "severity_labels": SEVERITY_LABELS,
         "alert_statuses": ALERT_STATUSES,
         "syslog_port": SYSLOG_PORT,
+        "listener_attivo": listener_attivo,
+        "listener_porte": ", ".join(
+            str(p) for p in porte_configurate(current_app)) if listener_attivo else "",
         "sources": sorgenti,
         "collectors": data.collectors(tenant_id),
         "rules": data.rules(tenant_id),
@@ -178,6 +188,71 @@ def delete_collector(collector_id: int):
 
 
 # --------------------------------------------------------------------------- #
+# Inserimento manuale dei log (finestra "Incolla log")
+# --------------------------------------------------------------------------- #
+@bp.post("/paste")
+@role_required(ROLE_ANALYST)
+def paste_logs():
+    """Ingerisce i log incollati a mano, finche' non c'e' un collettore.
+
+    Il testo passa dalla stessa pipeline dei log raccolti dal collettore: viene
+    riconosciuto, normalizzato, scritto e subito analizzato, cosi' un allarme
+    (per esempio un allarme critico di apparato) compare immediatamente.
+    """
+    from ..siem import detect, ingest
+
+    tenant_id = current_tenant_id()
+    testo = (request.form.get("log") or "").strip()
+    if not testo:
+        flash("Incollare almeno una riga di log.", "warning")
+        return redirect(url_for("siem.index", scheda="incolla"))
+
+    # Se e' stata scelta una sorgente, i suoi riferimenti (indirizzo/host) si applicano
+    # agli eventi incollati: cosi' si attribuiscono e si correlano con la threat
+    # intelligence del nodo, esattamente come i log raccolti dal vivo.
+    sorgente = None
+    source_id = request.form.get("source_id")
+    if source_id:
+        try:
+            sorgente = data.source(tenant_id, int(source_id))
+        except (TypeError, ValueError):
+            sorgente = None
+
+    def _riferimenti():
+        return {"src_ip": (sorgente or {}).get("match_ip"),
+                "host": (sorgente or {}).get("match_host")}
+
+    # Un dump di allarmi a blocchi (MX-ONE) e' UN messaggio che il parser spezza; i log
+    # a righe sono UNA riga = un evento. Si distingue dalla firma dei blocchi.
+    from ..siem import parsers
+
+    if parsers.parse_mxone_alarms(testo):
+        righe = [dict(_riferimenti(), message=testo)]
+    else:
+        righe = [dict(_riferimenti(), message=r)
+                 for r in testo.splitlines() if r.strip()]
+
+    collettore = data.manual_collector(tenant_id)
+    try:
+        esito = ingest.ingest_batch(collettore, righe)
+    except ingest.IngestError as errore:
+        flash("Log non acquisiti: %s" % errore, "warning")
+        return redirect(url_for("siem.index", scheda="incolla"))
+
+    # Analisi immediata: chi incolla un log vuole vedere subito se apre un allarme, non
+    # aspettare il giro del motore.
+    esito_rilevazione = detect.run_once()
+    log_event("siem.paste", "Log incollati manualmente: %d eventi acquisiti"
+              % esito["scritti"], tenant_id=tenant_id, severity="info",
+              entity="siem", entity_id=collettore["id"])
+    flash("Acquisiti %d eventi (%d attribuiti a una sorgente). Rilevazione: %d nuovi"
+          " allarmi." % (esito["scritti"], esito["attribuiti"],
+                         esito_rilevazione["nuovi"]),
+          "success" if not esito_rilevazione["nuovi"] else "warning")
+    return redirect(url_for("siem.index", scheda="eventi"))
+
+
+# --------------------------------------------------------------------------- #
 # Sorgenti (onboarding)
 # --------------------------------------------------------------------------- #
 @bp.post("/sources")
@@ -189,28 +264,63 @@ def create_source():
     if not nome or kind not in SOURCE_KINDS:
         flash("Indicare nome e tipologia validi per la sorgente.", "warning")
         return redirect(url_for("siem.index", scheda="sorgenti"))
-    node_id = request.form.get("node_id") or None
-    try:
-        node_id = int(node_id) if node_id else None
-    except ValueError:
-        node_id = None
+    match_host = (request.form.get("match_host") or "").strip()
+    match_ip = (request.form.get("match_ip") or "").strip()
+    if not match_host and not match_ip:
+        flash("Indicare almeno l'host dichiarato o l'indirizzo di provenienza, per"
+              " attribuire gli eventi a questa sorgente.", "warning")
+        return redirect(url_for("siem.index", scheda="sorgenti"))
+    # Nessun nodo dell'inventario: una sorgente di log puo' essere un sistema ESTERNO.
+    # La correlazione con la threat intelligence avviene da se', dall'indirizzo
+    # dell'evento, quando quell'indirizzo e' un nodo noto -- non da un legame dichiarato.
     source_id = data.create_source(
         tenant_id, nome, kind,
         vendor=request.form.get("vendor") or "",
-        match_host=request.form.get("match_host") or "",
-        match_ip=request.form.get("match_ip") or "",
-        node_id=node_id, notes=request.form.get("notes") or "")
+        match_host=match_host, match_ip=match_ip,
+        notes=request.form.get("notes") or "")
     # Onboarding a posteriori: gli eventi gia' arrivati da questo host/ip non restano
     # orfani, si attribuiscono subito alla sorgente appena dichiarata.
-    riattribuiti = store.link_source(
-        tenant_id, source_id, (request.form.get("match_host") or "").strip(),
-        (request.form.get("match_ip") or "").strip())
+    riattribuiti = store.link_source(tenant_id, source_id, match_host, match_ip)
     log_event("siem.source.created", "Sorgente SIEM creata: %s (%s)" % (nome, kind),
               tenant_id=tenant_id, severity="info", entity="siem_source",
               entity_id=source_id)
     flash("Sorgente \"%s\" creata.%s" % (
         nome, " %d eventi gia' ricevuti attribuiti." % riattribuiti
         if riattribuiti else ""), "success")
+    return redirect(url_for("siem.index", scheda="sorgenti"))
+
+
+@bp.post("/sources/<int:source_id>/edit")
+@role_required(ROLE_ANALYST)
+def edit_source(source_id: int):
+    """Modifica la configurazione di una sorgente esistente."""
+    tenant_id = current_tenant_id()
+    if data.source(tenant_id, source_id) is None:
+        abort(404)
+    nome = (request.form.get("name") or "").strip()
+    kind = (request.form.get("kind") or "other").strip()
+    if not nome or kind not in SOURCE_KINDS:
+        flash("Indicare nome e tipologia validi per la sorgente.", "warning")
+        return redirect(url_for("siem.index", scheda="sorgenti"))
+    match_host = (request.form.get("match_host") or "").strip()
+    match_ip = (request.form.get("match_ip") or "").strip()
+    if not match_host and not match_ip:
+        flash("Indicare almeno l'host dichiarato o l'indirizzo di provenienza.",
+              "warning")
+        return redirect(url_for("siem.index", scheda="sorgenti", modifica=source_id))
+    data.update_source(tenant_id, source_id, name=nome, kind=kind,
+                       vendor=request.form.get("vendor") or "",
+                       match_host=match_host, match_ip=match_ip,
+                       notes=request.form.get("notes") or "")
+    # I riferimenti possono essere cambiati: si riattribuiscono gli eventi gia' ricevuti
+    # che ora corrispondono a questa sorgente.
+    riattribuiti = store.link_source(tenant_id, source_id, match_host, match_ip)
+    log_event("siem.source.updated", "Sorgente SIEM %d modificata: %s" % (source_id, nome),
+              tenant_id=tenant_id, severity="info", entity="siem_source",
+              entity_id=source_id)
+    flash("Sorgente \"%s\" aggiornata.%s" % (
+        nome, " %d eventi riattribuiti." % riattribuiti if riattribuiti else ""),
+        "success")
     return redirect(url_for("siem.index", scheda="sorgenti"))
 
 
@@ -321,10 +431,21 @@ def set_alert_status(alert_id: int):
     if stato not in (ALERT_ACK, ALERT_CLOSED, ALERT_FALSE_POSITIVE):
         flash("Stato non previsto.", "warning")
         return redirect(url_for("siem.alert", alert_id=alert_id))
+    allarme = data.alert(tenant_id, alert_id)
     ok = data.set_alert_status(tenant_id, alert_id, stato, _current_user_email(),
                                note=request.form.get("note") or "")
     if not ok:
         abort(404)
+    # L'incidente collegato segue l'allarme: chiuderlo o dichiararlo falso positivo
+    # risolve anche l'incidente in Controlli -> Incidenti.
+    if allarme and allarme.get("incident_id") and stato in (ALERT_CLOSED,
+                                                            ALERT_FALSE_POSITIVE):
+        from ..siem import incident as ponte_incidente
+
+        esito = ("chiuso dall'operatore" if stato == ALERT_CLOSED
+                 else "falso positivo")
+        ponte_incidente.chiudi_incidente(tenant_id, allarme["incident_id"], esito,
+                                         _current_user_email())
     log_event("siem.alert.%s" % stato, "Allarme SIEM %d -> %s"
               % (alert_id, ALERT_STATUSES[stato]), tenant_id=tenant_id,
               severity="info", entity="siem_alert", entity_id=alert_id)

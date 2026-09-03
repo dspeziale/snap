@@ -8,28 +8,48 @@
   <div class="col-lg-5">
     <div class="card h-100">
       <div class="card-header"><h3 class="card-title mb-0">
-        <i class="bi bi-broadcast me-1"></i> Collettori</h3></div>
+        <i class="bi bi-broadcast me-1"></i> Come arrivano i log</h3></div>
       <div class="card-body">
+        {% if listener_attivo %}
+        {# Con l'ascolto integrato attivo il syslog arriva diretto: niente collettore,
+           niente token. Il token serve SOLO al container Vector (canale HTTP). #}
+        <div class="alert alert-success py-2 small mb-3">
+          <i class="bi bi-check-circle me-1"></i>
+          <strong>Ascolto syslog integrato attivo</strong> sulle porte
+          <strong>{{ listener_porte }}</strong> (UDP e TCP). Gli apparati inviano il
+          syslog direttamente a questo server: <strong>non serve creare un collettore
+          ne' un token</strong>. Basta dichiarare le sorgenti qui accanto.
+        </div>
+        {% else %}
         <p class="small text-body-secondary">
-          Il collettore e' chi consegna i log al server: il container Vector, oppure il
-          listener syslog integrato. Si autentica con un token, mostrato una sola volta
-          alla creazione.
+          I log si raccolgono in due modi: l'<strong>ascolto syslog integrato</strong>
+          (nessun collettore, nessun token: si attiva con
+          <code>SNAP_SERVER_SIEM_LISTENER=1</code>), oppure il <strong>container
+          Vector</strong>, che consegna via HTTP e si autentica con un token.
         </p>
-        {% if has_role('analyst') %}
-        <form method="post" action="{{ url_for('siem.create_collector') }}"
-              class="row g-2 align-items-end mb-3">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="col-8">
-            <label class="form-label small mb-1" for="cname">Nome del collettore</label>
-            <input type="text" class="form-control form-control-sm" id="cname"
-                   name="name" placeholder="es. collettore-sede" required>
-          </div>
-          <div class="col-4">
-            <button type="submit" class="btn btn-sm btn-primary w-100">
-              <i class="bi bi-plus-lg me-1"></i> Crea</button>
-          </div>
-        </form>
         {% endif %}
+
+        {# I collettori con token servono SOLO al container Vector. Con l'ascolto
+           integrato non sono necessari: si tengono a disposizione, richiudibili. #}
+        <details {{ '' if not listener_attivo }}>
+          <summary class="small text-body-secondary mb-2" style="cursor:pointer">
+            Collettori per il container Vector (con token)
+          </summary>
+          {% if has_role('analyst') %}
+          <form method="post" action="{{ url_for('siem.create_collector') }}"
+                class="row g-2 align-items-end mb-3">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-8">
+              <label class="form-label small mb-1" for="cname">Nome del collettore</label>
+              <input type="text" class="form-control form-control-sm" id="cname"
+                     name="name" placeholder="es. collettore-sede" required>
+            </div>
+            <div class="col-4">
+              <button type="submit" class="btn btn-sm btn-primary w-100">
+                <i class="bi bi-plus-lg me-1"></i> Crea</button>
+            </div>
+          </form>
+          {% endif %}
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0" data-snap-table
                  data-page-size="10" data-no-sort="">
@@ -63,10 +83,11 @@
             </tbody>
           </table>
         </div>
-        {% if not collectors %}
-        <p class="small text-body-secondary mb-0">Nessun collettore. Creane uno per
-          ottenere il token da mettere nel container Vector.</p>
-        {% endif %}
+          {% if not collectors %}
+          <p class="small text-body-secondary mb-0">Nessun collettore Vector. Con
+            l'ascolto integrato non serve.</p>
+          {% endif %}
+        </details>
       </div>
       <div class="card-footer small text-body-secondary">
         Il syslog si riceve sulla porta <strong>{{ syslog_port }}</strong> (UDP/TCP).
@@ -81,57 +102,77 @@
       <div class="card-header"><h3 class="card-title mb-0">
         <i class="bi bi-hdd-stack me-1"></i> Sorgenti (apparati)</h3></div>
       <div class="card-body">
+        {# La sorgente si riconosce dall'HOST che dichiara nel syslog o dall'INDIRIZZO
+           da cui arriva. Puo' essere un sistema ESTERNO, non per forza un nodo
+           dell'inventario: per questo non si sceglie un nodo. La correlazione con la
+           threat intelligence avviene da se', quando l'indirizzo dell'evento coincide
+           con un nodo noto. #}
+        {% set mod_id = request.args.get('modifica')|int(0) %}
+        {% set da_modificare = (sources | selectattr('id', 'equalto', mod_id) | first)
+                               if mod_id else none %}
         <p class="small text-body-secondary">
-          Una sorgente e' un apparato (o una classe di apparati) di cui dichiari che i
-          log ti appartengono: la tipologia guida il riconoscimento, l'host o
-          l'indirizzo attribuiscono gli eventi, e il legame col nodo dell'inventario
-          abilita la correlazione con la threat intelligence.
+          Una sorgente dice al SIEM che i log di un apparato ti appartengono: la
+          <strong>tipologia</strong> guida il riconoscimento del formato, l'<strong>host
+          dichiarato</strong> nel syslog o l'<strong>indirizzo di provenienza</strong>
+          attribuiscono gli eventi. Puo' essere anche un sistema esterno.
         </p>
         {% if has_role('analyst') %}
-        <form method="post" action="{{ url_for('siem.create_source') }}"
+        <form method="post" id="form-sorgente"
+              action="{{ url_for('siem.edit_source', source_id=da_modificare.id) if da_modificare
+                        else url_for('siem.create_source') }}"
               class="row g-2 align-items-end mb-3">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if da_modificare %}
+          <div class="col-12">
+            <span class="badge text-bg-warning"><i class="bi bi-pencil me-1"></i>
+              Modifica di "{{ da_modificare.name }}"</span>
+            <a href="{{ url_for('siem.index', scheda='sorgenti') }}"
+               class="btn btn-sm btn-link py-0">annulla</a>
+          </div>
+          {% endif %}
           <div class="col-6 col-md-4">
             <label class="form-label small mb-1" for="sname">Nome</label>
             <input type="text" class="form-control form-control-sm" id="sname"
-                   name="name" placeholder="es. Firewall sede" required>
+                   name="name" placeholder="es. Firewall sede" required
+                   value="{{ da_modificare.name if da_modificare }}">
           </div>
           <div class="col-6 col-md-4">
             <label class="form-label small mb-1" for="skind">Tipologia</label>
             <select class="form-select form-select-sm" id="skind" name="kind">
               {% for k, etichetta in source_kinds.items() %}
-              <option value="{{ k }}">{{ etichetta }}</option>
+              <option value="{{ k }}" {{ 'selected' if da_modificare and da_modificare.kind == k }}>
+                {{ etichetta }}</option>
               {% endfor %}
             </select>
           </div>
           <div class="col-6 col-md-4">
             <label class="form-label small mb-1" for="svendor">Costruttore</label>
             <input type="text" class="form-control form-control-sm" id="svendor"
-                   name="vendor" placeholder="es. Fortinet">
+                   name="vendor" placeholder="es. Fortinet"
+                   value="{{ da_modificare.vendor if da_modificare }}">
           </div>
           <div class="col-6 col-md-4">
             <label class="form-label small mb-1" for="mhost">Host dichiarato (syslog)</label>
             <input type="text" class="form-control form-control-sm" id="mhost"
-                   name="match_host" placeholder="es. fw-sede">
+                   name="match_host" placeholder="es. fw-sede"
+                   value="{{ da_modificare.match_host if da_modificare }}">
           </div>
           <div class="col-6 col-md-4">
             <label class="form-label small mb-1" for="mip">Indirizzo di provenienza</label>
             <input type="text" class="form-control form-control-sm" id="mip"
-                   name="match_ip" placeholder="es. 10.20.10.1">
+                   name="match_ip" placeholder="es. 10.20.10.1"
+                   value="{{ da_modificare.match_ip if da_modificare }}">
           </div>
           <div class="col-6 col-md-4">
-            <label class="form-label small mb-1" for="snode">Nodo in inventario</label>
-            <select class="form-select form-select-sm" id="snode" name="node_id"
-                    data-snap-select>
-              <option value="">— nessuno —</option>
-              {% for n in nodi %}
-              <option value="{{ n.id }}">{{ n.ip }}{% if n.hostname %} · {{ n.hostname }}{% endif %}</option>
-              {% endfor %}
-            </select>
+            <label class="form-label small mb-1" for="snotes">Note</label>
+            <input type="text" class="form-control form-control-sm" id="snotes"
+                   name="notes" placeholder="facoltative"
+                   value="{{ da_modificare.notes if da_modificare }}">
           </div>
           <div class="col-12">
             <button type="submit" class="btn btn-sm btn-primary">
-              <i class="bi bi-plus-lg me-1"></i> Dichiara la sorgente</button>
+              <i class="bi bi-{{ 'check-lg' if da_modificare else 'plus-lg' }} me-1"></i>
+              {{ 'Salva le modifiche' if da_modificare else 'Dichiara la sorgente' }}</button>
             <span class="small text-body-secondary ms-2">
               Almeno uno tra host e indirizzo, per attribuire gli eventi.</span>
           </div>
@@ -140,7 +181,7 @@
         <div class="table-responsive">
           <table class="table table-sm table-hover align-middle mb-0" data-snap-table
                  data-page-size="15" data-no-sort="AZIONI">
-            <thead><tr><th>SORGENTE</th><th>TIPO</th><th>ABBINAMENTO</th><th>NODO</th>
+            <thead><tr><th>SORGENTE</th><th>TIPO</th><th>ABBINAMENTO</th>
                 <th>EVENTI</th><th>STATO</th><th>AZIONI</th></tr></thead>
             <tbody>
               {% for s in sources %}
@@ -151,7 +192,6 @@
                 <td class="small font-monospace">
                   {{ s.match_host or '' }}{% if s.match_host and s.match_ip %} / {% endif %}{{ s.match_ip or '' }}
                   {% if not s.match_host and not s.match_ip %}-{% endif %}</td>
-                <td class="small">{{ s.node_ip or '-' }}</td>
                 <td class="text-end small">{{ s.events_total }}</td>
                 <td>
                   <span class="badge text-bg-{{ 'success' if s.is_enabled else 'secondary' }}">
@@ -159,6 +199,9 @@
                 <td>
                   {% if has_role('analyst') %}
                   <div class="d-flex gap-1 justify-content-end">
+                    <a href="{{ url_for('siem.index', scheda='sorgenti', modifica=s.id) }}#form-sorgente"
+                       class="btn btn-sm btn-outline-primary" title="Modifica">
+                      <i class="bi bi-pencil"></i></a>
                     <form method="post"
                           action="{{ url_for('siem.toggle_source', source_id=s.id) }}">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
