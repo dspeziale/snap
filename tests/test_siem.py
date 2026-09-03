@@ -326,3 +326,105 @@ def test_il_menu_mostra_la_voce_siem(admin_client):
     corpo = admin_client.get("/", follow_redirects=True).get_data(as_text=True)
     assert 'data-snap-gruppo="siem"' in corpo
     assert "/siem/?scheda=quadro" in corpo or "scheda=quadro" in corpo
+
+
+def test_si_puo_creare_una_nuova_regola_di_rilevazione(server_app):
+    """L'utente deve poter aggiungere regole proprie, oltre a quelle del catalogo.
+    La regola nasce attiva e con un codice univoco derivato dal nome."""
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.siem import data
+
+        rid = data.create_rule(tenant_id, "Troppi accessi negati", "auth_failure",
+                               "src_ip", 10, 120, "high", min_severity="medium",
+                               technique_id="T1110")
+        regola = data.rule(tenant_id, rid)
+    assert regola is not None
+    assert regola["is_enabled"] == 1
+    assert regola["code"].startswith("custom_")
+    assert regola["threshold"] == 10 and regola["severity"] == "high"
+
+
+def test_due_regole_con_lo_stesso_nome_hanno_codici_diversi(server_app):
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.siem import data
+
+        a = data.rule(tenant_id, data.create_rule(
+            tenant_id, "Regola X", "auth_failure", "src_ip", 3, 60, "low"))
+        b = data.rule(tenant_id, data.create_rule(
+            tenant_id, "Regola X", "auth_failure", "src_ip", 3, 60, "low"))
+    assert a["code"] != b["code"], "il codice deve restare univoco nel tenant"
+
+
+def test_la_cancellazione_eventi_rispetta_i_filtri(server_app):
+    """Il pulsante cancella deve togliere ESATTAMENTE gli eventi che i filtri mostrano."""
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.siem import data, ingest, store
+
+        _cid, token = data.create_collector(tenant_id, "c")
+        collettore = data.collector_by_token(token)
+        data.create_source(tenant_id, "FW", "firewall", match_ip="10.9.9.9")
+        data.create_source(tenant_id, "FW2", "firewall", match_ip="10.8.8.8")
+        righe = ["<38>Sep  2 10:%02d:00 fw sshd[1]: Failed password for a from 10.9.9.9 port 1 ssh2"
+                 % (10 + i) for i in range(3)]
+        righe += ["<38>Sep  2 11:%02d:00 fw sshd[1]: Failed password for a from 10.8.8.8 port 1 ssh2"
+                  % (10 + i) for i in range(2)]
+        ingest.ingest_batch(collettore, righe)
+        assert len(store.search(tenant_id)) == 5
+
+        tolti = store.delete_events(tenant_id, src_ip="10.9.9.9")
+        rimasti = store.search(tenant_id)
+    assert tolti == 3
+    assert len(rimasti) == 2
+    assert all(e["src_ip"] == "10.8.8.8" for e in rimasti)
+
+
+def test_la_ricerca_filtra_per_gravita_e_utenza(server_app):
+    tenant_id = _tenant_id(server_app)
+    with server_app.app_context():
+        from snapserver.siem import data, ingest, store
+
+        _cid, token = data.create_collector(tenant_id, "c")
+        collettore = data.collector_by_token(token)
+        data.create_source(tenant_id, "S", "linux", match_ip="10.7.7.7")
+        righe = ["<38>Sep  2 10:%02d:00 h sshd[1]: Failed password for mario from 10.7.7.7 port 1 ssh2"
+                 % (10 + i) for i in range(4)]
+        ingest.ingest_batch(collettore, righe)
+        per_utenza = store.search(tenant_id, username="mario")
+        inesistente = store.search(tenant_id, username="nessuno")
+    assert len(per_utenza) == 4
+    assert not inesistente
+
+
+def test_la_scheda_eventi_ha_i_filtri_di_ogni_colonna(admin_client):
+    """La scheda eventi deve filtrare su OGNI colonna e permettere la cancellazione."""
+    corpo = admin_client.get("/siem/?scheda=eventi").get_data(as_text=True)
+    assert 'id="severity"' in corpo   # gravita'
+    assert 'id="username"' in corpo   # utenza
+    assert 'id="dal"' in corpo        # ricevuto (dal)
+    assert 'id="kind"' in corpo and 'id="host"' in corpo and 'id="ip"' in corpo
+    assert "/siem/events/delete" in corpo
+
+
+def test_la_scheda_regole_permette_di_crearne_di_nuove(admin_client):
+    corpo = admin_client.get("/siem/?scheda=regole").get_data(as_text=True)
+    assert "Nuova regola" in corpo
+    assert 'action="/siem/rules"' in corpo
+
+
+def test_creare_una_regola_dalla_pagina(admin_client, server_app):
+    tenant_id = _tenant_id(server_app)
+    admin_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                      follow_redirects=True)
+    r = admin_client.post("/siem/rules", data={
+        "name": "Regola di prova", "event_kind": "auth_failure",
+        "group_by": "src_ip", "threshold": "7", "window_seconds": "180",
+        "severity": "high"}, follow_redirects=True)
+    assert r.status_code == 200
+    with server_app.app_context():
+        from snapserver.siem import data
+
+        creata = [x for x in data.rules(tenant_id) if x["name"] == "Regola di prova"]
+    assert creata and creata[0]["threshold"] == 7

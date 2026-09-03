@@ -274,6 +274,31 @@ HOST_TIMEOUT_MAX_SECONDS = 1800
 # tempo per host non e' una preferenza, e' una condizione di funzionamento. Il valore
 # scelto dall'operatore resta valido per la scoperta e per le porte.
 MIN_HOST_TIMEOUT_INSPECTION = 180
+# Le fasi di COMPLETAMENTO del profilo (servizi, sistema operativo) hanno un floor piu'
+# basso. Sono la frontiera che porta migliaia di nodi al conferimento e, dopo una sola
+# scadenza, la fase si segna "tentata": il nodo si conferisce con cio' che ha (le porte
+# le ha gia' dalla fase 'ports'). Non conviene insistere a lungo su un host che non
+# risponde a -sV: uno reattivo risponde molto prima, uno lento verrebbe abbandonato
+# comunque -- e il floor pieno teneva ferma tutta la frontiera (una passata servizi da
+# 24 host richiedeva ~470s, uno solo per ciclo). Le letture di arricchimento (SNMP, SMB,
+# vulnerabilita', approfondimento) mantengono invece il floor pieno: sono poche per giro
+# e i loro script hanno bisogno di tempo. La perdita e' recuperabile: la ri-ispezione
+# rivede i nodi conferiti quando la frontiera si e' svuotata.
+MIN_HOST_TIMEOUT_PROFILE = 90
+STAGES_PROFILE_COMPLETION = ("services", "os")
+# Tetto per singolo script NSE nella fase servizi: gli script di arricchimento su un
+# servizio che non risponde restano appesi oltre il tempo per host e trascinano l'intera
+# passata. Legarli la riporta vicino al tempo per host. Generoso per gli script comuni,
+# che rispondono in pochi secondi.
+SERVICE_SCRIPT_TIMEOUT = "30s"
+# Concorrenza minima delle sonde nella fase servizi. Davanti a molti host lenti o muti il
+# controllo di congestione di nmap RIDUCE le sonde in volo e serializza il gruppo in piu'
+# ondate: una passata da 24 host con tempo per host 90s si trascinava a ~300s (tre ondate)
+# invece dei ~90-120s di una scansione davvero parallela. Un minimo di sonde in volo tiene
+# il gruppo in parallelo. Valore prudente per una rete interna di inventario -- piu' sonde
+# simultanee, non un flood -- scelto esplicitamente per privilegiare il drenaggio della
+# frontiera su una rete di migliaia di nodi.
+SERVICE_MIN_PARALLELISM = 24
 # Tetto del tempo per host quando si riprova un host GIA' abbandonato per scadenza.
 # Oltre questo il problema non e' il tempo: e' un apparato che non risponde come
 # previsto, e insistere ruberebbe la passata a tutti gli altri.
@@ -1186,9 +1211,18 @@ class NetworkScanner:
             # concludere. Il tetto la mantiene rapida senza perdere le identificazioni
             # comuni.
             intensita = min(int(profilo["version_intensity"]), MAX_SERVICE_INTENSITY)
+            # Tetto di tempo per singolo script NSE. Gli script di arricchimento
+            # (http-title, ssl-cert, http-server-header...) su un servizio che non
+            # risponde come previsto restano appesi OLTRE il tempo per host: sul campo
+            # una passata da 24 host con tempo per host 90s si trascinava comunque a
+            # 300-440s, perche' il limite per host non fermava gli script. Legandoli si
+            # riporta la durata della passata vicino al tempo per host, senza perdere le
+            # identificazioni comuni (che rispondono in pochi secondi).
             argomenti += ["-Pn", "-sV", "--version-intensity", str(intensita),
                           "--min-hostgroup", self._hostgroup(hosts),
-                          "--script", script, timing]
+                          "--min-parallelism", str(SERVICE_MIN_PARALLELISM),
+                          "--script", script, "--script-timeout", SERVICE_SCRIPT_TIMEOUT,
+                          timing]
             return argomenti + self._service_ports(hosts, profilo, snmp) + \
                 ["--host-timeout", attesa]
         if stage == "os":
@@ -1265,10 +1299,20 @@ class NetworkScanner:
         """
         attesa = profilo["host_timeout"]
         secondi = parse_timeout(attesa) or MIN_HOST_TIMEOUT_INSPECTION
-        if stage in STAGES_NEEDING_TIME and secondi < MIN_HOST_TIMEOUT_INSPECTION:
+        # Il floor dipende dalla fase: piu' basso per il completamento del profilo
+        # (servizi, sistema operativo), pieno per le letture di arricchimento.
+        if stage in STAGES_PROFILE_COMPLETION:
+            if secondi < MIN_HOST_TIMEOUT_PROFILE:
+                secondi = MIN_HOST_TIMEOUT_PROFILE
+        elif stage in STAGES_NEEDING_TIME and secondi < MIN_HOST_TIMEOUT_INSPECTION:
             secondi = MIN_HOST_TIMEOUT_INSPECTION
 
-        if hosts and self._qualcuno_e_scaduto(hosts):
+        # Il raddoppio "seconda occasione" NON si applica al completamento del profilo:
+        # servizi e sistema operativo si arrendono dopo una sola scadenza (l'host viene
+        # segnato "tentato" e conferito con cio' che ha), quindi un tempo doppio non
+        # cambia l'esito e raddoppierebbe soltanto la durata dell'intera ondata parallela.
+        if (hosts and stage not in STAGES_PROFILE_COMPLETION
+                and self._qualcuno_e_scaduto(hosts)):
             raddoppiato = min(secondi * 2, MAX_HOST_TIMEOUT_RETRY)
             if raddoppiato > secondi:
                 self.store.log(
@@ -1384,15 +1428,38 @@ class NetworkScanner:
         #    ciclo e i nodi restano fermi a "ports": confermati ma MAI conferiti, perche'
         #    i servizi non vengono mai interrogati -- sul campo, migliaia "in lavorazione"
         #    per ore. Prima si porta a termine il profilo, poi lo si arricchisce.
+        #    Quando l'arretrato del profilo e' GRANDE, il completamento prende la
+        #    maggior parte dei posti liberi del ciclo, non uno solo: i compiti girano a
+        #    barriera (il ciclo dura quanto il compito piu' lento) e con un solo lotto di
+        #    servizi per ciclo migliaia di nodi non si conferiscono mai. L'arricchimento
+        #    (SNMP, SMB, vulnerabilita', web) aspetta che la frontiera si svuoti; con
+        #    arretrato piccolo torna il posto singolo e l'arricchimento riprende il suo.
         if len(compiti) < limite:
+            pendenti = {}
             for fase in reversed(self._required_stages()):
                 if fase == "ports":
                     continue
-                completa = [n for n in self.pending_nodes(fase)
+                pendenti[fase] = [n for n in self.pending_nodes(fase)
+                                  if n["ip"] not in assegnati]
+            molti = sum(len(v) for v in pendenti.values()) > per_compito
+            for fase in reversed(self._required_stages()):
+                if fase == "ports" or len(compiti) >= limite:
+                    continue
+                completa = [n for n in (pendenti.get(fase) or [])
                             if n["ip"] not in assegnati]
-                if completa:
-                    aggiungi_un_compito(fase, completa)
+                if not completa:
+                    continue
+                aggiungi_un_compito(fase, completa)
+                if not molti:
+                    # Arretrato piccolo: un solo lotto di profilo, poi l'arricchimento.
                     break
+                completa = [n for n in completa if n["ip"] not in assegnati]
+                while completa and len(compiti) < limite:
+                    prima = len(compiti)
+                    aggiungi_un_compito(fase, completa)
+                    if len(compiti) == prima:
+                        break
+                    completa = [n for n in completa if n["ip"] not in assegnati]
 
         # 1-bis. Un posto riservato alle letture MAI fatte: SNMP e pagine di
         #    gestione. Senza questo posto non arrivano mai al proprio turno -- sul
@@ -1854,7 +1921,7 @@ class NetworkScanner:
             return self._records_discovery(letto, claimed)
         if stage == "monitor":
             return self._records_monitor(letto, hosts or [], alive_extra or {})
-        return self._records_inspection(letto, stage)
+        return self._records_inspection(letto, stage, hosts or [])
 
     def _records_discovery(self, letto: dict, claimed=None) -> dict:
         """La scoperta conferisce i nodi con prove; i nudi restano candidati.
@@ -1934,7 +2001,7 @@ class NetworkScanner:
         campioni = [c for c in campioni if c["ip"] in noti]
         return {"monitor": campioni} if campioni else {}
 
-    def _records_inspection(self, letto: dict, stage: str) -> dict:
+    def _records_inspection(self, letto: dict, stage: str, bersagli: list = None) -> dict:
         """Fasi di ispezione: le prove si accumulano nel profilo locale.
 
         Nulla viene conferito qui. Il conferimento avviene in
@@ -1951,6 +2018,27 @@ class NetworkScanner:
         # scadenze la fase si segna "tentata", cosi' la frontiera avanza sempre.
         for prove in letto["discarded"] + letto["candidates"]:
             self._handle_inspection_miss(prove, stage)
+
+        # Gli host che nmap ha ABBANDONATO del tutto: su una fase di ispezione un
+        # apparato lento -- VoIP, IoT, sistemi che non rispondono a -sV -- viene
+        # scartato da nmap al superare del tempo per host e non compare nell'XML, ne'
+        # fra i nodi ne' fra gli scartati. Prima non erano contati da nessuna parte:
+        # la fase non li portava mai a termine, il pianificatore li ripescava a OGNI
+        # ciclo e la frontiera restava bloccata (sul campo: migliaia "in lavorazione"
+        # per giorni, il conteggio dei conferiti fermo). Un host confermato assente
+        # dal risultato vale come una scadenza di fase, esattamente come uno che nmap
+        # restituisce marcato scaduto: dopo la soglia la fase e' "tentata" e il nodo
+        # puo' essere conferito con cio' che ha. Non riguarda 'ports' (li' l'assenza e'
+        # gestita dall'ammissione dei candidati) ne' la scoperta.
+        if bersagli and stage not in ("discovery", "ports"):
+            visti = {p["ip"] for p in
+                     letto["nodes"] + letto["candidates"] + letto["discarded"]}
+            for ip in bersagli:
+                if ip in visti:
+                    continue
+                locale = self.store.local_node(ip)
+                if locale and locale.get("state") == "confirmed":
+                    self._stage_timeout_confirmed(ip, stage, locale)
 
         # Il conferimento non avviene qui: e' il coordinatore a deciderlo, una
         # volta sola, quando tutti i compiti del ciclo hanno terminato.

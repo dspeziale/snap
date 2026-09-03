@@ -3,6 +3,89 @@
   tecnica ATT&CK che le lega alla threat intelligence.
   remarks: Autore: Daniele Speziale - Data: 2026-09-02
 #}
+{% if has_role('analyst') %}
+<div class="card mb-3">
+  <div class="card-header"><h3 class="card-title mb-0">
+    <i class="bi bi-plus-circle me-1"></i> Nuova regola di rilevazione</h3></div>
+  <div class="card-body">
+    <p class="small text-body-secondary">
+      Una regola conta gli eventi di un certo <strong>genere</strong>, raggruppati per
+      un campo (indirizzo, utenza o host): quando in una finestra di tempo superano la
+      <strong>soglia</strong>, apre un allarme della <strong>gravita'</strong> indicata.
+      La gravita' minima limita il conteggio ai soli eventi gia' gravi.
+    </p>
+    <form method="post" action="{{ url_for('siem.create_rule') }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label class="form-label small mb-1" for="nr_name">Nome</label>
+        <input type="text" class="form-control form-control-sm" id="nr_name" name="name"
+               required placeholder="es. Troppi login falliti">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1" for="nr_kind">Genere di evento</label>
+        <select class="form-select form-select-sm" id="nr_kind" name="event_kind" required>
+          {% for k, etichetta in event_kinds.items() %}
+          <option value="{{ k }}">{{ etichetta }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1" for="nr_group">Raggruppa per</label>
+        <select class="form-select form-select-sm" id="nr_group" name="group_by">
+          <option value="src_ip">Indirizzo di provenienza</option>
+          <option value="username">Utenza</option>
+          <option value="host">Host</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="nr_threshold">Soglia (eventi)</label>
+        <input type="number" min="1" class="form-control form-control-sm"
+               id="nr_threshold" name="threshold" value="5">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="nr_window">Finestra (s)</label>
+        <input type="number" min="30" step="30" class="form-control form-control-sm"
+               id="nr_window" name="window_seconds" value="300">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="nr_sev">Gravita'</label>
+        <select class="form-select form-select-sm" id="nr_sev" name="severity">
+          {% for s in ['critical','high','medium','low','info'] %}
+          <option value="{{ s }}" {{ 'selected' if s == 'medium' }}>
+            {{ severity_labels[s] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="nr_minsev">Gravita' minima</label>
+        <select class="form-select form-select-sm" id="nr_minsev" name="min_severity">
+          <option value="">Qualunque</option>
+          {% for s in ['critical','high','medium','low','info'] %}
+          <option value="{{ s }}">{{ severity_labels[s] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1" for="nr_tech">
+          ATT&CK <span class="text-body-secondary">(facoltativo)</span></label>
+        <input type="text" class="form-control form-control-sm" id="nr_tech"
+               name="technique_id" placeholder="es. T1110">
+      </div>
+      <div class="col-12">
+        <label class="form-label small mb-1" for="nr_desc">
+          Descrizione <span class="text-body-secondary">(facoltativa)</span></label>
+        <input type="text" class="form-control form-control-sm" id="nr_desc"
+               name="description" placeholder="A cosa serve questa regola">
+      </div>
+      <div class="col-12">
+        <button type="submit" class="btn btn-sm btn-primary">
+          <i class="bi bi-plus-lg me-1"></i> Crea regola</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header"><h3 class="card-title mb-0">
     <i class="bi bi-sliders me-1"></i> Regole di rilevazione</h3></div>
@@ -53,12 +136,20 @@
             {{ 'attiva' if r.is_enabled else 'sospesa' }}</span></td>
           <td>
             {% if has_role('analyst') %}
-            <form method="post" action="{{ url_for('siem.toggle_rule', rule_id=r.id) }}">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-outline-secondary"
-                      title="{{ 'Sospendi' if r.is_enabled else 'Attiva' }}">
-                <i class="bi bi-{{ 'pause' if r.is_enabled else 'play' }}"></i></button>
-            </form>
+            <div class="d-flex gap-1">
+              <form method="post" action="{{ url_for('siem.toggle_rule', rule_id=r.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-secondary"
+                        title="{{ 'Sospendi' if r.is_enabled else 'Attiva' }}">
+                  <i class="bi bi-{{ 'pause' if r.is_enabled else 'play' }}"></i></button>
+              </form>
+              <form method="post" action="{{ url_for('siem.delete_rule', rule_id=r.id) }}"
+                    data-confirm="Eliminare la regola &quot;{{ r.name }}&quot;? Se e' una regola del catalogo verra' ricreata al riavvio.">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger" title="Elimina">
+                  <i class="bi bi-trash"></i></button>
+              </form>
+            </div>
             {% endif %}
           </td>
         </tr>

@@ -109,19 +109,24 @@ def index():
         contesto["host_ignoti"] = store.unknown_hosts(tenant_id, conosciuti)
         contesto["allarmi_recenti"] = data.alerts(tenant_id, status="open", limit=15)
     elif scheda == "eventi":
-        contesto["eventi"] = store.search(
-            tenant_id,
-            kind=(request.args.get("kind") or "").strip(),
-            host=(request.args.get("host") or "").strip(),
-            src_ip=(request.args.get("ip") or "").strip(),
-            text=(request.args.get("q") or "").strip(),
-            limit=1000)
-        contesto["filtri"] = {
-            "kind": request.args.get("kind") or "",
-            "host": request.args.get("host") or "",
-            "ip": request.args.get("ip") or "",
-            "q": request.args.get("q") or "",
+        filtri = {
+            "kind": (request.args.get("kind") or "").strip(),
+            "host": (request.args.get("host") or "").strip(),
+            "ip": (request.args.get("ip") or "").strip(),
+            "severity": (request.args.get("severity") or "").strip(),
+            "username": (request.args.get("username") or "").strip(),
+            "dal": (request.args.get("dal") or "").strip(),
+            "q": (request.args.get("q") or "").strip(),
         }
+        contesto["eventi"] = store.search(
+            tenant_id, kind=filtri["kind"], host=filtri["host"],
+            src_ip=filtri["ip"], severity=filtri["severity"],
+            username=filtri["username"], since=filtri["dal"], text=filtri["q"],
+            limit=1000)
+        contesto["filtri"] = filtri
+        from ..siem import SEVERITIES
+
+        contesto["severities"] = SEVERITIES
     elif scheda == "allarmi":
         contesto["alerts"] = data.alerts(
             tenant_id, status=(request.args.get("stato") or "").strip(),
@@ -253,6 +258,43 @@ def paste_logs():
 
 
 # --------------------------------------------------------------------------- #
+# Eventi
+# --------------------------------------------------------------------------- #
+@bp.post("/events/delete")
+@role_required(ROLE_ANALYST)
+def delete_events():
+    """Cancella gli eventi che rispondono ai filtri correnti (gli stessi mostrati).
+
+    Senza filtri svuota l'archivio del tenant. I log contengono utenze e indirizzi:
+    poterli cancellare a mano e' un requisito di minimizzazione (GDPR art. 5).
+    """
+    tenant_id = current_tenant_id()
+    filtri = {
+        "kind": (request.form.get("kind") or "").strip(),
+        "host": (request.form.get("host") or "").strip(),
+        "src_ip": (request.form.get("ip") or "").strip(),
+        "severity": (request.form.get("severity") or "").strip(),
+        "username": (request.form.get("username") or "").strip(),
+        "since": (request.form.get("dal") or "").strip(),
+        "text": (request.form.get("q") or "").strip(),
+    }
+    quanti = store.delete_events(tenant_id, **filtri)
+    con_filtri = any(filtri.values())
+    log_event("siem.events.deleted",
+              "Eventi SIEM cancellati: %d (%s)" % (
+                  quanti, "con filtri" if con_filtri else "archivio svuotato"),
+              tenant_id=tenant_id, severity="warning", entity="siem")
+    flash("Cancellati %d eventi.%s" % (
+        quanti, "" if con_filtri else " Archivio svuotato."), "success")
+    # Si torna alla scheda eventi conservando i filtri applicati.
+    ritorno = {k: v for k, v in {
+        "kind": filtri["kind"], "host": filtri["host"], "ip": filtri["src_ip"],
+        "severity": filtri["severity"], "username": filtri["username"],
+        "dal": filtri["since"], "q": filtri["text"]}.items() if v}
+    return redirect(url_for("siem.index", scheda="eventi", **ritorno))
+
+
+# --------------------------------------------------------------------------- #
 # Sorgenti (onboarding)
 # --------------------------------------------------------------------------- #
 @bp.post("/sources")
@@ -354,6 +396,61 @@ def delete_source(source_id: int):
 # --------------------------------------------------------------------------- #
 # Regole
 # --------------------------------------------------------------------------- #
+# I campi su cui una regola puo' raggruppare i conteggi: sono le colonne
+# normalizzate su cui ha senso contare una raffica.
+GROUP_BY_VALIDI = ("src_ip", "username", "host")
+
+
+@bp.post("/rules")
+@role_required(ROLE_ANALYST)
+def create_rule():
+    """Crea una nuova regola di rilevazione definita dall'utente."""
+    tenant_id = current_tenant_id()
+    from ..siem import SEVERITIES
+
+    nome = (request.form.get("name") or "").strip()
+    event_kind = (request.form.get("event_kind") or "").strip()
+    group_by = (request.form.get("group_by") or "src_ip").strip()
+    gravita = (request.form.get("severity") or "").strip()
+    min_gravita = (request.form.get("min_severity") or "").strip()
+    if not nome or event_kind not in EVENT_KINDS or gravita not in SEVERITIES \
+            or group_by not in GROUP_BY_VALIDI:
+        flash("Indicare nome, genere di evento, raggruppamento e gravita' validi.",
+              "warning")
+        return redirect(url_for("siem.index", scheda="regole"))
+    if min_gravita and min_gravita not in SEVERITIES:
+        flash("Gravita' minima non valida.", "warning")
+        return redirect(url_for("siem.index", scheda="regole"))
+    try:
+        soglia = max(1, int(request.form.get("threshold") or 1))
+        finestra = max(30, int(request.form.get("window_seconds") or 300))
+    except ValueError:
+        flash("Soglia e finestra devono essere numeri.", "warning")
+        return redirect(url_for("siem.index", scheda="regole"))
+    rule_id = data.create_rule(
+        tenant_id, nome, event_kind, group_by, soglia, finestra, gravita,
+        description=request.form.get("description") or "", min_severity=min_gravita,
+        technique_id=request.form.get("technique_id") or "")
+    log_event("siem.rule.created", "Regola SIEM creata: %s" % nome,
+              tenant_id=tenant_id, severity="info", entity="siem_rule",
+              entity_id=rule_id)
+    flash("Regola \"%s\" creata e attiva." % nome, "success")
+    return redirect(url_for("siem.index", scheda="regole"))
+
+
+@bp.post("/rules/<int:rule_id>/delete")
+@role_required(ROLE_ANALYST)
+def delete_rule(rule_id: int):
+    tenant_id = current_tenant_id()
+    if not data.delete_rule(tenant_id, rule_id):
+        abort(404)
+    log_event("siem.rule.deleted", "Regola SIEM %d eliminata" % rule_id,
+              tenant_id=tenant_id, severity="warning", entity="siem_rule",
+              entity_id=rule_id)
+    flash("Regola eliminata.", "success")
+    return redirect(url_for("siem.index", scheda="regole"))
+
+
 @bp.post("/rules/<int:rule_id>/toggle")
 @role_required(ROLE_ANALYST)
 def toggle_rule(rule_id: int):

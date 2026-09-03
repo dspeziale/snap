@@ -114,10 +114,15 @@ def insert_events(righe: list[dict], path: Path | None = None) -> int:
     return len(valori)
 
 
-def search(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
-           text: str = "", since: str = "", limit: int = 1000,
-           path: Path | None = None) -> list[dict]:
-    """Gli eventi piu' recenti che rispondono ai filtri, dal piu' nuovo."""
+def _filtri_eventi(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
+                   text: str = "", severity: str = "", username: str = "",
+                   since: str = "") -> tuple[list, list]:
+    """Costruisce la clausola WHERE condivisa fra la ricerca e la cancellazione.
+
+    Perche' condivisa: il pulsante "cancella" deve togliere ESATTAMENTE gli eventi
+    che i filtri mostrano, non un insieme diverso. Un solo punto di verita' per i
+    filtri evita che ricerca e cancellazione divergano nel tempo.
+    """
     where = ["tenant_id = ?"]
     params: list = [int(tenant_id)]
     if kind:
@@ -129,18 +134,50 @@ def search(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
     if src_ip:
         where.append("src_ip = ?")
         params.append(src_ip)
+    if severity:
+        where.append("severity = ?")
+        params.append(severity)
+    if username:
+        where.append("username = ?")
+        params.append(username)
     if text:
         where.append("(message LIKE ? OR username LIKE ? OR app LIKE ?)")
         params.extend(["%%%s%%" % text] * 3)
     if since:
         where.append("received_at >= ?")
         params.append(since)
+    return where, params
+
+
+def search(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
+           text: str = "", severity: str = "", username: str = "", since: str = "",
+           limit: int = 1000, path: Path | None = None) -> list[dict]:
+    """Gli eventi piu' recenti che rispondono ai filtri, dal piu' nuovo."""
+    where, params = _filtri_eventi(tenant_id, kind, host, src_ip, text,
+                                   severity, username, since)
     with connect(path) as connection:
         righe = connection.execute(
             "SELECT * FROM siem_events WHERE " + " AND ".join(where)
             + " ORDER BY received_at DESC, id DESC LIMIT ?",
             params + [int(limit)]).fetchall()
     return [dict(r) for r in righe]
+
+
+def delete_events(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
+                  text: str = "", severity: str = "", username: str = "",
+                  since: str = "", path: Path | None = None) -> int:
+    """Cancella gli eventi che rispondono ai filtri (gli stessi della ricerca).
+
+    Senza filtri cancella tutti gli eventi del tenant: e' l'operazione di svuotamento
+    dell'archivio. I log contengono utenze e indirizzi: poterli cancellare a mano,
+    oltre alla retention automatica, e' un requisito di minimizzazione (GDPR art. 5).
+    """
+    where, params = _filtri_eventi(tenant_id, kind, host, src_ip, text,
+                                   severity, username, since)
+    with connect(path) as connection:
+        cursore = connection.execute(
+            "DELETE FROM siem_events WHERE " + " AND ".join(where), params)
+    return cursore.rowcount
 
 
 def summary(tenant_id: int, path: Path | None = None) -> dict:

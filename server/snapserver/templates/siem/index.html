@@ -192,9 +192,27 @@
 {% elif scheda == 'eventi' %}
 <div class="card">
   <div class="card-header">
+    {# Un filtro per OGNI colonna della tabella: ricevuto (dal), gravita', genere,
+       host, origine (indirizzo), utenza, messaggio (testo). #}
     <form method="get" action="{{ url_for('siem.index') }}" class="row g-2 align-items-end">
       <input type="hidden" name="scheda" value="eventi">
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="dal">Dal</label>
+        <input type="datetime-local" class="form-control form-control-sm" id="dal"
+               name="dal" value="{{ filtri.dal }}">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="severity">Gravita'</label>
+        <select class="form-select form-select-sm" id="severity" name="severity"
+                data-autosubmit>
+          <option value="">Tutte</option>
+          {% for s in severities %}
+          <option value="{{ s }}" {{ 'selected' if filtri.severity == s }}>
+            {{ severity_labels[s] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
         <label class="form-label small mb-1" for="kind">Genere</label>
         <select class="form-select form-select-sm" id="kind" name="kind" data-autosubmit>
           <option value="">Tutti</option>
@@ -203,7 +221,7 @@
           {% endfor %}
         </select>
       </div>
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md-2">
         <label class="form-label small mb-1" for="host">Host</label>
         <input type="text" class="form-control form-control-sm" id="host" name="host"
                value="{{ filtri.host }}">
@@ -213,16 +231,47 @@
         <input type="text" class="form-control form-control-sm" id="ip" name="ip"
                value="{{ filtri.ip }}">
       </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small mb-1" for="username">Utenza</label>
+        <input type="text" class="form-control form-control-sm" id="username"
+               name="username" value="{{ filtri.username }}">
+      </div>
       <div class="col-6 col-md-3">
-        <label class="form-label small mb-1" for="q">Testo</label>
+        <label class="form-label small mb-1" for="q">Messaggio</label>
         <input type="search" class="form-control form-control-sm" id="q" name="q"
                value="{{ filtri.q }}" placeholder="messaggio, utenza, app">
       </div>
-      <div class="col-12 col-md-1">
+      <div class="col-6 col-md-2">
         <button type="submit" class="btn btn-sm btn-primary w-100">
-          <i class="bi bi-funnel"></i></button>
+          <i class="bi bi-funnel me-1"></i> Filtra</button>
+      </div>
+      <div class="col-6 col-md-2">
+        <a href="{{ url_for('siem.index', scheda='eventi') }}"
+           class="btn btn-sm btn-outline-secondary w-100">
+          <i class="bi bi-x-lg me-1"></i> Azzera</a>
       </div>
     </form>
+    {% if has_role('analyst') %}
+    {# Cancellazione: un modulo a se' (i moduli non si annidano) che ripete i filtri
+       correnti in campi nascosti, cosi' cancella ESATTAMENTE cio' che i filtri mostrano.
+       La conferma AWN reinvia il modulo per programma: lo stato sta nei campi nascosti. #}
+    <form method="post" action="{{ url_for('siem.delete_events') }}" class="mt-2 text-end"
+          data-confirm="{{ 'Cancellare gli eventi che rispondono ai filtri correnti? L\'operazione non e\' reversibile.' if (filtri.kind or filtri.host or filtri.ip or filtri.severity or filtri.username or filtri.dal or filtri.q) else 'Svuotare TUTTO l\'archivio eventi del tenant? L\'operazione non e\' reversibile.' }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="kind" value="{{ filtri.kind }}">
+      <input type="hidden" name="host" value="{{ filtri.host }}">
+      <input type="hidden" name="ip" value="{{ filtri.ip }}">
+      <input type="hidden" name="severity" value="{{ filtri.severity }}">
+      <input type="hidden" name="username" value="{{ filtri.username }}">
+      <input type="hidden" name="dal" value="{{ filtri.dal }}">
+      <input type="hidden" name="q" value="{{ filtri.q }}">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash me-1"></i>
+        {% if filtri.kind or filtri.host or filtri.ip or filtri.severity or filtri.username or filtri.dal or filtri.q %}
+        Cancella eventi filtrati
+        {% else %}Svuota archivio eventi{% endif %}</button>
+    </form>
+    {% endif %}
   </div>
   <div class="card-body p-0"><div class="table-responsive">
     <table class="table table-sm table-hover align-middle mb-0" data-snap-table
@@ -239,8 +288,8 @@
           <td class="small font-monospace">{{ e.host or '-' }}</td>
           <td class="small font-monospace">{{ e.src_ip or '-' }}</td>
           <td class="small">{{ e.username or '-' }}</td>
-          <td class="small text-truncate" style="max-width:420px"
-              title="{{ e.message }}">{{ e.message }}</td>
+          <td class="small" style="min-width:22rem;white-space:normal;word-break:break-word">
+            {{ e.message }}</td>
         </tr>
         {% endfor %}
       </tbody>

@@ -601,6 +601,50 @@ def test_una_fase_che_scade_sempre_non_retrocede_il_nodo_ma_si_segna_tentata(son
         "raggiunta la soglia la fase si segna tentata, cosi' il nodo puo' conferirsi")
 
 
+def test_un_host_assente_dal_risultato_di_ispezione_avanza_verso_il_conferimento(sonda):
+    """Il difetto che bloccava la frontiera: su una fase di ispezione nmap ABBANDONA
+    gli host lenti (VoIP, IoT che non rispondono a -sV entro il tempo per host) e non
+    li mette nell'XML, ne' fra i nodi ne' fra gli scartati. Prima non venivano contati
+    da nessuna parte: la fase non li portava mai a termine, il pianificatore li ripescava
+    a ogni ciclo e migliaia di nodi restavano "in lavorazione" per sempre con il conteggio
+    dei conferiti fermo. Ora un host confermato assente dal risultato vale come una
+    scadenza di fase, esattamente come uno restituito marcato scaduto."""
+    from snapprobe.scanner import MAX_STAGE_TIMEOUTS
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    ip = "192.0.2.61"
+    sonda.upsert_local_node(ip, state="confirmed", stages_done="ports", open_ports=3)
+    # nmap non ha restituito NULLA per questo host: letto vuoto, ma era fra i bersagli.
+    letto_vuoto = {"nodes": [], "candidates": [], "discarded": []}
+
+    for _ in range(MAX_STAGE_TIMEOUTS):
+        scanner._records_inspection(letto_vuoto, "services", [ip])
+
+    nodo = sonda.local_node(ip)
+    assert nodo["state"] == "confirmed", (
+        "un host assente dal risultato di ispezione non retrocede a candidato")
+    assert "services" in set((nodo["stages_done"] or "").split(",")), (
+        "un host confermato che nmap abbandona del tutto deve comunque far avanzare la "
+        "fase, altrimenti la frontiera resta bloccata a ogni ciclo")
+
+
+def test_su_ports_un_host_assente_non_viene_segnato_tentato_come_ispezione(sonda):
+    """La rete di sicurezza per gli host abbandonati vale SOLO per le fasi di ispezione.
+    Su 'ports' l'assenza e' l'ammissione dei candidati (senza porte -> scarto), non una
+    scadenza di fase: non va segnata 'tentata', altrimenti si conferirebbe un nodo che
+    non ha mai avuto una porta esaminata."""
+    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    ip = "192.0.2.62"
+    sonda.upsert_local_node(ip, state="confirmed", stages_done="", open_ports=0)
+    letto_vuoto = {"nodes": [], "candidates": [], "discarded": []}
+
+    scanner._records_inspection(letto_vuoto, "ports", [ip])
+
+    nodo = sonda.local_node(ip)
+    assert "ports" not in set((nodo["stages_done"] or "").split(",")), (
+        "su 'ports' l'assenza non e' una scadenza di fase da segnare tentata")
+
+
 def test_un_host_senza_porte_ma_con_un_nome_si_conferisce_subito(sonda):
     """Se ha un nome host (o un MAC) e' un dispositivo reale: lo si conferisce come
     presenza in rete, senza attendere servizi e sistema operativo che non arriverebbero."""

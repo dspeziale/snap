@@ -259,6 +259,22 @@
           </ul>
         </li>
 
+        {# --- Incidenti: un menu a se'. Vi confluiscono gli incidenti dei controlli,
+               quelli registrati a mano e gli allarmi del SIEM: tutto cio' che va
+               guardato adesso sta in un posto solo. #}
+        <li class="nav-item">
+          <a href="{{ url_for('checks.incident_list') }}"
+             class="nav-link {% if in_incidenti %}active{% endif %}">
+            <i class="nav-icon bi bi-exclamation-triangle"></i>
+            <p>
+              Incidenti
+              {% if incidenti %}
+              <span class="badge text-bg-danger">{{ incidenti }}</span>
+              {% endif %}
+            </p>
+          </a>
+        </li>
+
         {# --- Sicurezza: cio' che si e' trovato contro cio' che si sa --------- #}
         <li class="nav-item {% if in_sicurezza %}menu-open{% endif %}"
             data-snap-gruppo="sicurezza">

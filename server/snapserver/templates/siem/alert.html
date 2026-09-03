@@ -123,28 +123,34 @@
     <div class="card mt-3">
       <div class="card-header"><h3 class="card-title mb-0">Decidi</h3></div>
       <div class="card-body">
-        <form method="post"
-              action="{{ url_for('siem.set_alert_status', alert_id=alert.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <div class="mb-2">
-            <label class="form-label small mb-1" for="note">Nota (facoltativa)</label>
-            <textarea class="form-control form-control-sm" id="note" name="note"
-                      rows="2"></textarea>
-          </div>
-          <div class="d-grid gap-2">
-            {% if alert.status == 'open' %}
-            <button class="btn btn-sm btn-warning" name="status" value="ack">
+        {# Ogni azione e' un modulo proprio con lo stato in un campo NASCOSTO: la
+           conferma AWN reinvia il modulo per programma e non porterebbe con se' il
+           valore di un pulsante (vedi snap-dialogs.js). #}
+        {% set azione = url_for('siem.set_alert_status', alert_id=alert.id) %}
+        <div class="d-grid gap-2">
+          {% if alert.status == 'open' %}
+          <form method="post" action="{{ azione }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="ack">
+            <button type="submit" class="btn btn-sm btn-warning w-100">
               <i class="bi bi-person-check me-1"></i> Prendi in carico</button>
-            {% endif %}
-            <button class="btn btn-sm btn-outline-success" name="status" value="closed"
-                    data-confirm="Chiudere l'allarme? Se l'attacco riprende ne verra' aperto uno nuovo.">
+          </form>
+          {% endif %}
+          <form method="post" action="{{ azione }}"
+                data-confirm="Chiudere l'allarme? Se l'attacco riprende ne verra' aperto uno nuovo.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="closed">
+            <button type="submit" class="btn btn-sm btn-outline-success w-100">
               <i class="bi bi-check-lg me-1"></i> Chiudi (risolto)</button>
-            <button class="btn btn-sm btn-outline-secondary" name="status"
-                    value="false_positive"
-                    data-confirm="Segnare come falso positivo? L'allarme viene chiuso.">
+          </form>
+          <form method="post" action="{{ azione }}"
+                data-confirm="Segnare come falso positivo? L'allarme viene chiuso.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="status" value="false_positive">
+            <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
               <i class="bi bi-x-circle me-1"></i> Falso positivo</button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
     {% endif %}

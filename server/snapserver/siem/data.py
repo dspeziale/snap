@@ -196,6 +196,51 @@ def set_rule_enabled(tenant_id: int, rule_id: int, attiva: bool) -> bool:
     return True
 
 
+def _codice_regola_unico(tenant_id: int, name: str) -> str:
+    """Un codice stabile e univoco per una regola creata a mano.
+
+    Le regole del catalogo hanno un codice noto (usato dal seed per non duplicarle);
+    quelle create dall'utente ne ricevono uno derivato dal nome, con prefisso 'custom_'
+    per distinguerle, garantito univoco nel tenant.
+    """
+    import re
+
+    base = re.sub(r"[^a-z0-9]+", "_", (name or "regola").lower()).strip("_") or "regola"
+    base = ("custom_" + base)[:48]
+    codice = base
+    n = 1
+    while query("SELECT id FROM siem_rules WHERE tenant_id = ? AND code = ?",
+                (tenant_id, codice), one=True):
+        n += 1
+        codice = "%s_%d" % (base, n)
+    return codice
+
+
+def create_rule(tenant_id: int, name: str, event_kind: str, group_by: str,
+                threshold: int, window_seconds: int, severity: str,
+                description: str = "", min_severity: str = "",
+                technique_id: str = "") -> int:
+    """Crea una regola di rilevazione definita dall'utente."""
+    adesso = utc_now_str()
+    return execute(
+        "INSERT INTO siem_rules (tenant_id, code, name, description, event_kind,"
+        " group_by, threshold, window_seconds, severity, min_severity, technique_id,"
+        " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (tenant_id, _codice_regola_unico(tenant_id, name), name.strip(),
+         description.strip() or None, event_kind, group_by, int(threshold),
+         int(window_seconds), severity, min_severity or None,
+         technique_id.strip() or None, adesso, adesso))
+
+
+def delete_rule(tenant_id: int, rule_id: int) -> bool:
+    riga = query("SELECT id FROM siem_rules WHERE id = ? AND tenant_id = ?",
+                 (rule_id, tenant_id), one=True)
+    if riga is None:
+        return False
+    execute("DELETE FROM siem_rules WHERE id = ?", (rule_id,))
+    return True
+
+
 def update_rule(tenant_id: int, rule_id: int, threshold: int,
                 window_seconds: int, severity: str) -> bool:
     riga = query("SELECT id FROM siem_rules WHERE id = ? AND tenant_id = ?",
