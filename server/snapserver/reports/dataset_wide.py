@@ -363,14 +363,31 @@ def perimeter(tenant_id: int) -> list:
 
 
 def nodes_detail(tenant_id: int, limite: int = MAX_NODI) -> list:
-    return [dict(r) for r in query(
-        "SELECT n.ip, n.hostname, n.mac, n.mac_vendor, n.status, n.os_name, n.os_family,"
-        " n.device_type, n.device_label, n.device_confidence, n.latency_ms,"
+    nodi = [dict(r) for r in query(
+        "SELECT n.id, n.ip, n.hostname, n.mac, n.mac_vendor, n.status, n.os_name,"
+        " n.os_family, n.device_type, n.device_label, n.device_confidence, n.latency_ms,"
         " n.first_seen_at, n.last_seen_at, s.cidr,"
         " (SELECT COUNT(*) FROM node_ports p WHERE p.node_id = n.id"
         "  AND p.state = 'open') AS porte"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE n.tenant_id = ? ORDER BY inet(n.ip)", (tenant_id,))]
+
+    # Elenco delle porte aperte per nodo, per la vista a badge del report. Il
+    # raggruppamento si fa in Python e non con group_concat/string_agg: i due dialetti
+    # (SQLite in sviluppo, PostgreSQL in produzione) li scrivono in modo diverso, e
+    # l'ordinamento dentro l'aggregazione non e' portabile. Una sola query, poi si
+    # attacca a ciascun nodo la sua lista.
+    per_nodo: dict = {}
+    for r in query(
+            "SELECT node_id, protocol, port, is_suspect FROM node_ports"
+            " WHERE tenant_id = ? AND state = 'open' ORDER BY port, protocol",
+            (tenant_id,)):
+        per_nodo.setdefault(int(r["node_id"]), []).append(
+            {"porta": int(r["port"]), "protocollo": r["protocol"],
+             "sospetta": int(r["is_suspect"] or 0)})
+    for n in nodi:
+        n["porte_elenco"] = per_nodo.get(int(n["id"]), [])
+    return nodi
 
 
 def services_detail(tenant_id: int, limite: int = MAX_SERVIZI) -> list:

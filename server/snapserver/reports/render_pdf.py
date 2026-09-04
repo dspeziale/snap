@@ -65,6 +65,23 @@ OK = HexColor("#1b7247")
 ATTENZIONE = HexColor("#8f5600")
 CRITICO = HexColor("#a32620")
 
+# Dal tipo di dispositivo alla categoria di pittogramma disegnato nel badge del report.
+# Le chiavi sono i `device_type` prodotti dalla classificazione; cio' che non e' in
+# elenco (o e' ignoto) prende il segno neutro.
+CATEGORIA_ICONA = {
+    "server_unix": "server", "server_windows": "server", "hypervisor": "server",
+    "nas": "storage",
+    "workstation_windows": "pc", "workstation_mac": "pc",
+    "printer": "printer",
+    "voip_phone": "phone", "mobile": "phone",
+    "firewall": "firewall",
+    "router_gateway": "router",
+    "switch_managed": "switch",
+    "access_point": "wifi",
+    "ip_camera": "camera",
+    "ups": "ups",
+}
+
 # Un genere, un colore, un'etichetta. La fascia e' scura perche' il titolo va in bianco;
 # l'accento serve alle barrette delle sezioni e ai valori; il chiaro alle fasce di
 # indicatori e alle righe alternate delle tabelle.
@@ -1059,6 +1076,220 @@ class Foglio:
         if abbreviata:
             self._nota_abbreviazione()
 
+    def _icona_tipo(self, cx, cy, dim, tipo, colore):
+        """Disegna a vettore un pittogramma del tipo di dispositivo, centrato in (cx, cy).
+
+        Nel PDF non c'e' un font di icone (le icone del web sono in woff, che ReportLab
+        non legge): i pittogrammi si disegnano a vettore, cosi' restano nitidi a ogni
+        dimensione e seguono il colore del tema. La categoria si ricava dal tipo; cio' che
+        non si riconosce prende un segno neutro con il punto interrogativo.
+        """
+        cat = CATEGORIA_ICONA.get(tipo or "", "generic")
+        c = self.c
+        c.saveState()
+        c.setStrokeColor(colore)
+        c.setFillColor(colore)
+        c.setLineWidth(max(0.9, dim * 0.06))
+        c.setLineJoin(1)
+        d = dim
+        left = cx - d / 2
+        bot = cy - d / 2
+
+        def rr(x, y, w, h, r=1.5):
+            c.roundRect(x, y, w, h, r, stroke=1, fill=0)
+
+        if cat == "server":
+            h = d * 0.42
+            rr(left, cy + d * 0.03, d, h)
+            rr(left, bot, d, h)
+            c.circle(left + d * 0.15, cy + d * 0.03 + h / 2, d * 0.045, stroke=0, fill=1)
+            c.circle(left + d * 0.15, bot + h / 2, d * 0.045, stroke=0, fill=1)
+        elif cat == "storage":
+            for i in range(3):
+                y = bot + i * d * 0.32
+                c.ellipse(left, y, left + d, y + d * 0.26, stroke=1, fill=0)
+        elif cat == "pc":
+            rr(left, cy - d * 0.05, d, d * 0.6)
+            c.line(cx, cy - d * 0.05, cx, bot + d * 0.08)
+            c.line(cx - d * 0.24, bot + d * 0.02, cx + d * 0.24, bot + d * 0.02)
+        elif cat == "printer":
+            rr(left + d * 0.16, bot + d * 0.58, d * 0.68, d * 0.3)
+            rr(left, bot + d * 0.2, d, d * 0.42)
+            rr(left + d * 0.16, bot, d * 0.68, d * 0.24)
+        elif cat == "phone":
+            rr(cx - d * 0.26, bot, d * 0.52, d, r=2.2)
+            c.line(cx - d * 0.1, bot + d * 0.1, cx + d * 0.1, bot + d * 0.1)
+        elif cat == "firewall":
+            rr(left, bot, d, d, r=1)
+            c.line(left, bot + d / 3, left + d, bot + d / 3)
+            c.line(left, bot + 2 * d / 3, left + d, bot + 2 * d / 3)
+            c.line(cx, bot, cx, bot + d / 3)
+            c.line(left + d / 4, bot + d / 3, left + d / 4, bot + 2 * d / 3)
+            c.line(left + 3 * d / 4, bot + d / 3, left + 3 * d / 4, bot + 2 * d / 3)
+            c.line(cx, bot + 2 * d / 3, cx, bot + d)
+        elif cat == "router":
+            rr(left, bot, d, d * 0.46)
+            c.line(left + d * 0.28, bot + d * 0.46, left + d * 0.16, bot + d)
+            c.line(left + d * 0.72, bot + d * 0.46, left + d * 0.84, bot + d)
+            for k in range(3):
+                c.circle(left + d * 0.26 + k * d * 0.24, bot + d * 0.22, d * 0.04,
+                         stroke=0, fill=1)
+        elif cat == "switch":
+            rr(left, bot + d * 0.3, d, d * 0.4)
+            for k in range(5):
+                c.rect(left + d * 0.08 + k * d * 0.17, bot + d * 0.38, d * 0.1, d * 0.12,
+                       stroke=1, fill=0)
+        elif cat == "wifi":
+            c.circle(cx, bot + d * 0.12, d * 0.06, stroke=0, fill=1)
+            for k in (1, 2, 3):
+                rad = d * 0.16 * k
+                c.arc(cx - rad, bot + d * 0.12 - rad, cx + rad, bot + d * 0.12 + rad,
+                      55, 70)
+        elif cat == "camera":
+            rr(left, bot + d * 0.22, d * 0.82, d * 0.48)
+            c.circle(left + d * 0.41, bot + d * 0.46, d * 0.15, stroke=1, fill=0)
+            c.rect(left + d * 0.6, bot + d * 0.66, d * 0.22, d * 0.12, stroke=1, fill=0)
+        elif cat == "ups":
+            rr(left + d * 0.12, bot, d * 0.76, d)
+            c.rect(cx - d * 0.1, bot + d, d * 0.2, d * 0.08, stroke=0, fill=1)
+            c.line(cx + d * 0.06, bot + d * 0.72, cx - d * 0.08, bot + d * 0.46)
+            c.line(cx - d * 0.08, bot + d * 0.46, cx + d * 0.02, bot + d * 0.46)
+            c.line(cx + d * 0.02, bot + d * 0.46, cx - d * 0.06, bot + d * 0.2)
+        else:  # generic / unknown
+            rr(left, bot, d, d, r=3)
+            c.setFont(self.font["corpo_grassetto"], d * 0.72)
+            c.drawCentredString(cx, cy - d * 0.26, "?")
+        c.restoreState()
+
+    def _impagina_griglia(self, preparati, colonne, larghezza):
+        """Dispone una lista di badge gia' misurati su piu' colonne, a mattoni.
+
+        Ogni voce di `preparati` e' {"altezza": punti, "disegna": f(x, y_alto)}: la
+        misura serve a scegliere la colonna piu' vuota e a decidere il cambio pagina; il
+        disegno lo fa la voce, che conosce il proprio contenuto. E' il motore condiviso
+        fra la griglia dei nodi e quella dei servizi: riempie sempre la colonna piu'
+        vuota, cosi' non resta spazio bianco, e cambia pagina quando nemmeno quella
+        basta.
+        """
+        n = max(1, int(colonne))
+        cols_x = [MARGINE + i * (larghezza + self.GRONDA) for i in range(n)]
+        gap = 6
+        # Non iniziare la griglia in fondo alla pagina.
+        self.spazio(70)
+        cols_y = [self.y] * n
+        for voce in preparati:
+            h = voce["altezza"]
+            j = max(range(n), key=lambda i: cols_y[i])
+            if cols_y[j] - h < MARGINE + 34:
+                self._nuova_pagina()
+                cols_y = [self.y] * n
+                j = 0
+            voce["disegna"](cols_x[j], cols_y[j])
+            cols_y[j] = cols_y[j] - h - gap
+        self.y = min(cols_y) - 4
+
+    def griglia_nodi_servizi(self, nodi, servizi, colonne=2,
+                             nota_vuota="Inventario vuoto."):
+        """Nodi E servizi in un'unica vista a badge: per ogni indirizzo, il tipo e le
+        porte proprie con prodotto e versione.
+
+        Fonde le due sezioni che prima ripetevano lo stesso indirizzo -- una per il nodo,
+        una per i suoi servizi -- in un solo riquadro per nodo: l'indirizzo si scrive una
+        volta sola, e sotto ci sono le sue porte con cio' che risponde. Le porte INIETTATE
+        (di un apparato di rete, non del nodo) non si elencano: si contano in coda, perche'
+        sono le stesse su quasi tutta la rete e sono gia' spiegate a parte. I riquadri si
+        dispongono su piu' colonne riempiendo sempre la piu' vuota, cosi' lo spazio non si
+        spreca.
+        """
+        if not nodi:
+            self.paragrafo(nota_vuota, INCHIOSTRO_3)
+            return
+        c = self.c
+        utile = self.larghezza - 2 * MARGINE
+        n = max(1, int(colonne))
+        larghezza = (utile - self.GRONDA * (n - 1)) / n
+        pad = 5
+        interna = larghezza - 2 * pad
+        corpo_ip, corpo_srv = 8, 6.5
+        riga_srv = corpo_srv + 2.5
+        max_righe = 40  # oltre, il resto si dichiara: un badge non deve alzarsi a pagina
+        corpo_cap = 6                  # didascalia del tipo e del sistema operativo
+        dim_icona = 18                 # icona del tipo, a destra: abbastanza grande
+        # Fascia dell'intestazione: contiene l'indirizzo, sotto la didascalia (tipo e
+        # sistema operativo a parole) e, a destra, l'icona.
+        testa_h = max(dim_icona, corpo_ip + corpo_cap + 5) + 4
+
+        # Servizi PROPRI per indirizzo (le porte iniettate si contano, non si elencano).
+        # I servizi arrivano gia' ordinati per indirizzo e porta.
+        per_ip: dict = {}
+        for s in servizi:
+            if s.get("is_suspect"):
+                continue
+            per_ip.setdefault(s["ip"], []).append(s)
+
+        def riga_servizio(s):
+            porta = ("%d" % s["port"]) if s["protocol"] == "tcp" \
+                else ("%d/%s" % (s["port"], s["protocol"]))
+            descr = " ".join(x for x in (s.get("service_name"), s.get("product"),
+                                         s.get("version")) if x)
+            testo = "%s  %s" % (porta, descr) if descr else porta
+            return self._entra(testo, self.font["corpo"], corpo_srv, interna)[0]
+
+        def prepara(nodo):
+            ip = nodo["ip"]
+            elenco = per_ip.get(ip, [])
+            iniettate = sum(1 for p in (nodo.get("porte_elenco") or [])
+                            if p.get("sospetta"))
+            troncate = max(0, len(elenco) - max_righe)
+            righe = [riga_servizio(s) for s in elenco[:max_righe]]
+            if not righe:
+                righe = [self._entra("nessuna porta propria", self.font["corpo"],
+                                     corpo_srv, interna)[0]]
+            coda = []
+            if troncate:
+                coda.append("+%d servizi…" % troncate)
+            if iniettate:
+                coda.append("+%d iniett." % iniettate)
+            tipo = nodo.get("device_type") or ""
+            # Tipo e sistema operativo a parole, sotto l'indirizzo. Larghezza ridotta
+            # perche' a destra c'e' l'icona.
+            etichetta = nodo.get("device_label") or nodo.get("device_type") or ""
+            os_nome = nodo.get("os_name") or ""
+            didascalia = " · ".join(x for x in (etichetta, os_nome) if x)
+            if didascalia:
+                didascalia = self._entra(didascalia, self.font["corpo"], corpo_cap,
+                                         interna - dim_icona - 6)[0]
+            altezza = (pad + testa_h + len(righe) * riga_srv
+                       + (riga_srv if coda else 0) + pad)
+
+            def disegna(x, y):
+                c.setFillColor(self.tema["chiaro"])
+                c.roundRect(x, y - altezza + 2, larghezza, altezza - 2, 3, stroke=0, fill=1)
+                # Intestazione: indirizzo in alto, didascalia (tipo · s.o.) sotto, icona
+                # del tipo a destra, abbastanza grande da leggersi a colpo d'occhio.
+                top = y - pad
+                c.setFillColor(self.tema["banda"])
+                c.setFont(self.font["corpo_grassetto"], corpo_ip)
+                c.drawString(x + pad, top - corpo_ip + 1, ip)
+                if didascalia:
+                    c.setFillColor(INCHIOSTRO_3)
+                    c.setFont(self.font["corpo"], corpo_cap)
+                    c.drawString(x + pad, top - corpo_ip - corpo_cap - 1, didascalia)
+                self._icona_tipo(x + larghezza - pad - dim_icona / 2,
+                                 top - testa_h / 2, dim_icona, tipo, self.tema["accento"])
+                c.setFont(self.font["corpo"], corpo_srv)
+                yy = y - pad - testa_h - corpo_srv + 2
+                for r in righe:
+                    c.setFillColor(INCHIOSTRO_2)
+                    c.drawString(x + pad, yy, r)
+                    yy -= riga_srv
+                if coda:
+                    c.setFillColor(INCHIOSTRO_3)
+                    c.drawString(x + pad, yy, "  ".join(coda))
+
+            return {"altezza": altezza, "disegna": disegna}
+
+        self._impagina_griglia([prepara(nodo) for nodo in nodi], n, larghezza)
 
     def _nota_abbreviazione(self):
         """Dice che qualche valore e' abbreviato, invece di lasciarlo indovinare.

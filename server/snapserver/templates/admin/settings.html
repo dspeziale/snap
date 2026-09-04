@@ -221,6 +221,46 @@
   </div>
 
   </div>
+
+  {# Esportazione delle subnet di ciascun tenant: un .txt con un CIDR per riga. #}
+  <div class="row g-3 mt-1">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">
+          <h3 class="card-title mb-0"><i class="bi bi-filetype-txt me-1"></i>
+            Esporta le subnet</h3>
+          <small class="text-body-secondary">
+            un file .txt con un CIDR per riga, in ordine numerico -- pronto da rileggere
+            o da reimportare</small>
+        </div>
+        <div class="card-body p-0"><div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-sort="AZIONE">
+            <thead><tr><th>TENANT</th><th>CODICE</th>
+                <th class="text-end">SUBNET</th><th>AZIONE</th></tr></thead>
+            <tbody>
+              {% for t in tenant_subnets %}
+              <tr>
+                <td class="small">{{ t.name }}</td>
+                <td class="small font-monospace">{{ t.code }}</td>
+                <td class="text-end small">{{ t.subnet_count }}</td>
+                <td>
+                  {% if t.subnet_count %}
+                  <a href="{{ url_for('admin.export_subnets', tenant_id=t.id) }}"
+                     class="btn btn-sm btn-outline-primary" download>
+                    <i class="bi bi-download me-1"></i> Esporta .txt</a>
+                  {% else %}
+                  <span class="text-body-secondary small">nessuna subnet dichiarata</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="tab-pane fade" id="pane-ist-volumi" role="tabpanel"

@@ -898,6 +898,45 @@ def test_l_inventario_tecnico_elenca_nodi_servizi_e_perimetro(server_app):
     assert dati["troncato"]["nodi"] is False
 
 
+def test_l_inventario_attacca_le_porte_a_ogni_nodo_per_i_badge(server_app):
+    """La vista a badge del report ha bisogno delle porte per nodo, non del solo
+    conteggio: il badge le elenca sotto l'indirizzo."""
+    tenant = _tenant(server_app)
+    _rete_con_servizi(server_app, int(tenant["id"]))
+    with server_app.app_context():
+        from snapserver.reports import dataset_wide
+        from snapserver.reports.windows import today_local, zone_of
+
+        zona = zone_of(tenant)
+        dati = dataset_wide.inventory(tenant, zona, today_local(zona), 30)
+
+    nodo = dati["nodi"][0]
+    assert "porte_elenco" in nodo, "ogni nodo porta la propria lista di porte"
+    porte = {(p["porta"], p["protocollo"]) for p in nodo["porte_elenco"]}
+    assert (22, "tcp") in porte and (161, "udp") in porte
+    assert all("sospetta" in p for p in nodo["porte_elenco"])
+
+
+def test_il_report_mostra_i_nodi_a_badge_con_le_porte(server_app):
+    """La sezione Nodi e' a badge per indirizzo, con le porte aperte proprie."""
+    tenant = _tenant(server_app)
+    _rete_con_servizi(server_app, int(tenant["id"]))
+    with server_app.app_context():
+        from snapserver.reports import generate as gen
+        from snapserver.reports.windows import today_local, zone_of
+
+        zona = zone_of(tenant)
+        percorso = gen.generate("inventory", tenant, today_local(zona), 30)
+
+    testo = _testo_pdf(percorso)
+    assert "10.9.0.5" in testo, "l'indirizzo del nodo compare nel suo badge"
+    assert "un badge per indirizzo" in testo, "la sezione Nodi si presenta a badge"
+    assert "161/udp" in testo, "le porte proprie del nodo compaiono nel badge"
+    # Il tipo (a parole) e il sistema operativo compaiono nella didascalia del badge.
+    assert "Server Linux" in testo and "Linux 5.x" in testo, (
+        "il badge riporta tipo e sistema operativo a parole")
+
+
 def test_il_report_soc_apre_con_le_variazioni(server_app):
     """La variazione e' il segnale, non lo stato (RP-12)."""
     tenant = _tenant(server_app)

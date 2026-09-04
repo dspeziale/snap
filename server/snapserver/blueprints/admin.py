@@ -492,8 +492,21 @@ def settings():
 
     posta = smtp_config()
     telegram = telegram_config()
+    # Tenant di cui si possono esportare le subnet: tutti per l'amministratore di
+    # sistema, solo il proprio per l'amministratore di tenant.
+    if is_superadmin():
+        tenant_subnet_rows = query(
+            "SELECT t.id, t.code, t.name,"
+            " (SELECT COUNT(*) FROM subnets s WHERE s.tenant_id = t.id) AS subnet_count"
+            " FROM tenants t ORDER BY t.name COLLATE NOCASE")
+    else:
+        tenant_subnet_rows = query(
+            "SELECT t.id, t.code, t.name,"
+            " (SELECT COUNT(*) FROM subnets s WHERE s.tenant_id = t.id) AS subnet_count"
+            " FROM tenants t WHERE t.id = ?", (tenant_id,))
     return render_template(
         "admin/settings.html",
+        tenant_subnets=[dict(r) for r in tenant_subnet_rows],
         # Manutenzione dell'archivio: dimensione, conservazione, copie. La dimensione
         # e' la domanda che si pone prima di qualunque altra: senza, la conservazione
         # e' una politica senza conseguenze visibili.
@@ -874,6 +887,45 @@ def create_backup():
              ". Rimosse %d copie piu' vecchie." % len(esito["rimosse"])
              if esito["rimosse"] else "."), "success")
     return redirect(url_for("admin.settings"))
+
+
+@bp.get("/tenants/<int:tenant_id>/subnets.txt")
+@role_required(ROLE_TENANT_ADMIN)
+def export_subnets(tenant_id: int):
+    """Esporta le subnet di un tenant in un file di testo, una per riga.
+
+    Formato semplice apposta: un elenco di CIDR, uno per riga, che si rilegge da
+    qualunque strumento e si reimporta senza conversioni. L'ordine e' numerico, non
+    alfabetico, cosi' 10.2.20.0/24 non finisce prima di 10.2.100.0/24.
+    """
+    import ipaddress
+
+    from flask import Response
+
+    from ..tenancy import require_tenant_access
+
+    require_tenant_access(tenant_id)
+    tenant = query("SELECT code FROM tenants WHERE id = ?", (tenant_id,), one=True)
+    if tenant is None:
+        abort(404)
+    cidrs = [r["cidr"] for r in query(
+        "SELECT cidr FROM subnets WHERE tenant_id = ?", (tenant_id,))]
+
+    def chiave(cidr):
+        try:
+            return (0, int(ipaddress.ip_network(cidr, strict=False).network_address),
+                    ipaddress.ip_network(cidr, strict=False).prefixlen)
+        except ValueError:
+            return (1, 0, cidr)
+
+    cidrs.sort(key=chiave)
+    corpo = "".join("%s\n" % c for c in cidrs)
+    log_event("settings.subnets.exported",
+              "Subnet del tenant esportate in .txt: %d" % len(cidrs),
+              tenant_id=tenant_id, entity="tenant", entity_id=tenant_id)
+    nome = "subnet-%s.txt" % (tenant["code"] or tenant_id)
+    return Response(corpo, mimetype="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="%s"' % nome})
 
 
 @bp.get("/settings/backup/<nome>/download")

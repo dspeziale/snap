@@ -21,6 +21,32 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.2.7",
+        "date": "2026-09-04",
+        "abstract": "Il report tecnico di inventario diventa molto piu' compatto: nodi e"
+                    " servizi in un'unica vista a badge per indirizzo, con l'icona del"
+                    " tipo, e le spiegazioni ripetute ridotte a una sola. Arriva il"
+                    " profilo Operatore SIEM, con un menu su misura.",
+        "changes": [
+            "Report \"Inventario e valutazione tecnica\" molto piu' compatto: le sezioni"
+            " Nodi e Servizi rilevati sono fuse in un'unica vista a \"badge\" per"
+            " indirizzo -- indirizzo, tipo e sistema operativo a parole, icona del tipo"
+            " di dispositivo, e le porte proprie con prodotto e versione. Su una rete di"
+            " circa 7.000 nodi il documento passa da ~1.680 a ~880 pagine (da 7,8 a"
+            " 4,3 MB).",
+            "Le porte \"iniettate\" dalla rete (aperte su quasi tutta la rete, la"
+            " risposta di un apparato e non del nodo) non si ripetono piu': la spiegazione"
+            " compare una sola volta e nel badge se ne conta solo il numero"
+            " (\"+N iniett.\"), invece della stessa frase ripetuta su migliaia di righe.",
+            "Icona vettoriale del tipo di dispositivo nel badge del report: server,"
+            " stampante, firewall, router, switch, telefono, telecamera, UPS, Wi-Fi,"
+            " postazione, archiviazione.",
+            "Nuovo profilo \"Operatore SIEM\": opera il SIEM e gli incidenti come un"
+            " analista, ma con un menu su misura (SIEM, Incidenti, dashboard, report,"
+            " guida) e senza l'amministrazione del tenant.",
+        ],
+    },
+    {
         "version": "1.2.6",
         "date": "2026-09-03",
         "abstract": "La sonda torna a conferire i nodi senza restare bloccata sulla rete"

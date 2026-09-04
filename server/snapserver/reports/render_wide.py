@@ -192,8 +192,7 @@ def executive_report(percorso, dati: dict) -> str:
 SEZIONI_INVENTARIO = [
     "Perimetro dichiarato e perimetro osservato",
     "Porte aperte su una quota rilevante della rete",
-    "Nodi",
-    "Servizi rilevati",
+    "Nodi e servizi propri",
     "Apparati interrogati via SNMP",
     "Da identificare",
     "Variazioni del periodo",
@@ -261,33 +260,31 @@ def inventory_report(percorso, dati: dict) -> str:
         allineamento=["l", "l", "r", "r"], colonne=2,
         nota_vuota="Nessuna porta aperta su piu' di un quinto dei nodi.")
 
-    foglio.titolo_sezione("Nodi", "%d elencati%s" % (
-        len(dati["nodi"]), ", elenco troncato" if dati["troncato"]["nodi"] else ""))
-    foglio.tabella(
-        ["indirizzo", "nome host", "subnet", "stato", "sistema operativo", "tipo",
-         "confidenza", "porte", "vista"],
-        [[n["ip"], (n["hostname"] or ""), n["cidr"] or "fuori perimetro",
-          n["status"] or "", (n["os_name"] or ""),
-          (n["device_label"] or n["device_type"] or "!da identificare"),
-          "%s%%" % (n["device_confidence"] or 0), n["porte"],
-          foglio.istante(n["last_seen_at"], "")]
-         for n in dati["nodi"]],
-        larghezze=[1.3, 2.2, 1.4, .8, 2.2, 1.8, 1.0, .7, 1.4],
-        allineamento=["l", "l", "l", "l", "l", "l", "r", "r", "l"],
-        nota_vuota="Inventario vuoto.")
+    # Nodi e servizi in un'unica sezione: prima erano due paragrafi che ripetevano lo
+    # stesso indirizzo -- uno per elencare il nodo, uno per i suoi servizi. Fusi in un
+    # solo badge per nodo (indirizzo, tipo e porte proprie con prodotto e versione) si
+    # risparmia lo spazio della ripetizione e il documento si accorcia ancora.
+    from ..ingest import SUSPECT_MIN_PREVALENCE
 
-    foglio.titolo_sezione("Servizi rilevati", "%d elencati%s" % (
-        len(dati["servizi"]), ", elenco troncato" if dati["troncato"]["servizi"] else ""))
-    foglio.tabella(
-        ["nodo", "porta", "servizio", "prodotto", "versione", "metodo", "conf.",
-         "sospetta"],
-        [[s["ip"], "%s/%s" % (s["protocol"], s["port"]), (s["service_name"] or ""),
-          (s["product"] or ""), (s["version"] or ""), s["method"] or "",
-          "%s" % (s["confidence"] or ""),
-          "!" + (s["suspect_reason"] or "sospetta") if s["is_suspect"] else ""]
-         for s in dati["servizi"]],
-        larghezze=[1.3, 1.0, 1.6, 2.4, 1.2, 1.0, .6, 2.4],
-        nota_vuota="Nessun servizio aperto rilevato.")
+    iniettati = sum(1 for s in dati["servizi"] if s["is_suspect"])
+    foglio.titolo_sezione(
+        "Nodi e servizi propri",
+        "%d nodi%s — un badge per indirizzo, con tipo e servizi propri" % (
+            len(dati["nodi"]), ", elenco troncato" if dati["troncato"]["nodi"] else ""))
+    foglio.paragrafo(
+        "Un badge per nodo: l'indirizzo, il tipo attribuito e le porte aperte proprie con"
+        " cio' che risponde (porta, prodotto, versione). Le porte iniettate dalla rete --"
+        " le stesse su quasi tutta la rete, gia' spiegate qui sopra -- non si elencano nel"
+        " badge: si contano in coda come \"+N iniett.\", cosi' il documento resta compatto.",
+        INCHIOSTRO_2)
+    if iniettati:
+        foglio.paragrafo(
+            "Non elencati %d servizi su porte iniettate (aperte su almeno il %d%% dei nodi"
+            " e su famiglie di sistema operativo diverse): sono le stesse porte ripetute su"
+            " quasi tutta la rete. Vedi \"Porte aperte su una quota rilevante\"."
+            % (iniettati, int(SUSPECT_MIN_PREVALENCE * 100)), INCHIOSTRO_3)
+    foglio.griglia_nodi_servizi(dati["nodi"], dati["servizi"], colonne=2,
+                                nota_vuota="Inventario vuoto.")
 
     # --- Cio' che gli apparati hanno raccontato di se' --------------------- #
     copertura = dati.get("copertura_snmp") or {}
