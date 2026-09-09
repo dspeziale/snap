@@ -93,6 +93,12 @@ class Config:
     PORT = _int("SNAP_SERVER_PORT", 5500)
     DEBUG = _bool("SNAP_SERVER_DEBUG", False)
 
+    # Dietro un reverse proxy che termina il TLS (esercizio in container). Quando e'
+    # attivo si fida delle intestazioni X-Forwarded-* di UN solo salto: senza,
+    # l'applicazione crederebbe di essere in chiaro (redirezioni verso http://) e
+    # vedrebbe come indirizzo del client quello del proxy, non quello reale.
+    BEHIND_PROXY = _bool("SNAP_SERVER_BEHIND_PROXY", False)
+
     # Sessione
     PERMANENT_SESSION_LIFETIME = timedelta(minutes=_int("SNAP_SERVER_SESSION_MINUTES", 120))
     # I cookie sono definiti per dominio e non distinguono la porta: server e

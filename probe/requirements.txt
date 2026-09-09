@@ -5,3 +5,6 @@ Flask-WTF>=1.2,<2.0
 cryptography>=42.0
 requests>=2.31
 tzdata>=2024.1
+# Server WSGI di esercizio (container Linux), come per il server. In sviluppo su
+# Windows resta il dev server avviato da start.ps1: Gunicorn non gira su Windows.
+gunicorn>=22.0,<24.0

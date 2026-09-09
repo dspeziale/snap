@@ -422,6 +422,10 @@ def heartbeat():
         return _protocol_error(str(exc), 403, "auth_failed")
 
     _touch_probe(probe, str(payload.get("agent_version") or "") or None)
+    # Stato delle scansioni sospese SULLA sonda: lo sorveglia probe_scan_watch, che
+    # avvisa quando una sonda ha le scansioni bloccate.
+    execute("UPDATE probes SET scan_paused = ? WHERE id = ?",
+            (1 if payload.get("scan_paused") else 0, int(probe["id"])))
     _purge_nonces()
 
     tenant = _tenant_of(probe)

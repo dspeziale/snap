@@ -56,6 +56,15 @@ def create_app(config_object=Config) -> Flask:
     app = Flask(__name__, instance_relative_config=False)
     app.config.from_object(config_object)
 
+    # Dietro il reverse proxy che termina il TLS: si fida delle X-Forwarded-* di UN
+    # solo salto (il proprio proxy). Il numero conta: con un valore piu' alto un
+    # client potrebbe aggiungere intestazioni proprie e farsi passare per un altro
+    # indirizzo o per una connessione cifrata che non c'e'.
+    if app.config.get("BEHIND_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
     Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -87,6 +96,7 @@ def create_app(config_object=Config) -> Flask:
     if not app.config.get("TESTING") and servizio_effettivo:
         from .acn_watch import start_watcher
         from .notifications import start_dispatcher
+        from .probe_scan_watch import start_watcher as start_probe_scan_watcher
         from .reports.daily import start_scheduler
         from .rules import start_evaluator
         from .siem.detect import start_detector
@@ -100,6 +110,9 @@ def create_app(config_object=Config) -> Flask:
         # I termini dell'art. 23 NIS2 cadono di notte e di sabato: la sorveglianza
         # vive nel processo del server e non richiede che qualcuno sia collegato.
         start_watcher(app)
+        # Una sonda con le scansioni bloccate smette di raccogliere in silenzio: la
+        # sorveglianza vive nel processo del server e avvisa (una volta per episodio).
+        start_probe_scan_watcher(app)
         # La rilevazione SIEM analizza gli eventi raccolti dai log e apre gli allarmi:
         # e' compito del server, come le regole, e vale la stessa regola dell'uno per
         # processo (altrimenti due thread aprirebbero lo stesso allarme due volte).

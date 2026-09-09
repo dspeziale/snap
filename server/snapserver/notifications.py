@@ -80,6 +80,11 @@ NOTIFY_EVENTS = {
     # fatta anni prima e' esattamente il modo in cui si perde una scadenza.
     "acn.deadline.approaching": "Termine ACN in avvicinamento",
     "acn.deadline.passed": "Termine ACN superato",
+    # Una sonda con le scansioni bloccate (sospese sulla sonda o disabilitate dal
+    # server) smette di raccogliere: come le scadenze, NON passa dalla scelta in
+    # Amministrazione, perche' una sonda ferma in silenzio e' un buco nella copertura.
+    "probe.scan.blocked": "Sonda con scansioni bloccate",
+    "probe.scan.resumed": "Sonda: scansioni riprese",
 }
 
 # Solo i momenti del workflow degli incidenti sono soggetti alla scelta in

@@ -80,6 +80,18 @@ class Config:
     SESSION_COOKIE_NAME = os.environ.get("SNAP_PROBE_COOKIE_NAME", "snap_probe_session")
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
+    # Cookie solo su canale cifrato: si accende dove il TLS c'e' davvero (in esercizio,
+    # dietro il reverse proxy). Predefinito spento perche' in sviluppo l'interfaccia
+    # gira in chiaro su 127.0.0.1 e un cookie "Secure" non verrebbe mai inviato --
+    # l'accesso risulterebbe impossibile senza dire perche'.
+    SESSION_COOKIE_SECURE = _bool("SNAP_PROBE_COOKIE_SECURE", False)
+
+    # Dietro un reverse proxy che termina il TLS (esercizio in container). Qui non e'
+    # solo una questione di redirezioni: la sonda concede la PRIMA impostazione della
+    # password solo a chi arriva dall'indirizzo locale, e quel controllo legge
+    # l'indirizzo del client. Senza fidarsi di X-Forwarded-For vedrebbe sempre il
+    # proxy, e nessuno potrebbe scegliere la password.
+    BEHIND_PROXY = _bool("SNAP_PROBE_BEHIND_PROXY", False)
     SESSION_REFRESH_EACH_REQUEST = False
 
     # Cadenza del ciclo dell'agente: quanto spesso valuta raccolta e conferimento.

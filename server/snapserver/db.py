@@ -186,6 +186,8 @@ MIGRATIONS = [
     ("probes", "scan_effort", "TEXT NOT NULL DEFAULT 'med'"),
     ("probes", "scan_host_timeout", "TEXT"),
     ("probes", "scan_discovery_days", "INTEGER NOT NULL DEFAULT 3"),
+    ("probes", "scan_paused", "INTEGER NOT NULL DEFAULT 0"),
+    ("probes", "scan_blocked_alerted_at", "TEXT"),
     ("users", "pref_kpi_hidden", "TEXT NOT NULL DEFAULT ''"),
     ("users", "telegram_chat_id", "TEXT"),
     # Fatti dichiarati dalle pagine degli apparati (vedi web_facts nella sonda).

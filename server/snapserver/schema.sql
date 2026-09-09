@@ -101,6 +101,13 @@ CREATE TABLE IF NOT EXISTS probes (
     scan_host_timeout     TEXT,
     -- Ogni quanti giorni si ricensisce il perimetro con la scoperta.
     scan_discovery_days   INTEGER NOT NULL DEFAULT 3,
+    -- Scansioni sospese SULLA sonda (pausa locale del tecnico), come riportato
+    -- dall'ultimo heartbeat. Distinta da `scan_enabled`, che e' l'interruttore del
+    -- server: insieme dicono se una sonda sta effettivamente scansionando.
+    scan_paused           INTEGER NOT NULL DEFAULT 0,
+    -- Quando e' stato mandato l'avviso "scansioni bloccate" per l'episodio in corso:
+    -- si azzera quando la sonda riprende, cosi' un blocco successivo riavvisa una volta.
+    scan_blocked_alerted_at TEXT,
     config_json           TEXT    NOT NULL DEFAULT '{}',
     revoked_at            TEXT,
     created_at            TEXT    NOT NULL,

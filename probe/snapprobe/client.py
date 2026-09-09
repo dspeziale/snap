@@ -192,11 +192,18 @@ class ServerClient:
         return answer
 
     def heartbeat(self) -> dict:
+        # `scan_paused` riporta al server se le scansioni sono sospese SULLA sonda, per
+        # una pausa locale del tecnico: e' vera sia con la pausa dell'agente ("paused")
+        # sia con quella specifica delle scansioni ("scan_paused"). L'interruttore del
+        # server ("scan_enabled") lo conosce gia' il server, e non serve rimandarlo.
+        scan_paused = (self.store.get_setting("paused", "0") == "1"
+                       or self.store.get_setting("scan_paused", "0") == "1")
         return self._sealed_exchange(
             "/api/v1/heartbeat",
             {
                 "queue_size": self.store.queue_size(),
                 "paused": self.store.get_setting("paused", "0") == "1",
+                "scan_paused": scan_paused,
                 "hostname": socket.gethostname(),
             },
         )

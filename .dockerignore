@@ -1,0 +1,45 @@
+# -----------------------------------------------------------------
+# .dockerignore — cosa NON entra nel contesto di build delle immagini
+# Copyright (c) 2024-26 DS Consulting — Licenza: MIT
+# -----------------------------------------------------------------
+# Regola: nell'immagine va il CODICE, mai i dati ne' i segreti. I dati di esercizio
+# (551 MB di archivio, i report, le copie di sicurezza, le chiavi di sessione delle
+# sonde) vivono in volumi montati a runtime: se finissero nell'immagine, ogni copia
+# dell'immagine sarebbe una copia dei dati del cliente -- e le immagini si spostano.
+
+# Dati di esercizio e segreti
+server/data/
+probe/data/
+logs/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+certs/
+.snap-pids.json
+
+# Ambienti e cache locali
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+
+# Sviluppo, non esercizio
+.git/
+.gitignore
+.idea/
+.vscode/
+tests/
+docs/
+*.md
+!README.md
+start.ps1
