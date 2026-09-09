@@ -1,0 +1,70 @@
+# -----------------------------------------------------------------
+# docker-compose.desktop.yml — variante per Docker Desktop (Windows/Mac)
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-09
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+# QUESTA VARIANTE SERVE SOLO A PROVARE L'INTERFACCIA, NON A SCANSIONARE.
+#
+# Il problema che risolve: in esercizio la sonda gira con `network_mode: host`,
+# perche' deve vedere le interfacce reali della macchina. Su Docker Desktop i
+# container non stanno sull'host ma dentro una macchina virtuale (WSL2 su Windows):
+# con la rete host le porte 5510/5512 vengono legate DENTRO quella macchina
+# virtuale, e da Windows non risulta nulla in ascolto -- il browser risponde
+# ERR_CONNECTION_REFUSED sia su 127.0.0.1 sia sull'IP della macchina, anche con i
+# container "healthy".
+#
+# Qui si abbandona la rete host e si PUBBLICANO le porte, cosi' l'interfaccia si
+# raggiunge da Windows all'indirizzo della macchina:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d --build
+#
+# (`.\start.ps1` lo fa da solo quando riconosce Docker Desktop.)
+#
+# Il proxy entra nella STESSA rete della sonda (`service:snap-probe`), non in una
+# rete propria: cosi' continua a raggiungere 127.0.0.1:5511 come in esercizio e la
+# configurazione di nginx resta identica nei due casi -- una sola configurazione da
+# mantenere, nessuna deriva fra prova ed esercizio.
+#
+# COSA SI PERDE, detto chiaramente: dietro il NAT di Docker la sonda vede la rete
+# di Docker, non la LAN del cliente. La scansione trovera' se stessa e poco altro.
+# Per scansionare davvero la sonda va su Linux con il compose normale.
+
+services:
+  snap-probe:
+    # Non piu' la rete host: serve una rete su cui le porte si possano pubblicare.
+    network_mode: bridge
+    # Le porte si dichiarano sul servizio che possiede la rete (la sonda), anche se
+    # chi ascolta e' il proxy che ne condivide la rete.
+    ports:
+      - "5510:5510"
+      - "5512:5512"
+    environment:
+      # TRADE-OFF DI SICUREZZA, consapevole e limitato a questa variante: dietro il
+      # NAT di Docker le richieste arrivano al proxy dal gateway della rete di
+      # Docker, non dal loopback, e senza questa riga la prima impostazione della
+      # password sarebbe irraggiungibile da qualsiasi indirizzo -- la sonda non si
+      # potrebbe configurare affatto.
+      #
+      # Sono le reti private di Docker Desktop, non "tutti": in esercizio (Linux,
+      # compose normale) questa variabile NON viene impostata e la prima
+      # configurazione torna a essere possibile solo dalla postazione della sonda.
+      SNAP_PROBE_FIRST_ACCESS_FROM: "172.16.0.0/12,192.168.0.0/16,10.0.0.0/8"
+
+  postgres:
+    # Stessa rete della sonda, per lo stesso motivo del proxy: in esercizio la base
+    # dati sta sul loopback della macchina della sonda, e qui il "loopback della
+    # sonda" e' quello della rete condivisa. Cosi' l'indirizzo con cui l'applicazione
+    # la raggiungera' (127.0.0.1:5532) e' lo stesso nei due casi.
+    network_mode: "service:snap-probe"
+
+  proxy:
+    # Stessa rete della sonda: `127.0.0.1:5511` continua a essere la sonda.
+    network_mode: "service:snap-probe"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # La barriera del proxy va aperta insieme a quella della sonda: sono due
+      # controlli indipendenti e in prova servono entrambi.
+      - ./allow-primo-accesso.desktop.conf:/etc/nginx/allow-primo-accesso.conf:ro
+      - ./certs:/etc/nginx/certs:ro

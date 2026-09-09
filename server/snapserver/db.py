@@ -103,6 +103,13 @@ def get_db() -> sqlite3.Connection:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
+        # In WAL i lettori non disturbano, ma DUE scritture si escludono: chi arriva
+        # secondo attende. Senza questa riga l'attesa era quella predefinita del
+        # modulo Python (5 secondi), che non e' una scelta: un'operazione lunga
+        # (cancellazione di una sonda, ingestione di un lotto) la supera e la
+        # richiesta concorrente fallisce con "database is locked".
+        connection.execute("PRAGMA busy_timeout = %d"
+                           % int(current_app.config["DB_BUSY_TIMEOUT_MS"]))
         _registra_funzioni(connection)
         g.db = connection
     return g.db

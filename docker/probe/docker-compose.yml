@@ -5,14 +5,24 @@
 # Copyright (c) 2024-26 DS Consulting
 # Licenza: MIT
 # -----------------------------------------------------------------
-# Due servizi:
+# Tre servizi:
 #   snap-probe  la sonda (nmap + agente) in ascolto solo su 127.0.0.1
 #   proxy       nginx: termina il TLS ed espone l'interfaccia in HTTPS sulla 5510
+#   postgres    base dati, sul loopback (vedi il servizio per il perche' della porta)
 #
-# La sonda si installa nella rete DEL CLIENTE; il server sta altrove. Per questo e' un
-# compose separato da quello del server, e non contiene alcuna base dati PostgreSQL:
-# l'archivio locale della sonda e' una coda di conferimento, deve funzionare anche
-# isolata dalla rete e resta su SQLite nel proprio volume.
+# La sonda si installa nella rete DEL CLIENTE; il server sta altrove: per questo e' un
+# compose separato da quello del server.
+#
+# STATO DELLA BASE DATI, detto qui perche' non si scopra dopo: il codice della sonda
+# usa SQLITE (modulo `sqlite3`, 63 punti di SQL, nessun driver PostgreSQL in
+# requirements.txt). Il servizio `postgres` e' quindi PREDISPOSTO e non ancora
+# utilizzato: e' il bersaglio del porting, come sul server. Finche' il porting non
+# c'e', l'archivio della sonda resta il file SQLite nel volume `probe-data`.
+#
+# Per il porting va tenuto presente cosa deve garantire questo archivio: e' una CODA
+# DI CONFERIMENTO che deve funzionare con il server irraggiungibile, su un apparato
+# lasciato in sede dal cliente. Una base dati in piu' e' anche una cosa in piu' che
+# puo' non ripartire: la sonda deve continuare a raccogliere comunque.
 #
 # RETE HOST, e non e' un'opzione: una sonda dietro il NAT di Docker vedrebbe la rete
 # di Docker, non quella del cliente -- scoprirebbe se stessa e nient'altro. Con
@@ -51,8 +61,21 @@ services:
     # Nessun altro privilegio: tutte le altre capacita' vengono tolte.
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
+    # QUI NON SI PUO' METTERE `no-new-privileges:true`, e il motivo va scritto perche'
+    # sembra un irrigidimento gratuito da aggiungere: quella opzione impedisce -- per
+    # definizione -- di acquisire privilegi tramite le CAPACITA' DI FILE durante
+    # l'execve. La sonda gira come utente non-root e ottiene i socket raw proprio
+    # cosi', dal `setcap` su /usr/bin/nmap. Con l'opzione attiva il risultato misurato
+    # e':
+    #   CapBnd 0x3000 (concesse)  CapEff 0x0 (non acquisite)  NoNewPrivs 1
+    #   nmap: "You requested a scan type which requires root privileges. QUITTING!"
+    # cioe' la scansione SYN e il rilevamento del sistema operativo non funzionano.
+    #
+    # Le due strade alternative sono peggiori: girare come root nel container (molto
+    # piu' privilegio di quello che serve) oppure rinunciare a -sS e -O (inventario
+    # cieco su porte e sistemi operativi). Si tiene quindi `cap_drop: ALL` con due
+    # sole capacita' aggiunte e utente non-root: e' il minimo privilegio che permette
+    # alla sonda di fare il proprio lavoro.
     environment:
       SNAP_PROBE_SECRET_KEY: "${SNAP_PROBE_SECRET_KEY:?chiave di sessione mancante: vedi .env}"
       SNAP_PROBE_BEHIND_PROXY: "1"
@@ -60,8 +83,29 @@ services:
       SNAP_PROBE_COOKIE_SECURE: "1"
       SNAP_PROBE_STORE: /data/snap_probe.sqlite3
       APP_PORT: "5511"
+      # nmap decide se puo' fare scansione SYN e rilevamento del sistema operativo
+      # guardando `euid == 0`, NON le capacita' che ha davvero: senza questa variabile
+      # rifiuta -sS e -O anche avendole. Misurato in questo container:
+      #   nmap avviato da uid 10002 -> CapPrm/CapEff 0x3000 (NET_RAW+NET_ADMIN)
+      #   e comunque "You requested a scan type which requires root privileges."
+      # E' il meccanismo previsto da nmap per il caso "privilegi concessi tramite
+      # capacita'" (equivale all'opzione --privileged), e non concede nulla di piu':
+      # dice soltanto a nmap di usare i socket raw che il kernel gli ha gia' dato.
+      NMAP_PRIVILEGED: "1"
+      # Indirizzi ammessi alla PRIMA impostazione della password, oltre al loopback.
+      # Vuoto se non compilato in .env: predefinito sicuro, si apre dichiarando.
+      SNAP_PROBE_FIRST_ACCESS_FROM: "${SNAP_PROBE_FIRST_ACCESS_FROM:-}"
+      # Certificato di cui fidarsi per il canale verso il server (vedi ./trust).
+      # Serve quando il server ha un certificato proprio, non firmato da una CA
+      # pubblica: senza, la sonda rifiuta di parlargli -- ed e' il comportamento
+      # giusto, su quel canale passano le chiavi della registrazione.
+      SNAP_PROBE_SERVER_CA: "${SNAP_PROBE_SERVER_CA:-}"
     volumes:
       - probe-data:/data
+      # Solo l'ancora di fiducia, in sola lettura. Cartella separata da ./certs
+      # (che contiene la chiave privata del proxy): la sonda non ha motivo di
+      # vedere quella chiave.
+      - ./trust:/etc/snap/trust:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5511/ -o /dev/null || exit 1"]
       interval: 30s
@@ -81,6 +125,9 @@ services:
         condition: service_started
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Chi puo' scegliere la prima password: file separato, cosi' si modifica
+      # senza toccare la configurazione del proxy.
+      - ./allow-primo-accesso.conf:/etc/nginx/allow-primo-accesso.conf:ro
       - ./certs:/etc/nginx/certs:ro
     security_opt:
       - no-new-privileges:true
@@ -90,5 +137,52 @@ services:
       timeout: 5s
       retries: 3
 
+  postgres:
+    # Versione bloccata alla minore, come sul server: aggiornare una base dati e' una
+    # decisione, non un effetto collaterale di un `docker compose pull`.
+    image: postgres:16.4-alpine
+    container_name: snap-probe-postgres
+    restart: unless-stopped
+    # RETE HOST, e qui la ragione e' diversa da quella della sonda: la sonda DEVE
+    # stare in rete host per vedere la LAN del cliente, e un contenitore in rete host
+    # non puo' raggiungere una rete interna del compose. Quindi la base dati deve
+    # stare dove la sonda puo' parlarle: il loopback della macchina.
+    #
+    # Conseguenza da governare: in rete host non esiste "porta non pubblicata", il
+    # processo lega direttamente una porta dell'host. Si prendono percio' DUE misure:
+    #   * `listen_addresses=127.0.0.1`: la base dati non risponde dalla rete, solo
+    #     dalla macchina della sonda. E' l'equivalente del "mai sull'host" del server.
+    #   * porta 5532, dentro il range assegnato al progetto (5500-5600), non la 5432
+    #     predefinita: legando una porta dell'host vale la regola delle porte, e la
+    #     5432 e' fuori range. Vedi PORTS.md.
+    network_mode: host
+    command:
+      - postgres
+      - -c
+      - listen_addresses=127.0.0.1
+      - -c
+      - port=5532
+    environment:
+      POSTGRES_DB: "${PROBE_POSTGRES_DB:-snap_probe}"
+      # Proprietario: crea e migra lo schema. NON e' l'utente dell'applicazione.
+      POSTGRES_USER: "${PROBE_POSTGRES_USER:-snap_probe_owner}"
+      POSTGRES_PASSWORD: "${PROBE_POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}"
+      # Utente applicativo a privilegi minimi, creato dallo script di inizializzazione.
+      SNAP_PG_APP_USER: "${PROBE_PG_APP_USER:-snap_probe_app}"
+      SNAP_PG_APP_PASSWORD: "${PROBE_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}"
+      # Checksum sulle pagine: un guasto del disco si scopre leggendo, non mesi dopo.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - probe-postgres-data:/var/lib/postgresql/data
+      # Eseguito una sola volta, alla prima inizializzazione del volume.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5532 -U ${PROBE_POSTGRES_USER:-snap_probe_owner} -d ${PROBE_POSTGRES_DB:-snap_probe}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 volumes:
   probe-data:
+  probe-postgres-data:

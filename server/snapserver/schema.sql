@@ -1073,3 +1073,50 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_siem_alert_aperto
     WHERE status IN ('open', 'ack');
 CREATE INDEX IF NOT EXISTS ix_siem_alerts_tenant
     ON siem_alerts(tenant_id, status, severity);
+
+-- ---------------------------------------------------------------------------
+-- Indici sulle colonne di vincolo (chiavi esterne)
+--
+-- Perche' esistono, e non e' un'ottimizzazione preventiva: SQLite, per applicare
+-- ON DELETE SET NULL / CASCADE, deve TROVARE le righe che referenziano il padre.
+-- Senza indice sulla colonna del vincolo fa una scansione completa della tabella
+-- figlia, e l'operazione supera il tempo di attesa sul lock.
+--
+-- Difetto misurato: la cancellazione di una sonda dalla console rispondeva
+-- "database is locked" (HTTP 500) per tre tentativi di seguito. Una sola sonda
+-- comporta l'aggiornamento di ~118.000 righe (nodes 7.309 + scan_runs 17.140 +
+-- check_results 93.588), ognuna da cercare con una scansione.
+--
+-- Criterio adottato: si indicizzano i vincoli delle tabelle che CRESCONO senza
+-- limite (inventario, misure, esposizioni, diario). I riferimenti delle tabelle
+-- di anagrafica, che restano di poche righe (checks, report_runs, ti_sync...),
+-- non li si indicizza: il costo in scrittura e spazio non sarebbe giustificato.
+
+-- Cancellazione di una sonda: i nodi e la storia restano, il legame si annulla.
+CREATE INDEX IF NOT EXISTS ix_nodes_probe          ON nodes(probe_id);
+CREATE INDEX IF NOT EXISTS ix_scan_runs_probe      ON scan_runs(probe_id);
+CREATE INDEX IF NOT EXISTS ix_scan_runs_batch      ON scan_runs(batch_id);
+CREATE INDEX IF NOT EXISTS ix_check_results_probe  ON check_results(probe_id);
+
+-- Cancellazione di un esito di controllo: le misure vanno con lui (CASCADE).
+-- E' la tabella piu' popolosa del prodotto: senza indice ogni cancellazione la
+-- scandisce per intero.
+CREATE INDEX IF NOT EXISTS ix_check_metrics_result ON check_metrics(result_id);
+
+-- Cancellazione di un tenant: le misure e la cronologia degli incidenti seguono.
+CREATE INDEX IF NOT EXISTS ix_monitor_samples_tenant
+    ON monitor_samples(tenant_id);
+CREATE INDEX IF NOT EXISTS ix_check_incident_events_tenant
+    ON check_incident_events(tenant_id);
+
+-- Cancellazione di un'utenza: il diario resta (SET NULL), e va trovato.
+CREATE INDEX IF NOT EXISTS ix_audit_events_user    ON audit_events(user_id);
+
+-- Esposizioni: crescono con l'inventario e dipendono da porta, CVE e decisore.
+CREATE INDEX IF NOT EXISTS ix_ti_findings_port     ON ti_findings(port_id);
+CREATE INDEX IF NOT EXISTS ix_ti_findings_cve      ON ti_findings(cve_id);
+CREATE INDEX IF NOT EXISTS ix_ti_findings_decided  ON ti_findings(decided_by);
+
+-- Notifiche legate a un incidente: l'incidente si chiude e si archivia.
+CREATE INDEX IF NOT EXISTS ix_notifications_incident
+    ON notifications(incident_id);

@@ -41,9 +41,27 @@ si rimappano: sono quelle che i processi legano direttamente.
 | **5510** | TCP/HTTPS | Interfaccia della sonda, dietro nginx | rete |
 | **5512** | TCP/HTTP | Solo rimando `http` → `https` (308) | rete |
 | 5511 | TCP/HTTP | La sonda (Gunicorn) | **solo 127.0.0.1** |
+| 5532 | TCP | PostgreSQL della sonda | **solo 127.0.0.1** |
 
 La 5511 è legata al loopback per costruzione: non esiste un canale in chiaro
 raggiungibile dalla rete.
+
+### Perché il Postgres della sonda ha una porta e quello del server no
+
+Sul server la base dati sta su una rete interna del compose e **non lega alcuna porta
+dell'host**: la 5432 resta un dettaglio interno. La sonda invece gira in **rete
+host** (deve vedere la LAN del cliente), e un contenitore in rete host non può
+raggiungere una rete interna: la base dati deve quindi stare sul loopback della
+macchina, cioè legare una porta dell'host *davvero*.
+
+Da qui due conseguenze, entrambe volute:
+
+- `listen_addresses=127.0.0.1` — non risponde dalla rete, solo dalla macchina della
+  sonda. È l'equivalente del «mai sull'host» del server.
+- porta **5532** e non la 5432 predefinita: dal momento che si lega una porta
+  dell'host, vale la regola del progetto (solo 5500‑5600) e la 5432 è fuori range.
+
+Stato: il servizio è **predisposto**, il codice della sonda scrive ancora su SQLite.
 
 ## SIEM opzionale (`docker/siem/docker-compose.yml`)
 

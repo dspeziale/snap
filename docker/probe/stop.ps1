@@ -53,10 +53,13 @@ if ($KeepRunning) {
 
 if ($RemoveData) {
     Write-Host ''
-    Write-Host 'ATTENZIONE: con -RemoveData viene cancellato il volume della sonda:' -ForegroundColor Red
+    Write-Host 'ATTENZIONE: con -RemoveData vengono cancellati i volumi della sonda:' -ForegroundColor Red
     Write-Host '  - la REGISTRAZIONE al server (andra'' rifatta dalla console)' -ForegroundColor Red
     Write-Host '  - la coda dei conferimenti non ancora spediti' -ForegroundColor Red
     Write-Host '  - la password dell''interfaccia e le impostazioni locali' -ForegroundColor Red
+    Write-Host '  - la base dati PostgreSQL, utenze comprese: alla ricreazione lo' -ForegroundColor Red
+    Write-Host '    script di inizializzazione rigira e le password saranno quelle' -ForegroundColor Red
+    Write-Host '    scritte in .env in quel momento' -ForegroundColor Red
     Write-Host 'L''operazione NON e'' reversibile.' -ForegroundColor Red
     Write-Host ''
     $conferma = Read-Host 'Scrivere CANCELLA per procedere'

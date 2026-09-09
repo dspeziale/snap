@@ -39,6 +39,36 @@ password: dalla rete la *prima* impostazione viene rifiutata per disegno, così 
 sonda appartiene a chi l'ha installata. Infine si incolla il pacchetto `SNAP1-...`
 generato dalla console.
 
+### Aprire l'interfaccia puntando l'IP della macchina
+
+Il rifiuto vale solo per la *prima* impostazione della password, e sono **due
+barriere indipendenti** — vanno aperte entrambe, dichiarando la propria postazione:
+
+| Dove | Cosa |
+|---|---|
+| `allow-primo-accesso.conf` | `allow 10.20.10.7;` (il proxy decide sul vero interlocutore TCP) |
+| `.env` | `SNAP_PROBE_FIRST_ACCESS_FROM=10.20.10.7` (la sonda, indirizzi o reti) |
+
+Si dichiara la **propria postazione**, non una rete intera: finché la password non
+esiste, chi apre quella pagina diventa proprietario della sonda. Elencare l'IP anche
+nel campo SAN del certificato, altrimenti il browser avvisa sul nome.
+
+### Su Docker Desktop (Windows/Mac): connessione rifiutata
+
+Con `network_mode: host` i container non stanno sull'host ma in una macchina
+virtuale: le porte 5510/5512 vengono legate **dentro** quella macchina e da
+Windows/Mac non risulta nulla in ascolto — il browser risponde
+`ERR_CONNECTION_REFUSED` anche con i container `healthy`. La variante di prova
+abbandona la rete host e **pubblica** le porte:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.desktop.yml up -d --build
+```
+
+`start.ps1` e `start.sh` la scelgono da sé quando riconoscono Docker Desktop. Serve
+a **provare l'interfaccia, non a scansionare**: dietro il NAT di Docker la sonda vede
+la rete di Docker, non la LAN del cliente.
+
 ## Scelte di esercizio, e perché
 
 **Un solo worker Gunicorn, in entrambi.** Non è una scelta di prestazioni: nel

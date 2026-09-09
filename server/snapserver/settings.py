@@ -66,6 +66,11 @@ class Config:
 
     SECRET_KEY = load_secret_key()
     DATABASE = os.environ.get("SNAP_SERVER_DATABASE", str(DATA_DIR / "snap_server.sqlite3"))
+    # Quanto una scrittura attende, se un'altra e' in corso, prima di rinunciare.
+    # Trenta secondi coprono le operazioni lunghe (cancellazione di una sonda,
+    # ingestione di un lotto) mentre i servizi di fondo scrivono; oltre, e' meglio un
+    # errore che una richiesta appesa. Vedi db.py: PRAGMA busy_timeout.
+    DB_BUSY_TIMEOUT_MS = _int("SNAP_SERVER_DB_BUSY_TIMEOUT_MS", 30000)
     # Archivio degli eventi SIEM: un file separato dal database della console, cosi'
     # un flusso di migliaia di log al minuto non contende le pagine. Vuoto significa
     # "accanto al database principale" (snap_siem.sqlite3), che e' il caso di sviluppo.

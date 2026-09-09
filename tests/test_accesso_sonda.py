@@ -15,6 +15,8 @@ license: MIT
 
 from __future__ import annotations
 
+from ipaddress import ip_network
+
 import pytest
 
 PASSWORD = "SondaProva2026"
@@ -97,6 +99,50 @@ def test_la_prima_password_non_si_scegle_dalla_rete(sonda):
         from snapprobe.auth import password_impostata
 
         assert not password_impostata(), "nessuna password impostata dalla rete"
+
+
+def test_la_prima_password_si_sceglie_dagli_indirizzi_dichiarati(sonda):
+    """Chi configura la sonda puntando l'IP della macchina (e non 127.0.0.1) deve
+    poterlo fare, ma solo dagli indirizzi dichiarati: e' un permesso che si concede,
+    non un'apertura che si eredita."""
+    sonda.config["FIRST_ACCESS_FROM"] = (ip_network("10.20.10.9/32"),)
+    client = sonda.test_client()
+
+    assert client.get("/primo-accesso", environ_base=DA_RETE).status_code == 200
+    esito = client.post("/primo-accesso",
+                        data={"password": PASSWORD, "conferma": PASSWORD},
+                        environ_base=DA_RETE)
+    assert esito.status_code == 302
+    with sonda.app_context():
+        from snapprobe.auth import password_impostata
+
+        assert password_impostata()
+
+
+def test_gli_indirizzi_dichiarati_non_ammettono_gli_altri(sonda):
+    """Dichiarare un indirizzo non apre la pagina a tutta la rete."""
+    sonda.config["FIRST_ACCESS_FROM"] = (ip_network("10.20.10.9/32"),)
+    client = sonda.test_client()
+
+    risposta = client.get("/primo-accesso", environ_base={"REMOTE_ADDR": "10.20.10.99"})
+    assert risposta.status_code == 403
+    with sonda.app_context():
+        from snapprobe.auth import password_impostata
+
+        assert not password_impostata()
+
+
+def test_le_voci_malformate_non_ammettono_nulla(monkeypatch):
+    """Una voce che non e' un indirizzo viene scartata (allowlist), non interpretata
+    alla meglio: una configurazione sbagliata non deve aprire la barriera."""
+    import importlib
+
+    import snapprobe.settings as impostazioni
+
+    monkeypatch.setenv("SNAP_PROBE_FIRST_ACCESS_FROM", "non-un-indirizzo, 10.20.10.9 ,")
+    importlib.reload(impostazioni)
+
+    assert impostazioni.Config.FIRST_ACCESS_FROM == (ip_network("10.20.10.9/32"),)
 
 
 def test_la_prima_password_si_scegle_dalla_postazione_della_sonda(sonda):
