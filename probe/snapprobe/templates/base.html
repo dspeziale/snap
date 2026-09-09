@@ -32,9 +32,11 @@
 <nav class="navbar bg-body border-bottom d-lg-none">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('probe.index') }}">
-      <i class="bi bi-broadcast-pin text-primary fs-4"></i>
-      <span class="fw-bold">snap</span>
-      <span class="badge text-bg-primary">probe</span>
+      {# Stessa icona e stesso nome del marchio nel menu: sotto lg il menu si chiude
+         e questa barra e' l'unico posto dove si legge di che cosa si tratta. #}
+      <i class="bi bi-diagram-3 text-primary fs-4"></i>
+      <span class="fw-bold">{{ app_name }}</span>
+      <span class="badge text-bg-primary">v{{ app_version }}</span>
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
             data-bs-target="#menu-sonda" aria-controls="menu-sonda"
@@ -47,13 +49,18 @@
 <div class="snap-impianto">
   {# ----------------------------------------------------------------- menu #}
   <aside class="snap-menu collapse d-lg-block bg-body border-end" id="menu-sonda">
-    <div class="snap-menu-marchio d-none d-lg-flex">
-      <a href="{{ url_for('probe.index') }}"
-         class="d-flex align-items-center gap-2 text-decoration-none">
-        <i class="bi bi-broadcast-pin text-primary fs-4"></i>
-        <span class="fw-bold">{{ app_name }}</span>
-        <span class="badge text-bg-primary">v{{ app_version }}</span>
+    {# Stesso marchio della console: icona, nome e badge della versione, con le stesse
+       classi (sidebar-brand / brand-link / brand-image / brand-text). Il badge e' un
+       PULSANTE e apre il changelog, come nel server: chi trova una sonda installata
+       vede con un clic di che versione si tratta e che cosa fa di nuovo. #}
+    <div class="sidebar-brand snap-menu-marchio d-none d-lg-flex">
+      <a href="{{ url_for('probe.index') }}" class="brand-link">
+        <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
+        <span class="brand-text fw-bold">{{ app_name }}</span>
       </a>
+      <button type="button" class="badge text-bg-primary border-0 ms-1"
+              data-bs-toggle="modal" data-bs-target="#modale-changelog"
+              title="Novita' di questa versione">v{{ app_version }}</button>
     </div>
 
     <nav class="nav flex-column p-2" aria-label="Navigazione della sonda">
@@ -149,6 +156,46 @@
         <span>&copy; 2024-26 DS Consulting &middot; licenza MIT</span>
       </div>
     </footer>
+  </div>
+</div>
+
+{# Changelog: lo apre il badge della versione nel marchio. Stessa struttura della
+   console, cosi' le due interfacce si leggono nello stesso modo. #}
+<div class="modal fade" id="modale-changelog" tabindex="-1"
+     aria-labelledby="titolo-changelog" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="titolo-changelog">
+          <i class="bi bi-stars me-1"></i> Novita' di {{ app_name }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                aria-label="Chiudi"></button>
+      </div>
+      <div class="modal-body">
+        {% for voce in changelog %}
+        <div class="{{ 'mb-4' if not loop.last }}">
+          <div class="d-flex align-items-baseline gap-2 mb-1">
+            <span class="badge text-bg-{{ 'primary' if loop.first else 'secondary' }}">
+              v{{ voce.version }}</span>
+            {% if loop.first %}<span class="badge text-bg-success">attuale</span>{% endif %}
+            <span class="text-body-secondary small">{{ voce.date }}</span>
+          </div>
+          <p class="mb-2">{{ voce.abstract }}</p>
+          <ul class="small mb-0">
+            {% for cambio in voce.changes %}
+            <li>{{ cambio }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% if not loop.last %}<hr>{% endif %}
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">
+          Chiudi</button>
+      </div>
+    </div>
   </div>
 </div>
 

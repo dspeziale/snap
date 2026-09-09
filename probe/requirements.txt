@@ -8,3 +8,8 @@ tzdata>=2024.1
 # Server WSGI di esercizio (container Linux), come per il server. In sviluppo su
 # Windows resta il dev server avviato da start.ps1: Gunicorn non gira su Windows.
 gunicorn>=22.0,<24.0
+# Strato dati: come il server (vedi server/requirements.txt per le alternative
+# valutate). La sonda usa lo stesso strato, cosi' una correzione vale per entrambi.
+SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
+psycopg[binary]>=3.1,<4.0

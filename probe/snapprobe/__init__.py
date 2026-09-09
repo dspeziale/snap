@@ -130,11 +130,14 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
     @app.context_processor
     def _inject_globals() -> dict:
         from .auth import autenticato, password_impostata
+        from .changelog import voci as changelog_voci
 
         return {
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            # Il badge della versione apre queste note, come nella console.
+            "changelog": changelog_voci(),
             "settings": store.all_settings(),
             "agent_status": agent.status(),
             "accesso_aperto": autenticato(),

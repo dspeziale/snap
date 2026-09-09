@@ -61,16 +61,26 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.2.8"
+    APP_VERSION = "1.2.9"
     APP_SUBTITLE = "Secure Network Assessment Platform"
 
     SECRET_KEY = load_secret_key()
-    DATABASE = os.environ.get("SNAP_SERVER_DATABASE", str(DATA_DIR / "snap_server.sqlite3"))
-    # Quanto una scrittura attende, se un'altra e' in corso, prima di rinunciare.
-    # Trenta secondi coprono le operazioni lunghe (cancellazione di una sonda,
-    # ingestione di un lotto) mentre i servizi di fondo scrivono; oltre, e' meglio un
-    # errore che una richiesta appesa. Vedi db.py: PRAGMA busy_timeout.
-    DB_BUSY_TIMEOUT_MS = _int("SNAP_SERVER_DB_BUSY_TIMEOUT_MS", 30000)
+    # Archivio su PostgreSQL. La stringa di connessione arriva dall'ambiente e non ha
+    # un valore predefinito con credenziali: un segreto non sta nel codice, e un
+    # default funzionante sarebbe la via piu' rapida per metterlo in esercizio senza
+    # accorgersene. Senza questa variabile l'applicazione si rifiuta di partire.
+    #
+    #   postgresql+psycopg://utente:password@host:5432/nome_database
+    DATABASE_URL = os.environ.get("SNAP_SERVER_DATABASE_URL", "")
+    # Quanto una scrittura attende un lock, prima di rinunciare. Trenta secondi coprono
+    # le operazioni lunghe (cancellazione di una sonda, ingestione di un lotto) mentre
+    # i servizi di fondo scrivono; oltre, e' meglio un errore che una richiesta appesa.
+    # Su PostgreSQL diventa `lock_timeout` (vedi db.py).
+    DB_LOCK_TIMEOUT_MS = _int("SNAP_SERVER_DB_LOCK_TIMEOUT_MS", 30000)
+    # Riciclo delle connessioni del pool: il contenitore della base dati puo'
+    # riavviarsi, e una connessione tenuta aperta per ore diventa inutilizzabile
+    # senza dirlo. `pool_pre_ping` la verifica prima di usarla.
+    DB_POOL_RECYCLE_SEC = _int("SNAP_SERVER_DB_POOL_RECYCLE_SEC", 1800)
     # Archivio degli eventi SIEM: un file separato dal database della console, cosi'
     # un flusso di migliaia di log al minuto non contende le pagine. Vuoto significa
     # "accanto al database principale" (snap_siem.sqlite3), che e' il caso di sviluppo.

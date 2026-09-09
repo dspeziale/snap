@@ -1,10 +1,18 @@
 """
-snap server - Accesso al database SQLite e helper temporali.
+snap server - Accesso al database PostgreSQL e helper temporali.
 
 Il modulo espone una connessione per richiesta (pattern Flask `g`), la
 inizializzazione dello schema e le funzioni di utilita' per il trattamento
 uniforme dei timestamp: tutto viene scritto in UTC e convertito nel fuso orario
 del tenant solo in fase di presentazione (requisito di normalizzazione oraria).
+
+L'accesso passa da SQLAlchemy Core: le interrogazioni restano scritte in SQL, ma
+i valori viaggiano SEMPRE come parametri legati e la connessione, il pool e le
+migrazioni sono governati da un punto solo. I segnaposto storici `?` vengono
+tradotti qui (vedi `_con_segnaposto`), cosi' le centinaia di interrogazioni
+esistenti non sono state riscritte una per una -- riscriverle sarebbe stata la
+strada piu' breve per introdurre una concatenazione di stringhe al posto di un
+parametro.
 
 remarks: Autore: Daniele Speziale - Data: 2026-08-26
 copyright: (c) 2024-26 DS Consulting
@@ -94,56 +102,109 @@ def days_ago_str(days: int) -> str:
 # --------------------------------------------------------------------------- #
 # Connessione
 # --------------------------------------------------------------------------- #
-def get_db() -> sqlite3.Connection:
-    """Connessione SQLite associata alla richiesta corrente."""
+class Riga(Mapping):
+    """Riga di risultato leggibile per NOME e per POSIZIONE.
+
+    Il codice del prodotto legge le righe in tre modi -- `riga["ip"]`, `riga[0]` e
+    `dict(riga)` -- perche' era abituato a `sqlite3.Row`. Le righe di SQLAlchemy 2
+    espongono i nomi solo attraverso `_mapping`: senza questo involucro sarebbero
+    centinaia di punti da riscrivere, e ognuno un'occasione di sbagliare.
+    """
+
+    __slots__ = ("_valori",)
+
+    def __init__(self, mappa):
+        self._valori = dict(mappa)
+
+    def __getitem__(self, chiave):
+        if isinstance(chiave, int):
+            return list(self._valori.values())[chiave]
+        return self._valori[chiave]
+
+    def __iter__(self):
+        return iter(self._valori)
+
+    def __len__(self):
+        return len(self._valori)
+
+    def keys(self):
+        return self._valori.keys()
+
+    def __repr__(self) -> str:
+        return "Riga(%r)" % self._valori
+
+
+def _con_segnaposto(sql: str) -> str:
+    """Traduce i segnaposto `?` nella forma con nome usata da SQLAlchemy.
+
+    Il prodotto ha centinaia di interrogazioni scritte con `?` (paramstyle di
+    SQLite). Tradurle qui, in un punto solo, evita di riscriverle tutte -- e
+    soprattutto evita che qualcuno, riscrivendole, passi dai parametri legati alla
+    concatenazione di stringhe: i valori restano SEMPRE parametri.
+
+    I `?` dentro una stringa SQL (fra apici) non si toccano: sono dati, non
+    segnaposto.
+    """
+    pezzi = []
+    indice = 0
+    in_stringa = False
+    for carattere in sql:
+        if carattere == "'":
+            in_stringa = not in_stringa
+            pezzi.append(carattere)
+        elif carattere == "?" and not in_stringa:
+            pezzi.append(":p%d" % indice)
+            indice += 1
+        else:
+            pezzi.append(carattere)
+    return "".join(pezzi)
+
+
+def _legati(params) -> dict:
+    """Parametri posizionali nella forma con nome attesa da `_con_segnaposto`."""
+    return {"p%d" % i: v for i, v in enumerate(tuple(params or ()))}
+
+
+def motore() -> Engine:
+    """Motore di connessione, uno per processo.
+
+    `pool_pre_ping` verifica la connessione prima di usarla e `pool_recycle` la
+    rinnova: il contenitore della base dati puo' riavviarsi, e una connessione tenuta
+    aperta per ore diventa inutilizzabile senza dirlo.
+    """
+    motore_attuale = current_app.extensions.get("snap_engine")
+    if motore_attuale is not None:
+        return motore_attuale
+
+    dsn = (current_app.config.get("DATABASE_URL") or "").strip()
+    if not dsn:
+        # Meglio fermarsi subito e dirlo: senza archivio non c'e' niente da servire,
+        # e un valore predefinito con credenziali dentro sarebbe un segreto nel codice.
+        raise RuntimeError(
+            "Archivio non configurato: manca SNAP_SERVER_DATABASE_URL"
+            " (postgresql+psycopg://utente:password@host:5432/database)")
+
+    motore_attuale = create_engine(
+        dsn,
+        pool_pre_ping=True,
+        pool_recycle=int(current_app.config.get("DB_POOL_RECYCLE_SEC", 1800)),
+        future=True,
+    )
+    current_app.extensions["snap_engine"] = motore_attuale
+    return motore_attuale
+
+
+def get_db() -> Connection:
+    """Connessione associata alla richiesta corrente."""
     if "db" not in g:
-        path = Path(current_app.config["DATABASE"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(str(path), detect_types=sqlite3.PARSE_DECLTYPES)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
-        # In WAL i lettori non disturbano, ma DUE scritture si escludono: chi arriva
-        # secondo attende. Senza questa riga l'attesa era quella predefinita del
-        # modulo Python (5 secondi), che non e' una scelta: un'operazione lunga
-        # (cancellazione di una sonda, ingestione di un lotto) la supera e la
-        # richiesta concorrente fallisce con "database is locked".
-        connection.execute("PRAGMA busy_timeout = %d"
-                           % int(current_app.config["DB_BUSY_TIMEOUT_MS"]))
-        _registra_funzioni(connection)
+        connection = motore().connect()
+        # Attesa massima su un lock: e' il sostituto dichiarato del `busy_timeout`
+        # che serviva su SQLite. Oltre questo tempo la richiesta riceve un errore
+        # invece di restare appesa (vedi la cancellazione di una sonda).
+        connection.exec_driver_sql(
+            "SET lock_timeout = %d" % int(current_app.config["DB_LOCK_TIMEOUT_MS"]))
         g.db = connection
     return g.db
-
-
-def _valore_inet(indirizzo):
-    """Valore numerico di un indirizzo IP, per ordinarlo come si legge.
-
-    Ordinare gli indirizzi come TESTO mette 10.2.9.1 dopo 10.2.100.1 e prima di
-    10.2.99.1: un elenco cosi' non e' sfogliabile, e su un documento consegnato al
-    cliente l'errore si nota subito.
-
-    Il nome e' quello di PostgreSQL di proposito: il giorno in cui il prodotto gira
-    su Postgres, `ORDER BY inet(ip)` continua a valere -- la' e' il tipo `inet` a
-    ordinare per valore, e la funzione diventa un cast.
-
-    Un indirizzo illeggibile non fa cadere l'interrogazione: torna None e SQLite lo
-    ordina per ultimo. Meglio una riga fuori posto che un elenco che non si apre.
-    """
-    if not indirizzo:
-        return None
-    try:
-        import ipaddress
-
-        return int(ipaddress.ip_address(str(indirizzo).strip()))
-    except ValueError:
-        return None
-
-
-def _registra_funzioni(connection) -> None:
-    """Funzioni SQL proprie del prodotto, disponibili in ogni interrogazione."""
-    # deterministic=True: SQLite puo' usarla negli indici e nelle viste, e il valore
-    # di un indirizzo non cambia fra due chiamate.
-    connection.create_function("inet", 1, _valore_inet, deterministic=True)
 
 
 def close_db(_exception: BaseException | None = None) -> None:
@@ -153,22 +214,55 @@ def close_db(_exception: BaseException | None = None) -> None:
 
 
 def query(sql: str, params: tuple | list = (), one: bool = False):
-    cursor = get_db().execute(sql, tuple(params))
-    rows = cursor.fetchall()
-    cursor.close()
+    risultato = get_db().execute(text(_con_segnaposto(sql)), _legati(params))
+    righe = [Riga(r) for r in risultato.mappings()]
     if one:
-        return rows[0] if rows else None
-    return rows
+        return righe[0] if righe else None
+    return righe
+
+
+# Tabelle con una colonna `id`: serve a sapere se una INSERT puo' restituirlo.
+# Si accerta una volta per processo interrogando il catalogo, non si indovina.
+_TABELLE_CON_ID: dict[str, bool] = {}
+
+
+def _ha_colonna_id(connection, tabella: str) -> bool:
+    if tabella not in _TABELLE_CON_ID:
+        trovata = connection.execute(text(
+            "SELECT 1 FROM information_schema.columns"
+            " WHERE table_schema = current_schema()"
+            "   AND table_name = :t AND column_name = 'id'"), {"t": tabella}).first()
+        _TABELLE_CON_ID[tabella] = trovata is not None
+    return _TABELLE_CON_ID[tabella]
+
+
+_INSERT_IN = re.compile(r"^\s*INSERT\s+INTO\s+\"?(\w+)\"?", re.I)
 
 
 def execute(sql: str, params: tuple | list = ()) -> int:
-    """Esegue una scrittura e restituisce l'id dell'ultima riga inserita."""
+    """Esegue una scrittura e restituisce l'id della riga inserita (0 se non c'e').
+
+    PostgreSQL non ha un equivalente di `lastrowid`: l'id lo si chiede alla scrittura
+    stessa con RETURNING. Si aggiunge solo a una INSERT su una tabella che ha davvero
+    una colonna `id` (accertato sul catalogo): tentarlo alla cieca farebbe fallire
+    l'istruzione e, in PostgreSQL, un errore annulla l'intera transazione.
+    """
     connection = get_db()
-    cursor = connection.execute(sql, tuple(params))
+    istruzione = sql
+    riferimento = _INSERT_IN.match(sql)
+    chiede_id = (riferimento is not None
+                 and " RETURNING " not in sql.upper()
+                 and _ha_colonna_id(connection, riferimento.group(1)))
+    if chiede_id:
+        istruzione = sql.rstrip().rstrip(";") + " RETURNING id"
+
+    risultato = connection.execute(text(_con_segnaposto(istruzione)), _legati(params))
+    nuovo_id = 0
+    if chiede_id:
+        riga = risultato.first()
+        nuovo_id = int(riga[0]) if riga else 0
     connection.commit()
-    last_id = cursor.lastrowid
-    cursor.close()
-    return int(last_id or 0)
+    return nuovo_id
 
 
 def scalar(sql: str, params: tuple | list = (), default=0):

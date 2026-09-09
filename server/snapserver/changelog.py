@@ -21,6 +21,45 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.2.9",
+        "date": "2026-09-09",
+        "abstract": "Cancellare una sonda non fallisce piu' con l'archivio occupato;"
+                    " console e sonda si distribuiscono in container con TLS e base dati"
+                    " dedicata; il motore di scansione non scarta piu' un apparato per"
+                    " un limite di tempo nostro.",
+        "changes": [
+            "Cancellazione di una sonda: non risponde piu' \"archivio occupato\"."
+            " Le colonne di vincolo delle tabelle che crescono (nodi, esecuzioni, esiti"
+            " dei controlli, misure, esposizioni, diario) sono ora indicizzate: senza"
+            " indice ogni cancellazione scandiva le tabelle per intero -- una sola sonda"
+            " comportava l'aggiornamento di circa 118.000 righe. L'attesa sul blocco e'"
+            " diventata una scelta dichiarata (trenta secondi) invece del valore"
+            " predefinito della libreria (cinque).",
+            "Se l'archivio risulta occupato, l'operazione lo DICE e dichiara che nulla"
+            " e' stato cancellato, invece di mostrare una pagina di errore.",
+            "Distribuzione in container per console e sonda: TLS sulle interfacce,"
+            " Gunicorn, utente non privilegiato, base dati PostgreSQL predisposta con"
+            " utenze separate (proprietario e applicativo) e script di avvio e arresto"
+            " per Windows e Linux.",
+            "Sonda in container: la scansione SYN e il rilevamento del sistema operativo"
+            " funzionano senza privilegi di amministratore, tramite le capacita' del"
+            " kernel concesse al solo nmap.",
+            "La sonda verifica il certificato del server e si puo' indicare di quale"
+            " certificato fidarsi (CA interna o certificato proprio del server): serve"
+            " quando la console e' passata a HTTPS con un certificato non pubblico.",
+            "Motore di scansione: un apparato che nmap abbandona per scadenza non viene"
+            " piu' scartato dall'inventario. Non essendo stato esaminato e' IGNOTO, non"
+            " assente, e scartarlo lo faceva sparire per un limite di tempo nostro.",
+            "Motore di scansione: il tempo minimo per host delle fasi di rilevazione"
+            " torna al valore misurato come funzionante. Era stato abbassato per drenare"
+            " piu' in fretta la coda, ma sotto quella soglia la fase gira senza produrre"
+            " nulla.",
+            "Il tempo massimo di una scansione si calcola sulle ondate che nmap esegue"
+            " davvero, non sul numero di bersagli: un compito non puo' piu' restare"
+            " appeso per ore bloccando il ciclo.",
+        ],
+    },
+    {
         "version": "1.2.8",
         "date": "2026-09-04",
         "abstract": "I certificati TLS dei web server si cercano per scadenza e finiscono"

@@ -100,7 +100,10 @@ class Config:
     """Configurazione di base della sonda."""
 
     APP_NAME = "SNAP probe"
-    APP_VERSION = "1.0.0"
+    # Versione del PRODOTTO, la stessa della console: un solo numero per la coppia
+    # server+sonda (prima la sonda aveva una numerazione propria e l'immagine di
+    # distribuzione un'altra, e in assistenza non si capiva quale contasse).
+    APP_VERSION = "1.2.9"
     APP_SUBTITLE = "Sonda di raccolta - canale cifrato SNAP-SEC/1"
 
     SECRET_KEY = load_secret_key()
