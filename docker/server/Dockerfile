@@ -39,6 +39,12 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY server/ /app/
 
+# L'avvio passa da uno script: prima i dati iniziali (tenant e amministratori), poi
+# Gunicorn. Vedi entrypoint.sh per il motivo -- senza il seed il database resterebbe
+# con lo schema e nessuna utenza.
+COPY docker/server/entrypoint.sh /app/entrypoint.sh
+RUN chmod 0755 /app/entrypoint.sh
+
 # Utente non-root con un id fisso: i volumi montati devono appartenere a lui, e un id
 # fisso rende il permesso ripetibile fra macchine diverse.
 RUN groupadd --gid 10001 snap \
@@ -68,13 +74,7 @@ EXPOSE 5500
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${APP_PORT}/login" -o /dev/null || exit 1
 
-# UN SOLO worker, non e' una scelta di prestazioni: il server avvia nel proprio
-# processo i servizi di fondo (spedizione notifiche, resoconto quotidiano, valutatore
-# delle regole, sorveglianza termini ACN e sonde, rilevazione SIEM). Ognuno deve
-# esistere UNA volta sola: con due worker si spedirebbero due volte le notifiche e si
-# aprirebbero due volte gli stessi allarmi. La concorrenza si ottiene con i thread.
-CMD ["sh", "-c", "exec gunicorn --workers 1 --threads 8 \
-     --bind 0.0.0.0:${APP_PORT} \
-     --timeout 120 --graceful-timeout 30 --keep-alive 5 \
-     --access-logfile - --error-logfile - \
-     'snapserver:create_app()'"]
+# L'entrypoint popola i dati iniziali (idempotente) e poi passa a Gunicorn con UN
+# solo worker: nel processo vivono i servizi di fondo e ognuno deve esistere una volta
+# sola. Vedi entrypoint.sh.
+CMD ["/app/entrypoint.sh"]

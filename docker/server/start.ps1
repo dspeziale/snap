@@ -19,7 +19,13 @@ param(
     [switch]$Logs
 )
 
-$ErrorActionPreference = 'Stop'
+# NON si usa 'Stop': docker scrive su stderr anche quando fa il proprio lavoro
+# (l'avanzamento della build) e, con 'Stop', PowerShell 5.1 trasforma ogni riga di
+# stderr di un comando NATIVO in un errore terminante (NativeCommandError). Lo script
+# morirebbe con una traccia illeggibile proprio dove deve dare il suo messaggio. Gli
+# esiti si controllano dove contano, sul codice di uscita ($LASTEXITCODE).
+$ErrorActionPreference = 'Continue'
+
 # Si lavora nella cartella dello script: il compose e i percorsi relativi
 # (./certs, ./nginx.conf) sono riferiti a questa.
 Set-Location -Path $PSScriptRoot
@@ -31,6 +37,14 @@ function Fermati($Messaggio) {
     exit 1
 }
 
+function Test-DaemonDocker {
+    <# Il daemon risponde? Interessa SOLO il codice di uscita: lo stderro del comando
+       si scarta, e la preferenza locale alla funzione evita che diventi un errore. #>
+    $ErrorActionPreference = 'SilentlyContinue'
+    $null = docker info --format '{{.ServerVersion}}' 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+
 Write-Host ''
 Write-Host '=== snap server: avvio dei container ===' -ForegroundColor Cyan
 
@@ -38,8 +52,7 @@ Write-Host '=== snap server: avvio dei container ===' -ForegroundColor Cyan
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fermati 'docker non e'' installato (o non e'' nel PATH).'
 }
-docker info --format '{{.ServerVersion}}' *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-DaemonDocker)) {
     Fermati 'il daemon Docker non risponde: avviare Docker Desktop (o il servizio docker) e riprovare.'
 }
 

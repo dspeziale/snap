@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------
-# stop.ps1 — arresta i container del SERVER snap
+# stop.ps1 — arresta i container della SONDA snap
 # Autore: Daniele Speziale
 # Data creazione: 2026-09-09
 # Copyright (c) 2024-26 DS Consulting
@@ -7,13 +7,13 @@
 # -----------------------------------------------------------------
 # Uso:
 #   .\stop.ps1                arresta e rimuove i container. I DATI RESTANO.
-#   .\stop.ps1 -KeepRunning   solo ferma i container, senza rimuoverli (riavvio rapido)
-#   .\stop.ps1 -RemoveData    rimuove ANCHE i volumi: cancella la base dati. Chiede conferma.
+#   .\stop.ps1 -KeepRunning   solo ferma i container, senza rimuoverli
+#   .\stop.ps1 -RemoveData    rimuove ANCHE il volume: cancella l'archivio locale.
 #
-# Per difetto i volumi NON si toccano: `docker compose down -v` cancellerebbe
-# l'archivio, i report e la base dati PostgreSQL. Un arresto non deve poter
-# distruggere i dati per distrazione, quindi la cancellazione e' un'opzione esplicita
-# e con conferma scritta.
+# Il volume della sonda contiene la REGISTRAZIONE al server (chiavi di sessione del
+# canale cifrato) e la coda dei conferimenti non ancora spediti. Cancellarlo significa
+# dover registrare di nuovo la sonda dalla console e perdere la coda: per questo la
+# cancellazione e' esplicita e con conferma scritta.
 
 param(
     [switch]$KeepRunning,
@@ -32,7 +32,7 @@ function Test-DaemonDocker {
 }
 
 Write-Host ''
-Write-Host '=== snap server: arresto dei container ===' -ForegroundColor Cyan
+Write-Host '=== snap probe: arresto dei container ===' -ForegroundColor Cyan
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Write-Host 'ERRORE: docker non e'' installato (o non e'' nel PATH).' -ForegroundColor Red
@@ -44,18 +44,19 @@ if (-not (Test-DaemonDocker)) {
 }
 
 if ($KeepRunning) {
-    # `stop` lascia i container in piedi ma fermi: il riavvio e' immediato.
     & docker compose stop
     Write-Host ''
     Write-Host 'Container fermati (non rimossi). Riavvio: docker compose start' -ForegroundColor Green
+    Write-Host 'Con la sonda ferma la rete non viene scansionata: la copertura si ferma.' -ForegroundColor Yellow
     exit 0
 }
 
 if ($RemoveData) {
     Write-Host ''
-    Write-Host 'ATTENZIONE: con -RemoveData vengono cancellati anche i VOLUMI:' -ForegroundColor Red
-    Write-Host '  - la base dati PostgreSQL' -ForegroundColor Red
-    Write-Host '  - l''archivio del server, i report e le copie di sicurezza' -ForegroundColor Red
+    Write-Host 'ATTENZIONE: con -RemoveData viene cancellato il volume della sonda:' -ForegroundColor Red
+    Write-Host '  - la REGISTRAZIONE al server (andra'' rifatta dalla console)' -ForegroundColor Red
+    Write-Host '  - la coda dei conferimenti non ancora spediti' -ForegroundColor Red
+    Write-Host '  - la password dell''interfaccia e le impostazioni locali' -ForegroundColor Red
     Write-Host 'L''operazione NON e'' reversibile.' -ForegroundColor Red
     Write-Host ''
     $conferma = Read-Host 'Scrivere CANCELLA per procedere'
@@ -65,11 +66,13 @@ if ($RemoveData) {
     }
     & docker compose down --volumes
     Write-Host ''
-    Write-Host 'Container e volumi rimossi.' -ForegroundColor Yellow
+    Write-Host 'Container e volume rimossi: la sonda va registrata di nuovo.' -ForegroundColor Yellow
     exit $LASTEXITCODE
 }
 
 & docker compose down
 Write-Host ''
-Write-Host 'Container arrestati e rimossi. I dati restano nei volumi.' -ForegroundColor Green
+Write-Host 'Container arrestati e rimossi. Registrazione e coda restano nel volume.' -ForegroundColor Green
 Write-Host 'Riavvio: .\start.ps1' -ForegroundColor DarkGray
+Write-Host 'Nota: a sonda ferma il server la vedra'' non raggiungibile e, se le' -ForegroundColor DarkGray
+Write-Host 'scansioni erano attive, avvisera'' che la copertura si e'' fermata.' -ForegroundColor DarkGray

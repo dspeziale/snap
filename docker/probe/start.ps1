@@ -19,7 +19,10 @@ param(
     [switch]$Logs
 )
 
-$ErrorActionPreference = 'Stop'
+# NON si usa 'Stop': docker scrive su stderr anche quando riesce e, con 'Stop',
+# PowerShell 5.1 trasforma lo stderr di un comando NATIVO in un errore terminante
+# (NativeCommandError). Gli esiti si controllano sul codice di uscita.
+$ErrorActionPreference = 'Continue'
 Set-Location -Path $PSScriptRoot
 
 function Fermati($Messaggio) {
@@ -29,26 +32,39 @@ function Fermati($Messaggio) {
     exit 1
 }
 
+function Test-DaemonDocker {
+    $ErrorActionPreference = 'SilentlyContinue'
+    $null = docker info --format '{{.ServerVersion}}' 2>&1
+    return ($LASTEXITCODE -eq 0)
+}
+
+function Get-TipoMotoreDocker {
+    <# 'linux', 'windows' oppure '' se non si riesce a saperlo. #>
+    $ErrorActionPreference = 'SilentlyContinue'
+    $tipo = docker info --format '{{.OSType}}' 2>&1
+    if ($LASTEXITCODE -ne 0) { return '' }
+    return ("$tipo").Trim()
+}
+
 Write-Host ''
 Write-Host '=== snap probe: avvio dei container ===' -ForegroundColor Cyan
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Fermati 'docker non e'' installato (o non e'' nel PATH).'
 }
-docker info --format '{{.ServerVersion}}' *> $null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-DaemonDocker)) {
     Fermati 'il daemon Docker non risponde: avviare Docker Desktop (o il servizio docker) e riprovare.'
 }
 
 # La rete host: il limite va detto PRIMA, non scoperto dopo con un inventario vuoto.
-$sistema = docker info --format '{{.OSType}}' 2>$null
-if ($sistema -and $sistema.Trim() -ne 'linux') {
+$sistema = Get-TipoMotoreDocker
+if ($sistema -and $sistema -ne 'linux') {
     Write-Host ''
-    Write-Host ("Il motore Docker non e'' Linux ({0}): la rete host non funziona come" -f $sistema.Trim()) -ForegroundColor Yellow
+    Write-Host ("Il motore Docker non e'' Linux ({0}): la rete host non funziona come" -f $sistema) -ForegroundColor Yellow
     Write-Host 'in esercizio e la sonda NON vedra'' la rete del cliente.' -ForegroundColor Yellow
     Write-Host 'Va bene per provare l''interfaccia; per scansionare davvero serve Linux.' -ForegroundColor Yellow
 }
-elseif ($IsWindows) {
+elseif ($env:OS -eq 'Windows_NT') {
     # Motore Linux ma host Windows: e' Docker Desktop con WSL2, stesso limite.
     Write-Host ''
     Write-Host 'Docker Desktop su Windows: la rete host passa da WSL2 e la sonda vede la' -ForegroundColor Yellow
