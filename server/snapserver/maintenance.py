@@ -17,11 +17,22 @@ predefinito motivato, e `0` significa "non scade".
 
 Copia e ripristino
 ------------------
-La copia usa l'API di backup di SQLite e non la copia del file: un file copiato mentre
-il server scrive puo' essere incoerente, e un archivio incoerente e' peggio di nessun
-archivio. Il ripristino, per lo stesso motivo, non sostituisce il file: riversa il
-contenuto della copia DENTRO l'archivio in esercizio, in una transazione, cosi' le
-connessioni aperte vedono i dati nuovi senza restare appese a un file cancellato.
+La copia e' un archivio `pg_dump` in formato personalizzato (`-Fc`): compresso,
+selettivo nel ripristino e -- soprattutto -- ripristinabile con `pg_restore`, cioe'
+con gli strumenti che chiunque amministri PostgreSQL conosce gia'. Il giorno in cui
+serve, una copia che si apre solo con snap e' una copia in meno.
+
+`pg_dump` produce una copia COERENTE: legge in una singola istantanea della base
+dati, quindi non importa che il server stia scrivendo nel frattempo.
+
+Il ripristino usa `pg_restore --clean --if-exists`: elimina e ricrea gli oggetti
+dentro la base dati in esercizio, senza sostituire file e senza fermare il servizio.
+Prima di ogni ripristino viene fatta una copia dello stato corrente.
+
+VERSIONI. `pg_dump` sa leggere un server della propria versione o piu' vecchio, non
+piu' nuovo. La compatibilita' si verifica PRIMA di ogni copia e di ogni ripristino, e
+se il client e' piu' vecchio del server l'operazione si rifiuta: una copia prodotta
+in quella condizione puo' essere incompleta senza dirlo.
 
 Prima di ogni ripristino viene fatta una copia dello stato corrente: un ripristino
 sbagliato non deve essere l'ultima operazione possibile.
@@ -38,19 +49,23 @@ license: MIT
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
-import sqlite3
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from flask import current_app
 
 from .audit import log_event
 from .db import execute, get_db, motore, query, scalar, utc_now, utc_now_str, utc_str
 
-# Estensione dei file di copia. Non si comprime: SQLite comprime male e una copia che
-# richiede un passaggio in piu' per essere ispezionata viene ispezionata meno spesso.
-BACKUP_SUFFIX = ".sqlite3"
+# Estensione dei file di copia. Il formato personalizzato di `pg_dump` e' GIA'
+# compresso e si ispeziona senza scompattarlo (`pg_restore --list`): non serve
+# aggiungere un passaggio che renderebbe la copia meno esaminata.
+BACKUP_SUFFIX = ".dump"
 BACKUP_PREFIX = "snap-"
 # Quante copie tenere quando si chiede la rotazione. Serve un limite: la cartella
 # delle copie cresce quanto l'archivio, moltiplicato per il numero di copie.
@@ -267,10 +282,23 @@ def database_size() -> dict:
 
 
 def compact() -> dict:
-    """Restituisce lo spazio delle righe non piu' necessarie.
+    """Rende riutilizzabile lo spazio delle righe non piu' necessarie.
 
     Un'operazione a se' e non un effetto dell'eliminazione: su un archivio grande
     dura. Deve essere una scelta di chi la fa.
+
+    COSA FA E COSA NON FA, perche' la differenza conta e su SQLite non c'era. Su
+    SQLite `VACUUM` riscriveva il file e la dimensione sul disco CALAVA. Su PostgreSQL
+    `VACUUM` non restituisce spazio al sistema operativo: marca come riutilizzabili le
+    pagine occupate dalle righe morte, cosi' le scritture successive non fanno crescere
+    i file. La dimensione dichiarata dal sistema puo' quindi restare identica, e con
+    `ANALYZE` puo' perfino CRESCERE di poco (statistiche, mappe di visibilita' e di
+    spazio libero): non e' un guasto, e' come funziona.
+
+    Restituire spazio al disco richiederebbe `VACUUM FULL`, che riscrive ogni tabella
+    tenendo un lock esclusivo: l'applicazione resterebbe ferma per tutta la durata.
+    Da una console di esercizio non si fa, e non si offre un pulsante che lo faccia
+    senza dirlo.
 
     `VACUUM` non puo' girare dentro una transazione: serve una connessione in
     autocommit, non quella della richiesta. `ANALYZE` insieme aggiorna le statistiche
@@ -281,38 +309,168 @@ def compact() -> dict:
     with motore().connect().execution_options(isolation_level="AUTOCOMMIT") as pulizia:
         pulizia.exec_driver_sql("VACUUM (ANALYZE)")
     dopo = database_size()
+    recuperate = max(0, prima["righe_morte"] - dopo["righe_morte"])
     log_event("maintenance.compact",
-              "Archivio compattato: da %d a %d byte"
-              % (prima["file_byte"], dopo["file_byte"]),
+              "Archivio compattato: %d righe morte rese riutilizzabili;"
+              " dimensione da %d a %d byte (PostgreSQL non la restituisce al disco)"
+              % (recuperate, prima["file_byte"], dopo["file_byte"]),
               severity="info", entity="database")
     return {"prima": prima["file_byte"], "dopo": dopo["file_byte"],
+            # Le righe morte rese riutilizzabili: e' cio' che l'operazione fa
+            # davvero, ed e' l'unica misura che si puo' dichiarare senza mentire.
+            "righe_recuperate": recuperate,
+            "righe_morte_prima": prima["righe_morte"],
+            "righe_morte_dopo": dopo["righe_morte"],
+            # Conservato per compatibilita' con chi legge l'esito: su PostgreSQL e'
+            # zero quasi sempre, e non e' un difetto (vedi la spiegazione sopra).
             "liberati": max(0, prima["file_byte"] - dopo["file_byte"])}
 
 
 # --------------------------------------------------------------------------- #
 # Copie di sicurezza
 # --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Copie e ripristino: non ancora portati su PostgreSQL
-# --------------------------------------------------------------------------- #
-# Queste operazioni usavano l'API di backup di SQLite -- un archivio in un file, che
-# si copia e si riversa. Su PostgreSQL la copia si fa con `pg_dump` e il ripristino
-# con `pg_restore`, ed e' un lavoro a se': va eseguito dove `pg_dump` esiste (non
-# nell'immagine dell'applicazione), con la versione giusta del client, e il file
-# prodotto non e' piu' un archivio ispezionabile con le stesse verifiche.
-#
-# Finche' non e' portato, queste funzioni SI FERMANO con un messaggio che dice cosa
-# usare. La scelta e' deliberata: una copia che sembra riuscita e non e' ripristinabile
-# e' peggio di nessuna copia, ed e' il modo classico di scoprire il problema il giorno
-# in cui serve. Nel frattempo la copia si fa con lo script gia' pronto:
-#
-#     docker/server/backup-postgres.sh
-def _non_ancora_portato(operazione: str):
-    raise MaintenanceError(
-        "%s non e' ancora disponibile con PostgreSQL. Nel frattempo la copia"
-        " dell'archivio si esegue con lo script docker/server/backup-postgres.sh"
-        " (pg_dump), che scrive nella cartella delle copie del servizio."
-        % operazione)
+# Gli eseguibili del client PostgreSQL. Sono nell'immagine (pacchetto
+# `postgresql-client`): la copia si chiede dalla console, quindi lo strumento deve
+# stare dove gira la console.
+PG_DUMP = "pg_dump"
+PG_RESTORE = "pg_restore"
+
+# Tempo massimo concesso a una copia o a un ripristino. Un archivio grande richiede
+# minuti; oltre mezz'ora e' piu' probabile che il comando sia appeso che lento, e una
+# richiesta HTTP appesa per sempre non aiuta nessuno.
+TIMEOUT_COMANDO_SEC = 1800
+
+
+class DumpNonDisponibile(MaintenanceError):
+    """Il client PostgreSQL non c'e' o non e' compatibile con il server."""
+
+
+def _dsn_proprietario() -> str:
+    """Credenziali con cui copiare e ripristinare.
+
+    Serve il PROPRIETARIO, non l'utenza applicativa: la copia deve leggere ogni
+    oggetto e il ripristino deve poterli ricreare. L'utenza applicativa ha di
+    proposito i soli privilegi di lettura e scrittura sui dati, e con quella una copia
+    sarebbe incompleta -- senza dirlo, che e' il modo peggiore.
+    """
+    dsn = (current_app.config.get("OWNER_DATABASE_URL")
+           or os.environ.get("SNAP_SERVER_OWNER_DATABASE_URL") or "").strip()
+    if not dsn:
+        raise DumpNonDisponibile(
+            "Le credenziali del proprietario della base dati non sono configurate"
+            " (SNAP_SERVER_OWNER_DATABASE_URL): senza quelle una copia sarebbe"
+            " incompleta e un ripristino impossibile.")
+    return dsn
+
+
+def _parti_dsn(dsn: str) -> dict:
+    """Host, porta, base dati e credenziali da un DSN SQLAlchemy.
+
+    La password NON finisce mai fra gli argomenti del comando: sulla riga di comando
+    sarebbe visibile a chiunque possa elencare i processi. Viaggia in `PGPASSWORD`,
+    nell'ambiente del solo processo figlio.
+    """
+    pezzi = urlsplit(dsn)
+    return {
+        "host": pezzi.hostname or "localhost",
+        "porta": str(pezzi.port or 5432),
+        "database": unquote((pezzi.path or "/").lstrip("/")) or "snap",
+        "utente": unquote(pezzi.username or ""),
+        "password": unquote(pezzi.password or ""),
+    }
+
+
+def _ambiente(parti: dict) -> dict:
+    ambiente = dict(os.environ)
+    if parti["password"]:
+        ambiente["PGPASSWORD"] = parti["password"]
+    # Messaggi del client in inglese: vengono riportati nel diario e nei messaggi
+    # d'errore, e un testo tradotto dalla locale del container e' piu' difficile da
+    # cercare quando serve capire cos'e' andato storto.
+    ambiente["LC_ALL"] = "C"
+    return ambiente
+
+
+def _versione_client(eseguibile: str = PG_DUMP) -> int:
+    """Versione major del client. Solleva se il client non c'e'."""
+    if shutil.which(eseguibile) is None:
+        raise DumpNonDisponibile(
+            "Lo strumento %s non e' disponibile in questa installazione: la copia"
+            " dell'archivio dalla console non puo' essere eseguita." % eseguibile)
+    try:
+        esito = subprocess.run([eseguibile, "--version"], capture_output=True,
+                               text=True, timeout=30, check=True)
+    except (OSError, subprocess.SubprocessError) as errore:
+        raise DumpNonDisponibile("Impossibile interrogare %s: %s"
+                                 % (eseguibile, errore)) from errore
+    trovata = re.search(r"(\d+)\.\d+", esito.stdout or "")
+    if not trovata:
+        raise DumpNonDisponibile("Versione di %s non riconosciuta: %s"
+                                 % (eseguibile, (esito.stdout or "").strip()))
+    return int(trovata.group(1))
+
+
+def _versione_server() -> int:
+    """Versione major del server, chiesta al server stesso."""
+    numero = scalar("SHOW server_version_num")
+    return int(int(numero) // 10000)
+
+
+def _verifica_compatibilita(per_ripristino: bool = False) -> dict:
+    """Le versioni di client e server sono compatibili per cio' che si sta per fare.
+
+    LE DUE REGOLE SONO DIVERSE, e la differenza e' stata misurata, non dedotta:
+
+    * COPIA: `pg_dump` legge un server della propria versione o piu' VECCHIO. Un
+      client piu' vecchio del server non conosce gli oggetti introdotti dopo di se'
+      e produrrebbe una copia incompleta senza dirlo.
+    * RIPRISTINO: `pg_restore` deve avere la STESSA versione major del server. Non
+      riversa soltanto il contenuto dell'archivio: apre la sessione con le proprie
+      impostazioni, e quelle di una versione piu' recente il server non le conosce.
+      Misurato: `pg_restore` 17 verso un server 16 fallisce su
+      `SET transaction_timeout = 0`, parametro introdotto con la 17. Consentire la
+      copia e scoprire il problema il giorno del ripristino sarebbe il modo peggiore
+      di scoprirlo.
+    """
+    client = _versione_client(PG_RESTORE if per_ripristino else PG_DUMP)
+    server = _versione_server()
+    if client < server:
+        raise DumpNonDisponibile(
+            "Il client PostgreSQL (%d) e' piu' vecchio del server (%d): una copia"
+            " prodotta cosi' potrebbe essere incompleta. Serve il client della"
+            " versione %d." % (client, server, server))
+    if per_ripristino and client != server:
+        raise DumpNonDisponibile(
+            "Il ripristino richiede pg_restore della stessa versione del server:"
+            " qui il client e' %d e il server %d. Con versioni diverse pg_restore"
+            " imposta parametri di sessione che il server non riconosce e il"
+            " ripristino si interrompe. Installare il client della versione %d."
+            % (client, server, server))
+    return {"client": client, "server": server}
+
+
+def _esegui(argomenti: list, parti: dict, cosa: str) -> str:
+    """Esegue un comando del client PostgreSQL. Restituisce lo standard output.
+
+    Nessun `shell=True` e nessuna stringa da comporre: gli argomenti sono una lista,
+    quindi un nome di base dati o di file non puo' diventare un comando.
+    """
+    try:
+        esito = subprocess.run(argomenti, capture_output=True, text=True,
+                               timeout=TIMEOUT_COMANDO_SEC, env=_ambiente(parti))
+    except subprocess.TimeoutExpired as errore:
+        raise MaintenanceError(
+            "%s non completata entro %d minuti: l'operazione e' stata interrotta."
+            % (cosa, TIMEOUT_COMANDO_SEC // 60)) from errore
+    except OSError as errore:
+        raise MaintenanceError("%s non eseguibile: %s" % (cosa, errore)) from errore
+    if esito.returncode != 0:
+        # Si riporta la sola ultima riga dell'errore del client: e' quella che dice
+        # cosa e' andato storto, e il resto e' contesto che finirebbe in una pagina.
+        righe = [r for r in (esito.stderr or "").strip().splitlines() if r.strip()]
+        motivo = righe[-1] if righe else "esito %d" % esito.returncode
+        raise MaintenanceError("%s non riuscita: %s" % (cosa, motivo))
+    return esito.stdout or ""
 
 
 def backup_dir() -> Path:
@@ -347,23 +505,27 @@ def _percorso_copia(momento: datetime = None) -> Path:
 
 def backup_now(nota: str = "", keep: int = None) -> dict:
     """Copia coerente dell'intero archivio, tutti i tenant compresi."""
-    _non_ancora_portato("La copia dell'archivio dalla console")
+    versioni = _verifica_compatibilita()
+    parti = _parti_dsn(_dsn_proprietario())
     destinazione = _percorso_copia()
-    sorgente = get_db()
-    sorgente.commit()
+
+    argomenti = [
+        PG_DUMP,
+        "--host", parti["host"], "--port", parti["porta"],
+        "--username", parti["utente"], "--dbname", parti["database"],
+        "--no-password",          # la password sta in PGPASSWORD, non si chiede a un tty
+        "--format=custom",        # compresso, e ripristinabile in modo selettivo
+        "--compress=6",
+        "--file", str(destinazione),
+    ]
     try:
-        copia = sqlite3.connect(str(destinazione))
-        try:
-            with copia:
-                sorgente.backup(copia)
-        finally:
-            copia.close()
-    except sqlite3.Error as errore:
+        _esegui(argomenti, parti, "Copia dell'archivio")
+    except MaintenanceError:
         # Un file parziale sarebbe indistinguibile da una copia valida.
         destinazione.unlink(missing_ok=True)
-        raise MaintenanceError("Copia non riuscita: %s" % errore) from errore
+        raise
 
-    dimensione = destinazione.stat().st_size
+    dimensione = destinazione.stat().st_size if destinazione.exists() else 0
     integro = verify_backup(destinazione)
     if not integro["valida"]:
         destinazione.unlink(missing_ok=True)
@@ -372,8 +534,8 @@ def backup_now(nota: str = "", keep: int = None) -> dict:
 
     rimosse = rotate_backups(keep if keep is not None else DEFAULT_KEEP)
     log_event("maintenance.backup",
-              "Copia dell'archivio creata: %s (%d byte)%s%s"
-              % (destinazione.name, dimensione,
+              "Copia dell'archivio creata: %s (%d byte, pg_dump %d verso server %d)%s%s"
+              % (destinazione.name, dimensione, versioni["client"], versioni["server"],
                  " - %s" % nota if nota else "",
                  " - %d copie piu' vecchie rimosse" % len(rimosse) if rimosse else ""),
               severity="warning", entity="database")
@@ -431,78 +593,91 @@ def rotate_backups(keep: int = DEFAULT_KEEP) -> list:
 
 
 def verify_backup(percorso) -> dict:
-    """Verifica che un file sia un archivio snap coerente.
+    """Verifica che un file sia un archivio snap ripristinabile.
 
-    Tre controlli: si apre, supera il controllo di integrita', contiene le tabelle del
-    prodotto. Un ripristino da un file qualunque distruggerebbe l'archivio in
-    esercizio.
+    Tre controlli, gli stessi di prima tradotti negli strumenti di PostgreSQL: il
+    file si apre come archivio (`pg_restore --list` legge l'indice e fallisce su un
+    file corrotto o di altra natura), l'indice contiene le tabelle del prodotto, e la
+    versione del client basta a leggerlo. Un ripristino da un file qualunque
+    distruggerebbe l'archivio in esercizio.
+
+    Non conta le righe: l'indice di un archivio dichiara gli OGGETTI, non i dati, e
+    contarli richiederebbe di ripristinarlo. Cio' che si puo' affermare senza
+    ripristinare, si afferma; il resto non si finge.
     """
-    _non_ancora_portato("La verifica di una copia")
     file = Path(percorso)
     if not file.is_file():
         return {"valida": False, "motivo": "file non trovato"}
     try:
-        connessione = sqlite3.connect("file:%s?mode=ro" % file.as_posix(), uri=True)
-    except sqlite3.Error as errore:
-        return {"valida": False, "motivo": "non apribile: %s" % errore}
+        _versione_client(PG_RESTORE)
+    except DumpNonDisponibile as errore:
+        return {"valida": False, "motivo": str(errore)}
     try:
-        esito = connessione.execute("PRAGMA integrity_check").fetchone()
-        if not esito or esito[0] != "ok":
-            return {"valida": False,
-                    "motivo": "controllo di integrita' non superato: %s"
-                              % (esito[0] if esito else "senza esito")}
-        presenti = {r[0] for r in connessione.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table'")}
-        mancanti = [t for t in TABELLE_ATTESE if t not in presenti]
-        if mancanti:
-            return {"valida": False,
-                    "motivo": "non e' un archivio snap: mancano %s"
-                              % ", ".join(mancanti)}
-        tenant = connessione.execute("SELECT COUNT(*) FROM tenants").fetchone()[0]
-        utenti = connessione.execute("SELECT COUNT(*) FROM users").fetchone()[0]
-        nodi = connessione.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
-    except sqlite3.Error as errore:
-        return {"valida": False, "motivo": "lettura non riuscita: %s" % errore}
-    finally:
-        connessione.close()
-    return {"valida": True, "motivo": "", "tenant": tenant, "utenti": utenti,
-            "nodi": nodi, "byte": file.stat().st_size}
+        indice = _esegui([PG_RESTORE, "--list", str(file)], {"password": ""},
+                         "Verifica della copia")
+    except MaintenanceError as errore:
+        return {"valida": False, "motivo": "non e' un archivio leggibile: %s" % errore}
+
+    # Le righe dell'indice hanno due forme, e servono entrambe: la definizione
+    #   4321; 1259 16404 TABLE public nodes snap_owner
+    # e i dati
+    #   4322; 0 16404 TABLE DATA public nodes snap_owner
+    # Una copia con le sole definizioni e senza dati e' un archivio valido ma
+    # vuoto: si raccolgono i nomi da entrambe e si guarda che ci siano i dati.
+    definite = set(re.findall(" TABLE +(?!DATA )[^ ]+ +([^ ]+)", indice))
+    con_dati = set(re.findall(" TABLE +DATA +[^ ]+ +([^ ]+)", indice))
+    tabelle = definite | con_dati
+    mancanti = [t for t in TABELLE_ATTESE if t not in tabelle]
+    if mancanti:
+        return {"valida": False,
+                "motivo": "non e' un archivio snap: mancano %s" % ", ".join(mancanti)}
+    return {"valida": True, "motivo": "", "tabelle": len(tabelle),
+            "byte": file.stat().st_size}
 
 
 def restore_from(percorso, attore: str = "") -> dict:
     """Riversa una copia nell'archivio in esercizio, dopo averne salvato lo stato.
 
-    Non sostituisce il file: usa l'API di backup nella direzione opposta, dentro una
-    transazione. Le connessioni aperte -- le richieste in corso, i thread di servizio --
-    continuano a vedere un archivio valido.
+    Non sostituisce file e non ferma il servizio: `pg_restore --clean --if-exists`
+    elimina e ricrea gli oggetti DENTRO la base dati in esercizio, in una sola
+    transazione (`--single-transaction`), cosi' un ripristino interrotto a meta' non
+    lascia un archivio mezzo vuoto.
     """
-    _non_ancora_portato("Il ripristino da una copia")
+    versioni = _verifica_compatibilita(per_ripristino=True)
     candidato = Path(percorso)
     verifica = verify_backup(candidato)
     if not verifica["valida"]:
         raise MaintenanceError("Copia non ripristinabile: %s" % verifica["motivo"])
 
     prima = backup_now(nota="stato precedente al ripristino di %s" % candidato.name)
+    parti = _parti_dsn(_dsn_proprietario())
 
-    destinazione = get_db()
-    destinazione.commit()
+    argomenti = [
+        PG_RESTORE,
+        "--host", parti["host"], "--port", parti["porta"],
+        "--username", parti["utente"], "--dbname", parti["database"],
+        "--no-password",
+        "--clean", "--if-exists",   # si rifa' da zero, senza lamentarsi di cio' che manca
+        "--single-transaction",     # tutto o niente: mai un archivio a meta'
+        "--no-owner", "--no-privileges",  # i proprietari li stabilisce questa installazione
+        str(candidato),
+    ]
     try:
-        origine = sqlite3.connect("file:%s?mode=ro" % candidato.as_posix(), uri=True)
-        try:
-            with destinazione:
-                origine.backup(destinazione)
-        finally:
-            origine.close()
-    except sqlite3.Error as errore:
+        _esegui(argomenti, parti, "Ripristino dell'archivio")
+    except MaintenanceError as errore:
         raise MaintenanceError(
-            "Ripristino non riuscito: %s. Lo stato precedente e' nella copia %s."
-            % (errore, prima["nome"])) from errore
+            "%s Lo stato precedente e' nella copia %s." % (errore, prima["nome"])
+        ) from errore
+
+    # Le connessioni del pool hanno in mano oggetti che il ripristino ha ricreato:
+    # tenerle significherebbe lavorare su piani e cataloghi non piu' validi.
+    motore().dispose()
 
     log_event("maintenance.restore",
-              "Archivio ripristinato dalla copia %s (%s tenant, %s utenti, %s nodi);"
-              " stato precedente salvato in %s"
-              % (candidato.name, verifica["tenant"], verifica["utenti"],
-                 verifica["nodi"], prima["nome"]),
+              "Archivio ripristinato dalla copia %s (%s tabelle, pg_restore %d verso"
+              " server %d); stato precedente salvato in %s"
+              % (candidato.name, verifica.get("tabelle", "?"), versioni["client"],
+                 versioni["server"], prima["nome"]),
               severity="critical", entity="database")
     return {"da": candidato.name, "copia_precedente": prima["nome"],
             "verifica": verifica}
@@ -517,9 +692,11 @@ def store_uploaded(file_storage) -> Path:
     nome = Path(getattr(file_storage, "filename", "") or "").name
     if not nome:
         raise MaintenanceError("Nessun file indicato.")
-    if not nome.endswith((".sqlite3", ".sqlite", ".db")):
-        raise MaintenanceError("Il file deve essere un archivio SQLite"
-                               " (.sqlite3, .sqlite, .db).")
+    if not nome.endswith((BACKUP_SUFFIX, ".backup")):
+        raise MaintenanceError("Il file deve essere un archivio pg_dump in formato"
+                               " personalizzato (%s). Il contenuto viene comunque"
+                               " verificato prima di qualunque ripristino."
+                               % BACKUP_SUFFIX)
     destinazione = _percorso_copia()
     destinazione = destinazione.with_name(destinazione.name.replace(
         BACKUP_PREFIX, BACKUP_PREFIX + "caricata-", 1))

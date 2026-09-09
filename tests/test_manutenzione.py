@@ -12,7 +12,7 @@ license: MIT
 
 from __future__ import annotations
 
-import sqlite3
+import shutil
 from pathlib import Path
 
 import pytest
@@ -164,7 +164,16 @@ def test_la_dimensione_dichiara_lo_spazio_riutilizzabile(server_app):
     assert {"tenants", "nodes", "report_runs", "notify_rules"} <= nomi
 
 
-def test_la_compattazione_restituisce_lo_spazio(server_app):
+def test_la_compattazione_rende_riutilizzabile_lo_spazio(server_app):
+    """Cio' che la compattazione fa davvero su PostgreSQL: le righe morte lasciate da
+    una pulizia diventano riutilizzabili.
+
+    NON si pretende che la dimensione sul disco cali: `VACUUM` non restituisce spazio
+    al sistema operativo (servirebbe `VACUUM FULL`, che tiene un lock esclusivo e
+    fermerebbe l'applicazione) e con `ANALYZE` puo' perfino crescere di poco. Il
+    controllo precedente pretendeva il comportamento di SQLite, e su PostgreSQL
+    falliva pur funzionando tutto: una misura sbagliata, non un difetto del prodotto.
+    """
     tenant_id = _tenant_id(server_app)
     _campioni_vecchi(server_app, tenant_id, quanti=200)
     with server_app.app_context():
@@ -173,25 +182,53 @@ def test_la_compattazione_restituisce_lo_spazio(server_app):
         purge(dry_run=False)
         esito = compact()
 
-    assert esito["dopo"] <= esito["prima"]
-    assert esito["liberati"] >= 0
+    assert esito["righe_morte_dopo"] <= esito["righe_morte_prima"], (
+        "dopo la compattazione le righe morte non possono essere aumentate")
+    assert esito["righe_recuperate"] >= 0
+    assert esito["dopo"] > 0, "la dimensione dell'archivio va comunque dichiarata"
 
 
 # --------------------------------------------------------------------------- #
 # Copie
 # --------------------------------------------------------------------------- #
+# La copia e il ripristino chiamano `pg_dump` e `pg_restore`: sono nell'immagine del
+# server, dove queste operazioni girano davvero, ma non necessariamente sulla
+# macchina di chi sviluppa. Dove mancano, il controllo si SALTA dichiarando il motivo
+# -- non si finge un esito. La verifica vera si esegue nel contenitore:
+#
+#     docker compose exec snap-server python -m pytest tests/test_manutenzione.py
+serve_pg_dump = pytest.mark.skipif(
+    shutil.which("pg_dump") is None or shutil.which("pg_restore") is None,
+    reason="pg_dump/pg_restore non presenti qui: la copia si prova nel contenitore"
+           " del server, dove il client PostgreSQL e' installato")
+
+
+
+@serve_pg_dump
 def test_una_copia_viene_verificata_appena_prodotta(server_app):
+    """Una copia non verificata non e' una copia: la verifica sta DENTRO la creazione,
+    non e' un passo che qualcuno potrebbe dimenticare.
+
+    Si controlla che l'indice dell'archivio sia leggibile e contenga le tabelle del
+    prodotto. NON si contano tenant, utenti e nodi: l'indice di un archivio dichiara
+    gli OGGETTI, non i dati, e contare le righe richiederebbe di ripristinarlo. Il
+    controllo precedente lo pretendeva, ereditato da SQLite dove la copia era un
+    database interrogabile.
+    """
     with server_app.app_context():
-        from snapserver.maintenance import backup_now
+        from snapserver.maintenance import BACKUP_SUFFIX, backup_now
 
         esito = backup_now(nota="prova")
 
     assert esito["verifica"]["valida"] is True
-    assert esito["verifica"]["tenant"] >= 1
+    assert esito["verifica"]["tabelle"] >= 5, (
+        "l'indice deve dichiarare almeno le tabelle attese del prodotto")
     assert esito["byte"] > 0
-    assert esito["nome"].startswith("snap-") and esito["nome"].endswith(".sqlite3")
+    assert esito["nome"].startswith("snap-")
+    assert esito["nome"].endswith(BACKUP_SUFFIX)
 
 
+@serve_pg_dump
 def test_due_copie_nello_stesso_secondo_non_si_sovrascrivono(server_app):
     """Il nome ha risoluzione al secondo: senza contatore la seconda copia
     cancellerebbe la prima, e il ripristino leggerebbe lo stato corrente credendo di
@@ -207,6 +244,7 @@ def test_due_copie_nello_stesso_secondo_non_si_sovrascrivono(server_app):
     assert prima["nome"] in elenco and seconda["nome"] in elenco
 
 
+@serve_pg_dump
 def test_la_rotazione_tiene_le_copie_piu_recenti(server_app):
     with server_app.app_context():
         from snapserver.maintenance import backup_now, list_backups
@@ -218,36 +256,31 @@ def test_la_rotazione_tiene_le_copie_piu_recenti(server_app):
     assert len(elenco) == 2
 
 
+@serve_pg_dump
 def test_una_copia_estranea_non_e_ripristinabile(server_app, tmp_path):
     """Un ripristino da un file qualunque distruggerebbe l'archivio in esercizio."""
-    estraneo = tmp_path / "altro.sqlite3"
-    connessione = sqlite3.connect(str(estraneo))
-    connessione.execute("CREATE TABLE cose (id INTEGER)")
-    connessione.commit()
-    connessione.close()
-
-    testo = tmp_path / "non-un-database.sqlite3"
+    # Un file che NON e' un archivio pg_dump: l'indice non si legge.
+    testo = tmp_path / "non-un-archivio.dump"
     testo.write_text("questo non e' un archivio", encoding="utf-8")
 
     with server_app.app_context():
         from snapserver.maintenance import MaintenanceError, restore_from, verify_backup
 
-        esito = verify_backup(estraneo)
+        esito = verify_backup(testo)
         assert esito["valida"] is False
-        assert "archivio snap" in esito["motivo"]
+        assert "archivio" in esito["motivo"]
 
-        assert verify_backup(testo)["valida"] is False
-        assert verify_backup(tmp_path / "inesistente.sqlite3")["valida"] is False
+        assert verify_backup(tmp_path / "inesistente.dump")["valida"] is False
 
         with pytest.raises(MaintenanceError):
-            restore_from(estraneo)
+            restore_from(testo)
 
 
 def test_il_nome_di_una_copia_non_puo_essere_un_percorso(server_app):
     with server_app.app_context():
         from snapserver.maintenance import MaintenanceError, backup_file
 
-        for tentativo in ("../../server.sqlite3", "snap-../../fuori.sqlite3",
+        for tentativo in ("../../server.dump", "snap-../../fuori.dump",
                           "qualunque.txt", ""):
             with pytest.raises(MaintenanceError):
                 backup_file(tentativo)
@@ -256,6 +289,7 @@ def test_il_nome_di_una_copia_non_puo_essere_un_percorso(server_app):
 # --------------------------------------------------------------------------- #
 # Ripristino
 # --------------------------------------------------------------------------- #
+@serve_pg_dump
 def test_il_ripristino_riporta_i_dati_e_salva_lo_stato_precedente(server_app):
     tenant_id = _tenant_id(server_app)
     with server_app.app_context():
@@ -289,6 +323,7 @@ def test_il_ripristino_riporta_i_dati_e_salva_lo_stato_precedente(server_app):
     assert precedente["valida"] is True
 
 
+@serve_pg_dump
 def test_il_ripristino_e_tracciato_e_riporta_anche_il_registro(server_app):
     """Proprieta' intrinseca, non un difetto: ripristinare un archivio ripristina anche
     il suo registro di audit, quindi gli eventi successivi alla copia scompaiono. Cio'
@@ -324,6 +359,7 @@ def test_l_amministratore_di_sistema_vede_copie_e_ripristino(logged_client):
     assert "digitare RIPRISTINA" in pagina
 
 
+@serve_pg_dump
 def test_una_copia_si_crea_dalla_pagina(logged_client, server_app):
     risposta = logged_client.post("/admin/settings/backup", data={"nota": "dalla pagina"},
                                   follow_redirects=True)
@@ -336,6 +372,7 @@ def test_una_copia_si_crea_dalla_pagina(logged_client, server_app):
         assert len(list_backups()) == 1
 
 
+@serve_pg_dump
 def test_il_ripristino_richiede_la_conferma_digitata(logged_client, server_app):
     with server_app.app_context():
         from snapserver.maintenance import backup_now
@@ -350,6 +387,7 @@ def test_il_ripristino_richiede_la_conferma_digitata(logged_client, server_app):
     assert "RIPRISTINA" in testo
 
 
+@serve_pg_dump
 def test_la_verifica_dalla_pagina_non_ripristina(logged_client, server_app):
     tenant_id = _tenant_id(server_app)
     with server_app.app_context():

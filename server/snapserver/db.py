@@ -112,17 +112,40 @@ class Riga(Mapping):
     `dict(riga)` -- perche' era abituato a `sqlite3.Row`. Le righe di SQLAlchemy 2
     espongono i nomi solo attraverso `_mapping`: senza questo involucro sarebbero
     centinaia di punti da riscrivere, e ognuno un'occasione di sbagliare.
+
+    UNA DIFFERENZA DA `sqlite3.Row`, che va conosciuta: qui vale il contratto dei
+    Mapping, quindi **scorrere una riga da' i NOMI delle colonne**, non i valori
+    (`sqlite3.Row` dava i valori). Per i valori: `riga.values()`. La differenza e'
+    silenziosa -- non solleva nulla, restituisce stringhe plausibili -- e ha fatto
+    esportare in CSV una riga di intestazioni al posto dei dati.
     """
 
-    __slots__ = ("_valori",)
+    __slots__ = ("_valori", "_celle")
 
-    def __init__(self, mappa):
+    def __init__(self, mappa, celle=None):
         self._valori = dict(mappa)
+        # Due colonne di un SELECT possono avere lo STESSO nome: le espressioni senza
+        # alias si chiamano tutte allo stesso modo (`coalesce`, `?column?`). In un
+        # dizionario si sovrascrivono, e la riga perde celle -- una `COALESCE` per
+        # nome host e una per etichetta diventano una sola. La tupla posizionale le
+        # conserva tutte, nell'ordine del SELECT, e l'accesso per posizione resta
+        # fedele a cio' che si e' chiesto.
+        self._celle = (tuple(celle) if celle is not None
+                       else tuple(self._valori.values()))
 
     def __getitem__(self, chiave):
         if isinstance(chiave, int):
-            return list(self._valori.values())[chiave]
+            return self._celle[chiave]
         return self._valori[chiave]
+
+    def celle(self) -> tuple:
+        """Tutte le celle nell'ordine del SELECT, comprese quelle omonime.
+
+        Serve a chi tratta la riga come una riga di tabella (esportazioni, viste
+        tabellari). Per nome si usa `riga["colonna"]`; `values()` segue il contratto
+        dei Mapping e quindi puo' averne di meno, se ci sono omonimie.
+        """
+        return self._celle
 
     def __iter__(self):
         return iter(self._valori)
@@ -181,7 +204,8 @@ def esegui(connection, sql: str, params: tuple | list = ()):
 
 def righe(connection, sql: str, params: tuple | list = ()) -> list:
     """Come `esegui`, ma restituisce righe leggibili per nome e per posizione."""
-    return [Riga(r) for r in esegui(connection, sql, params).mappings()]
+    risultato = esegui(connection, sql, params)
+    return [Riga(r._mapping, tuple(r)) for r in risultato.all()]
 
 
 def esegui_molti(connection, sql: str, elenco) -> int:
@@ -265,7 +289,7 @@ def query(sql: str, params: tuple | list = (), one: bool = False):
     connessione = get_db()
     try:
         risultato = connessione.execute(text(_con_segnaposto(sql)), _legati(params))
-        righe = [Riga(r) for r in risultato.mappings()]
+        righe = [Riga(r._mapping, tuple(r)) for r in risultato.all()]
     except Exception:
         _annulla_transazione(connessione)
         raise
@@ -336,6 +360,12 @@ def scalar(sql: str, params: tuple | list = (), default=0):
 # non tocca una tabella che esiste gia': senza queste istruzioni un database
 # creato con una versione precedente resterebbe privo delle colonne nuove.
 MIGRATIONS = [
+    # Provenienza del MAC: "arp" (osservato dalla sonda sul proprio
+    # segmento) oppure "snmp:<apparato>" (riferito da un apparato di rete).
+    ("nodes", "mac_source", "TEXT"),
+    # Dove il nodo e' attaccato: apparato e nome della porta fisica.
+    ("nodes", "switch_device", "TEXT"),
+    ("nodes", "switch_port", "TEXT"),
     ("ingest_batches", "records_json", "TEXT"),
     ("ingest_batches", "records_truncated", "INTEGER NOT NULL DEFAULT 0"),
     ("scan_runs", "batch_id", "INTEGER"),

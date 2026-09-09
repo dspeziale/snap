@@ -379,7 +379,11 @@ def changes(tenant_id: int, inizio: str, fine: str, nodi_totali: int) -> dict:
     generi = query(
         "SELECT kind, severity, COUNT(*) AS n, COUNT(DISTINCT node_id) AS nodi"
         " FROM node_changes WHERE tenant_id = ? AND created_at >= ? AND created_at < ?"
-        " GROUP BY kind ORDER BY n DESC", (tenant_id, inizio, fine))
+        # La gravita' sta nel GROUP BY: chi registra una variazione la ricava dal
+        # genere, quindi entro un genere e' costante e le righe non cambiano. Lasciarla
+        # fuori significava farne scegliere una a caso al motore -- comodo su SQLite,
+        # rifiutato da PostgreSQL, e in nessuno dei due casi una scelta dichiarata.
+        " GROUP BY kind, severity ORDER BY n DESC", (tenant_id, inizio, fine))
 
     soglia = max(1, int(AGGREGATE_RATIO * max(1, nodi_totali)))
     voci = []

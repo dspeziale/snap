@@ -1360,14 +1360,34 @@ def device_report(percorso, dati: dict) -> str:
          OK if dati["controlli"] else INCHIOSTRO_3),
     ])
 
+    # Da dove viene il MAC: un indirizzo osservato dalla sonda e uno riferito da un
+    # apparato non hanno la stessa affidabilita', e chi legge la scheda deve saperlo
+    # senza doverlo chiedere.
+    fonte_mac = nodo.get("mac_source") or ""
+    if not nodo.get("mac"):
+        mac_leggibile = "non rilevato"
+    elif fonte_mac == "arp":
+        mac_leggibile = "%s (osservato dalla sonda sul proprio segmento)" % nodo["mac"]
+    elif fonte_mac.startswith("snmp:"):
+        mac_leggibile = ("%s (riferito dalla tabella ARP di %s)"
+                         % (nodo["mac"], fonte_mac[5:]))
+    else:
+        mac_leggibile = nodo["mac"]
+    punto_di_attacco = (
+        "%s su %s" % (nodo["switch_port"],
+                      nodo.get("switch_device") or "un apparato di rete")
+        if nodo.get("switch_port")
+        else "non noto (serve la tabella di inoltro di uno switch interrogabile)")
+
     foglio.titolo_sezione("Identita'")
     foglio.tabella(
         ["campo", "valore"],
         [["Indirizzo", nodo["ip"]],
          ["Nome host", nodo.get("hostname") or "non rilevato"],
-         ["Indirizzo fisico (MAC)", nodo.get("mac") or "non rilevato"],
+         ["Indirizzo fisico (MAC)", mac_leggibile],
+         ["Punto di attacco", punto_di_attacco],
          ["Costruttore dedotto dal MAC", nodo.get("mac_vendor")
-          or "non disponibile (la sonda non e' nello stesso segmento)"],
+          or "non disponibile (prefisso non in catalogo)"],
          ["Produttore dichiarato dall'apparato",
           next((v.get("brand") for v in (dati.get("web") or []) if v.get("brand")),
                "non dichiarato")],

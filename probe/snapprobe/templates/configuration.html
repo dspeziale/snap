@@ -299,5 +299,140 @@
       </div>
     </div>
   </div>
+
+  {# ------------------------------------------------------------------------
+     Raccolta dai NODI DI RETE.
+
+     Perche' esiste questo riquadro: il MAC di un nodo si ottiene con ARP, che e'
+     protocollo di livello 2 e non attraversa un router. La sonda vede quindi i MAC
+     del proprio segmento e di nessun altro (misurato su una rete reale: 39 MAC su
+     7309 nodi). Un router conosce le corrispondenze di tutti i segmenti a cui e'
+     attestato e le espone in SNMP: qui si dichiara a chi chiederle.
+     ------------------------------------------------------------------------ #}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-hdd-network me-1"></i> Apparati di rete (SNMP)
+        </h2>
+        {% if snmp_corrispondenze %}
+        <span class="badge text-bg-success">
+          {{ snmp_corrispondenze }} corrispondenze IP-MAC
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="small text-body-secondary">
+          Il MAC si ottiene con ARP, che <strong>non attraversa un router</strong>: per i
+          nodi delle subnet instradate la sonda non puo' ricavarlo da sola. Un router o
+          uno switch di quel segmento lo conosce e lo espone in SNMP. Da un solo
+          apparato si ottengono i MAC di tutto il suo segmento.
+        </p>
+
+        <form method="post" action="{{ url_for('probe.save_snmp') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" id="snmp_enabled"
+                   name="snmp_enabled" {{ 'checked' if snmp_enabled }}>
+            <label class="form-check-label" for="snmp_enabled">
+              Interroga gli apparati dichiarati
+            </label>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="snmp_devices">
+              Apparati: uno per riga, <code>indirizzo</code> oppure
+              <code>indirizzo|etichetta</code>
+            </label>
+            <textarea class="form-control snap-code" id="snmp_devices" name="snmp_devices"
+                      rows="5" spellcheck="false"
+                      placeholder="10.20.10.1|Router sede&#10;10.60.0.1|Router filiale&#10;# le righe con # si ignorano"
+                      >{{ snmp_devices }}</textarea>
+            <div class="form-text">
+              L'etichetta compare come <strong>provenienza</strong> del MAC nell'inventario:
+              un dato riferito da un apparato va sempre con il nome di chi lo ha riferito,
+              altrimenti fra sei mesi non e' verificabile.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="snmp_community">
+              Community di sola lettura
+              {% if snmp_community_impostata %}
+              <span class="badge text-bg-secondary ms-1">impostata</span>
+              {% endif %}
+            </label>
+            <input type="password" class="form-control" id="snmp_community"
+                   name="snmp_community" autocomplete="new-password"
+                   placeholder="{{ 'lasciare vuoto per non cambiarla' if snmp_community_impostata else 'community di sola lettura' }}">
+            <div class="form-text">
+              Resta <strong>solo su questa sonda</strong>: non viene inviata al server, non
+              compare nel diario e non torna in questa pagina. Vuoto significa
+              &laquo;lascia quella che c'e'&raquo;.
+            </div>
+          </div>
+
+          <div class="alert alert-warning small mb-3">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <strong>SNMPv2c non e' cifrato.</strong> La community attraversa la rete in
+            chiaro e chi ascolta il traffico la legge. Usare una community di
+            <strong>sola lettura</strong>, e possibilmente una rete di gestione separata.
+            Se gli apparati parlano SNMPv3, e' preferibile: dirlo, perche' richiede un
+            lavoro diverso.
+          </div>
+
+          <div class="d-flex flex-wrap gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-save me-1"></i> Salva
+            </button>
+          </div>
+        </form>
+
+        <hr>
+        {# La scoperta popola l'elenco da se': dichiarare gli apparati a mano non
+           regge su decine di subnet, e un elenco scritto a mano nessuno lo tiene
+           aggiornato. Si aggiunge SOLO cio' che ha risposto e ha una tabella ARP. #}
+        <h3 class="h6"><i class="bi bi-search me-1"></i> Scoperta automatica</h3>
+        <p class="small text-body-secondary">
+          Prova i gateway di ogni subnet del perimetro e i nodi che la scansione ha
+          visto con la <strong>161/UDP aperta</strong>, e aggiunge all'elenco quelli
+          che <strong>rispondono</strong> con la community configurata e hanno una
+          tabella ARP da leggere. Niente ipotesi nell'elenco: solo apparati provati.
+        </p>
+        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+          <form method="post" action="{{ url_for('probe.discover_snmp') }}"
+                data-confirm="Provare i candidati in SNMP e aggiungere all'elenco quelli che rispondono? Verranno inviate interrogazioni SNMP ai gateway delle subnet del perimetro e ai nodi con la 161 aperta.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-primary btn-sm">
+              <i class="bi bi-search me-1"></i> Scopri e popola l'elenco
+            </button>
+          </form>
+          <span class="small text-body-secondary">
+            L'etichetta viene dal nome che l'apparato dichiara in rete
+            (<code>sysName</code>), e diventa la provenienza del MAC nell'inventario.
+          </span>
+        </div>
+
+        <hr>
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <form method="post" action="{{ url_for('probe.test_snmp') }}"
+                data-confirm="Interrogare adesso gli apparati dichiarati? Verra' aperta una connessione SNMP verso ognuno di essi.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-play-circle me-1"></i> Interroga adesso
+            </button>
+          </form>
+          <span class="small text-body-secondary">
+            {% if snmp_ultima %}
+              Ultima interrogazione: {{ snmp_ultima|dt }}
+            {% else %}
+              Mai interrogati. La raccolta gira da se' ogni trenta minuti.
+            {% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}

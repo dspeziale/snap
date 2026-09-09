@@ -262,8 +262,13 @@ def test_ogni_pagina_ha_il_menu_a_sinistra(probe_app, percorso):
     stesso pomeriggio, e due impianti diversi costringono a reimparare dove guardare."""
     corpo = probe_app.test_client().get(percorso).data.decode("utf-8")
 
-    assert 'class="snap-menu' in corpo, "manca il menu laterale"
-    assert "snap-contenuto" in corpo
+    # I marcatori sono quelli del SERVER, non un impianto proprio della sonda: e'
+    # esattamente cio' che il controllo deve pretendere. Quando la sonda e' passata
+    # alla struttura AdminLTE 4.3.1 della console, `snap-menu`/`snap-contenuto`
+    # (l'impianto vecchio, solo suo) sono spariti -- e devono restare spariti.
+    assert "data-snap-menu" in corpo, "manca il menu laterale"
+    assert "app-sidebar" in corpo, "manca la barra laterale AdminLTE"
+    assert "app-content" in corpo, "manca il contenitore del contenuto AdminLTE"
     for voce in ("Stato della sonda", "Registrazione", "Configurazione",
                  "Diario locale", "Guida"):
         assert voce in corpo, "manca la voce %s" % voce
@@ -279,13 +284,17 @@ def test_l_interfaccia_della_sonda_usa_tinte_chiare(probe_app):
 
 def test_la_voce_del_menu_dice_dove_si_e(probe_app):
     corpo = probe_app.test_client().get("/diary").data.decode("utf-8")
-    inizio = corpo.index("snap-menu")
-    fine = corpo.index("snap-contenuto")
+    inizio = corpo.index("data-snap-menu")
+    fine = corpo.index("app-main")
     menu = corpo[inizio:fine]
     attive = [riga for riga in menu.splitlines() if "nav-link active" in riga]
     assert len(attive) == 1, "una voce attiva e una sola"
-    # L'indirizzo segue la classe nella marcatura: si guarda cio' che viene dopo.
-    assert "/diary" in menu.split("nav-link active")[1][:200]
+    prima, dopo = menu.split("nav-link active")[0], menu.split("nav-link active")[1]
+    # Nella marcatura AdminLTE l'indirizzo PRECEDE la classe sullo stesso <a> e
+    # l'etichetta la segue: si guardano entrambi, cosi' il controllo dice davvero che
+    # la voce accesa e' quella della pagina aperta e non un'altra qualunque.
+    assert "/diary" in prima[-200:], "la voce accesa non punta alla pagina aperta"
+    assert "Diario locale" in dopo[:200], "la voce accesa non e' quella del diario"
 
 
 def test_lo_stato_del_canale_si_vede_da_ogni_pagina(probe_app):
@@ -350,3 +359,20 @@ def test_una_data_non_schiaccia_l_icona_del_riquadro(probe_app):
                / "probe/snapprobe/templates/index.html").read_text(encoding="utf-8")
     assert "snap-stat-value-testo" in modello, (
         "la classe che riduce il corpo dei valori lunghi deve esistere")
+
+
+def test_ogni_modello_della_sonda_compila(probe_app):
+    """Un modello con un errore di sintassi non si nota finche' qualcuno non apre
+    QUELLA pagina, e allora e' un Internal Server Error. Il controllo gemello sul
+    server (test_struttura_pagine.py) ha trovato una pagina rotta dalla prima
+    pubblicazione."""
+    ambiente = probe_app.jinja_env
+    guasti = []
+    nomi = [n for n in ambiente.list_templates() if n.endswith(".html")]
+    assert nomi, "nessun modello trovato: il controllo non starebbe verificando nulla"
+    for nome in nomi:
+        try:
+            ambiente.get_template(nome)
+        except Exception as errore:  # noqa: BLE001 - si raccolgono tutti, non il primo
+            guasti.append("%s: %s" % (nome, errore))
+    assert not guasti, "modelli che non compilano: %s" % "; ".join(guasti)

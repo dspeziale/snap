@@ -247,6 +247,17 @@ CREATE TABLE IF NOT EXISTS nodes (
     probe_id          INTEGER REFERENCES probes(id) ON DELETE SET NULL,
     ip                TEXT    NOT NULL,
     mac               TEXT,
+    -- Come si e' saputo il MAC. Un MAC senza la provenienza non e'
+    -- verificabile: 'arp' significa OSSERVATO dalla sonda sul proprio
+    -- segmento, 'snmp:<apparato>' significa RIFERITO da un apparato di rete
+    -- (l'unico modo di averlo su una subnet instradata). In caso di
+    -- conflitto cio' che si e' visto vince su cio' che si e' sentito dire.
+    mac_source        TEXT,
+    -- Dove il nodo e' ATTACCATO fisicamente: l'apparato che lo ha visto e il
+    -- nome della porta ("Gi1/0/12"). Il numero interno del MIB non si
+    -- conserva: non permetterebbe a nessuno di trovare la porta.
+    switch_device     TEXT,
+    switch_port       TEXT,
     mac_vendor        TEXT,
     hostname          TEXT,
     status            TEXT    NOT NULL DEFAULT 'unknown',

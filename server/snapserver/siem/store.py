@@ -9,7 +9,7 @@
 snap server - Dove vivono gli eventi dei log.
 
 Gli eventi stanno in un file SQLite SEPARATO dal database della console
-(`snap_siem.sqlite3`, accanto a quello principale): un flusso di migliaia di
+(le tabelle `siem_*` della stessa base dati): un flusso di migliaia di
 righe al minuto non deve contendere il database a chi sta usando le pagine, e la
 retention si applica con un DELETE su un solo file senza toccare il resto.
 
@@ -24,7 +24,6 @@ condivisa tra thread e' esattamente il difetto che non si riesce piu' a trovare.
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
 
 from contextlib import contextmanager
@@ -119,7 +118,7 @@ def _filtri_eventi(tenant_id: int, kind: str = "", host: str = "", src_ip: str =
         where.append("username = ?")
         params.append(username)
     if text:
-        where.append("(message LIKE ? OR username LIKE ? OR app LIKE ?)")
+        where.append("(message ILIKE ? OR username ILIKE ? OR app ILIKE ?)")
         params.extend(["%%%s%%" % text] * 3)
     if since:
         where.append("received_at >= ?")

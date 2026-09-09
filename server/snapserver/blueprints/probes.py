@@ -16,7 +16,6 @@ from __future__ import annotations
 import base64
 import json
 import re
-import sqlite3
 import uuid
 from datetime import timedelta
 
@@ -30,6 +29,8 @@ from flask import (
     request,
     url_for,
 )
+
+from sqlalchemy.exc import OperationalError
 
 from ..audit import log_event
 from ..crypto import (
@@ -446,9 +447,14 @@ def delete(probe_id: int):
     # scrittura la precede l'attesa puo' scadere. In quel caso l'operatore deve
     # leggere cosa e' successo e che nulla e' stato cancellato -- non una pagina di
     # errore, che gli lascerebbe il dubbio di una cancellazione a meta'.
+    #
+    # L'eccezione e' quella di SQLAlchemy, non quella di un driver: PostgreSQL segnala
+    # la scadenza dell'attesa sul blocco (SQLSTATE 55P03) come errore operativo. Qui
+    # si intercettava `sqlite3.OperationalError`, che su PostgreSQL non arriva mai --
+    # il messaggio non poteva scattare e l'operatore vedeva una pagina di errore.
     try:
         execute("DELETE FROM probes WHERE id = ? AND tenant_id = ?", (probe_id, tenant_id))
-    except sqlite3.OperationalError as errore:
+    except OperationalError as errore:
         current_app.logger.warning(
             "Cancellazione della sonda %s non riuscita: %s", probe_id, errore)
         flash("Cancellazione non riuscita: l'archivio era occupato da un'altra"

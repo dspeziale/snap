@@ -28,7 +28,8 @@ def _tenant_id(server_app):
 
 
 def _nodo(server_app, tenant_id, ip, porte=(), hostname=None, device_type="server",
-          confidenza=90, mac_vendor=None, giorni_fa=0):
+          confidenza=90, mac_vendor=None, giorni_fa=0, mac=None, mac_source=None,
+          switch_device=None, switch_port=None):
     """Un nodo con le sue porte aperte. `porte` e' una lista (protocollo, porta)."""
     with server_app.app_context():
         from datetime import timedelta
@@ -45,11 +46,13 @@ def _nodo(server_app, tenant_id, ip, porte=(), hostname=None, device_type="serve
             (tenant_id, adesso, adesso, adesso))
         node_id = execute(
             "INSERT INTO nodes (tenant_id, subnet_id, ip, hostname, status, device_type,"
-            " device_label, device_confidence, mac_vendor, first_seen_at, last_seen_at,"
+            " device_label, device_confidence, mac_vendor, mac, mac_source,"
+            " switch_device, switch_port, first_seen_at, last_seen_at,"
             " created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, 'up', ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, 'up', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (tenant_id, subnet_id, ip, hostname, device_type, device_type, confidenza,
-             mac_vendor, adesso, visto, adesso, adesso))
+             mac_vendor, mac, mac_source, switch_device, switch_port,
+             adesso, visto, adesso, adesso))
         for protocollo, porta in porte:
             execute(
                 "INSERT INTO node_ports (tenant_id, node_id, protocol, port, state,"
@@ -235,6 +238,43 @@ def test_si_trovano_i_nodi_muti_da_giorni(server_app):
     assert _cerca(server_app, tenant_id, seen="24h") == ["10.9.0.90"]
     assert _cerca(server_app, tenant_id, seen="silenzio") == ["10.9.0.91"]
     assert sorted(_cerca(server_app, tenant_id, seen="30g")) == ["10.9.0.90", "10.9.0.91"]
+
+
+def test_si_distingue_il_mac_osservato_da_quello_riferito(server_app):
+    """La sonda vede in ARP solo il proprio segmento: il resto lo riferisce un
+    apparato. Se l'elenco non distingue le due fonti, chi legge non sa quali subnet
+    sono coperte davvero e quali hanno il MAC solo per sentito dire.
+    """
+    tenant_id = _tenant_id(server_app)
+    _nodo(server_app, tenant_id, "10.9.0.120", mac="aa:bb:cc:00:00:01",
+          mac_source="arp")
+    _nodo(server_app, tenant_id, "10.9.0.121", mac="aa:bb:cc:00:00:02",
+          mac_source="snmp:core-sw", switch_device="core-sw", switch_port="Gi1/0/14")
+    _nodo(server_app, tenant_id, "10.9.0.122")
+
+    assert _cerca(server_app, tenant_id, mac="osservato") == ["10.9.0.120"]
+    assert _cerca(server_app, tenant_id, mac="riferito") == ["10.9.0.121"]
+    assert _cerca(server_app, tenant_id, mac="senza") == ["10.9.0.122"]
+    # La porta di attacco e' un dato a se': un MAC riferito non implica che si sappia
+    # su quale presa il nodo e' attaccato -- la catena dot1d puo' interrompersi.
+    assert _cerca(server_app, tenant_id, mac="porta") == ["10.9.0.121"]
+
+
+def test_la_porta_di_attacco_compare_nell_elenco(logged_client, server_app):
+    """Il dato serve a chi deve staccare un nodo: se resta in banca dati e non si
+    vede nell'elenco, non e' stato consegnato."""
+    tenant_id = _tenant_id(server_app)
+    _nodo(server_app, tenant_id, "10.9.0.130", mac="aa:bb:cc:00:00:03",
+          mac_source="snmp:sw-piano2", switch_device="sw-piano2",
+          switch_port="Gi1/0/7")
+    logged_client.post("/switch-tenant", data={"tenant_id": tenant_id},
+                       follow_redirects=True)
+
+    pagina = logged_client.get("/inventory/nodes").get_data(as_text=True)
+    assert "Gi1/0/7" in pagina
+    assert "sw-piano2" in pagina
+    # E il filtro deve essere offerto, altrimenti il dato c'e' ma non si interroga.
+    assert 'name="mac"' in pagina
 
 
 def test_i_filtri_si_combinano(server_app):

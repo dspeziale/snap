@@ -651,13 +651,46 @@ audit e i conferimenti piu' vecchi dei giorni impostati per il tenant. Sonde,
 utenti e configurazioni non sono interessati.
 
 ### 7.3 Salvataggio e ripristino
-Con i servizi arrestati, copiare:
-- `server/data/` (base dati);
-- `server/instance/secret_key` (continuita' delle sessioni);
-- `probe/data/` per ciascuna sonda (chiavi e coda).
 
-Il ripristino consiste nel riposizionare le stesse cartelle. La sostituzione
-dell'archivio della sonda con uno diverso richiede una nuova registrazione.
+La base dati del server e' PostgreSQL: non e' un file da copiare, e copiare la
+cartella dei dati del contenitore con il servizio avviato produce un archivio
+incoerente. Si usa una delle due strade, che **non sono interscambiabili**.
+
+**Dalla console** (*Impostazioni Sistema > Archivio*), a richiesta:
+- **Creare una copia** produce un archivio `pg_dump` in formato personalizzato
+  (`snap-AAAAMMGG-hhmmss.dump`), lo **verifica appena prodotto** e ruota le copie
+  piu' vecchie. Se la verifica non passa, il file viene eliminato: una copia che
+  sembra riuscita e non e' ripristinabile e' peggio di nessuna copia.
+- **Verificare** una copia legge l'indice dell'archivio e controlla che contenga le
+  tabelle del prodotto, senza ripristinare nulla.
+- **Ripristinare** chiede una conferma digitata, salva **prima** una copia dello
+  stato corrente, e riversa l'archivio in una sola transazione: un ripristino
+  interrotto non lascia una base dati a meta'. Il servizio non va fermato.
+
+**Schedulata dall'host**, con `docker/server/backup-postgres.sh`: scrive SQL
+compresso (`.sql.gz`) nel volume della base dati e si ripristina con `psql`. E' la
+strada per la copia notturna; quelle copie **non compaiono nella console** e la
+console non sa ripristinarle.
+
+Chi definisce la continuita' operativa (NIS2) scelga quale delle due e' la copia
+ufficiale, e **la provi**: una copia mai ripristinata non e' una copia.
+
+**Versione del client.** Il ripristino richiede `pg_restore` della stessa versione
+major del server (l'immagine porta il client 16 per il server 16). La console
+verifica le due versioni prima di ogni copia e di ogni ripristino e si rifiuta se non
+corrispondono, dicendo quale serve: con versioni diverse `pg_restore` imposta
+parametri di sessione che il server non riconosce e il ripristino si interrompe.
+
+**Oltre alla base dati**, con i servizi arrestati, copiare anche:
+- `server/instance/secret_key` (continuita' delle sessioni);
+- `probe/data/` per ciascuna sonda (chiavi e coda). Sostituire l'archivio di una
+  sonda con uno diverso richiede una nuova registrazione.
+
+**Riservatezza.** Una copia contiene i dati di TUTTI i tenant, gli indirizzi di rete
+e le credenziali di servizio conservate nelle impostazioni: va trattata come
+l'archivio stesso, con permessi restrittivi, e cifrata se lascia la macchina
+(GDPR art. 32). L'operazione e' riservata all'amministratore di sistema ed e'
+tracciata nel registro.
 
 ---
 
@@ -669,7 +702,9 @@ dell'archivio della sonda con uno diverso richiede una nuova registrazione.
 | `SNAP_SERVER_HOST` | `127.0.0.1` | Indirizzo di ascolto |
 | `SNAP_SERVER_LOG_FILE` | vuoto | Diario su file, **in aggiunta** a quello a schermo. Vuoto significa solo a schermo. Lo imposta l'avvio assistito |
 | `SNAP_SERVER_PORT` | `5500` | Porta di ascolto |
-| `SNAP_SERVER_DATABASE` | `server/data/snap_server.sqlite3` | Percorso della base dati |
+| `SNAP_SERVER_DATABASE_URL` | _obbligatoria_ | Indirizzo della base dati PostgreSQL con l'utenza **applicativa** (legge e scrive i dati, non puo' toccare lo schema). Senza questa variabile il server non parte: un valore predefinito funzionante sarebbe la via piu' rapida per mettere in esercizio una base dati di prova senza accorgersene |
+| `SNAP_SERVER_OWNER_DATABASE_URL` | vuoto | Indirizzo con l'utenza **proprietaria**. Serve all'allineamento dello schema all'avvio e alla copia/ripristino dell'archivio dalla console. Senza, quelle due operazioni si rifiutano dichiarando il motivo |
+| `SNAP_SERVER_BACKUP_DIR` | `server/data/backups` | Cartella delle copie create dalla console |
 | `SNAP_SERVER_SECRET_KEY` | generata in `instance/` | Chiave di sessione |
 | `SNAP_SERVER_SESSION_MINUTES` | `120` | Durata della sessione |
 | `SNAP_SERVER_COOKIE_NAME` | `snap_server_session` | Nome del cookie di sessione: deve differire da quello della sonda |

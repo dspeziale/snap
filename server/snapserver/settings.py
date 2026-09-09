@@ -77,6 +77,12 @@ class Config:
     #
     #   postgresql+psycopg://utente:password@host:5432/nome_database
     DATABASE_URL = os.environ.get("SNAP_SERVER_DATABASE_URL", "")
+    # Credenziali del PROPRIETARIO della base dati. L'applicazione non le usa per
+    # lavorare -- gira con l'utenza applicativa, che ha i soli privilegi di lettura e
+    # scrittura -- ma la copia e il ripristino dell'archivio le richiedono: leggere
+    # ogni oggetto e, nel ripristino, ricrearli. Se manca, le due operazioni si
+    # rifiutano dichiarando il motivo, invece di produrre una copia incompleta.
+    OWNER_DATABASE_URL = os.environ.get("SNAP_SERVER_OWNER_DATABASE_URL", "")
     # Quanto una scrittura attende un lock, prima di rinunciare. Trenta secondi coprono
     # le operazioni lunghe (cancellazione di una sonda, ingestione di un lotto) mentre
     # i servizi di fondo scrivono; oltre, e' meglio un errore che una richiesta appesa.

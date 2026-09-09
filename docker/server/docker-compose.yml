@@ -96,15 +96,22 @@ services:
       #                                  NIENTE altro: non puo' creare ne' modificare
       #                                  tabelle. E' cio' che impedisce a un difetto
       #                                  dell'applicazione di riscrivere lo schema.
-      #   SNAP_SERVER_OWNER_DATABASE_URL il PROPRIETARIO. Serve una volta sola, all'avvio
-      #                                  del contenitore, per allineare lo schema e
-      #                                  creare i dati iniziali (vedi entrypoint.sh).
-      #                                  Gunicorn NON la usa.
+      #   SNAP_SERVER_OWNER_DATABASE_URL il PROPRIETARIO. Serve all'avvio del contenitore
+      #                                  per allineare lo schema e creare i dati
+      #                                  iniziali (vedi entrypoint.sh), e serve alla
+      #                                  COPIA e al RIPRISTINO dell'archivio chiesti
+      #                                  dalla console: pg_dump deve leggere ogni
+      #                                  oggetto e pg_restore deve poterli ricreare.
+      #                                  Gunicorn non la usa per servire le richieste.
       #
       # Il trade-off, dichiarato: le credenziali del proprietario passano nell'ambiente
-      # di questo contenitore, perche' le migrazioni le esegue il suo avvio. L'alternativa
-      # -- un contenitore di inizializzazione separato -- si fara' quando le migrazioni
-      # saranno versionate con Alembic.
+      # di questo contenitore, perche' le migrazioni le esegue il suo avvio e perche' la
+      # copia dell'archivio si chiede da qui. Cio' che lo limita: le due operazioni sono
+      # riservate all'amministratore di sistema, sono tracciate nel registro, e le
+      # richieste normali continuano a girare con l'utenza applicativa, che non puo'
+      # toccare lo schema. L'alternativa -- un contenitore separato per le migrazioni --
+      # si fara' quando le migrazioni saranno versionate con Alembic; la copia resterebbe
+      # comunque qui, perche' e' da qui che la si chiede.
       SNAP_SERVER_DATABASE_URL: "postgresql+psycopg://${SNAP_PG_APP_USER:-snap_app}:${SNAP_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
       SNAP_SERVER_OWNER_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-snap_owner}:${POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
       # Lo schema NON lo allinea l'applicazione: lo fa l'avvio, col proprietario.

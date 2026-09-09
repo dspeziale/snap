@@ -41,7 +41,9 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from . import mac_costruttori
 from . import nmap_xml
+from . import snmp_raccolta
 from .nmap_runner import NmapAborted, NmapError, NmapRunner, NmapTimeout
 
 # Fasi nell'ordine di priorita' con cui vengono valutate.
@@ -2537,10 +2539,42 @@ class NetworkScanner:
             " piu' tempo." % (ip, quante))
 
     def _node_record(self, prove: dict, ports_examined: bool) -> dict:
+        mac = prove.get("mac")
+        # `arp` significa OSSERVATO: nmap ha visto la risposta ARP, quindi il nodo e'
+        # sullo stesso segmento della sonda. E' l'unica fonte diretta.
+        fonte_mac = "arp" if mac else None
+        if not mac:
+            # Nessun MAC osservato: si guarda se un apparato di rete lo ha RIFERITO
+            # (tabella ARP letta in SNMP). E' il solo modo di avere il MAC di un nodo
+            # su una subnet instradata -- ARP non attraversa un router.
+            #
+            # L'ordine conta e non e' arbitrario: cio' che si e' visto vince su cio'
+            # che si e' sentito dire. Un MAC riferito da un apparato puo' essere
+            # scaduto, il proprio no.
+            riferito = snmp_raccolta.mac_per(self.store, prove["ip"])
+            if riferito:
+                mac = riferito["mac"]
+                fonte_mac = "snmp:%s" % riferito["fonte"]
+        # Il costruttore della scheda: nmap lo dichiara solo per i MAC che ha visto
+        # di persona. Per quelli riferiti da un apparato si ricava dal prefisso, con
+        # lo STESSO catalogo che userebbe nmap -- altrimenti il dato piu' utile del
+        # MAC (chi ha fatto l'apparato, spesso l'unico indizio su un nodo muto)
+        # esisterebbe solo per la subnet della sonda.
+        costruttore = prove.get("mac_vendor")
+        if mac and not costruttore:
+            costruttore = mac_costruttori.costruttore(mac)
+        # Dove e' ATTACCATO: la porta fisica si cerca per MAC, perche' la tabella di
+        # forwarding di uno switch parla di MAC e non sa nulla di indirizzi IP. Senza
+        # MAC non c'e' modo di saperlo, ed e' il motivo per cui i due dati viaggiano
+        # insieme: l'uno e' la chiave dell'altro.
+        porta = snmp_raccolta.porta_per(self.store, mac) if mac else None
         return {
             "ip": prove["ip"],
-            "mac": prove.get("mac"),
-            "mac_vendor": prove.get("mac_vendor"),
+            "mac": mac,
+            "mac_source": fonte_mac,
+            "switch_device": porta["fonte"] if porta else None,
+            "switch_port": porta["porta"] if porta else None,
+            "mac_vendor": costruttore,
             "hostname": prove.get("hostname"),
             "reachable": bool(prove.get("reachable")),
             "latency_ms": prove.get("latency_ms"),

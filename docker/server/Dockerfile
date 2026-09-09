@@ -25,9 +25,40 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # Aggiornamento dei pacchetti di base: una immagine di esercizio non parte con
 # vulnerabilita' note della distribuzione. `curl` serve al healthcheck.
+#
+# `postgresql-client-16` porta pg_dump e pg_restore, con cui la console fa la copia
+# e il ripristino dell'archivio. Sta QUI e non nell'immagine della base dati
+# perche' l'operazione si chiede dalla console: lo strumento deve stare dove gira
+# chi la chiede.
+#
+# PERCHE' LA VERSIONE 16 E DAL DEPOSITO DI POSTGRESQL, e non il 17 di Debian.
+# Misurato, non dedotto: pg_dump 17 legge un server 16 senza problemi, ma
+# pg_restore 17 verso un server 16 FALLISCE -- apre la sessione con
+# `SET transaction_timeout`, parametro introdotto con la 17, che il server 16 non
+# conosce. Una copia che si crea e non si ripristina e' il modo peggiore di
+# scoprire il problema: il giorno in cui serve. Il ripristino richiede quindi la
+# STESSA versione major del server, e Debian 13 distribuisce solo il client 17.
+#
+# Il deposito e' quello del progetto PostgreSQL (apt.postgresql.org), non di terze
+# parti: e' la via documentata per avere una major precisa su Debian. Costo
+# dichiarato: una sorgente di pacchetti in piu' nell'immagine, con la sua chiave.
+# La chiave si prende in HTTPS da postgresql.org e si installa in
+# /etc/apt/keyrings con `signed-by`, non con il deprecato apt-key, cosi' vale per
+# quel solo deposito. Impronta attesa della chiave (verificabile a mano):
+#   B97B 0AFC AA1A 47F0 44F2  44A0 7FCC 7D46 ACCC 4CF8
+#
+# Se un giorno il server passa a una major diversa, va cambiata anche questa: e'
+# `maintenance.py` a fermarsi con un messaggio che dice quale serve, invece di
+# lasciare riuscire una copia a meta'.
+ARG PG_MAJOR=16
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && install -d -m 0755 /etc/apt/keyrings \
+    && curl -fsS -o /etc/apt/keyrings/pgdg.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/etc/apt/keyrings/pgdg.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends "postgresql-client-${PG_MAJOR}" \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -599,7 +599,7 @@ in testa e le **pastiglie dei filtri attivi** in fondo:
 
 | Gruppo | Filtri | Che domanda risponde |
 |---|---|---|
-| **Dove** | subnet, zona di rete | dove sta il nodo, in quale contesto dichiarato |
+| **Dove** | subnet, zona di rete, indirizzo fisico | dove sta il nodo, in quale contesto dichiarato, e se si sa a quale porta e' attaccato (§13-sexies.6) |
 | **Che cos'e'** | tipo di dispositivo, stato, identificazione | che apparato e', risponde adesso, e' un'ipotesi o un verdetto |
 | **Che cosa espone** | servizio, porta, lettura SNMP, enumerazione SMB | interfaccia web / accesso remoto / condivisione / …; numero esatto (`3389`, `udp/161`); gia' letto o ancora in coda |
 | **Sicurezza e tempo** | sicurezza, ultimo contatto | riscontri aperti, vulnerabilita' confermate, KEV; da quanto risponde o tace |
@@ -608,6 +608,9 @@ in testa e le **pastiglie dei filtri attivi** in fondo:
 - **Enumerazione SMB** e' il filtro gemello della lettura SNMP: *gia' enumerata*,
   oppure *porta 139/445 aperta e mai enumerata* -- l'elenco delle macchine Windows che
   ancora mancano all'inventario SMB.
+- **Indirizzo fisico** distingue il MAC *osservato* dalla sonda da quello *riferito*
+  da un apparato, isola i nodi *senza MAC* e quelli di cui si conosce la *porta di
+  attacco*: e' la risposta a "quali subnet sono coperte davvero?" (§13-sexies).
 - **Le pastiglie dei filtri attivi** mostrano, sotto la maschera, ogni filtro applicato
   con la sua etichetta leggibile; ognuna e' un collegamento che rimuove *quel solo*
   parametro (l'indirizzo corrente meno quella chiave). Sono calcolate dal server:
@@ -1519,3 +1522,114 @@ SNMP puo' restituire nomi di utenti e di condivisioni: sono dati personali quand
 nome dell'utenza identifica una persona. Valgono le regole generali del prodotto --
 conservazione nel tenant, retention configurabile, accesso secondo il ruolo -- e la
 lettura resta consultabile nella sola pagina del nodo, non nei report distribuiti.
+
+## 13-sexies. Dagli apparati: corrispondenze IP→MAC e porta fisica
+
+### 13-sexies.1 Il problema misurato
+
+Sulla rete reale della prima installazione, su **7.309 nodi** in inventario risultavano
+**39 indirizzi MAC** -- e tutti e trentanove nella subnet dove sta la sonda. Non e' un
+difetto della scansione: **ARP non attraversa un router**. Una sonda vede l'indirizzo
+fisico solo dei nodi attestati sul proprio segmento; per tutti gli altri il MAC non
+esiste sul filo che la sonda ascolta, e nessuna opzione di nmap lo cambia.
+
+Il MAC non e' un dato ornamentale: e' cio' che identifica un dispositivo quando cambia
+indirizzo, e il costruttore ricavato dal prefisso e' spesso l'unico indizio sul tipo di
+un apparato muto (§8.9-ter).
+
+Chi conosce quelle corrispondenze per **interi segmenti** e' l'apparato che li
+instrada: nella propria tabella ARP (`ipNetToMediaPhysAddress`) ogni router tiene
+l'associazione indirizzo→MAC delle reti a cui e' attestato. La si legge in SNMP.
+
+### 13-sexies.2 Un client SNMP, non un'altra fase di nmap
+
+La lettura SNMP di §13 usa gli script di nmap e serve a *descrivere* un nodo. Qui
+serve una cosa diversa: interrogare **due o tre OID precise** su pochi apparati, ogni
+mezz'ora, e ricavarne una tabella. Per questo la sonda ha un **client SNMPv2c proprio**
+(`snapprobe/snmp.py`): codifica BER e messaggi `GetNext` secondo la RFC 3416, con la
+sola libreria standard.
+
+**Perche' senza dipendenze nuove** (vincolo di progetto sulle dipendenze):
+
+| Alternativa | Perche' scartata |
+|---|---|
+| `pysnmp` | dipendenza ampia per tre OID; superficie e SBOM sproporzionati al bisogno |
+| `snmpwalk` di net-snmp | eseguibile presente nel container ma **non** sulla sonda nativa su Windows: la funzione sarebbe esistita solo in un modo di esecuzione |
+
+Il perimetro del client e' volutamente minimo: interi, stringhe, OID, `NULL`, contatori,
+`GetNext`. Non e' un'implementazione generale di SNMP e non pretende di esserlo.
+
+### 13-sexies.3 Che cosa legge
+
+| Grandezza | OID | Che cosa dice |
+|---|---|---|
+| tabella ARP | `1.3.6.1.2.1.4.22.1.2` | indirizzo → MAC, per ogni rete attestata sull'apparato |
+| identita' | `sysName`, `sysDescr` | come l'apparato si chiama in rete: diventa la **provenienza** del MAC |
+| inoltro bridge | `1.3.6.1.2.1.17.4.3.1.2` (dot1d), `1.3.6.1.2.1.17.7.1.2.2.1.2` (dot1q) | MAC → porta del bridge |
+| porte del bridge | `1.3.6.1.2.1.17.1.4.1.2` | porta del bridge → `ifIndex` |
+| nomi | `ifName`, in mancanza `ifDescr` | `ifIndex` → **nome della porta fisica** (`Gi1/0/14`) |
+
+Le ultime tre righe sono una **catena**: se un anello manca (uno switch che non
+pubblica `dot1dBasePortIfIndex`, per esempio) la porta **non viene indovinata** -- si
+resta senza il dato, che e' l'unico esito onesto. Il numero di porta del bridge non e'
+il numero stampato sullo chassis, e presentarlo come tale sarebbe un'informazione falsa.
+
+### 13-sexies.4 Come si popola l'elenco degli apparati
+
+Dichiarare gli apparati a mano non regge su decine di subnet: si dimenticano e
+cambiano. Dalla pagina di configurazione della sonda, **Scopri e popola l'elenco**
+prova i candidati che la sonda **gia' conosce**, senza scansioni aggiuntive:
+
+1. il primo e l'ultimo indirizzo utilizzabile di ogni subnet del perimetro -- una
+   congettura dichiarata, dove sta il router in nove reti su dieci;
+2. i nodi dell'inventario locale con la **161/udp osservata aperta** -- non una
+   congettura, un'osservazione;
+3. i nodi con porte tipiche di un apparato di rete (22+23, 23+161, 22+161).
+
+Un candidato entra nell'elenco **solo se supera la prova**: risponde con la community
+configurata *e* ha almeno una voce ARP. Un apparato che "sembra" un router ma non
+risponde non serve; uno che risponde ma non ha tabella ARP non aggiunge dati, e il
+riassunto lo dichiara invece di lasciare un elenco vuoto senza spiegazione. I candidati
+osservati si provano prima delle congetture, cosi' se il limite taglia, taglia le
+congetture.
+
+**Community di fabbrica.** Se un candidato risponde con `public` o `private` **non**
+viene aggiunto -- il prodotto conserva una community sola -- ma viene **segnalato nel
+diario come esposizione**: un apparato di rete raggiungibile con la community di
+fabbrica consegna la propria configurazione a chiunque, e chi legge il diario deve
+trovarlo scritto.
+
+### 13-sexies.5 Sicurezza e riservatezza
+
+* **SNMPv2c non e' cifrato** e la community viaggia in chiaro: e' il solo protocollo
+  che si possa parlare senza dipendenze nuove, e va usato **in sola lettura** e su una
+  rete di gestione segregata. Il limite e' dichiarato nella pagina di configurazione,
+  accanto al campo, non sepolto in un manuale. SNMPv3 (autenticazione e cifratura)
+  richiederebbe una libreria: e' una decisione sulle dipendenze, non un dettaglio
+  d'implementazione.
+* **La community resta locale alla sonda.** Non viene mai conferita al server, non
+  compare nel diario, non torna nelle pagine: la configurazione mostra soltanto *se* e'
+  impostata. Verificato sul diario di un ciclo reale: zero occorrenze.
+* **Nessuna scrittura**: solo `GetNext`. Nessun tentativo di indovinare community
+  (`snmp-brute` resta escluso qui come nella fase di §13).
+
+### 13-sexies.6 Come si vede nelle pagine
+
+La provenienza di un MAC non e' un dettaglio: un indirizzo **osservato** dalla sonda e
+uno **riferito** da un apparato hanno affidabilita' diversa, e vanno distinti.
+
+* **Scheda del nodo**: accanto al MAC una pastiglia -- *osservato* (risposta ARP sul
+  proprio segmento) oppure *da &lt;apparato&gt;* (riferito dalla tabella ARP di quel
+  nome) -- e, dove la catena e' completa, un **Punto di attacco** con il nome della
+  porta e l'apparato su cui si trova.
+* **Elenco dei nodi**: la porta fisica sotto la subnet -- la subnet dice dove il nodo
+  sta *logicamente*, la porta dove sta *fisicamente*; il suggerimento dichiara da quale
+  apparato viene.
+* **Filtro *Indirizzo fisico*** (gruppo *Dove*): *MAC osservato dalla sonda*, *MAC
+  riferito da un apparato*, *senza MAC*, *con porta di attacco nota*. E' il filtro che
+  risponde a "quali subnet sono coperte davvero?" e "che cosa resta senza indirizzo
+  fisico?".
+
+Il conferimento porta i tre campi (`mac_source`, `switch_device`, `switch_port`) e il
+server li aggiorna con `COALESCE`: un ciclo in cui un apparato tace non cancella una
+porta gia' nota.

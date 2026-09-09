@@ -160,7 +160,7 @@
         </button>
         <button type="submit" class="btn btn-outline-secondary"
                 formaction="{{ url_for('admin.compact_database') }}"
-                data-confirm="Compattare l'archivio? Riscrive l'intero file e su un archivio grande dura alcuni minuti.">
+                data-confirm="Compattare l'archivio? Rende riutilizzabile lo spazio delle righe eliminate e aggiorna le statistiche: su un archivio grande dura alcuni minuti. La dimensione sul disco non cala -- PostgreSQL riusa quello spazio internamente.">
           <i class="bi bi-arrows-collapse me-1"></i> Compattare l'archivio
         </button>
       </div>
@@ -299,7 +299,7 @@
           <div class="mb-3">
             <label class="form-label small">FILE DA CARICARE</label>
             <input type="file" name="file" class="form-control form-control-sm"
-                   accept=".sqlite3,.sqlite,.db">
+                   accept=".dump,.backup">
             <div class="form-text">
               Oltre il limite di caricamento del server il file viene rifiutato: in quel
               caso si copia nella cartella delle copie e si ripristina dall'elenco.

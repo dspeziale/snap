@@ -34,7 +34,7 @@ def index():
         where.append("severity = ?")
         params.append(severity)
     if event_type:
-        where.append("event_type LIKE ?")
+        where.append("event_type ILIKE ?")
         params.append("%s%%" % event_type)
     if actor:
         # Chi ha fatto l'azione: si filtra per attore esatto, dall'elenco di quelli
@@ -42,7 +42,7 @@ def index():
         where.append("actor = ?")
         params.append(actor)
     if search:
-        where.append("(description LIKE ? OR actor LIKE ?)")
+        where.append("(description ILIKE ? OR actor ILIKE ?)")
         params.extend(["%%%s%%" % search] * 2)
     clause = " WHERE " + " AND ".join(where)
 

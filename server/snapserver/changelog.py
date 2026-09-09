@@ -57,6 +57,59 @@ CHANGELOG = [
             "Il tempo massimo di una scansione si calcola sulle ondate che nmap esegue"
             " davvero, non sul numero di bersagli: un compito non puo' piu' restare"
             " appeso per ore bloccando il ciclo.",
+            "Indirizzi MAC dalle tabelle ARP degli apparati di rete (SNMP). Su una rete"
+            " reale, di 7.309 nodi solo 39 avevano il MAC -- tutti nella subnet della"
+            " sonda, perche' ARP non attraversa un router. La sonda ora interroga gli"
+            " apparati e ne legge le corrispondenze indirizzo-MAC per interi segmenti."
+            " La provenienza si dichiara: \"osservato\" se l'ha visto la sonda,"
+            " \"da <apparato>\" se gliel'ha riferito uno switch o un router.",
+            "Punto di attacco fisico: dove la catena di tabelle dell'apparato e'"
+            " completa, l'inventario dice su quale PORTA di quale switch un nodo e'"
+            " attaccato (per esempio Gi1/0/14 su core-sw). Compare nell'elenco dei nodi,"
+            " nella scheda del dispositivo e nella sua scheda in PDF. Se la catena si"
+            " interrompe la porta non si indovina: resta non nota.",
+            "Scoperta automatica degli apparati da interrogare: si provano i gateway"
+            " probabili di ogni subnet e i nodi con la 161/UDP osservata aperta, e entra"
+            " nell'elenco solo chi risponde con la community configurata E ha una"
+            " tabella ARP. Un apparato che risponde con la community di fabbrica"
+            " (public/private) NON viene aggiunto ma segnalato nel diario: e'"
+            " un'esposizione da chiudere.",
+            "Il costruttore della scheda di rete si ricava dal prefisso del MAC anche"
+            " per i MAC riferiti da un apparato, con lo stesso catalogo che usa nmap:"
+            " su un apparato muto e' spesso l'unico indizio su che cosa sia.",
+            "Nuovo filtro \"Indirizzo fisico\" nell'elenco dei nodi: MAC osservato dalla"
+            " sonda, MAC riferito da un apparato, senza MAC, con porta di attacco nota."
+            " Risponde a \"quali subnet sono coperte davvero?\".",
+            "Le ricerche libere non distinguono piu' maiuscole e minuscole: cercare"
+            " \"cisco\" trova \"Cisco Systems\". Valeva per la ricerca globale, l'elenco"
+            " dei nodi, il registro eventi, il SIEM e il catalogo CVE.",
+            "Esportazione CSV delle interrogazioni pronte: consegnava una riga di"
+            " intestazioni al posto dei dati, e alcune interrogazioni restituivano meno"
+            " colonne di quelle dichiarate. Corretto.",
+            "La pagina di dettaglio di una comunicazione ACN non si apriva (errore"
+            " interno): il modello non era valido. Corretto, e ora tutti i modelli di"
+            " pagina vengono verificati dai test.",
+            "Copia e ripristino dell'archivio dalla console tornano disponibili con"
+            " PostgreSQL. La copia e' un archivio pg_dump verificato appena prodotto"
+            " (se la verifica non passa il file viene eliminato: una copia che sembra"
+            " riuscita e non e' ripristinabile e' peggio di nessuna copia); il"
+            " ripristino salva prima lo stato corrente e riversa l'archivio in una"
+            " sola transazione, senza fermare il servizio.",
+            "Le due versioni di PostgreSQL vengono confrontate prima di ogni copia e"
+            " di ogni ripristino, e l'operazione si rifiuta se non sono compatibili"
+            " dicendo quale client serve. Il ripristino richiede la stessa versione"
+            " major del server: con una diversa pg_restore imposta parametri di"
+            " sessione che il server non riconosce e si interrompe -- un problema che"
+            " altrimenti si scopre il giorno in cui la copia serve.",
+            "Compattazione dell'archivio: non promette piu' spazio restituito al"
+            " disco. Su PostgreSQL VACUUM rende riutilizzabile lo spazio delle righe"
+            " eliminate ma non lo restituisce al sistema operativo (servirebbe VACUUM"
+            " FULL, che fermerebbe l'applicazione): il messaggio dichiara quante"
+            " righe sono state recuperate, che e' cio' che l'operazione fa davvero.",
+            "Cancellazione di una sonda: il messaggio che spiega \"archivio occupato,"
+            " nulla e' stato cancellato\" non poteva comparire, perche' il codice"
+            " intercettava l'errore di SQLite. Su PostgreSQL l'operatore vedeva una"
+            " pagina di errore. Corretto.",
         ],
     },
     {

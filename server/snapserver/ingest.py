@@ -169,6 +169,14 @@ def _apply_node(ctx, record: dict) -> None:
     stato = "up" if raggiungibile else "down"
     hostname = _clean(record.get("hostname"), maximum=190) or None
     mac = _clean(record.get("mac"), maximum=32) or None
+    # Provenienza del MAC. Allowlist: "arp" oppure "snmp:<apparato>" -- e'
+    # un valore che finisce in una pagina e in un report, e arriva dalla rete.
+    fonte_mac = _clean(record.get("mac_source"), maximum=80) or None
+    if fonte_mac and not (fonte_mac == "arp" or fonte_mac.startswith("snmp:")):
+        fonte_mac = None
+    # Punto di attacco fisico: apparato e nome della porta, come li ha letti la sonda.
+    apparato = _clean(record.get("switch_device"), maximum=80) or None
+    porta_fisica = _clean(record.get("switch_port"), maximum=60) or None
     vendor = _clean(record.get("mac_vendor"), maximum=190) or None
     latenza = _real(record.get("latency_ms"))
     ttl = _intero(record.get("ttl"))
@@ -177,11 +185,13 @@ def _apply_node(ctx, record: dict) -> None:
     esistente = _node_by_ip(ctx["tenant_id"], ip)
     if esistente is None:
         node_id = execute(
-            "INSERT INTO nodes (tenant_id, subnet_id, probe_id, ip, mac, mac_vendor, hostname,"
+            "INSERT INTO nodes (tenant_id, subnet_id, probe_id, ip, mac, mac_source,"
+            " switch_device, switch_port, mac_vendor, hostname,"
             " status, latency_ms, ttl, first_seen_at, last_seen_at, last_scan_at,"
             " created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (ctx["tenant_id"], subnet_id, ctx["probe_id"], ip, mac, vendor, hostname,
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ctx["tenant_id"], subnet_id, ctx["probe_id"], ip, mac, fonte_mac,
+             apparato, porta_fisica, vendor, hostname,
              stato, latenza, ttl, visto, visto, visto, ctx["now"], ctx["now"]),
         )
         _record_change(ctx, node_id, "node.appeared", subject=ip, after=stato,
@@ -207,12 +217,16 @@ def _apply_node(ctx, record: dict) -> None:
 
     execute(
         "UPDATE nodes SET subnet_id = COALESCE(?, subnet_id), probe_id = ?,"
-        " mac = COALESCE(?, mac), mac_vendor = COALESCE(?, mac_vendor),"
+        " mac = COALESCE(?, mac), mac_source = COALESCE(?, mac_source),"
+        " switch_device = COALESCE(?, switch_device),"
+        " switch_port = COALESCE(?, switch_port),"
+        " mac_vendor = COALESCE(?, mac_vendor),"
         " hostname = COALESCE(?, hostname), status = ?, latency_ms = COALESCE(?, latency_ms),"
         " ttl = COALESCE(?, ttl),"
         " last_seen_at = GREATEST(last_seen_at, ?), last_scan_at = ?, updated_at = ?"
         " WHERE id = ? AND tenant_id = ?",
-        (subnet_id, ctx["probe_id"], mac, vendor, hostname, stato, latenza, ttl,
+        (subnet_id, ctx["probe_id"], mac, fonte_mac, apparato, porta_fisica,
+         vendor, hostname, stato, latenza, ttl,
          visto, visto, ctx["now"], node_id, ctx["tenant_id"]),
     )
 

@@ -104,6 +104,7 @@ def nodes():
             identified=request.args.get("identificazione") or None,
             seen=request.args.get("visto") or None,
             zone=request.args.get("zona") or None,
+            mac=request.args.get("mac") or None,
         ),
         summary=inventory_summary(tenant_id),
         distribution=device_type_distribution(tenant_id),
@@ -121,7 +122,8 @@ def nodes():
                  "rischio": request.args.get("rischio") or "",
                  "identificazione": request.args.get("identificazione") or "",
                  "visto": request.args.get("visto") or "",
-                 "zona": request.args.get("zona") or ""},
+                 "zona": request.args.get("zona") or "",
+                 "mac": request.args.get("mac") or ""},
         # Le zone del TENANT, non il seme del prodotto: quelle create
         # dall'operatore devono comparire nel filtro come le predefinite.
         zones=zones.catalogo(tenant_id),
@@ -148,6 +150,9 @@ _FILTER_VALUE_LABELS = {
                 "confermati": "con vulnerabilita' confermate",
                 "kev": "sfruttate attivamente (KEV)"},
     "identificazione": {"incerto": "da verificare", "certo": "riconosciuto"},
+    "mac": {"osservato": "MAC osservato dalla sonda",
+            "riferito": "MAC riferito da un apparato",
+            "senza": "senza MAC", "porta": "con porta di attacco nota"},
 }
 # Come si chiama, per una persona, ciascun filtro.
 _FILTER_TITLES = {
@@ -155,10 +160,11 @@ _FILTER_TITLES = {
     "servizio": "Servizio", "porta": "Porta", "zona": "Zona", "snmp": "Lettura SNMP",
     "smb": "Enumerazione SMB", "rischio": "Sicurezza",
     "identificazione": "Identificazione", "cerca": "Cerca",
+    "mac": "Indirizzo fisico",
 }
 # L'ordine in cui le pastiglie compaiono: lo stesso ordine di lettura dei gruppi.
-_FILTER_ORDER = ("subnet", "zona", "type", "identificazione", "status", "visto",
-                 "servizio", "porta", "snmp", "smb", "rischio", "cerca")
+_FILTER_ORDER = ("subnet", "zona", "mac", "type", "identificazione", "status",
+                 "visto", "servizio", "porta", "snmp", "smb", "rischio", "cerca")
 
 
 def _active_filters(tenant_id: int) -> list[dict]:

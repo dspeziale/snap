@@ -76,7 +76,7 @@ def kpi(tenant_id: int, inizio: str, fine: str) -> dict:
         "SELECT COUNT(*) AS aperti FROM check_incidents WHERE tenant_id = ?"
         " AND opened_at >= ? AND opened_at < ?", (tenant_id, inizio, fine), one=True)
     risolti = query(
-        "SELECT COUNT(*) AS risolti, opened_at, resolved_at FROM check_incidents"
+        "SELECT COUNT(*) AS risolti FROM check_incidents"
         " WHERE tenant_id = ? AND resolved_at >= ? AND resolved_at < ?",
         (tenant_id, inizio, fine), one=True)
     durate = [
@@ -323,7 +323,10 @@ def audit_digest(tenant_id: int, inizio: str, fine: str) -> dict:
     conteggi = query(
         "SELECT event_type, severity, COUNT(*) AS n FROM audit_events"
         " WHERE tenant_id = ? AND created_at >= ? AND created_at < ?"
-        " GROUP BY event_type ORDER BY n DESC LIMIT ?",
+        # La gravita' nel GROUP BY: lo stesso tipo di evento puo' essere registrato
+        # con gravita' diverse, e distinguerne le righe e' piu' fedele che farne
+        # scegliere una a caso al motore. Il totale resta la somma dei conteggi.
+        " GROUP BY event_type, severity ORDER BY n DESC LIMIT ?",
         (tenant_id, inizio, fine, MAX_AUDIT))
     notevoli = query(
         "SELECT a.event_type, a.severity, a.actor, a.description, a.source_ip,"

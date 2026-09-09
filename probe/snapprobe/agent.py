@@ -238,6 +238,14 @@ class ProbeAgent:
         if self._collection_due():
             outcome["collected"] = self.collector.collect()
 
+        # Raccolta SNMP dagli apparati di rete: cadenza propria, molto piu' lenta
+        # della scansione. Una tabella ARP cambia in minuti, non in secondi, e
+        # interrogare un router a ogni ciclo sarebbe traffico di gestione inutile.
+        # Sta PRIMA della scansione perche' la scansione la usa: e' il MAC che il
+        # profilo di un nodo su subnet instradata non potrebbe avere altrimenti.
+        if self._snmp_due():
+            outcome["snmp"] = self._raccogli_snmp()
+
         if not self.store.is_enrolled():
             # Senza registrazione non c'e' con chi parlare: si raccoglie e si
             # scansiona in autonomia, che e' il comportamento previsto.
@@ -303,6 +311,51 @@ class ProbeAgent:
             self.store.log("warning", "Scansione non eseguita: %s" % errore)
             self._last_error = str(errore)
             return None
+
+    # -- raccolta dagli apparati di rete (SNMP) -----------------------------
+    # Ogni quanto interrogare gli apparati. Trenta minuti: una tabella ARP ha una
+    # vita di minuti-decine di minuti, e piu' spesso di cosi' si aggiungerebbe
+    # traffico di gestione senza guadagnare dato.
+    SNMP_INTERVALLO_SEC = 1800
+
+    def _snmp_due(self) -> bool:
+        """Vero se e' ora di reinterrogare gli apparati (e se la raccolta e' attiva)."""
+        from datetime import datetime, timezone
+
+        from . import snmp_raccolta
+        from .store import UTC_FORMAT
+
+        if not snmp_raccolta.attiva(self.store):
+            return False
+        ultimo = self.store.get_setting("last_snmp_at")
+        if not ultimo:
+            return True
+        try:
+            momento = datetime.strptime(ultimo, UTC_FORMAT).replace(tzinfo=timezone.utc)
+        except ValueError:
+            # Una data illeggibile non deve bloccare la raccolta per sempre.
+            return True
+        intervallo = int(self.store.get_setting("snmp_interval_sec",
+                                                self.SNMP_INTERVALLO_SEC)
+                         or self.SNMP_INTERVALLO_SEC)
+        return (datetime.now(timezone.utc) - momento).total_seconds() >= intervallo
+
+    def _raccogli_snmp(self) -> dict:
+        """Interroga gli apparati. Un errore NON deve fermare il ciclo dell'agente.
+
+        La raccolta e' un arricchimento: se gli apparati non rispondono, la sonda
+        continua a scansionare e a conferire come prima -- semplicemente senza i MAC
+        delle subnet instradate.
+        """
+        from . import snmp_raccolta
+
+        try:
+            esito = snmp_raccolta.raccogli(self.store)
+        except Exception as errore:  # noqa: BLE001 - vedi la docstring
+            self.store.log("error", "Raccolta SNMP non riuscita: %s" % errore)
+            return {"errore": str(errore)}
+        self.store.set_setting("last_snmp_at", utc_now_str())
+        return esito
 
     def _collection_due(self) -> bool:
         """Vero se e' trascorso l'intervallo di raccolta configurato."""

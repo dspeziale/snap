@@ -90,7 +90,16 @@ def server_app(tmp_path, monkeypatch, database_di_prova):
     import importlib
 
     monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
+    # In esercizio sono due utenze distinte (applicativa e proprietaria); qui il
+    # database del test lo crea e lo possiede la stessa, quindi l'indirizzo e' lo
+    # stesso. Serve dichiararlo perche' la copia e il ripristino dell'archivio
+    # richiedono il proprietario, e senza questa variabile si rifiuterebbero.
+    monkeypatch.setenv("SNAP_SERVER_OWNER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_REPORT_DIR", str(tmp_path / "reports"))
+    # Le copie dell'archivio nella cartella del test, non in quella predefinita:
+    # quella e' una per installazione, e i test se la passerebbero l'uno all'altro --
+    # oltre a lasciare copie vere dentro il repository.
+    monkeypatch.setenv("SNAP_SERVER_BACKUP_DIR", str(tmp_path / "backups"))
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "test-secret-key")
 
     import snapserver

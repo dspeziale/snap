@@ -123,7 +123,8 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
                status: str = None, service: str = None, port: str = None,
                text: str = None, snmp: str = None, smb: str = None,
                risk: str = None, identified: str = None, seen: str = None,
-               zone: str = None, limit: int = 1000) -> list[dict]:
+               zone: str = None, mac: str = None,
+               limit: int = 1000) -> list[dict]:
     """Elenco dei nodi con il conteggio delle porte aperte."""
     condizioni = ["n.tenant_id = ?"]
     parametri = [tenant_id]
@@ -167,7 +168,7 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
     if cercato:
         campi = ("n.ip", "n.hostname", "n.mac", "n.mac_vendor", "n.os_name",
                  "n.device_label")
-        condizioni.append("(%s)" % " OR ".join("%s LIKE ?" % c for c in campi))
+        condizioni.append("(%s)" % " OR ".join("%s ILIKE ?" % c for c in campi))
         parametri.extend(["%%%s%%" % cercato] * len(campi))
 
     if snmp == "letto":
@@ -208,6 +209,20 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
     elif identified == "certo":
         condizioni.append("COALESCE(n.device_confidence, 0) >= 60"
                           " AND n.device_type IS NOT NULL AND n.device_type <> 'unknown'")
+
+    # Da dove viene il MAC, e se si sa a quale porta il nodo e' attaccato. Le due
+    # cose hanno fonti diverse: la sonda vede in ARP solo il proprio segmento, il
+    # resto lo riferisce un apparato interrogato in SNMP. Distinguerle e' il modo
+    # di sapere quali subnet sono coperte davvero e quali restano senza MAC.
+    if mac == "osservato":
+        condizioni.append("n.mac_source = 'arp'")
+    elif mac == "riferito":
+        condizioni.append("n.mac_source LIKE ?")
+        parametri.append("snmp:%")
+    elif mac == "senza":
+        condizioni.append("COALESCE(n.mac, '') = ''")
+    elif mac == "porta":
+        condizioni.append("COALESCE(n.switch_port, '') <> ''")
 
     # Zona della subnet: "che cosa espone la rete di gestione?" e' una domanda che
     # si fa spesso, e senza questo filtro si risponde a mano.

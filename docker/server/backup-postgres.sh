@@ -18,6 +18,16 @@
 # La copia contiene dati personali (indirizzi, utenze, log): la cartella di
 # destinazione va tenuta con permessi restrittivi e, se lascia la macchina, cifrata
 # (GDPR art. 32).
+#
+# NON E' LA STESSA COSA DELLA COPIA CHIESTA DALLA CONSOLE, e va saputo prima di
+# averne bisogno:
+#   * questo script scrive SQL compresso (.sql.gz) nel volume della base dati, si
+#     ripristina con `psql` e nella console non compare;
+#   * la console scrive un archivio pg_dump in formato personalizzato (.dump) nella
+#     propria cartella delle copie, lo verifica e lo ripristina da se'.
+# Sono due strade complementari -- una schedulata dall'host, una a richiesta -- e
+# nessuna delle due sa ripristinare il file dell'altra. Chi imposta la continuita'
+# operativa (NIS2) scelga quale delle due e' la copia ufficiale, e la provi.
 set -eu
 
 # Giorni di conservazione: sovrascrivibile dall'ambiente.

@@ -504,7 +504,7 @@
         <p>
           Su una rete di centinaia di dispositivi l'elenco si filtra. I filtri sono
           raccolti in <strong>quattro gruppi</strong>, uno per domanda: <em>Dove</em>
-          (subnet, zona), <em>Che cos'e'</em> (tipo, stato, identificazione),
+          (subnet, zona, indirizzo fisico), <em>Che cos'e'</em> (tipo, stato, identificazione),
           <em>Che cosa espone</em> (servizio, porta, letture SNMP e SMB) e
           <em>Sicurezza e tempo</em> (riscontri, ultimo contatto). Sopra, una ricerca
           libera; sotto, le <strong>pastiglie dei filtri attivi</strong>, che si vedono
@@ -527,8 +527,15 @@
               quelli con confidenza sotto 60, dove il verdetto e' un'ipotesi.</li>
           <li><strong>Ultimo contatto</strong>: chi risponde da poco e chi e' muto da
               oltre una settimana.</li>
+          <li><strong>Indirizzo fisico</strong>: da dove viene il MAC. La sonda vede
+              l'indirizzo fisico solo dei nodi attestati sul proprio segmento (ARP non
+              attraversa un router): per gli altri lo <em>riferisce</em> un apparato di
+              rete interrogato in SNMP. Il filtro separa il MAC <em>osservato</em> da
+              quello <em>riferito</em>, raduna i nodi <em>senza MAC</em> e quelli di cui
+              si conosce la <em>porta di attacco</em> &mdash; e' la risposta a "quali
+              subnet sono coperte davvero?".</li>
           <li><strong>Cerca</strong>: indirizzo, nome host, MAC, costruttore, sistema
-              operativo, tipo.</li>
+              operativo, tipo. Non distingue maiuscole e minuscole.</li>
         </ul>
         <p>
           I filtri si combinano e ciascuno restringe; le pastiglie in fondo dicono

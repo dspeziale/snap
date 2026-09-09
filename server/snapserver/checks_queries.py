@@ -350,7 +350,11 @@ def metrics_latest(tenant_id: int, check_id: int, selection=None) -> list[dict]:
         " AVG(CASE WHEN m.measured_at >= ? THEN m.value END) AS avg_24h,"
         " COUNT(DISTINCT m.text_value) AS distinct_texts"
         " FROM check_metrics m WHERE m.tenant_id = ? AND m.check_id = ?"
-        " GROUP BY m.name ORDER BY m.name",
+        # `m.check_id` sta nel GROUP BY perche' le sottoquery correlate qui sopra lo
+        # leggono: PostgreSQL vuole raggruppata ogni colonna esterna citata, anche
+        # dentro una sottoquery. Non cambia il risultato -- la WHERE fissa un solo
+        # check_id, quindi il raggruppamento resta per nome di misura.
+        " GROUP BY m.name, m.check_id ORDER BY m.name",
         (days_ago_str(1), days_ago_str(1), days_ago_str(1), tenant_id, check_id))
     return _filtra([dict(r) for r in righe], selection)
 

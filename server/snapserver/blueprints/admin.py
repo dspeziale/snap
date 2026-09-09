@@ -864,9 +864,14 @@ def compact_database():
     from ..maintenance import compact
 
     esito = compact()
-    flash("Archivio compattato: da %.2f a %.2f MB, %.2f MB restituiti al disco."
-          % (esito["prima"] / 1048576, esito["dopo"] / 1048576,
-             esito["liberati"] / 1048576), "success")
+    # Si dichiara cio' che l'operazione fa: rende riutilizzabile lo spazio delle righe
+    # morte. PostgreSQL non lo restituisce al disco (servirebbe VACUUM FULL, che
+    # fermerebbe l'applicazione), quindi promettere MB liberati era una promessa che
+    # il numero non manteneva.
+    flash("Archivio compattato: %s righe non piu' necessarie rese riutilizzabili."
+          " Dimensione sul disco: %.2f MB -- PostgreSQL riusa lo spazio internamente"
+          " invece di restituirlo, quindi non e' previsto che cali."
+          % (esito["righe_recuperate"], esito["dopo"] / 1048576), "success")
     return redirect(url_for("admin.settings"))
 
 
@@ -882,9 +887,9 @@ def create_backup():
         flash("Copia non riuscita: %s" % errore, "danger")
         return redirect(url_for("admin.settings"))
 
-    flash("Copia creata: %s (%.2f MB, %s tenant, %s utenti, %s nodi)%s"
-          % (esito["nome"], esito["byte"] / 1048576, esito["verifica"]["tenant"],
-             esito["verifica"]["utenti"], esito["verifica"]["nodi"],
+    flash("Copia creata: %s (%.2f MB, %s tabelle, verificata)%s"
+          % (esito["nome"], esito["byte"] / 1048576,
+             esito["verifica"].get("tabelle", "?"),
              ". Rimosse %d copie piu' vecchie." % len(esito["rimosse"])
              if esito["rimosse"] else "."), "success")
     return redirect(url_for("admin.settings"))
@@ -1000,9 +1005,10 @@ def restore_database():
         if not verifica["valida"]:
             raise MaintenanceError(verifica["motivo"])
         if request.form.get("solo_verifica"):
-            flash("Copia valida: %s tenant, %s utenti, %s nodi, %.2f MB. Nessun"
-                  " ripristino eseguito."
-                  % (verifica["tenant"], verifica["utenti"], verifica["nodi"],
+            flash("Copia valida: %s tabelle, %.2f MB. L'indice dell'archivio e'"
+                  " leggibile e contiene le tabelle del prodotto. Nessun ripristino"
+                  " eseguito."
+                  % (verifica.get("tabelle", "?"),
                      verifica["byte"] / 1048576), "info")
             return redirect(url_for("admin.settings"))
 

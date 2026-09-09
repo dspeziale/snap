@@ -399,7 +399,7 @@ def search_cve(testo: str = "", severita: str = "", solo_kev: bool = False,
     parametri = []
     cercato = (testo or "").strip()
     if cercato:
-        condizioni.append("(cve_id LIKE ? OR description LIKE ?)")
+        condizioni.append("(cve_id ILIKE ? OR description ILIKE ?)")
         parametri.extend(["%" + cercato.upper() + "%", "%" + cercato + "%"])
     if severita in SEVERITIES:
         condizioni.append("severity = ?")

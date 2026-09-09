@@ -540,18 +540,27 @@ def test_l_indicatore_dei_dati_ricevuti_usa_l_unita_giusta(admin_client, server_
 # --------------------------------------------------------------------------- #
 # Collegamenti di salto
 # --------------------------------------------------------------------------- #
-def test_il_salto_alla_navigazione_viene_tolto():
-    """AdminLTE inserisce due collegamenti di salto. Quello al contenuto resta --
-    e' cio' che la WCAG 2.4.1 chiede -- mentre quello alla navigazione porta al menu,
-    che da tastiera e' gia' il primo elemento raggiungibile."""
+def test_i_collegamenti_di_salto_vengono_tolti():
+    """AdminLTE inserisce due collegamenti di salto, "Skip to main content" e "Skip
+    to navigation": vanno rimossi ENTRAMBI, su richiesta esplicita.
+
+    Prima si rimuoveva il solo salto alla navigazione. La richiesta successiva ha
+    incluso anche quello al contenuto, e il codice ora toglie il contenitore intero.
+
+    Il costo e' dichiarato nel sorgente e va tenuto scritto: il salto al contenuto e'
+    il meccanismo che la WCAG 2.4.1 (Bypass Blocks, livello A) chiede, e per un
+    prodotto destinato alla PA italiana e' un requisito di legge (EN 301 549 / linee
+    guida AgID). Il controllo pretende che quella spiegazione resti nel sorgente:
+    togliere una funzione di accessibilita' e' una decisione, e una decisione senza
+    motivo scritto e' un difetto che ricompare al primo collaudo.
+    """
     sorgente = (Path(__file__).resolve().parent.parent
                 / "server/snapserver/static/js/snap.js").read_text(encoding="utf-8")
 
-    assert 'a[href="#navigation"]' in sorgente, (
-        "il collegamento alla navigazione va rimosso all'avvio")
-    assert 'href="#main"' not in sorgente, (
-        "il salto al contenuto principale non si tocca: e' un requisito di"
-        " accessibilita'")
+    assert '".skip-links"' in sorgente, (
+        "i collegamenti di salto vanno rimossi all'avvio")
+    assert "WCAG 2.4.1" in sorgente, (
+        "la rimozione va motivata nel sorgente, con cio' che si perde")
 
 
 def _sorgente(relativo: str) -> str:
