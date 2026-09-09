@@ -49,6 +49,7 @@ from ..inventory_queries import (
     SERVICE_FAMILIES,
     scan_runs_list,
     subnets_list,
+    web_certificates,
 )
 from ..snmp_tables import parse_all
 from ..smb_tables import parse_all as smb_parse_all
@@ -251,6 +252,35 @@ def _produttore(nodo, pagine_web) -> dict:
 
     return {"nome": nome, "fonte": fonte, "modello": modello,
             "scheda_di_rete": secondo}
+
+
+@bp.get("/certificates")
+@login_required
+def certificates():
+    """I certificati TLS dei web server, con la scadenza e i giorni che mancano.
+
+    Si filtra per stato -- scaduti, in scadenza entro N giorni, validi -- perche' la
+    domanda operativa e' \"quali devo rinnovare, e con che urgenza\"."""
+    tenant_id = current_tenant_id()
+    stato = (request.args.get("stato") or "").strip() or None
+    try:
+        entro = int(request.args.get("entro") or 30)
+    except ValueError:
+        entro = 30
+    entro = max(1, min(entro, 3650))
+    elenco = web_certificates(tenant_id, stato=stato, entro_giorni=entro)
+    # Conteggi per le pastiglie dei filtri: si contano su tutti, non sul filtrato.
+    tutti = web_certificates(tenant_id)
+    conteggi = {
+        "tutti": len(tutti),
+        "scaduti": sum(1 for v in tutti if v["scaduto"]),
+        "in_scadenza": sum(1 for v in tutti
+                           if v["giorni"] is not None and 0 <= v["giorni"] <= entro),
+    }
+    return render_template(
+        "inventory/certificates.html",
+        certificati=elenco, conteggi=conteggi,
+        filtri={"stato": stato or "", "entro": entro})
 
 
 @bp.get("/map")

@@ -30,28 +30,29 @@ param(
     [int]$ServerPort = 5500,
     [int]$ProbePort = 5510,
 
-    # Indirizzo con cui la console va raggiunta dalla rete (es. 10.20.10.42). Il
-    # valore predefinito e' il solo indirizzo locale: la console non e'
-    # raggiungibile da fuori finche' non viene chiesto esplicitamente.
+    # Indirizzo con cui la console va raggiunta dalla rete (es. 10.20.10.42).
     #
-    # Quando si indica un indirizzo di rete il server ascolta su TUTTE le
-    # interfacce, non solo su quella: legandosi al solo indirizzo di rete,
-    # 127.0.0.1 smetterebbe di rispondere e la sonda installata sulla stessa
-    # postazione -- che conferisce proprio su 127.0.0.1 -- resterebbe muta. Il
-    # difetto e' stato misurato, non ipotizzato.
+    # Predefinito 'auto': l'indirizzo della macchina, cosi' la console e' raggiungibile
+    # dalla rete OLTRE che da 127.0.0.1 senza doverlo indicare a ogni avvio. Per il solo
+    # locale si passa esplicitamente -ServerHost 127.0.0.1.
     #
-    [string]$ServerHost = '127.0.0.1',
+    # Con un indirizzo di rete (o 'auto') il server ascolta su TUTTE le interfacce, non
+    # solo su quella: legandosi al solo indirizzo di rete, 127.0.0.1 smetterebbe di
+    # rispondere e la sonda installata sulla stessa postazione -- che conferisce proprio
+    # su 127.0.0.1 -- resterebbe muta. Il difetto e' stato misurato, non ipotizzato.
+    #
+    [string]$ServerHost = 'auto',
 
     # Indirizzo con cui raggiungere l'interfaccia della SONDA dalla rete.
     #
-    # Predefinito locale: l'interfaccia serve anzitutto a chi installa la sonda,
-    # sulla macchina stessa. Da quando si puo' aprire alla rete (DEC-05a) e'
-    # protetta da password (DEC-11), la cui PRIMA impostazione e' ammessa solo
-    # dall'indirizzo locale: se la sonda e' gia' esposta, il primo che arriva non
-    # deve poter scegliere la credenziale. Restano due limiti che lo script
-    # dichiara a ogni avvio: il canale e' in chiaro e chi ha la password puo'
-    # riconfigurare la sonda.
-    [string]$ProbeHost = '127.0.0.1',
+    # Predefinito 'auto': l'indirizzo della macchina, come il server. L'apertura alla
+    # rete (DEC-05a) resta sicura: l'interfaccia e' protetta da password (DEC-11), la cui
+    # PRIMA impostazione e' ammessa SOLO dall'indirizzo locale -- se la sonda e' gia'
+    # esposta, il primo che arriva non deve poter scegliere la credenziale (il controllo
+    # e' nell'applicazione, non nell'indirizzo di ascolto). Restano due limiti che lo
+    # script dichiara a ogni avvio: il canale e' in chiaro e chi ha la password puo'
+    # riconfigurare la sonda. Per il solo locale: -ProbeHost 127.0.0.1.
+    [string]$ProbeHost = 'auto',
 
     [switch]$Setup,
     [switch]$Test,
@@ -537,6 +538,15 @@ $registry = @(Read-PidRegistry | Where-Object {
     $null -ne (Get-Process -Id $_.pid -ErrorAction SilentlyContinue)
 })
 $started = @()
+
+# 'auto' (predefinito) diventa l'indirizzo della macchina: cosi' i componenti ascoltano
+# sull'IP della postazione OLTRE che su 127.0.0.1 senza doverlo indicare a ogni avvio.
+# Legandosi a 0.0.0.0 (vedi $ascolto sotto) il loopback continua a rispondere. Se la
+# macchina non ha un indirizzo di rete si ripiega sul solo locale.
+$primario = @(Get-LocalAddresses)[0]
+if (-not $primario) { $primario = '127.0.0.1' }
+if ($ServerHost -eq 'auto') { $ServerHost = $primario }
+if ($ProbeHost -eq 'auto') { $ProbeHost = $primario }
 
 if ($Only -eq 'all' -or $Only -eq 'server') {
     # Vedi il commento del parametro: aprire alla rete non deve chiudere il locale.

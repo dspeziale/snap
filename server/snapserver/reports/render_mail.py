@@ -198,6 +198,28 @@ def text_body(dati: dict, console_url: str = "") -> str:
                  % (sonda["nome"], sonda["stato"], sonda["ultimo_contatto"],
                     "" if sonda["scansione_attiva"] else ", scansione sospesa"))
 
+    # --- Certificati TLS: scaduti o in scadenza. Un dato con una scadenza letterale,
+    #     che nessun'altra sezione porta. Si mostra solo quando c'e' qualcosa da fare.
+    cert = dati.get("certificati") or {}
+    if cert.get("n_scaduti") or cert.get("n_in_scadenza"):
+        aggiungi("")
+        aggiungi("CERTIFICATI TLS")
+        if cert.get("n_scaduti"):
+            aggiungi("  Scaduti: %d." % cert["n_scaduti"])
+            for c in cert["scaduti"]:
+                aggiungi("    %-22s :%-5s scaduto il %s (%d g fa)  %s"
+                         % ((c.get("ip") or "")[:22], c.get("port"),
+                            c.get("cert_expires") or "?", -(c.get("giorni") or 0),
+                            (c.get("cert_subject") or "")[:40]))
+        if cert.get("n_in_scadenza"):
+            aggiungi("  In scadenza entro %d giorni: %d."
+                     % (cert.get("giorni_avviso", 30), cert["n_in_scadenza"]))
+            for c in cert["in_scadenza"]:
+                aggiungi("    %-22s :%-5s scade il %s (fra %d g)  %s"
+                         % ((c.get("ip") or "")[:22], c.get("port"),
+                            c.get("cert_expires") or "?", c.get("giorni") or 0,
+                            (c.get("cert_subject") or "")[:40]))
+
     # --- Tendenze ---
     giorni = dati["tendenze"]["giorni"]
     if giorni:
@@ -395,6 +417,37 @@ def html_body(dati: dict, console_url: str = "") -> str:
                % (_stile("mono"),
                   _sparkline([g["disponibilita"] for g in giorni]),
                   _sparkline([g["latenza_p95"] for g in giorni])))
+
+    # --- Certificati TLS: scaduti o in scadenza. Solo se c'e' qualcosa da fare. ---
+    cert = dati.get("certificati") or {}
+    if cert.get("n_scaduti") or cert.get("n_in_scadenza"):
+        scrivi('<div style="%s">Certificati TLS</div>' % _stile("sezione"))
+        scrivi('<p style="margin:4px 0"><b>%d scaduti</b>, <b>%d in scadenza</b>'
+               ' entro %d giorni%s.</p>'
+               % (cert.get("n_scaduti", 0), cert.get("n_in_scadenza", 0),
+                  cert.get("giorni_avviso", 30),
+                  " (su %d certificati letti)" % cert["totale"]
+                  if cert.get("totale") else ""))
+        elencabili = ([("scaduto", c) for c in cert.get("scaduti", [])]
+                      + [("in scadenza", c) for c in cert.get("in_scadenza", [])])
+        if elencabili:
+            scrivi('<table style="%s"><tr><th style="%s">Nodo</th>'
+                   '<th style="%s">Porta</th><th style="%s">Soggetto</th>'
+                   '<th style="%s">Scadenza</th><th style="%s">Giorni</th></tr>'
+                   % (_stile("tabella"), *[_stile("th")] * 5))
+            for stato, c in elencabili:
+                giorni_txt = ("scaduto da %d g" % -(c.get("giorni") or 0)
+                              if stato == "scaduto"
+                              else "fra %d g" % (c.get("giorni") or 0))
+                scrivi('<tr><td style="%s"><span style="%s">%s</span></td>'
+                       '<td style="%s">%s</td><td style="%s">%s</td>'
+                       '<td style="%s">%s</td><td style="%s">%s</td></tr>'
+                       % (_stile("td"), _stile("mono"), escape(c.get("ip") or ""),
+                          _stile("td"), c.get("port"),
+                          _stile("td"), escape((c.get("cert_subject") or "")[:48]),
+                          _stile("td"), escape(c.get("cert_expires") or "?"),
+                          _stile("td"), giorni_txt))
+            scrivi('</table>')
 
     igiene = dati["igiene"]
     scrivi('<div style="%s">Igiene</div>' % _stile("sezione"))

@@ -21,6 +21,29 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.2.8",
+        "date": "2026-09-04",
+        "abstract": "I certificati TLS dei web server si cercano per scadenza e finiscono"
+                    " nel resoconto quotidiano; le subnet di ogni tenant si esportano in"
+                    " un file di testo; all'avvio i componenti sono raggiungibili dalla"
+                    " rete oltre che in locale.",
+        "changes": [
+            "Nuova pagina \"Certificati TLS\" (Rete): elenca i web server con il loro"
+            " certificato e permette di cercare quelli SCADUTI o IN SCADENZA, con i giorni"
+            " che mancano. La raccolta del certificato per intero (soggetto, emittente,"
+            " validita', numero di serie, impronte, nomi alternativi) era gia' attiva.",
+            "Il resoconto quotidiano riporta una sezione \"Certificati TLS\" con i"
+            " certificati scaduti e quelli in scadenza entro trenta giorni.",
+            "Da Amministrazione > Impostazioni Sistema si esportano le subnet di ciascun"
+            " tenant in un file .txt, un CIDR per riga e in ordine numerico -- pronto da"
+            " rileggere o reimportare.",
+            "All'avvio i componenti ascoltano di default anche sull'indirizzo della"
+            " macchina, oltre che su 127.0.0.1: sono raggiungibili dalla rete senza"
+            " doverlo indicare a ogni avvio (per il solo locale si passa"
+            " -ServerHost 127.0.0.1).",
+        ],
+    },
+    {
         "version": "1.2.7",
         "date": "2026-09-04",
         "abstract": "Il report tecnico di inventario diventa molto piu' compatto: nodi e"

@@ -505,6 +505,31 @@ def hygiene(tenant_id: int) -> dict:
 # --------------------------------------------------------------------------- #
 # Insieme completo per il resoconto e per il report NOC
 # --------------------------------------------------------------------------- #
+def _certificati_scadenza(tenant_id: int, giorni_avviso: int = 30) -> dict:
+    """Sintesi dei certificati TLS scaduti o in scadenza, per il resoconto quotidiano.
+
+    E' un dato che nessun'altra sezione porta e che ha una scadenza (letteralmente): un
+    certificato scaduto rompe il servizio, e uno che scade fra pochi giorni va rinnovato
+    prima. Si riusa la stessa fonte della pagina dei certificati, cosi' il numero nel
+    resoconto e quello a schermo coincidono.
+    """
+    from ..inventory_queries import web_certificates
+
+    tutti = web_certificates(tenant_id)
+    scaduti = [v for v in tutti if v["scaduto"]]
+    in_scadenza = [v for v in tutti
+                   if v["giorni"] is not None and 0 <= v["giorni"] <= giorni_avviso]
+    return {
+        "totale": len(tutti),
+        "n_scaduti": len(scaduti),
+        "n_in_scadenza": len(in_scadenza),
+        # Un elenco breve nel resoconto: il grosso si guarda a schermo, filtrabile.
+        "scaduti": scaduti[:15],
+        "in_scadenza": in_scadenza[:15],
+        "giorni_avviso": giorni_avviso,
+    }
+
+
 def daily(tenant: dict, giorno, zona, giorni_tendenza: int = 7) -> dict:
     """Tutte le sezioni per un giorno. E' l'unica funzione che i renderer chiamano."""
     from .windows import days_bounds, describe
@@ -531,6 +556,7 @@ def daily(tenant: dict, giorno, zona, giorni_tendenza: int = 7) -> dict:
         "raccolta": collection(tenant_id, inizio, fine, zona),
         "tendenze": trends(tenant_id, zona, inizio_tendenza, fine_tendenza),
         "igiene": hygiene(tenant_id),
+        "certificati": _certificati_scadenza(tenant_id),
         "generato_utc": utc_str(utc_now()),
     }
     # Un resoconto senza nulla da segnalare si spedisce comunque, in forma breve

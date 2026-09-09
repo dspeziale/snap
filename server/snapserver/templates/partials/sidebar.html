@@ -20,7 +20,7 @@
 {# Appartenenza della pagina in corso a ciascun gruppo: decide quale si apre. #}
 {% set in_rete = endpoint in ('inventory.nodes', 'inventory.node', 'inventory.network_map',
                               'inventory.network_map_graphic', 'inventory.network_map_zones',
-                              'monitor.status',
+                              'monitor.status', 'inventory.certificates',
                               'monitor.changes', 'inventory.subnets',
                               'inventory.zone_index',
                               'inventory.deliveries', 'inventory.delivery') %}
@@ -193,6 +193,12 @@
               <a href="{{ url_for('monitor.changes') }}"
                  class="nav-link {% if endpoint == 'monitor.changes' %}active{% endif %}">
                 <i class="nav-icon bi bi-clock-history"></i><p>Cambiamenti</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.certificates') }}"
+                 class="nav-link {% if endpoint == 'inventory.certificates' %}active{% endif %}">
+                <i class="nav-icon bi bi-shield-lock"></i><p>Certificati TLS</p>
               </a>
             </li>
             <li class="nav-item">

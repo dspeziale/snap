@@ -700,3 +700,54 @@ def inventory_indicators(tenant_id: int) -> list[dict]:
             "tone": "warning" if sintesi["uncertain"] else "success",
         },
     ]
+
+
+def web_certificates(tenant_id: int, stato: str = None,
+                     entro_giorni: int = None) -> list[dict]:
+    """I certificati TLS raccolti dai web server, con i giorni alla scadenza calcolati
+    ADESSO.
+
+    `cert_expires` e' una data 'YYYY-MM-DD': il conto dei giorni si fa in Python, non in
+    SQL, cosi' resta portabile fra SQLite (sviluppo) e PostgreSQL (produzione), dove la
+    sottrazione fra date si scrive in modo diverso. `stato` filtra l'elenco: 'scaduti',
+    'in_scadenza' (entro `entro_giorni`, 30 per difetto) o None per tutti; l'ordine porta
+    davanti cio' che scade prima, cosi' la coda del lavoro e' gia' in cima.
+    """
+    from datetime import date as _date
+
+    righe = query(
+        "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
+        " w.port, w.cert_subject, w.cert_issuer, w.cert_expires, w.cert_selfsigned,"
+        " w.tls_version"
+        " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+        " WHERE w.tenant_id = ? AND w.scheme = 'https'"
+        " AND w.cert_expires IS NOT NULL AND w.cert_expires != ''",
+        (tenant_id,))
+    oggi = _date.today()
+    voci = []
+    for r in righe:
+        voce = dict(r)
+        try:
+            scadenza = _date.fromisoformat(str(r["cert_expires"])[:10])
+            voce["giorni"] = (scadenza - oggi).days
+            voce["scaduto"] = voce["giorni"] < 0
+        except (ValueError, TypeError):
+            # Una data illeggibile non si perde: si mostra senza conteggio.
+            voce["giorni"] = None
+            voce["scaduto"] = False
+        voce["autofirmato"] = bool(r["cert_selfsigned"])
+        voci.append(voce)
+
+    soglia = 30 if entro_giorni is None else int(entro_giorni)
+    if stato == "scaduti":
+        voci = [v for v in voci if v["scaduto"]]
+    elif stato == "in_scadenza":
+        voci = [v for v in voci
+                if v["giorni"] is not None and 0 <= v["giorni"] <= soglia]
+    elif stato == "validi":
+        voci = [v for v in voci if v["giorni"] is not None and v["giorni"] > soglia]
+
+    # I senza conteggio in fondo; per il resto, prima cio' che scade prima.
+    voci.sort(key=lambda v: (v["giorni"] is None,
+                             v["giorni"] if v["giorni"] is not None else 0))
+    return voci
