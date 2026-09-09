@@ -36,8 +36,17 @@ services:
       # La console in HTTPS. La 5501 esiste solo per rimandare da http a https.
       - "${SNAP_HTTPS_PORT:-5500}:5500"
       - "${SNAP_HTTP_REDIRECT_PORT:-5501}:5501"
+    environment:
+      # La porta PUBBLICA della console. Serve a nginx per due cose che non puo'
+      # indovinare dall'interno del contenitore, dove ascolta sulla 5500: la
+      # redirezione da http e l'intestazione X-Forwarded-Port, con cui
+      # l'applicazione costruisce i propri indirizzi.
+      SNAP_HTTPS_PORT: "${SNAP_HTTPS_PORT:-5500}"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Come TEMPLATE, non come configurazione finita: l'immagine sostituisce le
+      # variabili d'ambiente all'avvio (envsubst). Cosi' la porta pubblica sta in
+      # configurazione e non scritta a mano nel file, come prescrive il progetto.
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       # Il certificato NON sta nell'immagine: si monta, in sola lettura.
       - ./certs:/etc/nginx/certs:ro
     networks:

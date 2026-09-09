@@ -286,12 +286,13 @@ html.snap-layout-wide .app-content-header > .container-fluid {
 .app-sidebar .nav-link.active {
   border-left: 3px solid var(--bs-primary);
 }
+/* Etichette di sezione: il CARATTERE e' quello di AdminLTE, non uno nostro.
+   C'era un blocco che ne imponeva corpo, peso, spaziatura e colore: il risultato
+   era che la console e la sonda mostravano lo stesso elemento in due modi diversi,
+   e chi passa dall'una all'altra lo notava. Qui restano solo la spaziatura e la
+   riga di separazione, che riguardano il RAGGRUPPAMENTO -- cioe' la ragione per cui
+   le etichette esistono -- e non il carattere. */
 .app-sidebar .nav-header {
-  font-size: .7rem;
-  font-weight: 700;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--bs-secondary-color);
   padding: .85rem 1rem .35rem;
   margin-top: .35rem;
   border-top: 1px solid var(--bs-border-color);
@@ -340,7 +341,21 @@ div.dt-container .dt-length select {
   font-size: .85rem;
   padding: .25rem .5rem;
 }
-div.dt-container .dt-search input { min-width: 16rem; }
+/* La casella di ricerca: comoda larga sui monitor, dannosa sui telefoni. Con un
+   minimo fisso la riga dei controlli sfondava il contenitore e spostava a destra
+   tutta la pagina (difetto segnalato su smartphone). Sotto sm occupa la larghezza
+   disponibile e non impone nulla. */
+div.dt-container .dt-search input { width: 100%; }
+@media (min-width: 576px) {
+  div.dt-container .dt-search input { width: auto; min-width: 16rem; }
+}
+/* Ultima difesa: nulla, dentro il contenuto, deve poter allargare la pagina. Se un
+   elemento eccede (una tabella larga, un blocco di codice, un identificativo lungo)
+   scorre DENTRO il proprio contenitore, non trascinando la pagina con se'. */
+.app-main, .app-content, .app-content-header { max-width: 100%; }
+.app-content > .container-fluid, .app-content-header > .container-fluid {
+  overflow-x: clip;
+}
 div.dt-container .dt-search label,
 div.dt-container .dt-length label,
 div.dt-container .dt-info {

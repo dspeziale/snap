@@ -84,9 +84,9 @@ def _minuti(dal: str, al: str) -> int:
 # --------------------------------------------------------------------------- #
 def inventory(tenant_id: int) -> dict:
     riga = query(
-        "SELECT COUNT(*) AS nodi, COALESCE(SUM(status = 'up'), 0) AS su,"
-        " COALESCE(SUM(status = 'down'), 0) AS giu,"
-        " COALESCE(SUM(device_type IS NULL OR device_type = ''), 0) AS senza_tipo,"
+        "SELECT COUNT(*) AS nodi, COALESCE(SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END), 0) AS su,"
+        " COALESCE(SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END), 0) AS giu,"
+        " COALESCE(SUM(CASE WHEN device_type IS NULL OR device_type = '' THEN 1 ELSE 0 END), 0) AS senza_tipo,"
         " MIN(first_seen_at) AS primo"
         " FROM nodes WHERE tenant_id = ?", (tenant_id,), one=True)
     subnet = query(
@@ -162,13 +162,18 @@ def open_issues(tenant_id: int, zona) -> list:
         })
 
     mai_riusciti = query(
+        # Il filtro sta FUORI: `esiti` e `riusciti` sono alias, che PostgreSQL non
+        # accetta in HAVING, e ripetere l'espressione di `riusciti` duplicherebbe
+        # il segnaposto `?` cambiando il numero di parametri.
+        "SELECT * FROM ("
         "SELECT c.id, c.name, t.address, COUNT(r.id) AS esiti,"
-        " COALESCE(SUM(r.status = ?), 0) AS riusciti,"
-        " ROUND(AVG(r.latency_ms), 0) AS latenza, MAX(r.detail) AS dettaglio"
+        " COALESCE(SUM(CASE WHEN r.status = ? THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " ROUND(AVG(r.latency_ms)::numeric, 0) AS latenza, MAX(r.detail) AS dettaglio"
         " FROM checks c JOIN check_targets t ON t.id = c.target_id"
         " LEFT JOIN check_results r ON r.check_id = c.id"
         " WHERE c.tenant_id = ? AND c.is_enabled = 1"
-        " GROUP BY c.id HAVING esiti >= ? AND riusciti = 0",
+        " GROUP BY c.id, t.address"
+        ") AS q WHERE esiti >= ? AND riusciti = 0",
         (STATUS_OK, tenant_id, NEVER_OK_MIN_RESULTS))
     for riga in mai_riusciti:
         questioni.append({
@@ -235,14 +240,21 @@ def availability(tenant_id: int, inizio: str, fine: str) -> dict:
     verifica: il resoconto lo dichiara invece di annunciare "disponibilita' 0%".
     """
     righe = query(
+        # L'ordinamento sta FUORI, in un involucro: usa `riusciti` ed `esiti`, che
+        # sono alias di aggregati. PostgreSQL li accetta come nome semplice ma non
+        # dentro un'espressione (li' cerca una colonna delle tabelle), e ripetere
+        # gli aggregati duplicherebbe il segnaposto `?` cambiando il numero di
+        # parametri. Cosi' l'interrogazione interna resta com'era.
+        "SELECT * FROM ("
         "SELECT c.id, c.name, c.kind, t.address, COUNT(r.id) AS esiti,"
-        " COALESCE(SUM(r.status = ?), 0) AS riusciti,"
-        " ROUND(AVG(r.latency_ms), 1) AS latenza_media,"
-        " ROUND(MAX(r.latency_ms), 0) AS latenza_massima"
+        " COALESCE(SUM(CASE WHEN r.status = ? THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " ROUND(AVG(r.latency_ms)::numeric, 1) AS latenza_media,"
+        " ROUND(MAX(r.latency_ms)::numeric, 0) AS latenza_massima"
         " FROM check_results r JOIN checks c ON c.id = r.check_id"
         " JOIN check_targets t ON t.id = c.target_id"
         " WHERE r.tenant_id = ? AND r.executed_at >= ? AND r.executed_at < ?"
-        " GROUP BY c.id ORDER BY (1.0 * riusciti / esiti), t.address",
+        " GROUP BY c.id, t.address"
+        ") AS q ORDER BY (1.0 * riusciti / esiti), address",
         (STATUS_OK, tenant_id, inizio, fine))
 
     voci = []
@@ -407,7 +419,7 @@ def collection(tenant_id: int, inizio: str, fine: str, zona) -> dict:
     lotti = query(
         "SELECT COUNT(*) AS lotti, COALESCE(SUM(record_count), 0) AS record,"
         " COALESCE(SUM(payload_bytes), 0) AS byte,"
-        " COALESCE(SUM(status <> 'accepted'), 0) AS rifiutati"
+        " COALESCE(SUM(CASE WHEN status <> 'accepted' THEN 1 ELSE 0 END), 0) AS rifiutati"
         " FROM ingest_batches WHERE tenant_id = ? AND received_at >= ? AND received_at < ?",
         (tenant_id, inizio, fine), one=True)
     sonde = query(

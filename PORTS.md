@@ -9,11 +9,37 @@ scoprire un conflitto in esercizio.
 
 | Porta | Protocollo | Servizio | Pubblicata | Variabile |
 |---|---|---|---|---|
-| **5500** | TCP/HTTPS | Console e API, dietro reverse proxy nginx (terminazione TLS) | sì | `SNAP_HTTPS_PORT` |
+| **443** | TCP/HTTPS | Console e API, dietro reverse proxy nginx (terminazione TLS) | sì | `SNAP_HTTPS_PORT` |
+| 5500 | TCP/HTTPS | La stessa console *dentro* la rete del compose | no | — |
 | **5501** | TCP/HTTP | Solo rimando `http` → `https` (308) | sì | `SNAP_HTTP_REDIRECT_PORT` |
 | 5500 | TCP/HTTP | Gunicorn *dentro* la rete del compose | no | `APP_PORT` |
 | **5514** | UDP+TCP | Ascolto syslog del SIEM | sì | `SNAP_SERVER_SIEM_LISTENER_PORT` |
 | 5432 | TCP | PostgreSQL | **no**, mai sull'host | — |
+
+### Eccezione dichiarata: porta 443
+
+La **443/TCP** è fuori dal range del progetto, ma è la porta standard di `https`
+(IANA): con essa la console si apre come `https://indirizzo`, senza scrivere il
+numero. Quell'indirizzo finisce nei pacchetti di registrazione delle sonde, nelle
+email alle utenze e nelle copertine dei report: ogni volta che va scritto con una
+porta è un'occasione in cui qualcuno lo trascrive male.
+
+Vale lo stesso meccanismo della 514: **dentro** il contenitore nginx ascolta sulla
+**5500**, che è nel range, e gira come utente non privilegiato — una porta
+privilegiata non potrebbe legarla. È il motore di container, che gira come root, a
+pubblicare la 443 dell'host sulla 5500 interna:
+
+```
+443 (host) → 5500 (container)
+```
+
+La porta pubblica **non è scritta nella configurazione di nginx**: quel file è un
+*template* e la riceve da `SNAP_HTTPS_PORT` all'avvio (envsubst). Serve in due punti
+che altrimenti resterebbero indietro: la redirezione da `http` e l'intestazione
+`X-Forwarded-Port`, con cui l'applicazione costruisce i propri indirizzi.
+
+Chi preferisce restare nel range mette `SNAP_HTTPS_PORT=5500`: non c'è altro da
+cambiare.
 
 ### Eccezione dichiarata: porta 514
 

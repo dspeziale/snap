@@ -210,7 +210,7 @@ def _apply_node(ctx, record: dict) -> None:
         " mac = COALESCE(?, mac), mac_vendor = COALESCE(?, mac_vendor),"
         " hostname = COALESCE(?, hostname), status = ?, latency_ms = COALESCE(?, latency_ms),"
         " ttl = COALESCE(?, ttl),"
-        " last_seen_at = MAX(last_seen_at, ?), last_scan_at = ?, updated_at = ?"
+        " last_seen_at = GREATEST(last_seen_at, ?), last_scan_at = ?, updated_at = ?"
         " WHERE id = ? AND tenant_id = ?",
         (subnet_id, ctx["probe_id"], mac, vendor, hostname, stato, latenza, ttl,
          visto, visto, ctx["now"], node_id, ctx["tenant_id"]),
@@ -395,7 +395,7 @@ def _apply_monitor(ctx, record: dict) -> None:
                        severity="info" if raggiungibile else "warning")
     execute(
         "UPDATE nodes SET status = ?, latency_ms = COALESCE(?, latency_ms),"
-        " last_seen_at = CASE WHEN ? = 1 THEN MAX(last_seen_at, ?) ELSE last_seen_at END,"
+        " last_seen_at = CASE WHEN ? = 1 THEN GREATEST(last_seen_at, ?) ELSE last_seen_at END,"
         " updated_at = ? WHERE id = ? AND tenant_id = ?",
         (stato, latenza, 1 if raggiungibile else 0, quando, ctx["now"], node_id,
          ctx["tenant_id"]),

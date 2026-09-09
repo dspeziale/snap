@@ -343,6 +343,7 @@ def _register_context(app: Flask) -> None:
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            "app_component": app.config["APP_COMPONENT"],
             "changelog": changelog_voci(),
             "current_user": getattr(g, "user", None),
             "current_tenant": getattr(g, "tenant", None),

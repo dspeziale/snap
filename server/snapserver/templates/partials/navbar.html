@@ -15,14 +15,48 @@
       </li>
 
       {% if current_tenant %}
-      <li class="nav-item d-none d-md-block ms-1">
-        {# Verde: e' il contesto in cui si sta OPERANDO, e su una console
-           multi-tenant sapere su quale cliente si stanno guardando (e cambiando) i
-           dati e' la prima cosa da non sbagliare. Lo stesso verde marca la voce
-           attiva nel menu di scelta, cosi' l'indicazione e' una sola. #}
-        <span class="badge rounded-pill text-bg-success py-2 px-3">
-          <i class="bi bi-building me-1"></i>Tenant: {{ current_tenant['name'] }}
+      {# Il tenant si LEGGE e si CAMBIA nello stesso posto.
+         Prima erano due elementi: questo badge a sinistra e una voce "Cambia Tenant"
+         a destra, cioe' due punti della barra che parlavano della stessa cosa e uno
+         dei due lontano dall'altro. Ora il badge e' il comando: si clicca dove si
+         legge, che e' anche il posto in cui si guarda per sapere dove si sta.
+         Verde perche' e' il contesto in cui si sta OPERANDO: su una console
+         multi-tenant e' la prima cosa da non sbagliare.
+         Visibile da `sm`, non da `md`: su un telefono in orizzontale sapere su quale
+         cliente si sta guardando l'inventario conta piu' della barra di ricerca. #}
+      <li class="nav-item dropdown d-none d-sm-block ms-1">
+        {% if is_superadmin and available_tenants %}
+        <a href="#" class="badge rounded-pill text-bg-success py-2 px-3 text-decoration-none"
+           data-bs-toggle="dropdown" title="Contesto operativo: clic per cambiare tenant">
+          <i class="bi bi-building me-1"></i>{{ current_tenant['name'] }}
+          <i class="bi bi-chevron-down ms-1 small"></i>
+        </a>
+        <div class="dropdown-menu snap-tenant-menu">
+          <h6 class="dropdown-header">Contesto operativo</h6>
+          {% for tenant in available_tenants %}
+          <form method="post" action="{{ url_for('auth.switch_tenant_route') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="tenant_id" value="{{ tenant['id'] }}">
+            <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center
+              {% if tenant['id'] == current_tenant['id'] %}active{% endif %}">
+              <span>{{ tenant['name'] }}</span>
+              <small class="text-body-secondary ms-3">{{ tenant['timezone'] }}</small>
+            </button>
+          </form>
+          {% endfor %}
+          <div class="dropdown-divider"></div>
+          <a class="dropdown-item" href="{{ url_for('admin.tenants') }}">
+            <i class="bi bi-gear me-1"></i> Gestione tenant
+          </a>
+        </div>
+        {% else %}
+        {# Chi non puo' cambiare tenant lo legge comunque: e' il contesto dei dati
+           che sta guardando, non un privilegio. #}
+        <span class="badge rounded-pill text-bg-success py-2 px-3"
+              title="Contesto operativo">
+          <i class="bi bi-building me-1"></i>{{ current_tenant['name'] }}
         </span>
+        {% endif %}
       </li>
       {% endif %}
 
@@ -118,45 +152,26 @@
         </div>
       </li>
 
-      {# Cambio tenant: riservato all'amministratore di sistema #}
-      {% if is_superadmin and available_tenants %}
-      <li class="nav-item dropdown">
-        <a class="nav-link" data-bs-toggle="dropdown" href="#">
-          <i class="bi bi-arrow-repeat me-1"></i>
-          <span class="d-none d-md-inline">Cambia Tenant</span>
-        </a>
-        <div class="dropdown-menu dropdown-menu-end snap-tenant-menu">
-          <h6 class="dropdown-header">Contesto operativo</h6>
-          {% for tenant in available_tenants %}
-          <form method="post" action="{{ url_for('auth.switch_tenant_route') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="tenant_id" value="{{ tenant['id'] }}">
-            <button type="submit" class="dropdown-item d-flex justify-content-between align-items-center
-              {% if current_tenant and tenant['id'] == current_tenant['id'] %}active{% endif %}">
-              <span>{{ tenant['name'] }}</span>
-              <small class="text-body-secondary ms-3">{{ tenant['timezone'] }}</small>
-            </button>
-          </form>
-          {% endfor %}
-          <div class="dropdown-divider"></div>
-          <a class="dropdown-item" href="{{ url_for('admin.tenants') }}">
-            <i class="bi bi-gear me-1"></i> Gestione tenant
-          </a>
-        </div>
-      </li>
-      {% endif %}
-
       {# Utente #}
       <li class="nav-item dropdown user-menu">
-        <a href="#" class="nav-link dropdown-toggle" data-bs-toggle="dropdown">
-          <i class="bi bi-person-badge fs-5 me-1"></i>
-          <span class="d-none d-md-inline">{{ current_user['full_name'] or current_user['email'] }}</span>
-          <span class="badge text-bg-secondary ms-1">{{ role_labels.get(current_user['role'], current_user['role']) }}</span>
+        <a href="#" class="nav-link dropdown-toggle d-flex align-items-center gap-2"
+           data-bs-toggle="dropdown" title="Utenza collegata">
+          <i class="bi bi-person-circle fs-5"></i>
+          {# Nome scritto da `sm` in su (prima da `md`): sapere CHI e' collegato conta
+             su una console dove le azioni finiscono nel registro con il nome di chi
+             le ha fatte. Il ruolo scende nel menu: un secondo badge accanto al nome,
+             su una barra piena di icone, era rumore -- e il ruolo si guarda una volta
+             al giorno, il nome sempre. #}
+          <span class="d-none d-sm-inline lh-sm text-start">
+            {{ current_user['full_name'] or current_user['email'] }}
+          </span>
         </a>
         <ul class="dropdown-menu dropdown-menu-end">
           <li class="px-3 py-2 border-bottom">
             <div class="fw-semibold">{{ current_user['email'] }}</div>
-            <small class="text-body-secondary">
+            <span class="badge text-bg-secondary my-1">
+              {{ role_labels.get(current_user['role'], current_user['role']) }}</span>
+            <small class="text-body-secondary d-block">
               Ultimo accesso: {{ current_user['last_login_at']|dt }}
             </small>
           </li>

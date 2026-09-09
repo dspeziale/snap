@@ -136,6 +136,7 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            "app_component": app.config["APP_COMPONENT"],
             # Il badge della versione apre queste note, come nella console.
             "changelog": changelog_voci(),
             "settings": store.all_settings(),

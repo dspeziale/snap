@@ -591,7 +591,7 @@ def monitor_overview(tenant_id: int) -> list[dict]:
         "    AND m.checked_at >= ?) AS samples_24h,"
         " (SELECT COUNT(*) FROM monitor_samples m WHERE m.node_id = n.id"
         "    AND m.checked_at >= ? AND m.reachable = 1) AS ok_24h,"
-        " (SELECT ROUND(AVG(m.latency_ms), 1) FROM monitor_samples m"
+        " (SELECT ROUND(AVG(m.latency_ms)::numeric, 1) FROM monitor_samples m"
         "    WHERE m.node_id = n.id AND m.checked_at >= ? AND m.reachable = 1) AS avg_latency"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE n.tenant_id = ? ORDER BY n.status = 'up', n.ip",

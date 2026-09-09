@@ -87,9 +87,11 @@ docker compose ps
 PORTA="$(grep -E '^[[:space:]]*SNAP_HTTPS_PORT[[:space:]]*=' .env 2>/dev/null \
          | head -1 | sed 's/.*=[[:space:]]*//' | tr -d '\r')"
 [ -n "${PORTA:-}" ] || PORTA=5500
+# Con la 443 il numero non si scrive: e' la porta predefinita di https.
+if [ "$PORTA" = "443" ]; then SUFFISSO=""; else SUFFISSO=":${PORTA}"; fi
 
 echo ""
-echo "Console: https://<indirizzo-del-server>:${PORTA}/"
+echo "Console: https://<indirizzo-del-server>${SUFFISSO}/"
 echo "Ricordarsi, nella console: Amministrazione > Impostazioni Sistema >"
 echo "Indirizzo pubblico del server, con https:// (entra nei pacchetti delle sonde,"
 echo "nelle email ai nuovi utenti e nelle copertine dei report)."

@@ -99,8 +99,11 @@ Write-Host ''
 $porta = (Select-String -Path '.env' -Pattern '^\s*SNAP_HTTPS_PORT\s*=\s*(\d+)' |
           Select-Object -First 1).Matches.Groups[1].Value
 if (-not $porta) { $porta = '5500' }
+# Con la 443 il numero non si scrive: e' la porta predefinita di https, e stamparlo
+# insegnerebbe a digitare un indirizzo piu' lungo di quello che serve.
+$suffisso = if ($porta -eq '443') { '' } else { ":$porta" }
 Write-Host ''
-Write-Host ("Console: https://<indirizzo-del-server>:{0}/" -f $porta) -ForegroundColor Green
+Write-Host ("Console: https://<indirizzo-del-server>{0}/" -f $suffisso) -ForegroundColor Green
 Write-Host 'Ricordarsi, nella console: Amministrazione > Impostazioni Sistema >' -ForegroundColor DarkGray
 Write-Host 'Indirizzo pubblico del server, con https:// (entra nei pacchetti delle sonde,' -ForegroundColor DarkGray
 Write-Host 'nelle email ai nuovi utenti e nelle copertine dei report).' -ForegroundColor DarkGray

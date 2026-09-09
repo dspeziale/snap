@@ -105,6 +105,9 @@ class Config:
     # distribuzione un'altra, e in assistenza non si capiva quale contasse).
     APP_VERSION = "1.2.9"
     APP_SUBTITLE = "Sonda di raccolta - canale cifrato SNAP-SEC/1"
+    # Vedi la nota omonima nel server: distingue le due interfacce, che ora hanno la
+    # stessa struttura. Un solo valore per il marchio e per il piede.
+    APP_COMPONENT = "probe"
 
     SECRET_KEY = load_secret_key()
     STORE_PATH = os.environ.get("SNAP_PROBE_STORE", str(DATA_DIR / "snap_probe.sqlite3"))

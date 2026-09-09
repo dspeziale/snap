@@ -11,12 +11,25 @@
 
 # HTTP: esiste solo per rimandare a HTTPS. Chi digita http:// non deve trovare un
 # errore di protocollo, deve trovare il sito.
+# Suffisso della porta negli indirizzi generati: vuoto quando la porta pubblica e'
+# la 443, perche' e' quella predefinita di https e scriverla sarebbe rumore
+# ("https://host:443/..." nella barra dell'indirizzo). Una sola fonte -- la variabile
+# SNAP_HTTPS_PORT -- e nessun caso da tenere allineato a mano.
+map "${SNAP_HTTPS_PORT}" $suffisso_porta {
+    "443"   "";
+    default ":${SNAP_HTTPS_PORT}";
+}
+
 server {
     listen 5501;
     server_name _;
     # 308 conserva il metodo: un POST rimandato con 301 diventerebbe un GET e
     # l'operazione andrebbe persa.
-    return 308 https://$host:5500$request_uri;
+    # La porta e' quella PUBBLICA, che non e' detto sia quella interna: arriva
+    # dall'ambiente (SNAP_HTTPS_PORT) e viene sostituita all'avvio del contenitore
+    # dallo script envsubst dell'immagine nginx. Scriverla qui a mano significava
+    # rimandare a una porta che, cambiata la pubblicazione, non risponde piu'.
+    return 308 https://$host$suffisso_porta$request_uri;
 }
 
 server {
@@ -58,7 +71,10 @@ server {
         proxy_set_header X-Forwarded-For   $remote_addr;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host  $host;
-        proxy_set_header X-Forwarded-Port  5500;
+        # Porta PUBBLICA: e' quella con cui l'applicazione costruisce i propri
+        # indirizzi (ProxyFix, x_port=1). Con la 443 Werkzeug la omette dagli URL,
+        # perche' e' la porta predefinita di https.
+        proxy_set_header X-Forwarded-Port  ${SNAP_HTTPS_PORT};
         proxy_set_header X-Real-IP         $remote_addr;
 
         # La generazione di un report su una rete di migliaia di nodi dura minuti: un

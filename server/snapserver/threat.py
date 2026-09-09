@@ -884,9 +884,9 @@ def nodes_with_findings(tenant_id: int, kind: str = "", status: str = STATUS_OPE
         "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
         " COALESCE(n.device_type_source, 'auto') AS device_type_source,"
         " COUNT(*) AS riscontri,"
-        " SUM(f.kind = 'confirmed') AS confermati,"
-        " SUM(f.kind = 'potential') AS da_verificare,"
-        " SUM(f.kind = 'exposure') AS esposizioni,"
+        " SUM(CASE WHEN f.kind = 'confirmed' THEN 1 ELSE 0 END) AS confermati,"
+        " SUM(CASE WHEN f.kind = 'potential' THEN 1 ELSE 0 END) AS da_verificare,"
+        " SUM(CASE WHEN f.kind = 'exposure' THEN 1 ELSE 0 END) AS esposizioni,"
         " SUM(COALESCE(c.kev, 0)) AS kev,"
         " MAX(COALESCE(f.score, 0)) AS punteggio,"
         " MIN(CASE f.severity WHEN 'critical' THEN 0 WHEN 'high' THEN 1"
@@ -896,14 +896,18 @@ def nodes_with_findings(tenant_id: int, kind: str = "", status: str = STATUS_OPE
         # ("go: 50 CVE note per il prodotto, versione non rilevata") e con la
         # virgola come separatore si spezzava in due voci. I doppioni si tolgono
         # qui sotto, dove l'ordine si puo' conservare.
-        " string_agg(f.title, char(31)) AS titoli,"
+        " string_agg(f.title, chr(31)) AS titoli,"
         " MAX(f.last_seen_at) AS ultimo,"
-        " SUM(f.status = 'accepted') AS accettati"
+        " SUM(CASE WHEN f.status = 'accepted' THEN 1 ELSE 0 END) AS accettati"
         " FROM ti_findings f JOIN nodes n ON n.id = f.node_id"
         " LEFT JOIN ti_cve c ON c.cve_id = f.cve_id"
         " WHERE " + " AND ".join(condizioni) +
         " GROUP BY n.id"
-        " ORDER BY (kev > 0) DESC, confermati DESC, ordine_gravita, punteggio DESC,"
+        # `kev` e' un ALIAS: PostgreSQL lo risolve come nome di colonna quando sta
+        # dentro un'espressione (SQLite invece accetta l'alias). Si ripete
+        # l'aggregato: nessun parametro in piu' e ordinamento identico.
+        " ORDER BY (SUM(COALESCE(c.kev, 0)) > 0) DESC, confermati DESC,"
+        " ordine_gravita, punteggio DESC,"
         " riscontri DESC LIMIT ?", parametri)
 
     gravita = {0: "critical", 1: "high", 2: "medium", 3: "low", 4: "info"}

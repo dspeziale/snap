@@ -63,6 +63,11 @@ class Config:
     APP_NAME = "SNAP"
     APP_VERSION = "1.2.9"
     APP_SUBTITLE = "Secure Network Assessment Platform"
+    # Quale dei due componenti si sta guardando. Compare sotto il marchio e nel piede
+    # di pagina: con console e sonda aperte in due schede e' l'informazione che
+    # distingue le due interfacce, ormai identiche per struttura. Un solo valore
+    # alimenta entrambi i punti, cosi' non possono raccontare cose diverse.
+    APP_COMPONENT = "server"
 
     SECRET_KEY = load_secret_key()
     # Archivio su PostgreSQL. La stringa di connessione arriva dall'ambiente e non ha

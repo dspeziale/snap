@@ -1,0 +1,31 @@
+<!--
+  favicon.svg — icona dell'applicazione: lo stesso simbolo del marchio.
+
+  E' una RIPRODUZIONE dell'icona "diagram-3" di Bootstrap Icons, disegnata a mano
+  sulla stessa griglia 16x16: nel progetto le icone sono vendorizzate come font
+  (.woff/.woff2) e non esiste il sorgente SVG del glifo, quindi non si puo'
+  estrarre. La geometria e' la stessa che si vede nella barra e nel menu.
+
+  Autore: Daniele Speziale - Data creazione: 2026-09-09
+  Copyright (c) 2024-26 DS Consulting - Licenza: MIT
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"
+     role="img" aria-label="SNAP">
+  <g fill="none" stroke="#0d6efd" stroke-width="1.1"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Collegamenti: dal nodo in alto al bus, e dal bus ai tre nodi in basso. -->
+    <path d="M8 4.6v2.2" />
+    <path d="M2.5 11.4V9.1h11v2.3" />
+    <path d="M8 9.1v2.3" />
+    <!-- Il bus orizzontale passa per il nodo in alto. -->
+    <path d="M8 6.8h0" />
+  </g>
+  <g fill="#0d6efd">
+    <!-- Nodo in alto -->
+    <rect x="6" y="1" width="4" height="3.6" rx="1" />
+    <!-- Tre nodi in basso -->
+    <rect x="0.5" y="11.4" width="4" height="3.6" rx="1" />
+    <rect x="6" y="11.4" width="4" height="3.6" rx="1" />
+    <rect x="11.5" y="11.4" width="4" height="3.6" rx="1" />
+  </g>
+</svg>

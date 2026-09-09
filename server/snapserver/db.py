@@ -246,9 +246,29 @@ def close_db(_exception: BaseException | None = None) -> None:
         connection.close()
 
 
+def _annulla_transazione(connessione) -> None:
+    """Riporta la connessione a uno stato usabile dopo un errore.
+
+    In PostgreSQL un'istruzione fallita ANNULLA la transazione: ogni istruzione
+    successiva sulla stessa connessione risponde "current transaction is aborted",
+    e la richiesta produce una cascata di errori che NASCONDE quello vero -- il
+    primo. Poiche' la connessione vive per tutta la richiesta (`g`), senza questo
+    annullamento la pagina fallisce su una query che non ha alcun difetto.
+    """
+    try:
+        connessione.rollback()
+    except Exception:  # noqa: BLE001 - se anche il rollback fallisce, non c'e' altro
+        current_app.logger.exception("Annullamento della transazione non riuscito")
+
+
 def query(sql: str, params: tuple | list = (), one: bool = False):
-    risultato = get_db().execute(text(_con_segnaposto(sql)), _legati(params))
-    righe = [Riga(r) for r in risultato.mappings()]
+    connessione = get_db()
+    try:
+        risultato = connessione.execute(text(_con_segnaposto(sql)), _legati(params))
+        righe = [Riga(r) for r in risultato.mappings()]
+    except Exception:
+        _annulla_transazione(connessione)
+        raise
     if one:
         return righe[0] if righe else None
     return righe
@@ -289,12 +309,18 @@ def execute(sql: str, params: tuple | list = ()) -> int:
     if chiede_id:
         istruzione = sql.rstrip().rstrip(";") + " RETURNING id"
 
-    risultato = connection.execute(text(_con_segnaposto(istruzione)), _legati(params))
-    nuovo_id = 0
-    if chiede_id:
-        riga = risultato.first()
-        nuovo_id = int(riga[0]) if riga else 0
-    connection.commit()
+    try:
+        risultato = connection.execute(text(_con_segnaposto(istruzione)), _legati(params))
+        nuovo_id = 0
+        if chiede_id:
+            riga = risultato.first()
+            nuovo_id = int(riga[0]) if riga else 0
+        connection.commit()
+    except Exception:
+        # Vedi `_annulla_transazione`: senza, il resto della richiesta fallirebbe
+        # su istruzioni corrette.
+        _annulla_transazione(connection)
+        raise
     return nuovo_id
 
 

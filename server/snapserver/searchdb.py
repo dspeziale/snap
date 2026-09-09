@@ -250,7 +250,7 @@ SAVED_QUERIES = [
        "Che cosa risponde su piu' dispositivi: dice come e' fatta la rete meglio di"
        " qualunque elenco.",
        ["porta", "servizio", "dispositivi", "prodotti distinti"],
-       "SELECT p.protocol || '/' || p.port, COALESCE(p.service_name, ''),"
+       "SELECT p.protocol || '/' || p.port, MAX(COALESCE(p.service_name, '')),"
        " COUNT(DISTINCT p.node_id) AS nodi, COUNT(DISTINCT p.product) AS prodotti"
        " FROM node_ports p WHERE p.tenant_id = ? AND p.state = 'open'"
        " AND COALESCE(p.is_suspect, 0) = 0"
@@ -295,18 +295,22 @@ SAVED_QUERIES = [
        " FROM check_results r JOIN checks c ON c.id = r.check_id"
        " JOIN check_targets t ON t.id = c.target_id"
        " WHERE r.tenant_id = ? AND r.executed_at >= ?"
-       " GROUP BY c.id HAVING falliti > 0 ORDER BY falliti DESC",
+       # `falliti` e' un alias: in HAVING si ripete l'espressione.
+       " GROUP BY c.id, t.address"
+       " HAVING SUM(CASE WHEN r.status <> 'ok' THEN 1 ELSE 0 END) > 0"
+       " ORDER BY falliti DESC",
        parametri=lambda t: (t, days_ago_str(7))),
 
     _q("latenza", "Bersagli piu' lenti",
        "La lentezza precede spesso il guasto: sette giorni di misure.",
        ["controllo", "bersaglio", "misure", "latenza media (ms)", "massima (ms)"],
        "SELECT c.name, t.address, COUNT(*) AS misure,"
-       " ROUND(AVG(r.latency_ms), 1), MAX(r.latency_ms)"
+       " ROUND(AVG(r.latency_ms)::numeric, 1), MAX(r.latency_ms)"
        " FROM check_results r JOIN checks c ON c.id = r.check_id"
        " JOIN check_targets t ON t.id = c.target_id"
        " WHERE r.tenant_id = ? AND r.executed_at >= ? AND r.latency_ms IS NOT NULL"
-       " GROUP BY c.id HAVING misure >= 3 ORDER BY AVG(r.latency_ms) DESC",
+       " GROUP BY c.id, t.address HAVING COUNT(*) >= 3"
+       " ORDER BY AVG(r.latency_ms) DESC",
        parametri=lambda t: (t, days_ago_str(7))),
 
     _q("copertura", "Copertura del perimetro dichiarato",
