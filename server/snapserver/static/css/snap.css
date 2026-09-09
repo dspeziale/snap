@@ -171,6 +171,21 @@ html.snap-layout-wide .app-content-header > .container-fluid {
 /* --- Menu delle preferenze e del tenant ------------------------------- */
 .snap-pref-menu { min-width: 17rem; }
 .snap-tenant-menu { min-width: 19rem; }
+/* La voce del tenant su cui si sta operando: verde come il badge nella barra, non
+   il blu predefinito delle voci attive. Sono la stessa informazione -- "sei qui" --
+   e su una console multi-tenant e' la prima cosa da non sbagliare: due colori
+   diversi per lo stesso stato costringono a chiedersi quale dei due si guarda.
+   Il verde di Bootstrap su testo bianco resta entro il contrasto AA. */
+.snap-tenant-menu .dropdown-item.active,
+.snap-tenant-menu .dropdown-item:active {
+  background-color: var(--bs-success);
+  color: #fff;
+}
+/* Il fuso orario accanto al nome, dentro la voce attiva, deve restare leggibile:
+   `text-body-secondary` su fondo verde sparirebbe. */
+.snap-tenant-menu .dropdown-item.active .text-body-secondary {
+  color: rgba(255, 255, 255, .85) !important;
+}
 .snap-pref-menu .btn.active,
 .snap-pref-menu .btn-check:checked + .btn { background-color: var(--bs-primary); color: #fff; }
 

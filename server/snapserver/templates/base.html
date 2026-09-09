@@ -55,14 +55,17 @@
     </div>
   </main>
 
+  {# A destra la versione e il COMPONENTE: server e sonda hanno lo stesso piede, e
+     l'unica differenza e' quale dei due si sta guardando -- che e' esattamente cio'
+     che serve sapere quando si ha una console e una sonda aperte in due schede.
+     Il fuso orario del tenant sta nel selettore in alto, dove si cambia: qui era
+     un'informazione ripetuta. #}
   <footer class="app-footer">
     <div class="float-end d-none d-sm-inline">
-      {{ app_subtitle }}
-      {% if current_tenant %}
-        &middot; fuso orario <strong>{{ current_tenant['timezone'] }}</strong>
-      {% endif %}
+      {{ app_subtitle }} &middot;
+      <strong>v{{ app_version }}</strong> &mdash; Server
     </div>
-    <strong>{{ app_name }}</strong> v{{ app_version }} &mdash;
+    <strong>{{ app_name }}</strong> &mdash;
     &copy; 2024-26 DS Consulting &middot; licenza MIT
   </footer>
 </div>

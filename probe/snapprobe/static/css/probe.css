@@ -152,47 +152,20 @@ div.dt-container .dt-paging .pagination { margin-bottom: 0; }
 }
 
 /* ---------------------------------------------------------------------------
-   Impianto a due colonne: menu a sinistra, contenuto a destra.
-   Le tinte sono chiare per scelta: la sonda si usa in sede, su schermi qualunque
-   e alla luce del giorno. Sotto il breakpoint lg il menu si chiude nella barra
-   superiore, perche' la sonda si governa anche dal telefono, in piedi davanti a
-   un armadio di rete.
+   Impianto: NON c'e' piu' un impianto proprio.
+
+   L'interfaccia usa la struttura di AdminLTE 4.3.1, la stessa della console
+   (app-wrapper / app-header / app-sidebar / app-main / app-footer). Prima queste
+   regole ricostruivano un impianto a due colonne per conto proprio, mentre gli
+   asset di AdminLTE erano gia' presenti e non venivano caricati: il risultato era
+   un'interfaccia simile ma non uguale, e chi passa dalla console alla sonda nello
+   stesso pomeriggio doveva reimparare dove guardare.
+
+   Le regole di quell'impianto (.snap-impianto, .snap-menu, .snap-contenuto,
+   .snap-menu-marchio, .snap-menu-stato) sono state rimosse: i selettori non
+   esistono piu' nel markup, e lasciarle avrebbe fatto credere che servissero.
+   Il menu, la barra e il piede li stila AdminLTE.
    --------------------------------------------------------------------------- */
-.snap-impianto { display: flex; min-height: 100vh; align-items: stretch; }
-.snap-menu { width: 100%; }
-.snap-contenuto { flex: 1 1 auto; min-width: 0; }
-
-@media (min-width: 992px) {
-  .snap-menu {
-    width: 16rem;
-    flex: 0 0 16rem;
-    position: sticky;
-    top: 0;
-    align-self: flex-start;
-    height: 100vh;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-  .snap-menu-stato { margin-top: auto; }
-}
-
-.snap-menu-marchio {
-  align-items: center;
-  padding: 1rem;
-  border-bottom: 1px solid var(--bs-border-color);
-}
-.snap-menu .nav-link {
-  border-radius: .375rem;
-  color: var(--bs-body-color);
-  padding: .5rem .75rem;
-}
-.snap-menu .nav-link:hover { background: var(--bs-tertiary-bg); }
-.snap-menu .nav-link.active {
-  background: var(--bs-primary-bg-subtle);
-  color: var(--bs-primary-text-emphasis);
-  font-weight: 600;
-}
 
 /* Un valore che e' una frase o una data non puo' avere il corpo di un numero: a
    2,1rem "29/08/2026 14:48" occupa tutta la riga e schiaccia l'icona contro il

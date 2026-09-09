@@ -16,7 +16,11 @@
 
       {% if current_tenant %}
       <li class="nav-item d-none d-md-block ms-1">
-        <span class="badge rounded-pill text-bg-dark py-2 px-3">
+        {# Verde: e' il contesto in cui si sta OPERANDO, e su una console
+           multi-tenant sapere su quale cliente si stanno guardando (e cambiando) i
+           dati e' la prima cosa da non sbagliare. Lo stesso verde marca la voce
+           attiva nel menu di scelta, cosi' l'indicazione e' una sola. #}
+        <span class="badge rounded-pill text-bg-success py-2 px-3">
           <i class="bi bi-building me-1"></i>Tenant: {{ current_tenant['name'] }}
         </span>
       </li>

@@ -1,18 +1,28 @@
 {#
-  snap probe - Layout dell'interfaccia locale della sonda.
+  snap probe - Layout dell'interfaccia locale della sonda (AdminLTE 4.3.1 / Bootstrap 5.3).
 
-  Menu a sinistra come nella console del server: chi amministra passa dall'una
-  all'altra nello stesso pomeriggio, e due impianti diversi costringono a
-  reimparare dove guardare. Tinte chiare: la sonda si usa spesso in sede, su
-  schermi qualunque e alla luce del giorno.
+  Stessa struttura della console del server -- `app-wrapper`, `app-header`,
+  `app-sidebar`, `app-main` con `app-content-header` e `app-content`, `app-footer` --
+  e non una somiglianza ottenuta con un impianto proprio: chi amministra passa dalla
+  console alla sonda nello stesso pomeriggio, e due impianti diversi costringono a
+  reimparare dove guardare.
 
-  Sotto il breakpoint lg il menu si chiude in una barra: la sonda si governa anche
-  dal telefono, in piedi davanti a un armadio di rete.
+  Nota storica, perche' spieghi il cambiamento: gli asset di AdminLTE erano GIA' in
+  `static/vendor/adminlte/`, ma questo layout non li caricava e ricostruiva menu e
+  contenuto con un impianto proprio (`snap-impianto`, `snap-menu`). Da qui la
+  differenza visibile fra le due interfacce.
+
+  Sotto il breakpoint lg il menu si chiude come nella console (`sidebar-expand-lg`):
+  la sonda si governa anche dal telefono, in piedi davanti a un armadio di rete.
 
   remarks: Autore: Daniele Speziale - Data: 2026-08-26
   copyright: (c) 2024-26 DS Consulting
   license: MIT
 #}
+{# Il nome si spezza in due righe -- "SNAP" e sotto "probe" -- restando UNA sola
+   fonte: `app_name`. Scriverli separati vorrebbe dire poterli cambiare uno per volta
+   e ritrovarsi due nomi diversi nella stessa interfaccia. #}
+{% set marchio = app_name.split(' ', 1) %}
 <!doctype html>
 <html lang="it" data-bs-theme="{{ settings.get('ui_theme', 'light') }}">
 <head>
@@ -21,142 +31,214 @@
   <title>{% block title %}Sonda{% endblock %} &middot; {{ app_name }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/adminlte/adminlte.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/awn/style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/probe.css') }}">
 </head>
-<body class="bg-body-tertiary" data-autorefresh="{% block autorefresh %}0{% endblock %}">
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary"
+      data-autorefresh="{% block autorefresh %}0{% endblock %}">
+<div class="app-wrapper">
 
-{# Barra superiore: c'e' solo sotto lg, dove il menu laterale si chiude. #}
-<nav class="navbar bg-body border-bottom d-lg-none">
-  <div class="container-fluid">
-    <a class="navbar-brand d-flex align-items-center gap-2" href="{{ url_for('probe.index') }}">
-      {# Stessa icona e stesso nome del marchio nel menu: sotto lg il menu si chiude
-         e questa barra e' l'unico posto dove si legge di che cosa si tratta. #}
-      <i class="bi bi-diagram-3 text-primary fs-4"></i>
-      <span class="fw-bold">{{ app_name }}</span>
-      <span class="badge text-bg-primary">v{{ app_version }}</span>
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse"
-            data-bs-target="#menu-sonda" aria-controls="menu-sonda"
-            aria-expanded="false" aria-label="Menu">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-  </div>
-</nav>
+  {# ------------------------------------------------------------ barra superiore #}
+  <nav class="app-header navbar navbar-expand bg-body">
+    <div class="container-fluid">
+      <ul class="navbar-nav align-items-center">
+        <li class="nav-item">
+          <a class="nav-link" data-lte-toggle="sidebar" href="#" role="button"
+             aria-label="Menu">
+            <i class="bi bi-list fs-4"></i>
+          </a>
+        </li>
+        {# Lo stato del canale si legge a colpo d'occhio da ogni pagina: e' la
+           condizione in cui si sta lavorando, non un dettaglio da andare a cercare. #}
+        <li class="nav-item d-none d-md-block ms-1">
+          {% if not agent_status.enrolled %}
+          <span class="badge rounded-pill text-bg-secondary py-2 px-3">
+            <i class="bi bi-dash-circle me-1"></i>Non registrata
+          </span>
+          {% elif agent_status.online %}
+          <span class="badge rounded-pill text-bg-success py-2 px-3">
+            <i class="bi bi-shield-lock me-1"></i>Canale attivo
+          </span>
+          {% else %}
+          <span class="badge rounded-pill text-bg-warning py-2 px-3">
+            <i class="bi bi-cloud-slash me-1"></i>Server non raggiungibile
+          </span>
+          {% endif %}
+        </li>
+      </ul>
 
-<div class="snap-impianto">
-  {# ----------------------------------------------------------------- menu #}
-  <aside class="snap-menu collapse d-lg-block bg-body border-end" id="menu-sonda">
-    {# Stesso marchio della console: icona, nome e badge della versione, con le stesse
-       classi (sidebar-brand / brand-link / brand-image / brand-text). Il badge e' un
-       PULSANTE e apre il changelog, come nel server: chi trova una sonda installata
-       vede con un clic di che versione si tratta e che cosa fa di nuovo. #}
-    <div class="sidebar-brand snap-menu-marchio d-none d-lg-flex">
+      <ul class="navbar-nav ms-auto align-items-center">
+        {# Stato di dettaglio in un menu, come nella console: la barra resta pulita
+           e il dato si apre quando serve. #}
+        <li class="nav-item dropdown">
+          <a class="nav-link position-relative" data-bs-toggle="dropdown" href="#"
+             title="Stato della sonda" aria-label="Stato della sonda">
+            <i class="bi bi-activity fs-5"></i>
+            {% if agent_status.enrolled and not agent_status.online %}
+            <span class="position-absolute top-0 start-100 translate-middle p-1 bg-danger border border-light rounded-circle">
+              <span class="visually-hidden">Il server non risponde</span>
+            </span>
+            {% endif %}
+          </a>
+          <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:16rem">
+            <p class="fw-semibold small text-uppercase text-secondary mb-2 px-1">
+              Stato della sonda</p>
+            <div class="d-flex justify-content-between px-1 small">
+              <span><i class="bi bi-inboxes me-2"></i>Coda locale</span>
+              <span class="fw-semibold">{{ agent_status.queue_size }} record</span>
+            </div>
+            <div class="d-flex justify-content-between px-1 small">
+              <span><i class="bi bi-clock me-2"></i>Fuso degli orari</span>
+              <span class="fw-semibold">{{ display_timezone }}</span>
+            </div>
+            <div class="d-flex justify-content-between px-1 small">
+              <span><i class="bi bi-shield-lock me-2"></i>Registrazione</span>
+              <span class="fw-semibold">
+                {{ 'attiva' if agent_status.enrolled else 'da fare' }}</span>
+            </div>
+          </div>
+        </li>
+
+        {% if accesso_aperto %}
+        {# L'uscita e' un'azione, quindi un modulo: un collegamento si puo' far
+           seguire al posto di chi lo legge. #}
+        <li class="nav-item ms-1">
+          <form method="post" action="{{ url_for('auth.logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-sm btn-outline-secondary"
+                    title="Esci dall'interfaccia">
+              <i class="bi bi-box-arrow-right me-1"></i>Esci
+            </button>
+          </form>
+        </li>
+        {% endif %}
+      </ul>
+    </div>
+  </nav>
+
+  {# ------------------------------------------------------------------- menu #}
+  <aside class="app-sidebar bg-body-secondary shadow">
+    <div class="sidebar-brand">
       <a href="{{ url_for('probe.index') }}" class="brand-link">
         <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
-        <span class="brand-text fw-bold">{{ app_name }}</span>
+        {# Stesso carattere della console (brand-text), su due righe: `lh-1` toglie
+           l'interlinea che altrimenti allontanerebbe "probe" dal nome. #}
+        <span class="brand-text fw-bold d-inline-flex flex-column lh-1">
+          <span>{{ marchio[0] }}</span>
+          {% if marchio|length > 1 %}
+          <span class="fw-normal text-body-secondary" style="font-size:.7em"
+                >{{ marchio[1] }}</span>
+          {% endif %}
+        </span>
       </a>
+      {# Il badge della versione apre il changelog, come nella console. #}
       <button type="button" class="badge text-bg-primary border-0 ms-1"
               data-bs-toggle="modal" data-bs-target="#modale-changelog"
               title="Novita' di questa versione">v{{ app_version }}</button>
     </div>
 
-    <nav class="nav flex-column p-2" aria-label="Navigazione della sonda">
-      <a class="nav-link {% if request.endpoint == 'probe.index' %}active{% endif %}"
-         href="{{ url_for('probe.index') }}">
-        <i class="bi bi-activity me-2"></i> Stato della sonda
-      </a>
-      <a class="nav-link {% if request.endpoint in ['probe.enroll_form', 'probe.enroll'] %}active{% endif %}"
-         href="{{ url_for('probe.enroll_form') }}">
-        <i class="bi bi-key me-2"></i> Registrazione
-        {% if not agent_status.enrolled %}
-        <span class="badge text-bg-warning ms-1">da fare</span>
-        {% endif %}
-      </a>
-      <a class="nav-link {% if request.endpoint == 'probe.configuration' %}active{% endif %}"
-         href="{{ url_for('probe.configuration') }}">
-        <i class="bi bi-sliders me-2"></i> Configurazione
-      </a>
-      <a class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}"
-         href="{{ url_for('probe.diary') }}">
-        <i class="bi bi-journal-text me-2"></i> Diario locale
-      </a>
-      {# La guida si apre in una finestra nuova: la si legge mentre si opera sulla
-         sonda, non invece di operare. #}
-      <a class="nav-link" href="{{ url_for('probe.guide') }}" target="_blank" rel="noopener">
-        <i class="bi bi-book me-2"></i> Guida
-        <i class="bi bi-box-arrow-up-right small ms-1"></i>
-      </a>
-    </nav>
+    <div class="sidebar-wrapper">
+      <nav class="mt-2">
+        <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview"
+            role="navigation">
+          {# Etichette di sezione come nella console: dividono il menu in blocchi con
+             un'intestazione fissa, cosi' si trova a colpo d'occhio dove si sta. #}
+          <li class="nav-header">SONDA</li>
+          <li class="nav-item">
+            <a href="{{ url_for('probe.index') }}"
+               class="nav-link {% if request.endpoint == 'probe.index' %}active{% endif %}">
+              <i class="nav-icon bi bi-activity"></i>
+              <p>Stato della sonda</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{{ url_for('probe.enroll_form') }}"
+               class="nav-link {% if request.endpoint in ['probe.enroll_form', 'probe.enroll'] %}active{% endif %}">
+              <i class="nav-icon bi bi-key"></i>
+              <p>
+                Registrazione
+                {% if not agent_status.enrolled %}
+                <span class="nav-badge badge text-bg-warning">da fare</span>
+                {% endif %}
+              </p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{{ url_for('probe.configuration') }}"
+               class="nav-link {% if request.endpoint == 'probe.configuration' %}active{% endif %}">
+              <i class="nav-icon bi bi-sliders"></i>
+              <p>Configurazione</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{{ url_for('probe.diary') }}"
+               class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}">
+              <i class="nav-icon bi bi-journal-text"></i>
+              <p>Diario locale</p>
+            </a>
+          </li>
 
-    {# Stato del canale e della coda: si vedono da ogni pagina, perche' sono la
-       condizione in cui si sta lavorando. #}
-    <div class="snap-menu-stato border-top p-3 small">
-      {% if agent_status.enrolled %}
-        {% if agent_status.online %}
-        <span class="badge text-bg-success d-block mb-2">
-          <i class="bi bi-shield-lock me-1"></i> Canale attivo
-        </span>
-        {% else %}
-        <span class="badge text-bg-warning d-block mb-2">
-          <i class="bi bi-cloud-slash me-1"></i> Server non raggiungibile
-        </span>
-        {% endif %}
-      {% else %}
-        <span class="badge text-bg-secondary d-block mb-2">
-          <i class="bi bi-dash-circle me-1"></i> Non registrata
-        </span>
-      {% endif %}
-      <div class="text-body-secondary">
-        <i class="bi bi-inboxes me-1"></i>
-        Coda locale: <strong>{{ agent_status.queue_size }}</strong> record
-      </div>
-      <div class="text-body-secondary">
-        <i class="bi bi-clock me-1"></i> fuso {{ display_timezone }}
-      </div>
-      {% if accesso_aperto %}
-      {# L'uscita e' un'azione, quindi un modulo: un collegamento si puo' far
-         seguire al posto di chi lo legge. #}
-      <form method="post" action="{{ url_for('auth.logout') }}" class="mt-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-sm btn-outline-secondary w-100">
-          <i class="bi bi-box-arrow-right me-1"></i> Esci
-        </button>
-      </form>
-      {% endif %}
+          <li class="nav-header">ASSISTENZA</li>
+          <li class="nav-item">
+            {# La guida si apre in una finestra nuova: la si legge mentre si opera
+               sulla sonda, non invece di operare. #}
+            <a href="{{ url_for('probe.guide') }}" class="nav-link"
+               target="_blank" rel="noopener">
+              <i class="nav-icon bi bi-book"></i>
+              <p>
+                Guida
+                <i class="bi bi-box-arrow-up-right small ms-1"></i>
+              </p>
+            </a>
+          </li>
+        </ul>
+      </nav>
     </div>
   </aside>
 
   {# -------------------------------------------------------------- contenuto #}
-  <div class="snap-contenuto">
-    <main class="container-fluid py-4 px-3 px-lg-4">
-      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-        <div>
-          <h1 class="h4 mb-1">
-            <i class="bi {% block page_icon %}bi-activity{% endblock %} text-primary me-1"></i>
-            {% block page_title %}Stato della sonda{% endblock %}
-          </h1>
-          <p class="text-body-secondary small mb-0">{% block page_subtitle %}{% endblock %}</p>
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <div class="row align-items-center">
+          <div class="col-lg-7">
+            <h3 class="mb-0 d-flex align-items-center gap-2">
+              <i class="bi {% block page_icon %}bi-activity{% endblock %} text-primary"></i>
+              {% block page_title %}Stato della sonda{% endblock %}
+            </h3>
+            <p class="text-secondary mb-0 small">{% block page_subtitle %}{% endblock %}</p>
+          </div>
+          <div class="col-lg-5 text-lg-end mt-2 mt-lg-0">
+            {% block page_actions %}{% endblock %}
+          </div>
         </div>
-        <div>{% block page_actions %}{% endblock %}</div>
       </div>
+    </div>
 
-      {% include 'flash.html' %}
-      {% block content %}{% endblock %}
-    </main>
-
-    <footer class="container-fluid py-4 px-3 px-lg-4 text-body-secondary small border-top">
-      <div class="d-flex justify-content-between flex-wrap gap-2">
-        <span>
-          {{ app_name }} v{{ app_version }} &middot; {{ app_subtitle }}
-          &middot; orari nel fuso <strong>{{ display_timezone }}</strong>
-        </span>
-        <span>&copy; 2024-26 DS Consulting &middot; licenza MIT</span>
+    <div class="app-content">
+      <div class="container-fluid">
+        {% include 'flash.html' %}
+        {% block content %}{% endblock %}
       </div>
-    </footer>
-  </div>
+    </div>
+  </main>
+
+  {# Stesso piede della console, nello stesso ordine: a sinistra il marchio e il
+     copyright, a destra la versione e il COMPONENTE. Cosi', con console e sonda
+     aperte in due schede, si legge subito quale delle due si sta guardando.
+     Il fuso orario non sta qui: e' nel menu di stato, nel diario e nella pagina
+     principale, dove riguarda gli orari che si stanno leggendo. #}
+  <footer class="app-footer">
+    <div class="float-end d-none d-sm-inline">
+      {{ app_subtitle }} &middot;
+      <strong>v{{ app_version }}</strong> &mdash; Probe
+    </div>
+    <strong>{{ marchio[0] }}</strong> &mdash;
+    &copy; 2024-26 DS Consulting &middot; licenza MIT
+  </footer>
 </div>
 
 {# Changelog: lo apre il badge della versione nel marchio. Stessa struttura della
@@ -200,6 +282,9 @@
 </div>
 
 <script src="{{ url_for('static', filename='vendor/bootstrap/bootstrap.bundle.min.js') }}"></script>
+{# AdminLTE governa il menu laterale (apertura, chiusura, stato ricordato): senza
+   questo file il pulsante del menu non farebbe nulla sotto il breakpoint lg. #}
+<script src="{{ url_for('static', filename='vendor/adminlte/adminlte.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/awn/index.var.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/datatables/dataTables.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/datatables/dataTables.bootstrap5.min.js') }}"></script>
