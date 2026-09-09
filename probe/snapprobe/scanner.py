@@ -217,6 +217,24 @@ MAX_STAGE_TIMEOUTS = 1
 # sul campo una passata di servizi su 24 host abbandonati e' durata 765s (23 su 24
 # scaduti a 180s), perche' nmap ne teneva ~6 alla volta. Forzando il gruppo alla
 # dimensione del compito la passata dura quanto il singolo host (~180s), non la somma.
+# Porte che la scansione NON tocca.
+#
+# Il valore predefinito e' l'intervallo dei server X (6000-6009). Motivo, misurato:
+# su tre postazioni di amministrazione girava MobaXterm, che tiene un X server in
+# ascolto sulla 6000; ogni passata della sonda apriva sul PC dell'operatore una
+# finestra "un'applicazione su <indirizzo> vuole accedere al server X: consenti?".
+# Una scansione di inventario non deve interrompere chi lavora.
+#
+# COSA SI PERDE, detto perche' non lo si scopra a un collaudo: un X server in
+# ascolto sulla rete e' un'esposizione vera (X11 senza autenticazione permette di
+# leggere i tasti premuti e catturare lo schermo delle altre finestre), e da qui in
+# avanti la sonda non la rilevera' piu'. La scelta e' dell'operatore ed e'
+# reversibile: si svuota l'impostazione `scan_exclude_ports` e la rilevazione torna.
+DEFAULT_EXCLUDED_PORTS = "6000-6009"
+# Allowlist: solo cifre, virgole e trattini. Il valore finisce sulla riga di comando
+# di nmap, e cio' che finisce su una riga di comando si valida, non si spera.
+EXCLUDED_PORTS_PATTERN = re.compile(r"^[0-9,\-]+$")
+
 MAX_HOSTGROUP = 64
 
 # Tetto all'intensita' della rilevazione versione (-sV) nella fase dei servizi. Al
@@ -453,6 +471,28 @@ class NetworkScanner:
                            "Profilo di sforzo '%s' non riconosciuto: si usa '%s'"
                            % (valore, DEFAULT_EFFORT))
             return DEFAULT_EFFORT
+        return valore
+
+    def excluded_ports(self) -> str:
+        """Porte escluse dalla scansione, dall'impostazione o dal valore predefinito.
+
+        Vuoto significa "nessuna esclusione": e' il modo di riattivare la rilevazione
+        delle porte escluse senza toccare il codice. Un valore non valido viene
+        RIFIUTATO dichiarandolo, non passato a nmap: la riga di comando non e' il
+        posto dove far arrivare una stringa non controllata.
+        """
+        grezzo = self.store.get_setting("scan_exclude_ports", None)
+        if grezzo is None:
+            return DEFAULT_EXCLUDED_PORTS
+        valore = str(grezzo).replace(" ", "")
+        if not valore:
+            return ""
+        if not EXCLUDED_PORTS_PATTERN.match(valore):
+            self.store.log("warning",
+                           "Porte da escludere '%s' non utilizzabili (ammessi solo"
+                           " numeri, virgole e trattini): si usa '%s'"
+                           % (grezzo, DEFAULT_EXCLUDED_PORTS))
+            return DEFAULT_EXCLUDED_PORTS
         return valore
 
     def host_timeout(self) -> str | None:
@@ -1192,6 +1232,23 @@ class NetworkScanner:
 
     def _arguments_for(self, stage: str, capacita: dict, profilo: dict = None,
                        hosts: list = None) -> list:
+        """Argomenti di nmap per una fase, con le porte escluse applicate a tutte.
+
+        L'esclusione si aggiunge QUI e non nei singoli rami: ogni ramo costruisce i
+        propri argomenti e ne uscira' un altro in futuro. Aggiungerla in un punto
+        solo significa che nessuna fase puo' dimenticarsela.
+
+        Restano fuori `discovery` e `monitor`: non scansionano porte (sono sweep di
+        raggiungibilita' con `-sn`) e a nmap l'opzione risulterebbe inutile.
+        """
+        argomenti = self._arguments_base(stage, capacita, profilo, hosts)
+        escluse = self.excluded_ports()
+        if escluse and stage not in ("discovery", "monitor"):
+            argomenti = argomenti + ["--exclude-ports", escluse]
+        return argomenti
+
+    def _arguments_base(self, stage: str, capacita: dict, profilo: dict = None,
+                        hosts: list = None) -> list:
         """Argomenti di nmap per una fase, secondo il profilo di sforzo."""
         raw = bool(capacita.get("raw_sockets"))
         profilo = profilo or self.effort_profile()
