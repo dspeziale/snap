@@ -60,11 +60,17 @@ def sonda(probe_store):
     return probe_store
 
 
-def nodo_locale(sonda, ip, profilo, fasi):
-    """Prepara un nodo con un profilo e un insieme di fasi svolte."""
+def nodo_locale(sonda, ip, profilo, fasi, open_ports=0):
+    """Prepara un nodo con un profilo e un insieme di fasi svolte.
+
+    `open_ports` conta: un nodo la cui fase 'ports' non ha trovato NULLA aperto viene
+    trattato dalla sonda come gia' esaminato del tutto (le fasi successive lavorano
+    sulle porte e non troverebbero niente), quindi non attende l'approfondimento.
+    """
     sonda.upsert_local_node(ip, state="confirmed",
                             profile_json=json.dumps(profilo),
                             stages_done=",".join(sorted(fasi)),
+                            open_ports=open_ports,
                             last_merge_at="2026-08-27 09:00:00")
 
 
@@ -121,16 +127,42 @@ def test_un_profilo_vuoto_o_assente_non_ha_informazioni():
 # --------------------------------------------------------------------------- #
 def test_il_nodo_viene_scartato_solo_dopo_tutte_le_fasi(sonda):
     scanner = NetworkScanner(sonda, EsecutoreFinto())
-    # Manca l'approfondimento: non si scarta ancora.
-    nodo_locale(sonda, "192.0.2.50", PROFILO_VUOTO, ("ports", "services", "os"))
+    # Manca l'approfondimento: non si scarta ancora. Il nodo ha una porta aperta,
+    # quindi le fasi successive hanno ancora qualcosa su cui lavorare.
+    nodo_locale(sonda, "192.0.2.50", PROFILO_VUOTO, ("ports", "services", "os"),
+                open_ports=1)
     assert scanner._drop_without_information() == []
     assert sonda.local_node("192.0.2.50")["state"] == "confirmed"
 
     # Con l'approfondimento svolto, si scarta.
-    nodo_locale(sonda, "192.0.2.50", PROFILO_VUOTO, STAGES_BEFORE_REMOVAL)
+    nodo_locale(sonda, "192.0.2.50", PROFILO_VUOTO, STAGES_BEFORE_REMOVAL,
+                open_ports=1)
     rimozioni = scanner._drop_without_information()
     assert [r["ip"] for r in rimozioni] == ["192.0.2.50"]
     assert sonda.local_node("192.0.2.50")["state"] == "discarded"
+
+
+def test_un_nodo_senza_porte_aperte_non_attende_l_approfondimento(sonda):
+    """Requisito cambiato, dichiarato qui invece di restare implicito.
+
+    Chi ha superato la fase 'ports' senza NESSUNA porta aperta viene trattato come
+    interamente esaminato: le fasi successive (servizi, sistema operativo,
+    approfondimento) lavorano tutte sulle porte e su un host che non ne ha non
+    troverebbero nulla -- e su una rete di migliaia di host che rispondono al solo
+    ping quell'attesa costerebbe ogni ciclo.
+
+    Lo scarto resta comunque legato all'ASSENZA TOTALE di informazioni (nessuna
+    porta, nessun sistema operativo, nessun nome, nessun MAC, nessun banner), e il
+    server lo applica solo dopo aver verificato di non avere dati propri sul nodo:
+    sono due rispetti prima di togliere un nodo dall'inventario.
+    """
+    scanner = NetworkScanner(sonda, EsecutoreFinto())
+    nodo_locale(sonda, "192.0.2.52", PROFILO_VUOTO, ("ports",), open_ports=0)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert [r["ip"] for r in rimozioni] == ["192.0.2.52"]
+    assert sonda.local_node("192.0.2.52")["state"] == "discarded"
 
 
 def test_un_nodo_con_informazioni_non_viene_scartato(sonda):

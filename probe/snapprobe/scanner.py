@@ -188,15 +188,20 @@ UNCERTAIN_MAX_PORTS = 2
 # Quante volte si tenta di confermare un candidato prima di scartarlo.
 MAX_CANDIDATE_ATTEMPTS = 2
 
-# Quante volte un host puo' essere ABBANDONATO da nmap per scadenza prima di
-# rinunciare. Un host che scade viene riprovato con piu' tempo (fino a 300s), ma
-# oltre questa soglia non e' piu' "lento": non risponde come nmap si aspetta, e
-# insistere ruberebbe ogni ciclo agli host reali -- sul campo un host e' stato
-# abbandonato oltre 600 volte, tenendo occupato uno slot per ore senza produrre
-# nulla. Superata la soglia il candidato si scarta (verra' riscoperto se torna
-# vivo) e la fase di un nodo confermato si segna "tentata", cosi' la frontiera
-# avanza sempre e non resta mai bloccata su chi non risponde.
-MAX_TIMEOUT_ABANDONMENTS = 6
+# DECISIONE: un candidato che nmap abbandona per scadenza NON si scarta, mai.
+#
+# C'e' stata una soglia qui (`MAX_TIMEOUT_ABANDONMENTS`), introdotta con una misura
+# vera: sul campo un host e' stato abbandonato oltre 600 volte, tenendo occupato uno
+# slot per ore senza produrre nulla. Il problema esiste, la soluzione era sbagliata --
+# un host abbandonato per scadenza non e' stato ESAMINATO: e' ignoto, non assente, e
+# scartarlo lo fa sparire dall'inventario per un limite nostro (e' il caso misurato
+# della multifunzione con undici porte aperte). Vedi `_annota_scadenza`.
+#
+# Cosa risponde invece allo spreco: lo host che scade non blocca gli altri, perche' le
+# fasi di ispezione scansionano il gruppo in PARALLELO (`--min-hostgroup` e
+# SERVICE_MIN_PARALLELISM); le ore perdute venivano da un gruppo serializzato. Se lo
+# spreco tornasse a farsi sentire, la mossa e' guardarlo piu' RARAMENTE contando
+# `timeout_count`, non cancellarlo: un dato ignoto va tenuto come ignoto.
 
 # Quante volte una FASE DI ISPEZIONE puo' scadere su un nodo GIA' confermato prima di
 # rinunciare e segnarla "tentata". Uno: un nodo con le porte aperte e' gia' inventario
@@ -274,17 +279,26 @@ HOST_TIMEOUT_MAX_SECONDS = 1800
 # tempo per host non e' una preferenza, e' una condizione di funzionamento. Il valore
 # scelto dall'operatore resta valido per la scoperta e per le porte.
 MIN_HOST_TIMEOUT_INSPECTION = 180
-# Le fasi di COMPLETAMENTO del profilo (servizi, sistema operativo) hanno un floor piu'
-# basso. Sono la frontiera che porta migliaia di nodi al conferimento e, dopo una sola
-# scadenza, la fase si segna "tentata": il nodo si conferisce con cio' che ha (le porte
-# le ha gia' dalla fase 'ports'). Non conviene insistere a lungo su un host che non
-# risponde a -sV: uno reattivo risponde molto prima, uno lento verrebbe abbandonato
-# comunque -- e il floor pieno teneva ferma tutta la frontiera (una passata servizi da
-# 24 host richiedeva ~470s, uno solo per ciclo). Le letture di arricchimento (SNMP, SMB,
-# vulnerabilita', approfondimento) mantengono invece il floor pieno: sono poche per giro
-# e i loro script hanno bisogno di tempo. La perdita e' recuperabile: la ri-ispezione
-# rivede i nodi conferiti quando la frontiera si e' svuotata.
-MIN_HOST_TIMEOUT_PROFILE = 90
+# Tempo per host dello SWEEP di scoperta, indipendente dalla scelta dell'operatore:
+# `-sn` manda pochi pacchetti e non scansiona porte, quindi non serve di piu'; e su
+# una subnet fatta in gran parte di indirizzi morti un valore lungo allungherebbe la
+# passata senza aggiungere informazione. Sta in una costante perche' lo usano DUE
+# punti: gli argomenti di nmap e il calcolo del tempo massimo del processo -- quando
+# erano due numeri distinti, il tetto della scoperta veniva calcolato su un valore
+# che nmap non riceveva mai.
+DISCOVERY_HOST_TIMEOUT = "20s"
+# Fasi di COMPLETAMENTO del profilo: portano un nodo al conferimento (le porte le ha
+# gia' dalla fase 'ports') e, dopo UNA sola scadenza, si segnano "tentate" -- il nodo
+# viene conferito con cio' che ha.
+#
+# Hanno un trattamento distinto per il RADDOPPIO, non per il minimo. Il minimo resta
+# quello misurato sopra: si e' provato ad abbassarlo a 90s per drenare piu' in fretta
+# la frontiera, ed era sbagliato -- 90s e' proprio il valore misurato come inutile
+# (host abbandonato, zero porte). Un floor sotto la soglia di funzionamento non rende
+# la fase piu' veloce: la rende inutile, e il profilo non avanza comunque. Il
+# drenaggio della frontiera si ottiene con il parallelismo delle sonde
+# (SERVICE_MIN_PARALLELISM) e instradando gli host che nmap non restituisce, non
+# accorciando il tempo sotto la soglia.
 STAGES_PROFILE_COMPLETION = ("services", "os")
 # Tetto per singolo script NSE nella fase servizi: gli script di arricchimento su un
 # servizio che non risponde restano appesi oltre il tempo per host e trascinano l'intera
@@ -325,6 +339,11 @@ MAX_EXPLICIT_PORTS = 300
 # Margine sul tempo del processo, per l'avvio di nmap e la scrittura dell'XML.
 PROCESS_TIMEOUT_MARGIN_SECONDS = 120
 PROCESS_TIMEOUT_MAX_SECONDS = 7200
+# Quante volte il tempo per host puo' durare un'ONDATA parallela (vedi
+# `_process_timeout`). Non e' una stima a occhio: le due passate misurate su 24 host
+# danno 470s con 180s per host (2,6x) e ~300s con 90s per host (3,3x). Quattro sta
+# sopra entrambe e lascia margine per l'avvio e per le fasi degli script.
+PROCESS_TIMEOUT_WAVE_FACTOR = 4
 # Limite invalicabile, indipendente dal profilo: quattro processi nmap sono il
 # massimo che si accetta di avere contemporaneamente su una sonda.
 MAX_WORKERS = 4
@@ -1181,11 +1200,12 @@ class NetworkScanner:
         attesa = self._host_timeout_for(stage, profilo, hosts)
 
         if stage == "discovery":
-            # La scoperta conserva il proprio tempo breve anche quando se ne
-            # sceglie uno piu' lungo: e' uno sweep su tutta la subnet, e un tempo
-            # per host lungo si moltiplicherebbe per ogni indirizzo morto.
+            # La scoperta conserva il proprio tempo breve anche quando se ne sceglie
+            # uno piu' lungo: lo decide `_host_timeout_for` (DISCOVERY_HOST_TIMEOUT),
+            # cosi' il valore e' uno solo -- quello che nmap riceve e quello su cui si
+            # calcola il tempo massimo del processo.
             return ["-sn", "-PE", "-PS22,80,443,3389,445", "-PA80", "-PR", timing,
-                    "--host-timeout", "20s"]
+                    "--host-timeout", DISCOVERY_HOST_TIMEOUT]
         if stage == "ports":
             return [("-sS" if raw else "-sT"), "-Pn", timing, "--top-ports", porte,
                     "--host-timeout", attesa]
@@ -1271,19 +1291,32 @@ class NetworkScanner:
     def _process_timeout(self, stage: str, hosts: int, profilo: dict) -> int:
         """Tempo massimo del processo nmap per un compito.
 
-        Le fasi di ispezione usano `--min-hostgroup` per scansionare TUTTI gli host del
-        gruppo in parallelo: il tempo reale e' quello del singolo host, non la somma.
-        Moltiplicare per il numero di host (com'era prima) portava il limite a migliaia
-        di secondi -- sul campo una passata di servizi su host VoIP che appendono nmap
-        ha tenuto un ciclo bloccato per ore, e senza che la task si concludesse il
-        "give-up" per fase non scattava mai. Un fattore piccolo e fisso basta: da'
-        margine per l'avvio e per qualche host che nmap serializza, senza consentire a
-        un solo compito di bloccare tutto.
+        Il calcolo segue come nmap lavora DAVVERO. Con `--min-hostgroup` gli host di
+        un compito vengono scansionati in parallelo, a ONDATE di al massimo
+        MAX_HOSTGROUP host: il tempo di un'ondata e' quello del singolo host, non la
+        somma dei suoi host lenti. Quindi il tempo cresce con il numero di ONDATE, non
+        con il numero di bersagli.
+
+        Perche' non si moltiplica per i bersagli, com'era prima: il limite arrivava a
+        migliaia di secondi e sul campo una passata di servizi su host VoIP che
+        appendono nmap ha tenuto un ciclo bloccato per ore -- e senza che il compito si
+        concludesse, il "give-up" per fase non scattava mai.
+
+        Perche' un fattore per ondata e non il solo tempo per host: `--host-timeout`
+        limita la scansione di un host, ma un'ondata comprende anche l'avvio, la
+        rilevazione di versione e le fasi degli script. Le due misure disponibili
+        danno un rapporto fra 2,6 e 3,3 (24 host: ~470s con 180s per host; ~300s con
+        90s per host): il fattore 4 sta sopra entrambe, con margine.
         """
-        per_host = parse_timeout(self._host_timeout_for(stage, profilo)) or 120
-        # Sia lo sweep (discovery/monitor) sia le ispezioni scansionano in parallelo:
-        # il ceiling e' un multiplo del tempo per host, non del numero di bersagli.
-        stimato = per_host * 4
+        # Il tempo su cui si calcola il tetto deve essere quello che nmap RICEVE
+        # davvero: la scoperta ha il proprio, breve, indipendente dalla scelta
+        # dell'operatore (vedi DISCOVERY_HOST_TIMEOUT e `_arguments_for`).
+        effettivo = (DISCOVERY_HOST_TIMEOUT if stage == "discovery"
+                     else self._host_timeout_for(stage, profilo))
+        per_host = parse_timeout(effettivo) or 120
+        bersagli = max(1, int(hosts or 1))
+        ondate = -(-bersagli // MAX_HOSTGROUP)  # divisione per eccesso
+        stimato = ondate * per_host * PROCESS_TIMEOUT_WAVE_FACTOR
         return int(min(PROCESS_TIMEOUT_MAX_SECONDS,
                        stimato + PROCESS_TIMEOUT_MARGIN_SECONDS))
 
@@ -1299,12 +1332,7 @@ class NetworkScanner:
         """
         attesa = profilo["host_timeout"]
         secondi = parse_timeout(attesa) or MIN_HOST_TIMEOUT_INSPECTION
-        # Il floor dipende dalla fase: piu' basso per il completamento del profilo
-        # (servizi, sistema operativo), pieno per le letture di arricchimento.
-        if stage in STAGES_PROFILE_COMPLETION:
-            if secondi < MIN_HOST_TIMEOUT_PROFILE:
-                secondi = MIN_HOST_TIMEOUT_PROFILE
-        elif stage in STAGES_NEEDING_TIME and secondi < MIN_HOST_TIMEOUT_INSPECTION:
+        if stage in STAGES_NEEDING_TIME and secondi < MIN_HOST_TIMEOUT_INSPECTION:
             secondi = MIN_HOST_TIMEOUT_INSPECTION
 
         # Il raddoppio "seconda occasione" NON si applica al completamento del profilo:
@@ -2429,39 +2457,27 @@ class NetworkScanner:
         profilo["timeout_count"] = quante
         profilo["timed_out_at"] = _now_str()
 
-        # Oltre la soglia si rinuncia: un host abbandonato tante volte non e' lento,
-        # non risponde, e continuare a riprovarlo tiene occupato uno slot che serve
-        # agli host reali. Si scarta con un periodo di attesa (come un host senza
-        # informazioni): lo stato "discarded" con la data attiva il cooldown, cosi'
-        # la scoperta non lo ripesca subito. Se torna a rispondere, lo ritrovera' dopo.
-        if quante >= MAX_TIMEOUT_ABANDONMENTS:
-            adesso = _now_str()
-            profilo["giveup_reason"] = "timeout_ripetuti"
-            self.store.upsert_local_node(
-                ip, state="discarded", discarded_at=adesso,
-                profile_json=json.dumps(profilo, ensure_ascii=False))
-            messaggio = ("Host %s scartato: nmap lo ha abbandonato per scadenza %d volte "
-                         "di seguito senza mai completarlo. Se torna a rispondere verra' "
-                         "riscoperto." % (ip, quante))
-            self.store.log("warning", messaggio)
-            self.store.enqueue("event", {
-                "type": "probe.node.discarded",
-                "severity": "info",
-                "description": messaggio,
-                "created_at": adesso,
-                "detail": {"indirizzo": ip, "motivo": "scadenze ripetute",
-                           "scadenze": quante},
-            })
-            return
-
+        # NON si scarta, per quante volte scada. Si era provato a rinunciare oltre una
+        # soglia, con l'argomento che uno slot occupato da un host muto serve agli
+        # host reali: l'argomento sul throughput e' vero, la conclusione era sbagliata.
+        # Un host che nmap ha ABBANDONATO per scadenza non e' stato esaminato: e'
+        # IGNOTO, non assente. Scartarlo lo fa sparire dall'inventario per un limite
+        # nostro -- ed e' esattamente il caso della multifunzione con undici porte
+        # aperte, che nmap interrogato da solo restituisce in due secondi e mezzo.
+        # Peggio: la scoperta lo ritrova vivo, rientra candidato, scade di nuovo, e il
+        # nodo appare e sparisce dalla console.
+        #
+        # Se lo slot occupato tornera' a essere un problema, la risposta e'
+        # DEPRIORITIZZARE (guardarlo piu' raramente, contando `timeout_count`), non
+        # cancellarlo: un dato ignoto va tenuto come ignoto.
         self.store.upsert_local_node(
             ip, state="candidate",
             profile_json=json.dumps(profilo, ensure_ascii=False))
         self.store.log(
             "warning",
-            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e su %d). Il"
+            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e). Il"
             " tentativo non conta e l'host resta candidato: la prossima volta avra'"
-            " piu' tempo." % (ip, quante, MAX_TIMEOUT_ABANDONMENTS))
+            " piu' tempo." % (ip, quante))
 
     def _node_record(self, prove: dict, ports_examined: bool) -> dict:
         return {

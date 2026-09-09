@@ -39,6 +39,47 @@ password: dalla rete la *prima* impostazione viene rifiutata per disegno, così 
 sonda appartiene a chi l'ha installata. Infine si incolla il pacchetto `SNAP1-...`
 generato dalla console.
 
+### La base dati della sonda
+
+Anche la sonda ha il suo PostgreSQL (`snap-probe-postgres`), con la stessa struttura
+di privilegi del server: un **proprietario** che crea e migra lo schema e un utente
+**applicativo** che può solo leggere e scrivere i dati.
+
+**Stato: predisposto, non ancora usato.** Il codice della sonda scrive su SQLite
+(modulo `sqlite3`, 63 punti di SQL, nessun driver PostgreSQL fra le dipendenze),
+esattamente come il server. Il servizio è il bersaglio del porting; finché il porting
+non c'è, l'archivio resta il file nel volume `probe-data`.
+
+Due differenze rispetto al server, entrambe conseguenze della rete host:
+
+| | Server | Sonda |
+|---|---|---|
+| Dove ascolta | rete interna del compose, **nessuna porta sull'host** | `127.0.0.1:5532` (host) |
+| Porta | 5432, dettaglio interno | **5532**, dentro il range del progetto |
+| `pg_hba` dal loopback | `trust` (loopback del solo contenitore) | **`scram-sha-256`** |
+
+La terza riga è la meno ovvia e la più importante. L'immagine ufficiale si fida senza
+password delle connessioni dal loopback. Sul server quel loopback è quello *interno
+al contenitore*, che nessun altro processo condivide. Sulla sonda, che gira in rete
+host, è il loopback **della macchina**: con la regola predefinita qualunque processo
+locale sull'apparato potrebbe collegarsi *come proprietario della base dati senza
+password*. Su un apparato lasciato in sede dal cliente non è accettabile, e
+[initdb/20-autenticazione.sh](probe/initdb/20-autenticazione.sh) riscrive `pg_hba.conf`
+alla prima inizializzazione. Verificato:
+
+```
+dal loopback senza password   fe_sendauth: no password supplied
+con la password               snap_probe_app collegato
+CREATE TABLE come applicativo ERROR: permission denied for schema public
+```
+
+Resta a `trust` solo il socket unix, che vive nel filesystem del contenitore e non è
+esposto all'host: serve all'entrypoint dell'immagine, che si collega senza password
+per eseguire gli script di inizializzazione.
+
+Gli script `initdb` girano **una sola volta**, alla creazione del volume: su
+un'installazione già inizializzata le regole cambiano solo ricreando il volume.
+
 ### Aprire l'interfaccia puntando l'IP della macchina
 
 Il rifiuto vale solo per la *prima* impostazione della password, e sono **due

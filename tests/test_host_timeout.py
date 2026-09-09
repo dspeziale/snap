@@ -166,20 +166,32 @@ def test_il_tempo_del_processo_cresce_con_il_tempo_per_host(sonda):
     assert lungo > breve, "il tempo del processo non e' cresciuto con quello per host"
 
 
-def test_il_tempo_del_processo_cresce_con_i_bersagli(sonda):
-    scanner, esecutore = scanner_di(sonda)
-    sonda.set_setting("scan_host_timeout", "120s")
+def test_il_tempo_del_processo_cresce_con_le_ondate_non_con_i_bersagli(sonda):
+    """Requisito cambiato, dichiarato invece di lasciato implicito.
 
-    sonda.upsert_local_node("192.0.2.1", state="confirmed")
-    scanner.run_stage("ports", "*")
-    uno = esecutore.chiamate[-1]["timeout"]
+    Prima il tempo massimo del processo era `tempo per host x numero di bersagli`. Non
+    e' cosi' che nmap lavora: con `--min-hostgroup` gli host di un compito si
+    scansionano in PARALLELO, a ondate di al massimo MAX_HOSTGROUP. Moltiplicare per i
+    bersagli portava il limite a migliaia di secondi e un compito appeso teneva
+    bloccato il ciclo -- e, non concludendosi, non faceva scattare nemmeno la resa
+    per fase.
 
-    for numero in range(2, 12):
-        sonda.upsert_local_node("192.0.2.%d" % numero, state="confirmed")
-    scanner.run_stage("ports", "*")
-    molti = esecutore.chiamate[-1]["timeout"]
+    La proprieta' giusta e' quindi: entro un'ondata il tempo NON cresce (gli host sono
+    in parallelo), oltre l'ondata cresce.
+    """
+    from snapprobe.scanner import MAX_HOSTGROUP
 
-    assert molti > uno
+    scanner, _ = scanner_di(sonda)
+    profilo = dict(EFFORT_PROFILES["med"], host_timeout="120s")
+
+    una_ondata = scanner._process_timeout("ports", MAX_HOSTGROUP, profilo)
+    meta_ondata = scanner._process_timeout("ports", MAX_HOSTGROUP // 2, profilo)
+    due_ondate = scanner._process_timeout("ports", MAX_HOSTGROUP + 1, profilo)
+
+    assert meta_ondata == una_ondata, (
+        "entro un'ondata gli host sono in parallelo: il tempo non deve crescere")
+    assert due_ondate > una_ondata, (
+        "oltre l'ondata nmap serializza: il tempo deve crescere")
 
 
 def test_il_tempo_del_processo_non_supera_il_limite(sonda):
@@ -190,12 +202,20 @@ def test_il_tempo_del_processo_non_supera_il_limite(sonda):
 
 
 def test_il_tempo_del_processo_copre_il_lavoro_richiesto(sonda):
-    """Deve essere almeno il tempo per host per il numero di bersagli."""
+    """Deve coprire le ONDATE che nmap eseguira' davvero (vedi il test sopra per il
+    perche' non si moltiplica piu' per i bersagli): almeno il tempo per host per
+    ciascuna ondata, altrimenti il compito viene ucciso mentre sta ancora lavorando e
+    la fase non produce nulla."""
+    from snapprobe.scanner import MAX_HOSTGROUP
+
     scanner, _ = scanner_di(sonda)
     profilo = dict(EFFORT_PROFILES["med"], host_timeout="120s")
-    bersagli = 10
-    calcolato = scanner._process_timeout("ports", bersagli, profilo)
-    assert calcolato >= 120 * bersagli
+    for bersagli in (1, 10, MAX_HOSTGROUP, MAX_HOSTGROUP * 3 + 5):
+        ondate = -(-bersagli // MAX_HOSTGROUP)
+        calcolato = scanner._process_timeout("ports", bersagli, profilo)
+        assert calcolato >= 120 * ondate, (
+            "con %d bersagli nmap fa %d ondate: il tempo non le copre"
+            % (bersagli, ondate))
 
 
 def test_le_fasi_di_raggiungibilita_non_moltiplicano_il_tempo(sonda):
@@ -371,18 +391,34 @@ def test_una_fase_senza_host_lo_dichiara(sonda):
     assert "nessun host restituito" in diario
 
 
-def test_i_nodi_piu_avanzati_vengono_completati_per_primi(sonda):
-    """La scoperta aggiunge nodi nuovi: senza questa priorita' le fasi finali non
-    arrivavano mai al proprio turno e i profili si accumulavano a meta'."""
+def test_i_nodi_piu_avanzati_arrivano_al_proprio_turno(sonda):
+    """La scoperta aggiunge nodi nuovi: senza una garanzia le fasi finali non
+    arrivavano mai al proprio turno e i profili si accumulavano a meta'.
+
+    Il requisito era "il nodo piu' avanzato viene pianificato PER PRIMO". E'
+    cambiato, e va dichiarato: adesso ogni frontiera ha un POSTO RISERVATO nel ciclo
+    -- uno per l'esame delle porte dei candidati, uno per il completamento del
+    profilo. Il motivo e' una misura opposta e altrettanto reale: mettendo davanti il
+    completamento, le PORTE dei candidati non venivano mai esaminate e il conteggio
+    "in lavorazione" restava fermo per ore con migliaia di host scoperti e mai
+    profilati. Nessuna delle due frontiere puo' stare dietro all'altra: devono
+    avanzare insieme, ed e' questo che il test verifica.
+    """
     scanner, _ = scanner_di(sonda)
-    # Un nodo nuovo (nessuna fase) e uno che attende solo il sistema operativo.
+    # Un nodo nuovo (nessuna fase) e uno che attende solo il sistema operativo. Il
+    # secondo ha una porta aperta: senza, la sonda lo considera gia' esaminato del
+    # tutto e non sarebbe in attesa di alcuna fase.
     sonda.upsert_local_node("192.0.2.10", state="confirmed", stages_done="")
-    sonda.upsert_local_node("192.0.2.11", state="confirmed", stages_done="ports,services")
+    sonda.upsert_local_node("192.0.2.11", state="confirmed",
+                            stages_done="ports,services", open_ports=3)
     sonda.record_scan("192.0.2.0/24", "discovery", "completed")
 
     compiti = scanner.plan_tasks()
     fasi = [c["stage"] for c in compiti]
-    assert fasi and fasi[0] == "os", (
-        "la prima fase pianificata doveva completare il nodo piu' avanzato: %s" % fasi
-    )
-    assert "192.0.2.11" in compiti[0]["hosts"]
+
+    assert "os" in fasi, (
+        "il completamento del profilo deve avere un posto riservato: %s" % fasi)
+    assert "ports" in fasi, (
+        "l'esame delle porte dei candidati deve avere un posto riservato: %s" % fasi)
+    compito_os = next(c for c in compiti if c["stage"] == "os")
+    assert "192.0.2.11" in compito_os["hosts"]
