@@ -64,8 +64,7 @@ VOLUME ["/data"]
 # dell'immagine non deve portarsi via i dati. `BEHIND_PROXY` accende ProxyFix, senza
 # il quale l'applicazione dietro il proxy non vedrebbe ne' https ne' l'IP del client.
 ENV APP_PORT=5500 \
-    SNAP_SERVER_DATABASE=/data/snap_server.sqlite3 \
-    SNAP_SERVER_SIEM_DATABASE=/data/snap_siem.sqlite3 \
+    SNAP_SERVER_INIT_DB=0 \
     SNAP_SERVER_REPORT_DIR=/data/reports \
     SNAP_SERVER_BACKUP_DIR=/data/backups \
     SNAP_SERVER_BEHIND_PROXY=1

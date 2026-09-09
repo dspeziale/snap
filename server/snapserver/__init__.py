@@ -65,7 +65,8 @@ def create_app(config_object=Config) -> Flask:
 
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
-    Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
+    # Nessuna cartella da preparare per l'archivio: sta su PostgreSQL. La cartella
+    # dei documenti prodotti la crea il modulo dei report, quando serve.
 
     logging.basicConfig(
         level=logging.DEBUG if app.config.get("DEBUG") else logging.INFO,
@@ -79,8 +80,17 @@ def create_app(config_object=Config) -> Flask:
     db_module.init_app(app)
     register_template_filters(app)
 
-    with app.app_context():
-        db_module.init_db()
+    # Allineamento dello schema all'avvio: comodo in sviluppo, dove chi lancia
+    # l'applicazione e' anche proprietario della base dati.
+    #
+    # In esercizio si SPEGNE (SNAP_SERVER_INIT_DB=0) e lo fa l'avvio del contenitore
+    # con le credenziali del PROPRIETARIO, perche' l'applicazione si collega con
+    # un'utenza che puo' solo leggere e scrivere i dati: creare o modificare tabelle
+    # non e' un privilegio che le serve, e non averlo e' cio' che impedisce a un
+    # difetto dell'applicazione di riscrivere lo schema.
+    if app.config.get("INIT_DB_ON_START", True):
+        with app.app_context():
+            db_module.init_db()
 
     _register_blueprints(app)
 

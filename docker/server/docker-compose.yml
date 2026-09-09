@@ -80,14 +80,26 @@ services:
       # --- SIEM: ascolto syslog integrato ------------------------------------------
       SNAP_SERVER_SIEM_LISTENER: "${SNAP_SERVER_SIEM_LISTENER:-1}"
       SNAP_SERVER_SIEM_LISTENER_PORT: "5514"
-      # --- PostgreSQL: pronto all'uso, non ancora usato dall'applicazione ----------
-      # L'applicazione legge queste variabili quando il porting sara' fatto; il
-      # servizio e' gia' in piedi, con il suo utente a privilegi minimi.
-      SNAP_SERVER_PG_HOST: postgres
-      SNAP_SERVER_PG_PORT: "5432"
-      SNAP_SERVER_PG_DB: "${POSTGRES_DB:-snap}"
-      SNAP_SERVER_PG_USER: "${SNAP_PG_APP_USER:-snap_app}"
-      SNAP_SERVER_PG_PASSWORD: "${SNAP_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}"
+      # --- PostgreSQL: e' l'archivio dell'applicazione -----------------------------
+      # DUE utenze, ed e' il punto della faccenda:
+      #
+      #   SNAP_SERVER_DATABASE_URL       l'utente APPLICATIVO. Legge e scrive i dati e
+      #                                  NIENTE altro: non puo' creare ne' modificare
+      #                                  tabelle. E' cio' che impedisce a un difetto
+      #                                  dell'applicazione di riscrivere lo schema.
+      #   SNAP_SERVER_OWNER_DATABASE_URL il PROPRIETARIO. Serve una volta sola, all'avvio
+      #                                  del contenitore, per allineare lo schema e
+      #                                  creare i dati iniziali (vedi entrypoint.sh).
+      #                                  Gunicorn NON la usa.
+      #
+      # Il trade-off, dichiarato: le credenziali del proprietario passano nell'ambiente
+      # di questo contenitore, perche' le migrazioni le esegue il suo avvio. L'alternativa
+      # -- un contenitore di inizializzazione separato -- si fara' quando le migrazioni
+      # saranno versionate con Alembic.
+      SNAP_SERVER_DATABASE_URL: "postgresql+psycopg://${SNAP_PG_APP_USER:-snap_app}:${SNAP_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
+      SNAP_SERVER_OWNER_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-snap_owner}:${POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
+      # Lo schema NON lo allinea l'applicazione: lo fa l'avvio, col proprietario.
+      SNAP_SERVER_INIT_DB: "0"
     volumes:
       # Archivio, report e copie: fuori dall'immagine, cosi' l'aggiornamento non se li
       # porta via.

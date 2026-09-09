@@ -530,8 +530,8 @@ def _upsert_finding(tenant_id: int, voce: dict, adesso: str) -> str:
     """
     esistente = query(
         "SELECT id, status FROM ti_findings WHERE tenant_id = ? AND node_id = ?"
-        " AND IFNULL(port_id, 0) = ? AND kind = ? AND IFNULL(cve_id, '') = ?"
-        " AND IFNULL(technique_id, '') = ?",
+        " AND COALESCE(port_id, 0) = ? AND kind = ? AND COALESCE(cve_id, '') = ?"
+        " AND COALESCE(technique_id, '') = ?",
         (tenant_id, voce["node_id"], voce.get("port_id") or 0, voce["kind"],
          voce.get("cve_id") or "", voce.get("technique_id") or ""), one=True)
     # Un'esposizione attesa nella zona nasce (e torna) nello stato "atteso"; se la
@@ -896,7 +896,7 @@ def nodes_with_findings(tenant_id: int, kind: str = "", status: str = STATUS_OPE
         # ("go: 50 CVE note per il prodotto, versione non rilevata") e con la
         # virgola come separatore si spezzava in due voci. I doppioni si tolgono
         # qui sotto, dove l'ordine si puo' conservare.
-        " GROUP_CONCAT(f.title, char(31)) AS titoli,"
+        " string_agg(f.title, char(31)) AS titoli,"
         " MAX(f.last_seen_at) AS ultimo,"
         " SUM(f.status = 'accepted') AS accettati"
         " FROM ti_findings f JOIN nodes n ON n.id = f.node_id"

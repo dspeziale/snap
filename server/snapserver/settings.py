@@ -81,10 +81,15 @@ class Config:
     # riavviarsi, e una connessione tenuta aperta per ore diventa inutilizzabile
     # senza dirlo. `pool_pre_ping` la verifica prima di usarla.
     DB_POOL_RECYCLE_SEC = _int("SNAP_SERVER_DB_POOL_RECYCLE_SEC", 1800)
-    # Archivio degli eventi SIEM: un file separato dal database della console, cosi'
-    # un flusso di migliaia di log al minuto non contende le pagine. Vuoto significa
-    # "accanto al database principale" (snap_siem.sqlite3), che e' il caso di sviluppo.
-    SIEM_DATABASE = os.environ.get("SNAP_SERVER_SIEM_DATABASE", "")
+    # Allineare lo schema all'avvio dell'applicazione. In sviluppo si': chi lancia il
+    # server e' anche proprietario della base dati. In esercizio NO: lo fa l'avvio del
+    # contenitore con le credenziali del proprietario, e l'applicazione si collega con
+    # un'utenza che non puo' modificare lo schema (vedi docker/server/entrypoint.sh).
+    INIT_DB_ON_START = _bool("SNAP_SERVER_INIT_DB", True)
+    # Gli eventi SIEM NON hanno piu' un archivio proprio: stanno nel database della
+    # console, nella stessa transazione e con lo stesso vincolo di tenant. L'archivio
+    # separato esisteva per la contesa in scrittura di SQLite, che su PostgreSQL non
+    # c'e' (i lettori non bloccano gli scrittori).
     # Giorni di conservazione degli eventi SIEM. I log contengono utenze e indirizzi:
     # tenerli per sempre e' una violazione (GDPR art. 5). La purga gira col motore.
     SIEM_RETENTION_DAYS = _int("SNAP_SERVER_SIEM_RETENTION_DAYS", 90)

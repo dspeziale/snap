@@ -490,7 +490,7 @@ def results_hourly(tenant_id: int, hours: int = 24) -> list[dict]:
     eseguito nulla farebbe leggere un crollo dove c'e' solo assenza di dati.
     """
     righe = query(
-        "SELECT strftime('%Y-%m-%d %H:00:00', executed_at) AS ora,"
+        "SELECT to_char(executed_at::timestamp, 'YYYY-MM-DD HH24:00:00') AS ora,"
         " COUNT(*) AS totali,"
         " SUM(CASE WHEN status = ? THEN 0 ELSE 1 END) AS falliti"
         " FROM check_results WHERE tenant_id = ? AND executed_at >= ?"

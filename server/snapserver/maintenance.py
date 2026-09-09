@@ -46,7 +46,7 @@ from pathlib import Path
 from flask import current_app
 
 from .audit import log_event
-from .db import execute, get_db, query, scalar, utc_now, utc_now_str, utc_str
+from .db import execute, get_db, motore, query, scalar, utc_now, utc_now_str, utc_str
 
 # Estensione dei file di copia. Non si comprime: SQLite comprime male e una copia che
 # richiede un passaggio in piu' per essere ispezionata viene ispezionata meno spesso.
@@ -205,74 +205,81 @@ def purge(dry_run: bool = True) -> dict:
 # --------------------------------------------------------------------------- #
 # Dimensione dell'archivio
 # --------------------------------------------------------------------------- #
-def database_path() -> Path:
-    return Path(current_app.config["DATABASE"]).resolve()
+def database_target() -> str:
+    """Dove sta l'archivio, in forma mostrabile.
+
+    Non e' piu' un percorso di file: la stringa di connessione contiene la password,
+    quindi si mostra solo host, porta e nome del database.
+    """
+    dsn = current_app.config.get("DATABASE_URL") or ""
+    return dsn.rsplit("@", 1)[-1] or "(non indicato)"
 
 
 def database_size() -> dict:
-    """Dimensione dell'archivio: file, pagine, spazio riutilizzabile, per tabella.
+    """Dimensione dell'archivio e occupazione per tabella.
 
-    Lo spazio libero interno merita una voce propria: dopo un'eliminazione il file non
-    si riduce, e senza questa informazione sembra che la conservazione non abbia
-    funzionato.
+    Su PostgreSQL i numeri sono migliori di quelli che si potevano dare su SQLite:
+    l'occupazione per tabella e' un dato di catalogo (`pg_total_relation_size`,
+    indici compresi) e non dipende da un modulo opzionale.
+
+    Restano due voci che qui NON hanno un equivalente e valgono zero, dichiarato:
+    il registro di scrittura anticipata (WAL) e la memoria condivisa sono
+    dell'intero servizio, non di un singolo database, e attribuirne una parte a
+    questo archivio sarebbe un numero inventato.
     """
-    percorso = database_path()
-    dimensione_file = percorso.stat().st_size if percorso.is_file() else 0
-    pagina = int(scalar("PRAGMA page_size", (), default=0) or 0)
-    pagine = int(scalar("PRAGMA page_count", (), default=0) or 0)
-    libere = int(scalar("PRAGMA freelist_count", (), default=0) or 0)
-
-    # Il registro di scrittura anticipata (WAL) e' un file a se': ignorarlo farebbe
-    # sembrare l'archivio piu' piccolo di quanto occupa su disco.
-    wal = percorso.with_name(percorso.name + "-wal")
-    shm = percorso.with_name(percorso.name + "-shm")
+    dimensione = int(scalar("SELECT pg_database_size(current_database())",
+                            (), default=0) or 0)
+    pagina = int(scalar("SELECT current_setting('block_size')::int", (), default=0) or 0)
 
     tabelle = []
-    for riga in query("SELECT name FROM sqlite_master WHERE type = 'table'"
-                      " AND name NOT LIKE 'sqlite_%' ORDER BY name"):
-        nome = riga["name"]
-        righe = scalar("SELECT COUNT(*) FROM %s" % nome, (), default=0)
-        tabelle.append({"tabella": nome, "righe": int(righe or 0), "byte": None})
+    for riga in query(
+            "SELECT c.relname AS tabella,"
+            "       pg_total_relation_size(c.oid) AS byte,"
+            "       COALESCE(s.n_live_tup, 0)     AS righe,"
+            "       COALESCE(s.n_dead_tup, 0)     AS morte"
+            "  FROM pg_class c"
+            "  JOIN pg_namespace n ON n.oid = c.relnamespace"
+            "  LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid"
+            " WHERE c.relkind = 'r' AND n.nspname = current_schema()"
+            " ORDER BY pg_total_relation_size(c.oid) DESC"):
+        tabelle.append({"tabella": riga["tabella"], "righe": int(riga["righe"] or 0),
+                        "byte": int(riga["byte"] or 0),
+                        "morte": int(riga["morte"] or 0)})
 
-    # dbstat non e' compilato in tutte le distribuzioni di SQLite: se c'e' si usa per
-    # dire quanto occupa ogni tabella, altrimenti si dichiara che il dato manca.
-    dettaglio_byte = False
-    try:
-        occupazione = {r["name"]: int(r["byte"] or 0) for r in query(
-            "SELECT name, SUM(pgsize) AS byte FROM dbstat GROUP BY name")}
-        for voce in tabelle:
-            voce["byte"] = occupazione.get(voce["tabella"])
-        dettaglio_byte = True
-    except sqlite3.Error:
-        dettaglio_byte = False
-
-    tabelle.sort(key=lambda v: (-(v["byte"] or 0), -v["righe"]))
+    # Righe morte: versioni superate che attendono la pulizia. E' l'equivalente
+    # onesto delle "pagine libere" di SQLite -- lo spazio che una compattazione
+    # restituirebbe -- ma si conta in righe, non in byte, e si dichiara come tale.
+    morte = sum(v["morte"] for v in tabelle)
     return {
-        "percorso": str(percorso),
-        "file_byte": dimensione_file,
-        "wal_byte": wal.stat().st_size if wal.is_file() else 0,
-        "shm_byte": shm.stat().st_size if shm.is_file() else 0,
+        "percorso": database_target(),
+        "file_byte": dimensione,
+        "wal_byte": 0,
+        "shm_byte": 0,
         "pagina_byte": pagina,
-        "pagine": pagine,
-        "pagine_libere": libere,
-        "riutilizzabile_byte": libere * pagina,
+        "pagine": (dimensione // pagina) if pagina else 0,
+        "pagine_libere": 0,
+        "riutilizzabile_byte": 0,
+        "righe_morte": morte,
         "tabelle": tabelle,
-        "dettaglio_byte": dettaglio_byte,
+        "dettaglio_byte": True,
         "righe_totali": sum(v["righe"] for v in tabelle),
     }
 
 
 def compact() -> dict:
-    """Restituisce al sistema operativo lo spazio interno non piu' usato.
+    """Restituisce lo spazio delle righe non piu' necessarie.
 
-    Un'operazione a se' e non un effetto dell'eliminazione: riscrive l'intero file, e
-    su un archivio grande dura. Deve essere una scelta di chi la fa.
+    Un'operazione a se' e non un effetto dell'eliminazione: su un archivio grande
+    dura. Deve essere una scelta di chi la fa.
+
+    `VACUUM` non puo' girare dentro una transazione: serve una connessione in
+    autocommit, non quella della richiesta. `ANALYZE` insieme aggiorna le statistiche
+    del pianificatore, che dopo una grande eliminazione sono superate -- ed e' quello
+    che rende lente le interrogazioni proprio dopo una pulizia.
     """
     prima = database_size()
-    connessione = get_db()
-    connessione.commit()
-    connessione.execute("VACUUM")
-    connessione.commit()
+    with motore().connect().execution_options(isolation_level="AUTOCOMMIT") as pulizia:
+        pulizia.exec_driver_sql("VACUUM (ANALYZE)")
     dopo = database_size()
     log_event("maintenance.compact",
               "Archivio compattato: da %d a %d byte"
@@ -285,9 +292,36 @@ def compact() -> dict:
 # --------------------------------------------------------------------------- #
 # Copie di sicurezza
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Copie e ripristino: non ancora portati su PostgreSQL
+# --------------------------------------------------------------------------- #
+# Queste operazioni usavano l'API di backup di SQLite -- un archivio in un file, che
+# si copia e si riversa. Su PostgreSQL la copia si fa con `pg_dump` e il ripristino
+# con `pg_restore`, ed e' un lavoro a se': va eseguito dove `pg_dump` esiste (non
+# nell'immagine dell'applicazione), con la versione giusta del client, e il file
+# prodotto non e' piu' un archivio ispezionabile con le stesse verifiche.
+#
+# Finche' non e' portato, queste funzioni SI FERMANO con un messaggio che dice cosa
+# usare. La scelta e' deliberata: una copia che sembra riuscita e non e' ripristinabile
+# e' peggio di nessuna copia, ed e' il modo classico di scoprire il problema il giorno
+# in cui serve. Nel frattempo la copia si fa con lo script gia' pronto:
+#
+#     docker/server/backup-postgres.sh
+def _non_ancora_portato(operazione: str):
+    raise MaintenanceError(
+        "%s non e' ancora disponibile con PostgreSQL. Nel frattempo la copia"
+        " dell'archivio si esegue con lo script docker/server/backup-postgres.sh"
+        " (pg_dump), che scrive nella cartella delle copie del servizio."
+        % operazione)
+
+
 def backup_dir() -> Path:
+    """Cartella delle copie. Non si ricava piu' dal percorso dell'archivio (che su
+    PostgreSQL non esiste): si usa quella configurata e, in mancanza,
+    `server/data/backups` accanto al codice."""
     configurata = current_app.config.get("BACKUP_DIR")
-    cartella = Path(configurata) if configurata else database_path().parent / "backups"
+    cartella = (Path(configurata) if configurata
+                else Path(current_app.root_path).parent / "data" / "backups")
     cartella.mkdir(parents=True, exist_ok=True)
     return cartella
 
@@ -313,6 +347,7 @@ def _percorso_copia(momento: datetime = None) -> Path:
 
 def backup_now(nota: str = "", keep: int = None) -> dict:
     """Copia coerente dell'intero archivio, tutti i tenant compresi."""
+    _non_ancora_portato("La copia dell'archivio dalla console")
     destinazione = _percorso_copia()
     sorgente = get_db()
     sorgente.commit()
@@ -402,6 +437,7 @@ def verify_backup(percorso) -> dict:
     prodotto. Un ripristino da un file qualunque distruggerebbe l'archivio in
     esercizio.
     """
+    _non_ancora_portato("La verifica di una copia")
     file = Path(percorso)
     if not file.is_file():
         return {"valida": False, "motivo": "file non trovato"}
@@ -440,6 +476,7 @@ def restore_from(percorso, attore: str = "") -> dict:
     transazione. Le connessioni aperte -- le richieste in corso, i thread di servizio --
     continuano a vedere un archivio valido.
     """
+    _non_ancora_portato("Il ripristino da una copia")
     candidato = Path(percorso)
     verifica = verify_backup(candidato)
     if not verifica["valida"]:
@@ -491,6 +528,11 @@ def store_uploaded(file_storage) -> Path:
 
 
 def disk_free() -> dict:
-    """Spazio libero sul volume dell'archivio: una copia richiede spazio quanto esso."""
-    uso = shutil.disk_usage(str(database_path().parent))
+    """Spazio libero sul volume delle COPIE.
+
+    Prima si misurava il volume dell'archivio, che era un file accanto alle copie.
+    Ora l'archivio sta su PostgreSQL, magari su un'altra macchina: il volume che
+    conta, per sapere se una copia ci sta, e' quello dove la copia viene scritta.
+    """
+    uso = shutil.disk_usage(str(backup_dir()))
     return {"totale": uso.total, "usato": uso.used, "libero": uso.free}

@@ -531,7 +531,8 @@ def settings():
         timezones=_timezones(),
         stats=stats,
         config={
-            "database": current_app.config["DATABASE"],
+            # Solo host/porta/nome: la stringa di connessione contiene la password.
+            "database": (current_app.config.get("DATABASE_URL") or "").rsplit("@", 1)[-1],
             "enrollment_ttl": current_app.config["ENROLLMENT_TTL_HOURS"],
             "offline_after": current_app.config["PROBE_OFFLINE_AFTER_SEC"],
             "version": current_app.config["APP_VERSION"],

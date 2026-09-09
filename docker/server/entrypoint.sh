@@ -21,10 +21,23 @@ echo "snap: inizializzazione dei dati di base"
 # L'ascolto syslog si spegne SOLO per questo passaggio: creando l'applicazione anche
 # qui, il processo di inizializzazione legherebbe la 5514 per un istante e potrebbe
 # non averla ancora rilasciata quando Gunicorn la richiede.
-SNAP_SERVER_SIEM_LISTENER=0 python - <<'PY'
+# Schema e dati iniziali si fanno con le credenziali del PROPRIETARIO: l'utenza con
+# cui gira l'applicazione puo' solo leggere e scrivere i dati, non creare tabelle.
+# Questo e' il solo momento in cui il proprietario viene usato.
+if [ -z "${SNAP_SERVER_OWNER_DATABASE_URL:-}" ]; then
+    echo "snap: manca SNAP_SERVER_OWNER_DATABASE_URL (credenziali del proprietario" \
+         "della base dati): senza, lo schema non si puo' allineare." >&2
+    exit 1
+fi
+
+SNAP_SERVER_SIEM_LISTENER=0 \
+SNAP_SERVER_INIT_DB=1 \
+SNAP_SERVER_DATABASE_URL="$SNAP_SERVER_OWNER_DATABASE_URL" \
+python - <<'PY'
 from snapserver import create_app
 from snapserver.seed import seed_initial_data
 
+# create_app() allinea lo schema (SNAP_SERVER_INIT_DB=1 solo qui); poi i dati iniziali.
 app = create_app()
 with app.app_context():
     for riga in seed_initial_data():

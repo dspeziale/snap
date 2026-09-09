@@ -120,7 +120,7 @@ def _upsert_alert(tenant_id: int, regola: dict, gruppo: dict, adesso: str) -> di
 
     esistente = query(
         "SELECT id, events_count, notified_at FROM siem_alerts"
-        " WHERE tenant_id = ? AND rule_code = ? AND IFNULL(group_value, '') = ?"
+        " WHERE tenant_id = ? AND rule_code = ? AND COALESCE(group_value, '') = ?"
         " AND status IN ('open', 'ack')",
         (tenant_id, regola["code"], group_value), one=True)
 

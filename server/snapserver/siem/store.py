@@ -27,9 +27,11 @@ import json
 import sqlite3
 from pathlib import Path
 
+from contextlib import contextmanager
+
 from flask import current_app
 
-from ..db import days_ago_str
+from ..db import Riga, days_ago_str, esegui, esegui_molti, motore
 
 # Colonne accettate per un evento normalizzato: tutto il resto finisce in
 # extra_json. Una allowlist, cosi' un campo inatteso non diventa una colonna.
@@ -37,63 +39,37 @@ _CAMPI = ("tenant_id", "source_id", "received_at", "event_time", "host", "app",
           "severity", "facility", "event_kind", "src_ip", "dst_ip", "src_port",
           "dst_port", "username", "action", "outcome", "message", "extra_json")
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS siem_events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant_id   INTEGER NOT NULL,
-    source_id   INTEGER,
-    received_at TEXT    NOT NULL,
-    event_time  TEXT,
-    host        TEXT,
-    app         TEXT,
-    severity    TEXT,
-    facility    TEXT,
-    event_kind  TEXT    NOT NULL DEFAULT 'other',
-    src_ip      TEXT,
-    dst_ip      TEXT,
-    src_port    INTEGER,
-    dst_port    INTEGER,
-    username    TEXT,
-    action      TEXT,
-    outcome     TEXT,
-    message     TEXT    NOT NULL,
-    extra_json  TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_siem_eventi_tempo
-    ON siem_events(tenant_id, received_at DESC);
-CREATE INDEX IF NOT EXISTS ix_siem_eventi_genere
-    ON siem_events(tenant_id, event_kind, received_at);
-CREATE INDEX IF NOT EXISTS ix_siem_eventi_origine
-    ON siem_events(tenant_id, src_ip);
-CREATE INDEX IF NOT EXISTS ix_siem_eventi_host
-    ON siem_events(tenant_id, host);
-"""
+# Lo SCHEMA degli eventi non sta piu' qui: e' nello schema principale
+# (server/snapserver/schema.sql), creato da `init_db()` come tutte le altre tabelle.
+#
+# Perche' e' cambiato: gli eventi stavano in un ARCHIVIO SEPARATO perche' su SQLite un
+# flusso di migliaia di righe al minuto contendeva le pagine alle interrogazioni della
+# console. Su PostgreSQL quella ragione non esiste -- i lettori non bloccano gli
+# scrittori -- e un archivio separato costava una configurazione, una connessione e una
+# cancellazione manuale in piu' (gli eventi non seguivano il tenant per vincolo: vedi
+# `delete_tenant_events`). Ora sono nello stesso database e nella stessa transazione.
 
 
-def database_path() -> Path:
-    """Percorso del database degli eventi: configurabile, accanto a quello della
-    console per difetto."""
-    configurato = current_app.config.get("SIEM_DATABASE")
-    if configurato:
-        return Path(configurato)
-    principale = Path(current_app.config["DATABASE"])
-    return principale.with_name("snap_siem.sqlite3")
+@contextmanager
+def apri(path=None):
+    """Connessione agli eventi, per la durata di un'operazione.
 
+    Il parametro `path` sopravvive alla firma per non toccare i chiamanti, ma non ha
+    piu' significato: l'archivio e' uno solo. Passarlo non fa nulla.
 
-def connect(path: Path | None = None) -> sqlite3.Connection:
-    """Connessione breve al database degli eventi, con lo schema garantito.
-
-    Il chiamante la chiude (o usa `with`): ogni operazione apre la propria,
-    perche' il modulo serve thread diversi e SQLite non condivide connessioni.
+    Come il `with` di prima, la transazione si CHIUDE all'uscita: si conferma se il
+    blocco e' andato a termine, si annulla se e' stata sollevata un'eccezione. Era il
+    comportamento su cui contavano le funzioni di scrittura di questo modulo.
     """
-    percorso = path or database_path()
-    percorso.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(percorso), timeout=15)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA journal_mode = WAL")
-    connection.execute("PRAGMA synchronous = NORMAL")
-    connection.executescript(_SCHEMA)
-    return connection
+    connessione = motore().connect()
+    try:
+        yield connessione
+        connessione.commit()
+    except Exception:
+        connessione.rollback()
+        raise
+    finally:
+        connessione.close()
 
 
 def insert_events(righe: list[dict], path: Path | None = None) -> int:
@@ -107,10 +83,12 @@ def insert_events(righe: list[dict], path: Path | None = None) -> int:
     valori = []
     for riga in righe:
         valori.append(tuple(riga.get(campo) for campo in _CAMPI))
-    with connect(path) as connection:
-        connection.executemany(
-            "INSERT INTO siem_events (%s) VALUES (%s)"
-            % (", ".join(_CAMPI), ", ".join("?" * len(_CAMPI))), valori)
+    sql = ("INSERT INTO siem_events (%s) VALUES (%s)"
+           % (", ".join(_CAMPI), ", ".join("?" * len(_CAMPI))))
+    with apri(path) as connection:
+        # Un solo invio per il lotto intero: e' la differenza fra decine e decine di
+        # migliaia di inserimenti al secondo, e vale su PostgreSQL come valeva prima.
+        esegui_molti(connection, sql, valori)
     return len(valori)
 
 
@@ -155,11 +133,11 @@ def search(tenant_id: int, kind: str = "", host: str = "", src_ip: str = "",
     """Gli eventi piu' recenti che rispondono ai filtri, dal piu' nuovo."""
     where, params = _filtri_eventi(tenant_id, kind, host, src_ip, text,
                                    severity, username, since)
-    with connect(path) as connection:
-        righe = connection.execute(
+    with apri(path) as connection:
+        righe = esegui(connection,
             "SELECT * FROM siem_events WHERE " + " AND ".join(where)
             + " ORDER BY received_at DESC, id DESC LIMIT ?",
-            params + [int(limit)]).fetchall()
+            params + [int(limit)]).mappings().all()
     return [dict(r) for r in righe]
 
 
@@ -174,8 +152,8 @@ def delete_events(tenant_id: int, kind: str = "", host: str = "", src_ip: str = 
     """
     where, params = _filtri_eventi(tenant_id, kind, host, src_ip, text,
                                    severity, username, since)
-    with connect(path) as connection:
-        cursore = connection.execute(
+    with apri(path) as connection:
+        cursore = esegui(connection,
             "DELETE FROM siem_events WHERE " + " AND ".join(where), params)
     return cursore.rowcount
 
@@ -186,23 +164,23 @@ def summary(tenant_id: int, path: Path | None = None) -> dict:
     from ..db import hours_ago_str
 
     da_ieri = hours_ago_str(24)
-    with connect(path) as connection:
-        totale = connection.execute(
+    with apri(path) as connection:
+        totale = esegui(connection,
             "SELECT COUNT(*) FROM siem_events WHERE tenant_id = ?",
-            (tenant_id,)).fetchone()[0]
-        recenti = connection.execute(
+            (tenant_id,)).scalar()
+        recenti = esegui(connection,
             "SELECT COUNT(*) FROM siem_events WHERE tenant_id = ?"
-            " AND received_at >= ?", (tenant_id, da_ieri)).fetchone()[0]
-        generi = connection.execute(
+            " AND received_at >= ?", (tenant_id, da_ieri)).scalar()
+        generi = esegui(connection,
             "SELECT event_kind, COUNT(*) AS n FROM siem_events"
             " WHERE tenant_id = ? AND received_at >= ?"
             " GROUP BY event_kind ORDER BY n DESC LIMIT 8",
-            (tenant_id, da_ieri)).fetchall()
-        host = connection.execute(
+            (tenant_id, da_ieri)).mappings().all()
+        host = esegui(connection,
             "SELECT host, COUNT(*) AS n, MAX(received_at) AS ultimo"
             " FROM siem_events WHERE tenant_id = ? AND received_at >= ?"
             " AND COALESCE(host, '') <> '' GROUP BY host ORDER BY n DESC LIMIT 10",
-            (tenant_id, da_ieri)).fetchall()
+            (tenant_id, da_ieri)).mappings().all()
     return {
         "totale": int(totale),
         "ultime_24h": int(recenti),
@@ -217,14 +195,14 @@ def unknown_hosts(tenant_id: int, conosciuti: set, since_hours: int = 72,
     dichiarata: sono i candidati all'onboarding, non rumore da nascondere."""
     from ..db import hours_ago_str
 
-    with connect(path) as connection:
-        righe = connection.execute(
+    with apri(path) as connection:
+        righe = esegui(connection,
             "SELECT host, COUNT(*) AS n, MAX(received_at) AS ultimo,"
             " MAX(COALESCE(app, '')) AS app"
             " FROM siem_events WHERE tenant_id = ? AND received_at >= ?"
             " AND source_id IS NULL AND COALESCE(host, '') <> ''"
             " GROUP BY host ORDER BY n DESC LIMIT 50",
-            (tenant_id, hours_ago_str(since_hours))).fetchall()
+            (tenant_id, hours_ago_str(since_hours))).mappings().all()
     return [dict(r) for r in righe if r["host"] not in conosciuti]
 
 
@@ -266,8 +244,9 @@ def window_groups(tenant_id: int, event_kind: str, group_by: str,
         " MAX(message) AS esempio"
         " FROM siem_events WHERE " + " AND ".join(condizioni)
         + " GROUP BY {gb} HAVING COUNT(*) >= ?").format(gb=group_by)
-    with connect(path) as connection:
-        righe = connection.execute(sql, params + [int(threshold)]).fetchall()
+    with apri(path) as connection:
+        righe = esegui(connection,
+            sql, params + [int(threshold)]).mappings().all()
     return [dict(r) for r in righe]
 
 
@@ -280,8 +259,9 @@ def delete_tenant_events(tenant_id: int, path: Path | None = None) -> int:
     quindi cancellati esplicitamente quando il tenant e' eliminato: un tenant che se
     ne va non deve lasciare i propri log (GDPR).
     """
-    with connect(path) as connection:
-        cursore = connection.execute("DELETE FROM siem_events WHERE tenant_id = ?",
+    with apri(path) as connection:
+        cursore = esegui(connection,
+            "DELETE FROM siem_events WHERE tenant_id = ?",
                                      (int(tenant_id),))
     return cursore.rowcount
 
@@ -292,8 +272,8 @@ def purge(retention_days: int, path: Path | None = None) -> int:
     if retention_days <= 0:
         return 0
     soglia = days_ago_str(int(retention_days))
-    with connect(path) as connection:
-        cursore = connection.execute(
+    with apri(path) as connection:
+        cursore = esegui(connection,
             "DELETE FROM siem_events WHERE received_at < ?", (soglia,))
     return cursore.rowcount
 
@@ -315,8 +295,8 @@ def link_source(tenant_id: int, source_id: int, match_host: str, match_ip: str,
         params.append(match_ip)
     if not condizioni:
         return 0
-    with connect(path) as connection:
-        cursore = connection.execute(
+    with apri(path) as connection:
+        cursore = esegui(connection,
             "UPDATE siem_events SET source_id = ? WHERE tenant_id = ?"
             " AND source_id IS NULL AND (" + " OR ".join(condizioni) + ")",
             [int(source_id), int(tenant_id)] + params)
@@ -329,11 +309,11 @@ def eventi_di_esempio(tenant_id: int, gruppo: str, event_kind: str, group_by: st
     ricostruisce."""
     if group_by not in ("src_ip", "username", "host"):
         return []
-    with connect(path) as connection:
-        righe = connection.execute(
+    with apri(path) as connection:
+        righe = esegui(connection,
             "SELECT message FROM siem_events WHERE tenant_id = ? AND event_kind = ?"
             " AND %s = ? ORDER BY received_at DESC LIMIT ?" % group_by,
-            (tenant_id, event_kind, gruppo, int(limite))).fetchall()
+            (tenant_id, event_kind, gruppo, int(limite))).mappings().all()
     return [r["message"] for r in righe]
 
 

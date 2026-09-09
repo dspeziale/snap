@@ -54,7 +54,7 @@ def index():
         1000,
     )
     families = query(
-        "SELECT DISTINCT substr(event_type, 1, instr(event_type || '.', '.') - 1) AS family"
+        "SELECT DISTINCT substr(event_type, 1, strpos(event_type || '.', '.') - 1) AS family"
         " FROM audit_events WHERE tenant_id = ? ORDER BY family",
         (tenant_id,),
     )
