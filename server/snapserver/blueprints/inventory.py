@@ -36,6 +36,7 @@ from ..fingerprint import CATALOG_VERSION, DEVICE_CLASSES
 from ..ingest import refingerprint_tenant, refresh_fingerprint
 from ..rielabora import descrizione_passi
 from ..inventory_queries import (
+    con_colonne_derivate,
     delivery_detail,
     deliveries_list,
     device_type_distribution,
@@ -61,6 +62,7 @@ from ..web_presentation import (
 )
 from .. import map_graphic
 from .. import zones
+from ..presence import storico as presence_history
 from ..security import ROLE_ANALYST, ROLE_TENANT_ADMIN, login_required, role_required
 from ..subnets import MAX_HOSTS_PER_SUBNET, SubnetError, import_subnets
 from ..tenancy import current_tenant_id
@@ -91,7 +93,11 @@ def nodes():
         # I passi della rielaborazione: elenco e spiegazioni stanno nel modulo che
         # li esegue, non nel markup.
         passi_rielaborazione=descrizione_passi(),
-        nodes=nodes_list(
+        # `con_colonne_derivate` aggiunge il sistema operativo per approssimazioni
+        # successive e il riassunto delle letture web: due colonne che non stanno
+        # nella tabella dei nodi e che si compongono con tre interrogazioni per
+        # l'intera pagina (vedi inventory_queries.dati_accessori).
+        nodes=con_colonne_derivate(nodes_list(
             tenant_id,
             subnet_id=request.args.get("subnet", type=int),
             device_type=request.args.get("type") or None,
@@ -106,7 +112,7 @@ def nodes():
             seen=request.args.get("visto") or None,
             zone=request.args.get("zona") or None,
             mac=request.args.get("mac") or None,
-        ),
+        )),
         summary=inventory_summary(tenant_id),
         distribution=device_type_distribution(tenant_id),
         subnets=subnets_list(tenant_id),
@@ -585,6 +591,10 @@ def node(node_id: int):
         smb_summary=riassunto_smb,
         monitored_target=dict(sorvegliato) if sorvegliato is not None else None,
         changes=node_changes(tenant_id, node_id, limit=100),
+        # Le presenze di QUESTO nodo: su una rete senza fili l'indirizzo che si sta
+        # guardando puo' essere stato di piu' apparati, e il nodo puo' essere stato
+        # su piu' indirizzi. E' la dimensione che l'inventario da solo non ha.
+        presenze=presence_history(tenant_id, node_id=node_id),
         samples=monitor_history(tenant_id, node_id, limit=120),
         verdict=conservato.get("verdict") or {},
         evidence=conservato.get("evidence") or {},
@@ -1151,6 +1161,100 @@ def set_subnet_zone(subnet_id: int):
           " correlazione, oppure subito con Dispositivi > Riapplica ai dati gia'"
           " raccolti (passi \"correlazione\" e \"zone\")."
           % (riga["cidr"], voce["nome"]), "success")
+    return redirect(url_for("inventory.subnets"))
+
+
+@bp.get("/presenze")
+@login_required
+def presence():
+    """Storico delle presenze sulle reti senza fili.
+
+    Sta in Dispositivi e non in Monitoraggio perche' la domanda a cui risponde e'
+    "che apparati ci sono stati", non "il servizio era su": e' inventario nel tempo.
+    """
+    from .. import presence as presenze
+
+    tenant_id = current_tenant_id()
+    reti = [r["cidr"] for r in query(
+        "SELECT cidr FROM subnets WHERE tenant_id = ? AND COALESCE(is_wifi, 0) = 1"
+        " AND is_enabled = 1 ORDER BY cidr", (tenant_id,))]
+    return render_template(
+        "inventory/presence.html",
+        permanenze=presenze.storico(tenant_id,
+                                    subnet_id=request.args.get("subnet", type=int)),
+        riepilogo=presenze.riepilogo(tenant_id),
+        reti_wifi=reti,
+    )
+
+
+@bp.get("/presenze/andamento")
+@login_required
+def presence_trend():
+    """Andamento delle presenze: quanti apparati, quando, e per quanto ciascuno.
+
+    Due letture della stessa cosa, e servono entrambe. Il grafico risponde a "quanti,
+    e quando" -- il respiro di una rete di utenza, il picco del mattino, il vuoto
+    della notte -- che una tabella di permanenze non da'. Le fasce rispondono a "chi,
+    e per quanto": e' cio' che distingue una postazione che sta tutto il giorno da un
+    telefono che passa venti minuti, distinzione che un inventario senza tempo non
+    puo' fare.
+    """
+    from .. import presence as presenze
+
+    tenant_id = current_tenant_id()
+    # Allowlist sul periodo: la chiave arriva dall'URL, e `periodo()` scarta cio' che
+    # non conosce invece di comporre un intervallo su un valore inventato.
+    scelto = presenze.periodo(request.args.get("periodo"))
+    subnet_id = request.args.get("subnet", type=int)
+    reti = query(
+        "SELECT id, cidr FROM subnets WHERE tenant_id = ?"
+        " AND COALESCE(is_wifi, 0) = 1 AND is_enabled = 1 ORDER BY cidr", (tenant_id,))
+    return render_template(
+        "inventory/presence_trend.html",
+        andamento=presenze.andamento(tenant_id, chiave_periodo=scelto["chiave"],
+                                     subnet_id=subnet_id),
+        fasce=presenze.fasce(tenant_id, chiave_periodo=scelto["chiave"],
+                             subnet_id=subnet_id),
+        periodo=scelto,
+        periodi=presenze.PERIODI,
+        reti_wifi=[dict(r) for r in reti],
+        filtro_subnet=subnet_id,
+    )
+
+
+@bp.post("/subnets/<int:subnet_id>/wifi")
+@role_required(ROLE_TENANT_ADMIN)
+def toggle_subnet_wifi(subnet_id: int):
+    """Dichiara (o revoca) che una subnet e' una rete senza fili.
+
+    Non e' un'etichetta descrittiva: cambia il modo in cui la sonda osserva quella
+    rete. Su una rete Wi-Fi gli apparati si presentano e sparcono nel giro di minuti,
+    quindi una passata completa ogni tre giorni non li vede mai; dichiarandola, la
+    sonda le dedica una ricognizione breve e frequente e fa partire l'arricchimento
+    su chi compare.
+    """
+    tenant_id = current_tenant_id()
+    riga = query("SELECT * FROM subnets WHERE id = ? AND tenant_id = ?",
+                 (subnet_id, tenant_id), one=True)
+    if riga is None:
+        abort(404)
+
+    nuovo = 0 if int(riga["is_wifi"] or 0) else 1
+    execute("UPDATE subnets SET is_wifi = ?, updated_at = ?"
+            " WHERE id = ? AND tenant_id = ?",
+            (nuovo, utc_now_str(), subnet_id, tenant_id))
+    log_event("subnet.wifi.declared" if nuovo else "subnet.wifi.cleared",
+              "Subnet %s %s rete senza fili"
+              % (riga["cidr"], "dichiarata" if nuovo else "non e' piu'"),
+              tenant_id=tenant_id, entity="subnet", entity_id=subnet_id)
+    # Il messaggio dice QUANDO ha effetto: il perimetro raggiunge la sonda al battito
+    # successivo, non all'istante, e senza dirlo si resta a guardare la pagina.
+    flash("Subnet %s: %s. La sonda lo riceve col perimetro al prossimo battito"
+          " (meno di un minuto)."
+          % (riga["cidr"],
+             "ricognizione delle presenze attiva" if nuovo
+             else "ricognizione delle presenze disattivata"),
+          "success")
     return redirect(url_for("inventory.subnets"))
 
 

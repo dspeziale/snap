@@ -614,6 +614,107 @@ def monitor_overview(tenant_id: int) -> list[dict]:
     )
 
 
+# Quante righe di elenco si arricchiscono in una volta. Il limite non e' la memoria:
+# e' la lunghezza dell'elenco di segnaposto in una IN, che oltre qualche migliaio
+# diventa una interrogazione che nessuna base dati pianifica bene.
+MAX_NODI_ARRICCHITI = 2000
+
+# Porte il cui essere aperte dice qualcosa sulla FAMIGLIA del sistema (vedi
+# os_guess). Si leggono solo queste: l'elenco completo delle porte di ogni nodo
+# sarebbe migliaia di righe per riempire una colonna.
+PORTE_INDICATIVE = (22, 135, 139, 445, 3389)
+
+
+def dati_accessori(righe) -> dict:
+    """Cio' che serve alle colonne dell'elenco e non sta nella tabella dei nodi.
+
+    Tre interrogazioni per l'intera pagina, non tre per riga: le letture web, la
+    dichiarazione SMB del sistema, la descrizione dichiarata in SNMP e le poche porte
+    che indicano una famiglia di sistema. Con una sottointerrogazione per colonna e
+    per riga la stessa pagina costerebbe centinaia di interrogazioni.
+
+    Restituisce `{node_id: {"web": [...], "smb_os": str, "snmp_descr": str,
+    "porte": [int]}}`.
+    """
+    identificativi = []
+    for riga in righe or []:
+        try:
+            identificativi.append(int(riga["id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if len(identificativi) >= MAX_NODI_ARRICCHITI:
+            break
+    if not identificativi:
+        return {}
+
+    segnaposto = ",".join("?" for _ in identificativi)
+    accessori = {i: {"web": [], "smb_os": "", "snmp_descr": "", "porte": []}
+                 for i in identificativi}
+
+    for riga in query(
+            "SELECT node_id, port, title, product, model, brand, device_name,"
+            " location, firmware, server_header"
+            " FROM node_web WHERE node_id IN (%s) ORDER BY node_id, port"
+            % segnaposto, tuple(identificativi)):
+        accessori[int(riga["node_id"])]["web"].append(dict(riga))
+
+    # SMB e SNMP: l'apparato che dichiara il proprio sistema. Si prende il testo
+    # grezzo dello script, che os_guess sa leggere.
+    for riga in query(
+            "SELECT node_id, output FROM node_smb"
+            " WHERE node_id IN (%s) AND script_id = 'smb-os-discovery'"
+            " AND output IS NOT NULL" % segnaposto, tuple(identificativi)):
+        accessori[int(riga["node_id"])]["smb_os"] = riga["output"] or ""
+
+    for riga in query(
+            "SELECT node_id, output FROM node_snmp"
+            " WHERE node_id IN (%s) AND script_id = 'snmp-info'"
+            " AND output IS NOT NULL" % segnaposto, tuple(identificativi)):
+        accessori[int(riga["node_id"])]["snmp_descr"] = riga["output"] or ""
+
+    porte_segnaposto = ",".join("?" for _ in PORTE_INDICATIVE)
+    for riga in query(
+            "SELECT node_id, port FROM node_ports"
+            " WHERE node_id IN (%s) AND state = 'open'"
+            " AND COALESCE(is_suspect, 0) = 0 AND port IN (%s)"
+            % (segnaposto, porte_segnaposto),
+            tuple(identificativi) + tuple(PORTE_INDICATIVE)):
+        accessori[int(riga["node_id"])]["porte"].append(int(riga["port"]))
+
+    return accessori
+
+
+def con_colonne_derivate(righe) -> list:
+    """Le righe dell'elenco con il sistema operativo indovinato e il riassunto web.
+
+    Le due colonne rispondono a due lamentele precise: "Sistema operativo" era vuota
+    per la maggior parte dei nodi (una sola fonte su otto possibili -- vedi
+    `os_guess`), e la subnet, che si legge gia' dall'indirizzo e dal filtro, occupava
+    il posto di cio' che l'apparato dichiara di se'.
+    """
+    from .os_guess import indovina
+    from .web_presentation import riassunto_web
+
+    accessori = dati_accessori(righe)
+    elenco = []
+    for riga in righe or []:
+        voce = dict(riga)
+        extra = accessori.get(int(voce["id"]), {})
+        voce["os_guess"] = indovina(
+            voce,
+            smb_os=extra.get("smb_os"),
+            snmp_descr=extra.get("snmp_descr"),
+            web_server=next((p.get("server_header") for p in extra.get("web") or []
+                             if p.get("server_header")), None),
+            web_testo=" ".join(
+                str(p.get("title") or "") + " " + str(p.get("product") or "")
+                for p in extra.get("web") or []),
+            porte=extra.get("porte") or ())
+        voce["info_web"] = riassunto_web(extra.get("web") or [])
+        elenco.append(voce)
+    return elenco
+
+
 def subnets_list(tenant_id: int) -> list[dict]:
     """Perimetro dichiarato, con i nodi trovati in ciascuna subnet."""
     return query(

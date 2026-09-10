@@ -378,6 +378,10 @@ MIGRATIONS = [
     ("probes", "scan_discovery_days", "INTEGER NOT NULL DEFAULT 3"),
     ("probes", "scan_paused", "INTEGER NOT NULL DEFAULT 0"),
     ("probes", "scan_blocked_alerted_at", "TEXT"),
+    # Istantanea della console della sonda e istante in cui e' stata composta: la
+    # sonda non e' interrogabile (NAT), quindi lo stato arriva col battito.
+    ("probes", "console_json", "TEXT"),
+    ("probes", "console_at", "TEXT"),
     ("users", "pref_kpi_hidden", "TEXT NOT NULL DEFAULT ''"),
     ("users", "telegram_chat_id", "TEXT"),
     # Fatti dichiarati dalle pagine degli apparati (vedi web_facts nella sonda).

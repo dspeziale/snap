@@ -17,6 +17,7 @@ che li riguardano.
   scripts    esiti degli script NSE, conservati come prove
   snmp       letture SNMP complete: testo degli script e riassunto
   web        letture delle interfacce web: cio' che la pagina dichiara di se'
+  presence   avvistamenti sulle reti senza fili: chi era qui e quando (presence.py)
   monitor    campioni di raggiungibilita' e latenza
   scan_runs  telemetria delle fasi di scansione
   events     annotazioni della sonda, che confluiscono nell'audit del tenant
@@ -79,16 +80,23 @@ MAX_STORED_RECORDS_BYTES = 256 * 1024
 # soglia, e la rilevazione NON scattava: 98 nodi su 145 venivano classificati
 # "Telefono VoIP" sulla base di quella sola porta.
 #
-# Due corroborazioni, e basta UNA delle due:
+# Due prove, di peso diverso:
 #
-#  a) ETEROGENEITA' dei sistemi operativi: una porta aperta quasi su tutto, su
-#     famiglie diverse, non e' un servizio dei nodi;
+#  a) DIFFUSIONE + ETEROGENEITA' dei sistemi operativi: una porta aperta quasi su
+#     tutto, su famiglie diverse, non e' un servizio dei nodi. Richiede la soglia
+#     di prevalenza;
 #  b) RISPOSTA DA UN INDIRIZZO IMPOSSIBILE: se la porta risulta aperta
 #     sull'indirizzo di rete o di broadcast della subnet, la' non puo' esserci un
-#     host -- risponde per forza qualcun altro. E' la prova piu' forte che esista,
-#     e non richiede che la fase del sistema operativo sia passata (che e' il
-#     motivo per cui la sola eterogeneita' non bastava: sui nodi appena scoperti
-#     la famiglia OS non e' ancora nota).
+#     host -- risponde per forza qualcun altro, e risponde PER IL SEGMENTO. E' una
+#     prova accertata, non un indizio statistico: NON richiede la soglia di
+#     prevalenza, e non richiede che la fase del sistema operativo sia passata.
+#
+#     Costato una seconda volta per questo: la soglia veniva applicata prima di
+#     guardare l'indirizzo impossibile, quindi la prova forte non arrivava mai a
+#     contare. Su 10.10.60.0/24 la tcp/5060 era aperta sul 53% dei nodi (sotto
+#     soglia) e su entrambi gli indirizzi impossibili: 128 nodi classificati
+#     "Telefono VoIP". La diffusione cresce durante la passata, quindi la
+#     marcatura sarebbe arrivata solo a scansione conclusa.
 #
 # Limite dichiarato: un servizio genuinamente presente su quasi tutti i nodi di
 # una subnet eterogenea, e mai identificato per prodotto, viene marcato come
@@ -97,6 +105,22 @@ MAX_STORED_RECORDS_BYTES = 256 * 1024
 SUSPECT_MIN_NODES = 8
 SUSPECT_MIN_PREVALENCE = 0.95
 SUSPECT_MIN_OS_FAMILIES = 3
+
+# SEGMENTO SERVITO DA UN APPARATO INTERMEDIO: quando l'indirizzo di rete o quello di
+# broadcast della subnet RISPONDONO -- anche solo al ping -- la' non c'e' nessun host,
+# quindi qualcuno risponde per il segmento. E' un fatto accertato sulla SUBNET, non su
+# una porta, e arriva molto prima delle porte: basta la scoperta.
+#
+# Misurato sulla rete ospiti 10.10.60.0/24: 256 nodi "attivi" su 254 indirizzi
+# possibili, nessun MAC, TTL identico su tutti. La tcp/5060 era aperta sul 53% dei
+# nodi -- sotto la soglia ordinaria -- e produceva 128 "Telefono VoIP". Su un segmento
+# cosi' la diffusione richiesta scende: una porta presente su metà del segmento non e'
+# attribuibile a nessun host, perche' non si sa quali di quegli indirizzi siano host.
+#
+# Non scende a zero, e la ragione conta: dietro l'apparato intermedio ci sono anche
+# apparati veri. Sulla stessa rete la 445 risponde su 12 nodi su 256 (il 4,7%) -- sono
+# macchine Windows reali, e sopprimerle sarebbe il difetto opposto.
+SUSPECT_PREVALENCE_SEGMENTO_SERVITO = 0.50
 
 
 class IngestError(Exception):
@@ -915,6 +939,78 @@ def _intero(valore):
         return None
 
 
+def _apply_presence(ctx, record: dict) -> None:
+    """Registra un avvistamento su una rete senza fili.
+
+    Arriva dalla ricognizione breve e frequente della sonda (una passata ogni pochi
+    minuti). Non crea il nodo e non ne aggiorna il profilo: quello lo fanno i record
+    di tipo `nodes` dello stesso lotto, applicati prima di questo. Qui si risponde a
+    una domanda che l'inventario da solo non sa dare -- CHI era qui e QUANDO -- perche'
+    su una rete Wi-Fi l'indirizzo non identifica un apparato (vedi presence.py).
+    """
+    from . import presence
+
+    ip = _clean(record.get("ip"), maximum=64)
+    if not ip:
+        raise IngestError("record di tipo presence senza indirizzo")
+    nodo = _node_by_ip(ctx["tenant_id"], ip)
+    if nodo is None:
+        # Un avvistamento senza il nodo corrispondente vuol dire che il lotto non
+        # portava il record `nodes`: si dichiara come orfano invece di inventare un
+        # nodo da un solo ping.
+        ctx["orphans"].append("presence:" + ip)
+        return
+
+    node_id = int(nodo["id"])
+    # Il MAC e il nome host si prendono dal NODO, non dal record: il nodo li ha
+    # raccolti da tutte le fasi (ARP, SNMP, DNS), la ricognizione vede solo un ping.
+    dati = {"ip": ip, "mac": nodo["mac"], "hostname": nodo["hostname"]}
+    if not dati["mac"]:
+        dati["mac"] = _clean(record.get("mac"), maximum=32) or None
+    if not dati["hostname"]:
+        dati["hostname"] = _clean(record.get("hostname"), maximum=190) or None
+
+    esito = presence.registra_avvistamento(
+        ctx["tenant_id"], dati,
+        visto_a=_timestamp(record.get("seen_at"), ctx["now"]),
+        seriale=_seriale_noto(ctx["tenant_id"], node_id),
+        profilo=_impronta_debole(ctx["tenant_id"], node_id, nodo),
+        subnet_id=(int(nodo["subnet_id"]) if nodo["subnet_id"] else None),
+        node_id=node_id,
+        etichetta=nodo["device_label"])
+    if esito["nuova"]:
+        ctx.setdefault("presence_new", []).append(ip)
+
+
+def _seriale_noto(tenant_id: int, node_id: int) -> str | None:
+    """Il numero di serie che l'apparato ha dichiarato, se ne ha dichiarato uno.
+
+    E' la seconda identita' in ordine di certezza dopo il MAC, e su una stampante o
+    un apparato di rete e' l'unica che non cambia mai.
+    """
+    riga = query(
+        "SELECT serial FROM node_web WHERE tenant_id = ? AND node_id = ?"
+        " AND serial IS NOT NULL AND serial <> '' ORDER BY port LIMIT 1",
+        (tenant_id, node_id), one=True)
+    return _clean(riga["serial"], maximum=80) if riga is not None else None
+
+
+def _impronta_debole(tenant_id: int, node_id: int, nodo) -> str | None:
+    """Impronta del profilo osservato: TTL, porte aperte, famiglia del sistema.
+
+    Non identifica un apparato -- mille postazioni uguali la condividono -- ma se
+    cambia sullo stesso indirizzo dice che l'indirizzo e' passato a un altro
+    apparato. Quando il MAC non c'e', e' l'unico modo di accorgersene.
+    """
+    from . import presence
+
+    porte = [int(r["port"]) for r in query(
+        "SELECT port FROM node_ports WHERE node_id = ? AND state = 'open'"
+        " AND COALESCE(is_suspect, 0) = 0 ORDER BY port LIMIT 40", (node_id,))]
+    return presence.impronta_profilo(ttl=nodo["ttl"], porte=porte,
+                                     famiglia_os=nodo["os_family"])
+
+
 _APPLICATORI = {
     "check_results": _apply_check_result,
     "nodes": _apply_node,
@@ -925,6 +1021,9 @@ _APPLICATORI = {
     "smb": _apply_smb,
     "vuln": _apply_vuln,
     "web": _apply_web,
+    # Le presenze dopo il web: l'identita' piu' forte dopo il MAC e' il numero di
+    # serie, e quello lo dichiara la pagina dell'apparato.
+    "presence": _apply_presence,
     "monitor": _apply_monitor,
     "scan_runs": _apply_scan_run,
     "events": _record_probe_event,
@@ -997,9 +1096,19 @@ def refresh_suspect_ports(tenant_id: int) -> dict:
     soppresso l'unico telefono forse vero.
     """
     per_subnet = query(
-        "SELECT subnet_id, COUNT(*) AS n FROM nodes WHERE tenant_id = ?"
-        " GROUP BY subnet_id", (tenant_id,))
+        "SELECT n.subnet_id, COUNT(*) AS n,"
+        # Un indirizzo di rete o di broadcast che RISPONDE: la' non c'e' un host, e
+        # dunque risponde un apparato intermedio per tutto il segmento. Si guarda la
+        # raggiungibilita', non le porte: e' un dato che la sola scoperta produce.
+        " SUM(CASE WHEN s.cidr IS NOT NULL AND n.status = 'up'"
+        "          AND (n.ip = host(network(s.cidr::cidr))"
+        "               OR n.ip = host(broadcast(s.cidr::cidr)))"
+        "     THEN 1 ELSE 0 END) AS impossibili_vivi"
+        " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE n.tenant_id = ? GROUP BY n.subnet_id", (tenant_id,))
     quanti = {r["subnet_id"]: int(r["n"]) for r in per_subnet}
+    serviti = {r["subnet_id"] for r in per_subnet
+               if int(r["impossibili_vivi"] or 0) > 0}
     nodi = sum(quanti.values())
     if nodi < SUSPECT_MIN_NODES:
         return {"marked": 0, "cleared": 0, "nodes": nodi}
@@ -1036,15 +1145,46 @@ def refresh_suspect_ports(tenant_id: int) -> dict:
             # e' un servizio reale, non la risposta di un apparato intermedio.
             continue
         prevalenza = int(riga["nodi"]) / float(totale_subnet)
-        if prevalenza < SUSPECT_MIN_PREVALENCE:
-            continue
         impossibili = int(riga["impossibili"] or 0)
         famiglie = int(riga["famiglie"] or 0)
+        # LA DIFFUSIONE SI CHIEDE SOLO SE MANCA LA PROVA DECISIVA, e l'ordine era
+        # sbagliato: la soglia di prevalenza veniva applicata PRIMA di guardare
+        # l'indirizzo impossibile, quindi la prova piu' forte non arrivava mai a
+        # contare finche' la porta non era sul 95% dei nodi.
+        #
+        # Misurato su 10.10.60.0/24 (rete ospiti, 256 nodi): tcp/5060 aperta su 137
+        # nodi -- il 53%, sotto soglia -- E sull'indirizzo di rete E su quello di
+        # broadcast. Risultato: 128 nodi classificati "Telefono VoIP" da una porta
+        # che un apparato intermedio serve per l'intero segmento. La diffusione
+        # cresce durante la passata, quindi la marcatura sarebbe arrivata solo a
+        # scansione conclusa -- e nel frattempo l'inventario era sbagliato.
+        #
+        # Se la porta risponde dove un host NON PUO' ESISTERE, il fatto e' accertato
+        # e non ha bisogno di essere anche diffuso: chi risponde la' risponde per il
+        # segmento. La conseguenza va detta: su quel segmento la porta non e' piu'
+        # utilizzabile come prova nemmeno per un apparato che la offrisse davvero --
+        # l'informazione e' indistinguibile, e dichiararla inutilizzabile e' piu'
+        # onesto che attribuirla a 128 nodi.
+        # La soglia di diffusione dipende da che cosa si sa del SEGMENTO: dove gli
+        # indirizzi impossibili rispondono, non si sa nemmeno quali indirizzi siano
+        # host, e pretendere il 95% vorrebbe dire attendere la fine della passata con
+        # l'inventario sbagliato nel frattempo.
+        soglia = (SUSPECT_PREVALENCE_SEGMENTO_SERVITO if subnet in serviti
+                  else SUSPECT_MIN_PREVALENCE)
+        if not impossibili and prevalenza < soglia:
+            continue
         if impossibili:
             spiegazione = (
-                "aperta sul %d%% dei nodi della subnet E sull'indirizzo di rete o di"
-                " broadcast, dove non puo' esistere un host: risponde un apparato"
-                " intermedio, non il nodo" % int(prevalenza * 100))
+                "risponde sull'indirizzo di rete o di broadcast della subnet, dove"
+                " non puo' esistere un host: la serve un apparato intermedio per"
+                " tutto il segmento, non il nodo (aperta sul %d%% dei nodi)"
+                % int(prevalenza * 100))
+        elif subnet in serviti:
+            spiegazione = (
+                "su questa subnet l'indirizzo di rete o di broadcast risponde, dove"
+                " non puo' esistere un host: un apparato intermedio risponde per tutto"
+                " il segmento, e questa porta e' aperta sul %d%% dei nodi -- non e'"
+                " attribuibile a nessuno di essi" % int(prevalenza * 100))
         elif famiglie >= SUSPECT_MIN_OS_FAMILIES:
             spiegazione = (
                 "aperta sul %d%% dei nodi della subnet e su %d famiglie di sistema"

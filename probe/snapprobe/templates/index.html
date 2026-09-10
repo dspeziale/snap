@@ -234,6 +234,52 @@
 
 <div class="tab-pane fade show active" id="pane-scansione" role="tabpanel"
      aria-labelledby="tab-scansione">
+{# RICOGNIZIONE DELLE PRESENZE. Compare solo dove serve: se nessuna subnet e'
+   dichiarata senza fili, questa attivita' non esiste e un riquadro vuoto sarebbe
+   soltanto una domanda in piu' per chi guarda. #}
+{% if agent_status.presence and agent_status.presence.subnets_wifi %}
+<div class="card mb-3 border-primary">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0"><i class="bi bi-wifi me-1"></i> Presenze sulle reti senza fili</h2>
+    <span class="badge text-bg-light text-dark border">
+      ogni {{ agent_status.presence.interval_sec }} s
+    </span>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary mb-2">
+      Su una rete senza fili un apparato resta agganciato minuti: la scoperta
+      ordinaria, che ripassa il perimetro ogni giorni, non lo vedrebbe mai. Questa
+      ricognizione chiede soltanto <strong>chi risponde</strong>, e lo chiede spesso;
+      chi compare passa in testa alla coda dell'esame delle porte.
+    </p>
+    <dl class="row mb-0 small">
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">Reti osservate</dt>
+      <dd class="col-7 col-md-9 mb-1 font-monospace">
+        {{ agent_status.presence.subnets_wifi|join(', ') }}
+      </dd>
+      {% if agent_status.presence.at %}
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">Ultima passata</dt>
+      <dd class="col-7 col-md-9 mb-1">
+        {{ agent_status.presence.at }} &middot;
+        {{ agent_status.presence.seen }} presenti,
+        {{ agent_status.presence.new }} nuovi,
+        in {{ agent_status.presence.duration_sec }} s
+      </dd>
+      {% else %}
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">Ultima passata</dt>
+      <dd class="col-7 col-md-9 mb-1 text-body-secondary">nessuna ancora</dd>
+      {% endif %}
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">In coda prioritaria</dt>
+      <dd class="col-7 col-md-9 mb-0">
+        {{ agent_status.presence.priority_queue }}
+        apparat{{ 'o' if agent_status.presence.priority_queue == 1 else 'i' }}
+        in attesa dell'esame delle porte
+      </dd>
+    </dl>
+  </div>
+</div>
+{% endif %}
+
 <div class="card mb-3">
   <div class="card-header">
     <h2 class="h6 mb-0"><i class="bi bi-radar me-1"></i> Scansione della rete</h2>
@@ -334,10 +380,14 @@
               class="d-inline-flex align-items-center gap-1">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <select name="effort" class="form-select form-select-sm" style="width:auto">
-            {% for valore, testo in [('min', 'minimo (1 thread)'), ('med', 'medio (2 thread)'),
-                                     ('max', 'massimo (4 thread)')] %}
-            <option value="{{ valore }}" {% if scan.effort == valore %}selected{% endif %}>
-              {{ testo }}
+            {# Le etichette vengono dai profili, non scritte qui: dicevano 1/2/4
+               thread mentre i profili erano 1/16/32, e contraddicevano la
+               spiegazione due righe sotto. #}
+            {% for scelta in scan.effort_choices %}
+            <option value="{{ scelta.valore }}"
+                    {% if scan.effort == scelta.valore %}selected{% endif %}>
+              {{ scelta.nome }} ({{ scelta.thread }}
+              thread{{ '' if scelta.thread == 1 else 'i' }})
             </option>
             {% endfor %}
           </select>
@@ -380,10 +430,20 @@
           <button type="submit" class="btn btn-sm btn-outline-secondary">Applica</button>
         </form>
         <div class="small text-body-secondary mt-1">
-          In uso: <strong>{{ scan.host_timeout }}</strong> per host.
-          Le fasi di servizi, sistema operativo e approfondimento usano almeno
-          <strong>{{ scan.host_timeout_floor }}</strong>: con meno tempo nmap abbandona l'host
-          e la fase non produce nulla.
+          In uso: <strong>{{ scan.host_timeout }}</strong> per host, e riguarda le
+          fasi di approfondimento ({{ scan.host_timeout_stages|join(', ') }}), che
+          usano almeno <strong>{{ scan.host_timeout_floor }}</strong>: con meno tempo
+          nmap abbandona l'host e la fase non produce nulla.
+          {# Detto qui perche' e' la domanda che questa pagina faceva nascere: il
+             valore NON governa la fase piu' lunga. La fase delle porte esamina un
+             gruppo di host in un solo processo, e in quella struttura un tetto per
+             host li faceva scadere tutti insieme -- era la ragione per cui una /24
+             non finiva mai. Il suo tetto e' sul processo, calcolato sulle sonde da
+             inviare. #}
+          <span class="d-block">
+            La fase delle <strong>porte</strong> non lo usa: ha un tetto sul processo
+            calcolato sul numero di sonde da inviare.
+          </span>
           {% if scan.host_timeout_from_server is not none
                 and scan.host_timeout_from_server != (scan.host_timeout_chosen or '') %}
           <span class="text-warning">Il server chiede

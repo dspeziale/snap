@@ -1163,6 +1163,50 @@
 {% endif %}
 
 <div class="tab-pane fade" id="pane-storia" role="tabpanel" aria-labelledby="tab-storia">
+{# PRESENZE. Compare solo dove esiste: su una rete cablata questo nodo e' questo
+   indirizzo, e un riquadro vuoto sarebbe una domanda in piu'. Su una rete senza fili
+   invece l'indirizzo e' un posto, non un apparato -- e allora conta sapere quante
+   volte quell'apparato e' stato qui, e con quanta certezza lo si e' riconosciuto. #}
+{% if presenze %}
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-wifi me-1"></i> Presenze ({{ presenze|length }})
+    </h3>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="10">
+        <thead><tr><th>DALLE</th><th>ALLE</th><th>INDIRIZZO</th>
+                   <th>RICONOSCIUTO DA</th><th>AVVISTAMENTI</th>
+                   <th>APERTA PERCHE'</th></tr></thead>
+        <tbody>
+          {% for p in presenze %}
+          <tr>
+            <td class="small">{{ p.first_seen_at|dt }}</td>
+            <td class="small">{{ p.last_seen_at|dt }}
+              <div class="text-body-secondary">{{ p.last_seen_at|ago }}</div>
+            </td>
+            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if p.identity_certainty == 'certa'
+                                            else 'warning' if p.identity_certainty == 'probabile'
+                                            else 'secondary' }}"
+                    title="{{ p.identity_explained }}">{{ p.identity_label }}</span>
+            </td>
+            <td class="small">{{ p.sightings }}</td>
+            <td class="small text-body-secondary">{{ p.opened_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="p-2 small text-body-secondary border-top">
+      <a href="{{ url_for('inventory.presence') }}">Tutte le presenze della rete</a>
+    </div>
+  </div>
+</div>
+{% endif %}
 <div class="row g-3">
   <div class="col-12 col-xl-7">
     <div class="card h-100">

@@ -1,10 +1,18 @@
 """
 snap server - Dati iniziali (bootstrap).
 
-Crea l'amministratore di sistema e due tenant dimostrativi con fusi orari
-differenti, utili a verificare l'isolamento multi-tenant e la normalizzazione
-oraria. Il comando e' idempotente: le entita' gia' presenti non vengono
-duplicate ne' modificate.
+Crea l'amministratore di sistema e il tenant iniziale con le proprie utenze. Il
+comando e' idempotente: le entita' gia' presenti non vengono duplicate ne'
+modificate.
+
+UN SOLO TENANT, e la ragione va scritta perche' qui ce n'erano due. Il secondo
+("ACME International") serviva a dimostrare l'isolamento multi-tenant e la
+normalizzazione oraria, ma quella e' una necessita' dei TEST, non
+dell'installazione: in esercizio compariva nel selettore dei tenant di ogni
+amministratore di sistema, e un tenant finto in un elenco vero e' una cosa che
+qualcuno prima o poi apre. I test che hanno bisogno di due tenant se lo creano
+(vedi tests/test_multitenancy.py), cosi' la prova non dipende da quali dati
+dimostrativi il prodotto decide di creare.
 
 remarks: Autore: Daniele Speziale - Data: 2026-08-26
 copyright: (c) 2024-26 DS Consulting
@@ -24,6 +32,8 @@ from .security import (
     hash_password,
 )
 
+# Il tenant iniziale. Il nome della costante resta al plurale perche' l'elenco resta
+# un elenco: un'installazione che nasce con piu' organizzazioni le dichiara qui.
 DEMO_TENANTS = [
     {
         "code": "ised",
@@ -34,15 +44,6 @@ DEMO_TENANTS = [
             ("admin@ised.local", "Amministratore ISED", ROLE_TENANT_ADMIN),
             ("analista@ised.local", "Analista Sicurezza", ROLE_ANALYST),
             ("audit@ised.local", "Revisore Interno", ROLE_VIEWER),
-        ],
-    },
-    {
-        "code": "acme",
-        "name": "ACME International Ltd.",
-        "timezone": "America/New_York",
-        "contact_email": "soc@acme.local",
-        "users": [
-            ("admin@acme.local", "ACME Administrator", ROLE_TENANT_ADMIN),
         ],
     },
 ]

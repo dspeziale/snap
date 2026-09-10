@@ -111,6 +111,10 @@ RETENTION_TYPES = [
     ("rule_matches", "rule_matches", "created_at",
      "Eventi che hanno soddisfatto una regola", 365,
      "Storia delle notifiche automatiche, utile a capire una regola troppo larga."),
+    ("presence_sessions", "presence_sessions", "last_seen_at",
+     "Presenze sulle reti senza fili", 90,
+     "La presenza di un apparato personale e' un dato personale (GDPR art. 5): si"
+     " conserva il tempo che serve a leggere un andamento, non per sempre."),
     ("probe_nonces", "probe_nonces", "seen_at",
      "Contrassegni antiripetizione", 7,
      "Servono solo a rifiutare una richiesta ripetuta: oltre la finestra sono inerti."),

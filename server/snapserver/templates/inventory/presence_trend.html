@@ -1,0 +1,222 @@
+{#
+  snap server - Andamento delle presenze sulle reti senza fili.
+
+  Due letture della stessa cosa, e servono entrambe: il grafico dice QUANTI apparati
+  c'erano intervallo per intervallo (il respiro della rete: il picco del mattino, il
+  vuoto della notte), le fasce dicono CHI e per quanto. La seconda e' quella che
+  distingue una postazione che sta tutto il giorno da un telefono che passa venti
+  minuti -- distinzione che un inventario senza tempo non puo' fare.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-10
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Andamento delle presenze{% endblock %}
+{% block page_icon %}bi-graph-up{% endblock %}
+{% block page_title %}Andamento delle Presenze{% endblock %}
+{% block page_subtitle %}
+  Quanti apparati erano in rete, quando, e per quanto tempo ciascuno. Sulle sole reti
+  dichiarate senza fili.
+{% endblock %}
+
+{% block content %}
+
+<div class="card mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Periodo osservato">
+      {% for voce in periodi %}
+      <a class="btn btn-{{ 'primary' if voce.chiave == periodo.chiave else 'outline-secondary' }}"
+         href="{{ url_for('inventory.presence_trend', periodo=voce.chiave,
+                          subnet=filtro_subnet or None) }}">{{ voce.nome }}</a>
+      {% endfor %}
+    </div>
+    {% if reti_wifi %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Rete osservata">
+      <a class="btn btn-{{ 'primary' if not filtro_subnet else 'outline-secondary' }}"
+         href="{{ url_for('inventory.presence_trend', periodo=periodo.chiave) }}">
+        tutte le reti
+      </a>
+      {% for rete in reti_wifi %}
+      <a class="btn btn-{{ 'primary' if filtro_subnet == rete.id else 'outline-secondary' }}"
+         href="{{ url_for('inventory.presence_trend', periodo=periodo.chiave,
+                          subnet=rete.id) }}">{{ rete.cidr }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('inventory.presence', subnet=filtro_subnet or None) }}">
+      <i class="bi bi-table me-1"></i> Elenco delle permanenze
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">PRESENZE CONTEMPORANEE, MASSIMO</p>
+        <p class="snap-stat-value mb-0">{{ andamento.massimo }}</p>
+        <p class="snap-stat-foot mb-0">apparati insieme nello stesso intervallo</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">MEDIA DEL PERIODO</p>
+        <p class="snap-stat-value mb-0">{{ andamento.media }}</p>
+        <p class="snap-stat-foot mb-0">apparati per intervallo</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">APPARATI DISTINTI</p>
+        <p class="snap-stat-value mb-0">{{ andamento.apparati }}</p>
+        <p class="snap-stat-foot mb-0">visti almeno una volta nel periodo</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# IL GRAFICO. L'ascissa e' il tempo dichiarato (data-da/data-a), non la posizione nel
+   vettore: un intervallo in cui la sonda non ha guardato deve restare un buco
+   visibile, non un punto che manca (vedi snap-grafici.js). #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-graph-up me-1"></i> Apparati presenti nel tempo
+    </h2>
+    <span class="text-body-secondary small">
+      un punto ogni
+      {% if periodo.passo_min < 60 %}{{ periodo.passo_min }} minuti
+      {% elif periodo.passo_min == 60 %}ora
+      {% elif periodo.passo_min < 1440 %}{{ (periodo.passo_min / 60)|int }} ore
+      {% else %}giorno{% endif %}
+    </span>
+  </div>
+  <div class="card-body">
+    {% if andamento.punti %}
+    <div class="text-primary" data-snap-grafico data-altezza="200"
+         data-etichetta="apparati presenti"
+         data-da="{{ andamento.da }}" data-a="{{ andamento.a }}"
+         data-punti="{{ andamento.punti|tojson }}"></div>
+    {% else %}
+    <p class="text-body-secondary small mb-0">
+      Nessuna presenza registrata in questo periodo.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+{# LE FASCE. Una riga per apparato, la sua presenza disegnata sul tempo. La posizione
+   di ogni fascia arriva gia' calcolata in percentuale dal server: la pagina non fa
+   conti e non ha bisogno di JavaScript (politica dei contenuti del progetto). #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-bar-chart-steps me-1"></i>
+      Presenza di ciascun apparato ({{ fasce.totale }})
+    </h2>
+    {% if fasce.esclusi %}
+    <span class="badge text-bg-light text-dark border">
+      mostrati i {{ fasce.righe|length }} piu' recenti, altri {{ fasce.esclusi }} non
+      disegnati
+    </span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    {% if fasce.righe %}
+    {# L'asse dei tempi, una volta sola in cima: senza riferimenti una fascia larga il
+       12% non direbbe di quando si tratta. #}
+    <div class="snap-fasce-asse mb-2">
+      {% for tacca in fasce.tacche %}
+      <span class="snap-fascia-tacca" style="left:{{ tacca.posizione }}%"
+            title="{{ tacca.istante }}">{{ tacca.etichetta }}</span>
+      {% endfor %}
+    </div>
+
+    {% for riga in fasce.righe %}
+    <div class="row g-2 align-items-center py-1 border-top">
+      <div class="col-12 col-md-4 col-lg-3 small">
+        {% if riga.node_id %}
+        <a href="{{ url_for('inventory.node', node_id=riga.node_id) }}"
+           class="fw-semibold text-decoration-none">
+          {{ riga.device_label or 'Non identificato' }}
+        </a>
+        {% else %}
+        <span class="fw-semibold">{{ riga.device_label or 'Non identificato' }}</span>
+        {% endif %}
+        <div class="text-body-secondary">
+          {% if riga.hostname %}{{ riga.hostname }}{% endif %}
+          <span class="font-monospace">{{ riga.indirizzi|join(', ') }}</span>
+        </div>
+        <span class="badge text-bg-{{ 'success' if riga.identity_certainty == 'certa'
+                                      else 'warning' if riga.identity_certainty == 'probabile'
+                                      else 'secondary' }}"
+              title="Su che cosa e' stato riconosciuto fra una visita e l'altra">
+          {{ riga.identity_label }}
+        </span>
+        {% if riga.indirizzi|length > 1 %}
+        {# Piu' indirizzi nello stesso periodo: e' il fatto che questa pagina esiste
+           per mostrare, e senza un'identita' stabile non si vedrebbe. #}
+        <span class="badge text-bg-info"
+              title="Ha cambiato indirizzo durante il periodo osservato">
+          <i class="bi bi-arrow-left-right me-1"></i>{{ riga.indirizzi|length }} indirizzi
+        </span>
+        {% endif %}
+      </div>
+      <div class="col-12 col-md-8 col-lg-9">
+        <div class="snap-fasce-riga">
+          {% for tacca in fasce.tacche %}
+          <span class="snap-fascia-griglia" style="left:{{ tacca.posizione }}%"></span>
+          {% endfor %}
+          {% for fascia in riga.fasce %}
+          <span class="snap-fascia"
+                style="left:{{ fascia.sinistra }}%;width:{{ fascia.larghezza }}%"
+                title="{{ fascia.ip }} &middot; dalle {{ fascia.dalle }} alle {{ fascia.alle }} &middot; {{ fascia.avvistamenti }} avvistamenti{% if fascia.motivo %} &middot; {{ fascia.motivo }}{% endif %}"></span>
+          {% endfor %}
+        </div>
+        <div class="text-body-secondary small text-end">
+          presente per il {{ riga.presenza_percento }}% del periodo
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <p class="text-body-secondary small mb-0">
+      Nessun apparato visto in questo periodo. Se una rete e' stata dichiarata senza
+      fili adesso, i primi avvistamenti arrivano entro pochi minuti.
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-question-circle me-1"></i> Come si legge</h2>
+  </div>
+  <div class="card-body small">
+    <p>
+      Nel grafico un apparato conta in un intervallo se la sua permanenza lo
+      <strong>tocca</strong>, anche solo in parte: la presenza e' un fatto continuo, e
+      un intervallo attraversato da una permanenza e' un intervallo in cui quell'
+      apparato c'era. Una permanenza cominciata prima del periodo viene tagliata
+      all'inizio della finestra, non ignorata -- ignorarla direbbe che l'apparato non
+      c'era.
+    </p>
+    <p class="mb-0">
+      Nelle fasce, una riga lunga e continua e' un apparato che sta (una postazione,
+      una stampante); molte fasce brevi sono un apparato che va e viene. Il segno
+      <span class="badge text-bg-info"><i class="bi bi-arrow-left-right"></i></span>
+      dice che nel periodo ha avuto <strong>piu' indirizzi</strong>: e' il fatto che
+      questa pagina esiste per mostrare, e senza un'identita' stabile
+      (<a href="{{ url_for('inventory.presence') }}">vedi la colonna del
+      riconoscimento</a>) non si vedrebbe affatto.
+    </p>
+  </div>
+</div>
+{% endblock %}

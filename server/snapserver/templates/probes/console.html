@@ -1,0 +1,358 @@
+{#
+  snap server - Console remota di una sonda.
+
+  Le stesse cose che si vedono aprendo l'interfaccia locale della sonda, senza dover
+  raggiungere la sonda: lei sta nella rete del cliente e parla solo in uscita, quindi
+  il server non puo' interrogarla. Lo stato arriva con il battito, ogni quindici
+  secondi, e la pagina dichiara sempre di QUANDO e' cio' che mostra -- perche' una
+  fotografia presentata come diretta e' una bugia.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-10
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Console di {{ probe.name }}{% endblock %}
+{% block page_icon %}bi-display{% endblock %}
+{% block page_title %}Console di {{ probe.name }}{% endblock %}
+{% block page_subtitle %}
+  Quello che si vede aprendo l'interfaccia della sonda, dal server. La sonda non e'
+  raggiungibile dall'esterno: lo stato arriva con il proprio battito.
+{% endblock %}
+
+{% block content %}
+
+{# Alias sicuri: l'intestazione si disegna anche quando NON e' arrivata nessuna
+   istantanea, ed e' proprio il caso in cui la si guarda. #}
+{% set agente = (consolle or {}).get('agent') or {} %}
+{% set scansione = (consolle or {}).get('scan') or {} %}
+
+<div class="card mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <span class="snap-dot snap-dot-{{ 'online' if online else 'offline' }}"></span>
+      <strong>{{ probe.code }}</strong>
+      <span class="text-body-secondary small">
+        {% if agente.get('enrolled') %}registrata{% else %}non registrata{% endif %}
+        {% if versione %}&middot; agente {{ versione }}{% endif %}
+        {% if scansione.get('hostname') %}
+        &middot; su <span class="font-monospace">{{ scansione.get('hostname') }}</span>
+        {% endif %}
+      </span>
+    </div>
+    {# L'ISTANTE. Non e' un dettaglio: e' cio' che distingue questa pagina da una
+       console dal vivo. Se il battito manca, il dato invecchia e va detto. #}
+    <div class="text-end small">
+      {% if consolle_at %}
+      <span class="badge text-bg-{{ 'success' if fresca else 'warning' }}">
+        <i class="bi bi-clock me-1"></i>
+        stato di {{ consolle_at|dt }} ({{ consolle_at|ago }})
+      </span>
+      {% if not fresca %}
+      <div class="text-warning">
+        Il battito non arriva da oltre {{ soglia_minuti }} minuti: questo e' l'ultimo
+        stato ricevuto, non quello attuale.
+      </div>
+      {% endif %}
+      {% else %}
+      <span class="badge text-bg-secondary">nessuno stato ricevuto</span>
+      {% endif %}
+    </div>
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('probes.detail', probe_id=probe.id) }}">
+      <i class="bi bi-gear me-1"></i> Configurazione e comandi
+    </a>
+  </div>
+</div>
+
+{% if not consolle %}
+<div class="alert alert-info">
+  <h2 class="h6"><i class="bi bi-info-circle me-1"></i> Nessuno stato ricevuto da questa sonda</h2>
+  <p class="mb-0">
+    L'istantanea arriva con il battito, ogni quindici secondi. Se non compare entro un
+    minuto: la sonda non sta parlando con il server, oppure ha una versione precedente
+    alla {{ versione_minima }} e non sa ancora mandarla. La pagina di
+    <a href="{{ url_for('probes.detail', probe_id=probe.id) }}">configurazione</a>
+    resta comunque funzionante -- i comandi viaggiano nella direzione opposta.
+  </p>
+</div>
+{% else %}
+
+{# --- Indicatori: le stesse quattro cose che si guardano per prime sulla sonda --- #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">NODI IN INVENTARIO</p>
+        <p class="snap-stat-value mb-0">{{ (consolle.scan.nodes_confirmed or 0) + (consolle.scan.nodes_candidate or 0) }}</p>
+        <p class="snap-stat-foot mb-0">
+          {{ consolle.scan.nodes_conferred or 0 }} conferiti &middot;
+          {{ consolle.scan.profiles_pending or 0 }} in lavorazione
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">PERIMETRO</p>
+        <p class="snap-stat-value mb-0">{{ consolle.scan.perimeter_count or consolle.scan.subnets_total or 0 }}</p>
+        <p class="snap-stat-foot mb-0">
+          {{ consolle.scan.subnets_scanned or 0 }} censite almeno una volta
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">CODA DA CONFERIRE</p>
+        <p class="snap-stat-value mb-0">{{ consolle.agent.queue_size or 0 }}</p>
+        <p class="snap-stat-foot mb-0">
+          {% if consolle.agent.get('oldest_queued_at') %}
+          il piu' vecchio: {{ consolle.agent.get('oldest_queued_at')|ago }}
+          {% else %}nulla in attesa{% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">SCANSIONI IN CORSO</p>
+        <p class="snap-stat-value mb-0">{{ consolle.scan.running_scans or 0 }}</p>
+        <p class="snap-stat-foot mb-0">
+          {{ consolle.scan.workers or 0 }} thread su {{ consolle.scan.max_workers or 0 }}
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if not consolle.scan.get('scanning_allowed') %}
+<div class="alert alert-warning">
+  <i class="bi bi-pause-circle me-1"></i>
+  <strong>Scansioni sospese</strong>{% if consolle.scan.get('suspended_reason') %}:
+  {{ consolle.scan.get('suspended_reason') }}{% endif %}.
+  {% if consolle.scan.get('paused_locally') %}
+  La sospensione e' stata decisa <strong>sulla sonda</strong>: il server puo' riprenderle
+  con il comando "riprendi scansioni", ma una pausa locale vale finche' il tecnico non
+  la revoca in sede.
+  {% endif %}
+</div>
+{% endif %}
+
+{% if consolle.agent.get('last_error') %}
+<div class="alert alert-danger">
+  <i class="bi bi-exclamation-octagon me-1"></i>
+  <strong>Ultimo errore della sonda:</strong> {{ consolle.agent.get('last_error') }}
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-sliders me-1"></i> Configurazione in vigore</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6 fw-normal text-body-secondary">Sforzo</dt>
+          <dd class="col-6 mb-1">{{ consolle.scan.effort_label or consolle.scan.effort }}</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Tempo per host</dt>
+          <dd class="col-6 mb-1">
+            {{ consolle.scan.host_timeout }}
+            {% if not consolle.scan.get('host_timeout_chosen') %}
+            <span class="text-body-secondary">(dal profilo)</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Censimento del perimetro</dt>
+          <dd class="col-6 mb-1">ogni {{ consolle.scan.discovery_days }} giorni</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Scansioni</dt>
+          <dd class="col-6 mb-1">
+            {% if consolle.scan.get('enabled_by_server') %}abilitate dal server
+            {% else %}disabilitate dal server{% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">nmap</dt>
+          <dd class="col-6 mb-1">
+            {{ consolle.scan.get('capabilities', {}).get('nmap_version')
+               or 'non rilevato' }}
+            {% if consolle.scan.get('capabilities', {}).get('raw_sockets') %}
+            &middot; <span class="text-success">accesso raw</span>
+            {% else %}
+            &middot; <span class="text-warning">senza accesso raw</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Fasi in corso</dt>
+          <dd class="col-6 mb-0">
+            {% if consolle.scan.get('phases_in_flight') %}
+            {% for fase in consolle.scan.get('phases_in_flight') or [] %}
+            <span class="badge text-bg-primary">{{ fase }}</span>
+            {% endfor %}
+            {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  {# La ricognizione delle presenze compare solo dove esiste: su un impianto senza
+     reti senza fili un riquadro vuoto sarebbe una domanda in piu'. #}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-wifi me-1"></i> Presenze sulle reti senza fili</h2>
+      </div>
+      <div class="card-body">
+        {% set presenze = consolle.agent.get('presence') or {} %}
+        {% if presenze.get('subnets_wifi') %}
+        <dl class="row mb-0 small">
+          <dt class="col-5 fw-normal text-body-secondary">Reti osservate</dt>
+          <dd class="col-7 mb-1 font-monospace">
+            {{ presenze.subnets_wifi|join(', ') }}
+          </dd>
+          <dt class="col-5 fw-normal text-body-secondary">Cadenza</dt>
+          <dd class="col-7 mb-1">ogni {{ presenze.interval_sec }} s</dd>
+          <dt class="col-5 fw-normal text-body-secondary">Ultima passata</dt>
+          <dd class="col-7 mb-1">
+            {% if presenze.at %}
+            {{ presenze.at|dt }} &middot;
+            {{ presenze.seen }} presenti,
+            {{ presenze.new }} nuovi
+            {% else %}<span class="text-body-secondary">nessuna ancora</span>{% endif %}
+          </dd>
+          <dt class="col-5 fw-normal text-body-secondary">Coda prioritaria</dt>
+          <dd class="col-7 mb-0">
+            {{ presenze.priority_queue }} in attesa dell'esame delle porte
+          </dd>
+        </dl>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna rete dichiarata senza fili: la ricognizione non gira. Si dichiara dal
+          <a href="{{ url_for('inventory.subnets') }}">perimetro</a>.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- Il diario della sonda: e' la parte che finora si poteva leggere SOLO in sede --- #}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-journal-text me-1"></i>
+      Diario della sonda ({{ (consolle.get('diary') or [])|length }} righe piu' recenti)
+    </h2>
+    <span class="text-body-secondary small">
+      e' il diario LOCALE: gli avvisi che finora si leggevano solo in sede
+    </span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="20">
+        <thead><tr><th>QUANDO</th><th>LIVELLO</th><th>MESSAGGIO</th></tr></thead>
+        <tbody>
+          {% for riga in consolle.get('diary') or [] %}
+          <tr>
+            <td class="small text-nowrap">{{ riga.at|dt }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if riga.level == 'error'
+                                            else 'warning' if riga.level == 'warning'
+                                            else 'secondary' }}">{{ riga.level }}</span>
+            </td>
+            <td class="small">{{ riga.message }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center text-body-secondary py-3">
+            Nessuna riga di diario nell'istantanea.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-radar me-1"></i> Ultime passate di scansione</h2>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>QUANDO</th><th>FASE</th><th>BERSAGLIO</th><th>ESITO</th></tr></thead>
+            <tbody>
+              {% for riga in consolle.scan.get('states_recent') or [] %}
+              <tr>
+                <td class="small text-nowrap">{{ riga.at|dt }}</td>
+                <td class="small"><span class="badge text-bg-light text-dark border">{{ riga.stage }}</span></td>
+                <td class="small font-monospace">{{ riga.target }}</td>
+                <td class="small" title="{{ riga.detail }}">{{ riga.status }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" class="text-center text-body-secondary py-3">
+                Nessuna passata registrata.
+              </td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-arrow-repeat me-1"></i> Ultimi conferimenti</h2>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>QUANDO</th><th>RECORD</th><th>ESITO</th></tr></thead>
+            <tbody>
+              {% for riga in consolle.get('syncs') or [] %}
+              <tr>
+                <td class="small text-nowrap">{{ riga.at|dt }}</td>
+                <td class="small">{{ riga.records }}</td>
+                <td class="small" title="{{ riga.detail }}">
+                  <span class="badge text-bg-{{ 'success' if riga.status == 'ok' else 'warning' }}">
+                    {{ riga.status }}
+                  </span>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3" class="text-center text-body-secondary py-3">
+                Nessun conferimento registrato.
+              </td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-question-circle me-1"></i> Perche' non e' una console dal vivo</h2>
+  </div>
+  <div class="card-body small">
+    <p class="mb-0">
+      La sonda sta nella rete del cliente e apre lei la comunicazione, ogni quindici
+      secondi: il server non puo' raggiungerla -- c'e' un NAT, e in mezzo un firewall
+      che non lascia entrare niente. Questa pagina mostra percio' <strong>l'ultima
+      istantanea consegnata</strong>, con il proprio istante in alto, e i comandi
+      viaggiano nella direzione opposta: si accodano qui e la sonda li ritira al
+      battito successivo, entro un minuto. E' un ritardo dichiarato, non un difetto
+      nascosto -- e il prezzo di non aprire un canale permanente dall'interno della
+      rete del cliente verso l'esterno.
+    </p>
+  </div>
+</div>
+{% endblock %}

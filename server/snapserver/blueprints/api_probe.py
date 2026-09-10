@@ -72,6 +72,9 @@ DEFAULT_SCAN_CADENCES = {
     "os": 259200,            # 3 giorni
     "deep": 604800,          # 7 giorni
     "monitor": 120,          # 2 minuti
+    # Ricognizione delle presenze sulle reti senza fili: riguarda solo le subnet
+    # dichiarate `is_wifi`, e sulla sonda gira in un thread proprio (presence.py).
+    "presence": 120,         # 2 minuti
 }
 
 
@@ -412,6 +415,50 @@ def enroll():
     return jsonify(envelope_out), 200
 
 
+# Tetto dell'istantanea di console conservata. Una busta piu' grande di cosi' non e'
+# un'istantanea: e' un archivio, e arriverebbe ogni quindici secondi.
+MAX_CONSOLE_JSON = 256 * 1024
+
+
+def _store_console(probe, console) -> None:
+    """Conserva l'istantanea della console consegnata dalla sonda.
+
+    La sonda non e' interrogabile dal server (NAT, firewall): questa istantanea e'
+    l'unico modo di mostrare da remoto cio' che si vede aprendo la sua interfaccia
+    locale. Si conserva solo l'ULTIMA -- non e' uno storico, e' una fotografia.
+
+    Un battito senza istantanea resta un battito valido: una sonda di versione
+    precedente non manda il campo, e non deve per questo risultare guasta.
+    """
+    if not isinstance(console, dict) or not console:
+        return
+    try:
+        testo = json.dumps(console, ensure_ascii=False, separators=(",", ":"))
+    except (TypeError, ValueError) as errore:
+        current_app.logger.warning(
+            "Istantanea di console non serializzabile dalla sonda %s: %s",
+            probe["probe_uid"], errore)
+        return
+    if len(testo) > MAX_CONSOLE_JSON:
+        # Si dichiara e si scarta: mostrare mezza istantanea sarebbe peggio che
+        # mostrare quella precedente con il proprio istante.
+        current_app.logger.warning(
+            "Istantanea di console della sonda %s troppo grande (%d byte): ignorata",
+            probe["probe_uid"], len(testo))
+        return
+    execute("UPDATE probes SET console_json = ?, console_at = ? WHERE id = ?",
+            (testo, _clean_instant(console.get("at")) or utc_now_str(),
+             int(probe["id"])))
+
+
+def _clean_instant(valore) -> str | None:
+    """Un istante dichiarato dalla sonda, accettato solo nella forma dell'archivio."""
+    testo = str(valore or "").strip()
+    if len(testo) != 19:
+        return None
+    return testo if parse_utc(testo) is not None else None
+
+
 @bp.post("/heartbeat")
 def heartbeat():
     """Presenza periodica della sonda: consegna configurazione e comandi."""
@@ -426,6 +473,7 @@ def heartbeat():
     # avvisa quando una sonda ha le scansioni bloccate.
     execute("UPDATE probes SET scan_paused = ? WHERE id = ?",
             (1 if payload.get("scan_paused") else 0, int(probe["id"])))
+    _store_console(probe, payload.get("console"))
     _purge_nonces()
 
     tenant = _tenant_of(probe)

@@ -489,3 +489,167 @@ def test_una_porta_con_prodotto_riconosciuto_non_viene_marcata(server_app, inven
                             "family": famiglie[indice % 4], "accuracy": 95})
         esito = conferisci(inventario, {"nodes": nodi, "ports": porte, "os": sistemi})
     assert "tcp/443" not in esito["suspect_ports"]
+
+
+def test_una_porta_che_risponde_dove_non_puo_esistere_un_host_e_iniettata_subito(
+        server_app, inventario):
+    """IL CASO DELLA RETE OSPITI, misurato in esercizio.
+
+    Su 10.10.60.0/24 la tcp/5060 risultava aperta sul 53% dei nodi -- sotto la soglia
+    di diffusione -- E sull'indirizzo di rete E su quello di broadcast, dove un host
+    non puo' esistere. La soglia veniva applicata PRIMA di guardare l'indirizzo
+    impossibile, quindi la prova forte non arrivava mai a contare: 128 nodi
+    classificati "Telefono VoIP" da una porta che un apparato intermedio serve per
+    tutto il segmento.
+
+    Peggio della classificazione sbagliata: la diffusione CRESCE durante la passata,
+    quindi la marcatura sarebbe arrivata solo a scansione conclusa. Nel frattempo
+    l'inventario era sbagliato e sembrava giusto.
+
+    Se la porta risponde dove un host non puo' esistere, il fatto e' accertato e non
+    ha bisogno di essere anche diffuso.
+    """
+    with server_app.app_context():
+        from snapserver.db import query
+
+        nodi, porte = [], []
+        # Meta' dei nodi espone la 5060: sotto la soglia di diffusione.
+        for indice in range(12):
+            ip = "10.50.9.%d" % (indice + 100)
+            nodi.append({"ip": ip, "reachable": True, "ports_examined": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+            if indice % 2 == 0:
+                porte.append({"ip": ip, "protocol": "tcp", "port": 5060,
+                              "state": "open", "service_name": "sip"})
+        # L'indirizzo di rete e quello di broadcast rispondono anche loro: la' non
+        # c'e' nessun host, quindi risponde un apparato intermedio.
+        for ip in ("10.50.9.0", "10.50.9.255"):
+            nodi.append({"ip": ip, "reachable": True, "ports_examined": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+            porte.append({"ip": ip, "protocol": "tcp", "port": 5060, "state": "open",
+                          "service_name": "sip"})
+
+        esito = conferisci(inventario, {"nodes": nodi, "ports": porte})
+
+        assert "tcp/5060" in esito["suspect_ports"], (
+            "la prova dell'indirizzo impossibile non deve dipendere dalla diffusione")
+        marcate = query(
+            "SELECT COUNT(*) AS n FROM node_ports WHERE port = 5060"
+            " AND COALESCE(is_suspect, 0) = 1", (), one=True)
+        assert int(marcate["n"]) == 8, "marcata su tutti i nodi del segmento"
+        motivo = query(
+            "SELECT suspect_reason FROM node_ports WHERE port = 5060"
+            " AND COALESCE(is_suspect, 0) = 1 LIMIT 1", (), one=True)
+        assert "non puo' esistere un host" in motivo["suspect_reason"]
+
+        # E il verdetto: nessun telefono inventato da quella sola porta.
+        tipi = {r["device_type"] for r in query(
+            "SELECT device_type FROM nodes WHERE ip LIKE '10.50.9.1%'", ())}
+        assert "voip_phone" not in tipi
+
+
+def test_senza_indirizzo_impossibile_la_diffusione_resta_necessaria(
+        server_app, inventario):
+    """Il contrario del test precedente, e serve: senza la prova accertata una porta
+    presente su meta' dei nodi e' solo una porta presente su meta' dei nodi. Marcarla
+    sopprimerebbe servizi veri -- il difetto opposto, e piu' difficile da notare."""
+    with server_app.app_context():
+        from snapserver.db import query
+
+        nodi, porte = [], []
+        for indice in range(12):
+            ip = "10.50.9.%d" % (indice + 150)
+            nodi.append({"ip": ip, "reachable": True, "ports_examined": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+            if indice % 2 == 0:
+                porte.append({"ip": ip, "protocol": "tcp", "port": 8443,
+                              "state": "open", "service_name": "https-alt"})
+
+        esito = conferisci(inventario, {"nodes": nodi, "ports": porte})
+
+        assert "tcp/8443" not in esito["suspect_ports"]
+        marcate = query(
+            "SELECT COUNT(*) AS n FROM node_ports WHERE port = 8443"
+            " AND COALESCE(is_suspect, 0) = 1", (), one=True)
+        assert int(marcate["n"]) == 0
+
+
+def test_su_un_segmento_servito_da_un_apparato_intermedio_basta_meta_diffusione(
+        server_app, inventario):
+    """LA RETE OSPITI, come si presentava davvero.
+
+    Su 10.10.60.0/24 rispondevano 256 indirizzi su 254 possibili -- compresi quello di
+    rete e quello di broadcast -- senza un solo MAC e con TTL identico su tutti. Le
+    porte degli indirizzi impossibili non erano ancora state esaminate, quindi la
+    prova "porta aperta dove non puo' esserci un host" non era disponibile; la
+    tcp/5060, aperta sul 53% dei nodi, restava sotto la soglia ordinaria e produceva
+    128 "Telefono VoIP".
+
+    Il segnale che c'era, e arriva con la SOLA SCOPERTA: se l'indirizzo di rete o
+    quello di broadcast RISPONDONO, la' non c'e' nessun host e qualcuno risponde per
+    il segmento. Su un segmento cosi' non si sa nemmeno quali indirizzi siano host, e
+    una porta presente su meta' di essi non e' attribuibile a nessuno.
+    """
+    with server_app.app_context():
+        from snapserver.db import query
+
+        nodi, porte = [], []
+        # L'indirizzo di rete e quello di broadcast rispondono al ping, e basta: nessuna
+        # porta esaminata su di loro.
+        for ip in ("10.50.9.0", "10.50.9.255"):
+            nodi.append({"ip": ip, "reachable": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+        # La 5060 su 12 nodi di 22: il 54%, la stessa proporzione misurata sulla rete
+        # ospiti (137 su 256). Sopra la soglia del segmento servito, largamente sotto
+        # quella ordinaria del 95%.
+        for indice in range(20):
+            ip = "10.50.9.%d" % (indice + 60)
+            nodi.append({"ip": ip, "reachable": True, "ports_examined": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+            if indice < 12:
+                porte.append({"ip": ip, "protocol": "tcp", "port": 5060,
+                              "state": "open", "service_name": "sip"})
+            # Una porta di pochi nodi: sono macchine vere dietro l'apparato
+            # intermedio, e sopprimerle sarebbe il difetto opposto.
+            if indice == 19:
+                porte.append({"ip": ip, "protocol": "tcp", "port": 445,
+                              "state": "open", "service_name": "microsoft-ds"})
+
+        esito = conferisci(inventario, {"nodes": nodi, "ports": porte})
+
+        assert "tcp/5060" in esito["suspect_ports"]
+        assert "tcp/445" not in esito["suspect_ports"], (
+            "una porta su pochi nodi resta del nodo: dietro l'apparato intermedio ci"
+            " sono anche apparati veri")
+        motivo = query(
+            "SELECT suspect_reason FROM node_ports WHERE port = 5060"
+            " AND COALESCE(is_suspect, 0) = 1 LIMIT 1", (), one=True)
+        assert "risponde per tutto il segmento" in motivo["suspect_reason"]
+
+        tipi = {r["device_type"] for r in query(
+            "SELECT device_type FROM nodes WHERE ip LIKE '10.50.9.6%'", ())}
+        assert "voip_phone" not in tipi
+
+
+def test_un_segmento_normale_conserva_la_soglia_alta(server_app, inventario):
+    """Senza indirizzi impossibili che rispondono, la soglia resta quella ordinaria:
+    abbassarla su una rete sana sopprimerebbe servizi veri e diffusi."""
+    with server_app.app_context():
+        from snapserver.db import query
+
+        nodi, porte = [], []
+        for indice in range(20):
+            ip = "10.50.9.%d" % (indice + 180)
+            nodi.append({"ip": ip, "reachable": True, "ports_examined": True,
+                         "seen_at": "2026-09-10 09:00:00"})
+            if indice % 2 == 0:
+                porte.append({"ip": ip, "protocol": "tcp", "port": 3389,
+                              "state": "open", "service_name": "ms-wbt-server"})
+
+        esito = conferisci(inventario, {"nodes": nodi, "ports": porte})
+
+        assert "tcp/3389" not in esito["suspect_ports"]
+        marcate = query(
+            "SELECT COUNT(*) AS n FROM node_ports WHERE port = 3389"
+            " AND COALESCE(is_suspect, 0) = 1", (), one=True)
+        assert int(marcate["n"]) == 0

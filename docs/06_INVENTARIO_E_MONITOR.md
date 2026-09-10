@@ -1385,6 +1385,222 @@ documento JSON del dispositivo (capitolo 15).
 
 ---
 
+## 14-bis. Reti senza fili: presenze
+
+### 14-bis.1 Perche' il ciclo ordinario non basta
+
+Il ciclo di scansione e' tarato su una rete cablata: la scoperta ripassa il perimetro
+ogni tre giorni, le porte ogni sei ore, e la profondita' con cui guarda ciascun nodo e'
+il suo pregio. Su una rete senza fili quel ritmo non vede niente. Un telefono resta
+agganciato dieci minuti, un portatile si sospende, e fra due passate della scoperta
+sono passati tre giorni: l'inventario racconta la rete di tre giorni fa.
+
+Peggio: su una rete senza fili **un indirizzo non identifica un apparato**. Il DHCP lo
+riassegna. Un inventario che tratta i due come la stessa cosa, la', afferma tre cose
+false -- che l'apparato di ieri e' ancora qui, che quello di oggi c'e' da sempre, e che
+sono lo stesso.
+
+Servono percio' due cose che il ciclo non puo' dare: una ricognizione **breve e
+frequente**, e un'unita' di registrazione che non sia l'indirizzo.
+
+### 14-bis.2 La dichiarazione: `subnets.is_wifi`
+
+La ricognizione si attiva **per dichiarazione, non per supposizione**: nel Perimetro
+ogni subnet ha un interruttore *Senza fili*. Il flag viaggia nel perimetro consegnato
+alla sonda (`active_subnets` -> campo `wifi`) e non in una configurazione a parte,
+perche' e' una proprieta' della rete e la sonda deve leggerlo dove legge la rete. Una
+sonda che parla con un server piu' vecchio non riceve il campo, e allora nessuna rete
+e' senza fili: nessun comportamento nuovo per omissione.
+
+Requisito **SR-214**: la ricognizione delle presenze si esegue esclusivamente sulle
+subnet dichiarate `is_wifi` e attive.
+
+### 14-bis.3 Il processo a parte (sonda)
+
+`probe/snapprobe/presence.py`, in un **thread proprio** (`snap-probe-presence`). Non
+prende posti nel pool di scansione, e la ragione non e' l'eleganza: una passata di
+porte dura minuti, quindi condividendo quel thread la ricognizione arriverebbe sempre
+dopo -- cioe' quando l'apparato comparso e' gia' andato via.
+
+| | Valore | Perche' |
+|---|---|---|
+| Cadenza | 120 s (`cadences.presence`, minimo 30 s) | il ritmo del monitoraggio: vede una permanenza breve senza pesare su una rete di utenza |
+| Argomenti | `-sn -PE -PS80,443,22,3389,445 -PA80 -PR -T4 --max-retries 1` | solo "chi risponde": nessuna porta, nessun sistema operativo |
+| Tempo per host | **3 s** | un apparato radio in risparmio energetico risponde in 150-2000 ms con scarti oltre il secondo (§ 11): un tempo aggressivo perderebbe proprio gli apparati che questa ricognizione esiste per trovare |
+| Reti per passata | 4, le meno recenti per prime | con piu' reti di quante ne stiano in una passata, girare sempre dalla prima lascerebbe l'ultima mai osservata |
+
+Quando trova qualcuno fa due cose: conferisce l'avvistamento (genere `presence`), e se
+l'indirizzo **non era noto** lo mette in **testa** alla coda dell'esame delle porte e
+sveglia il ciclo. Il ciclo dedica un solo compito per giro a quella coda: su un
+perimetro di centinaia di indirizzi, senza la precedenza il telefono verrebbe esaminato
+quando e' gia' andato via -- cioe' mai. Un indirizzo esce dalla coda quando le sue
+porte sono state esaminate, quando il nodo e' conferito, o quando non esiste piu'.
+
+Non esamina porte, non rileva sistemi, non legge pagine: **tutto l'arricchimento resta
+al ciclo ordinario**, che sa farlo e sa non ripeterlo.
+
+### 14-bis.4 L'identita', che e' la parte difficile
+
+Per dire che l'apparato di oggi e' quello di ieri serve qualcosa che l'indirizzo non
+e'. In ordine di certezza (`server/snapserver/presence.py`):
+
+| Fonte | Certezza | Nota |
+|---|---|---|
+| `mac` | **certa** | identifica la scheda. Si ha se la sonda sta sullo stesso segmento (ARP) o se un apparato di rete l'ha riferito in SNMP (§ 13-sexies). Sulle reti senza fili instradate spesso NON si ha: e' il caso che ha motivato il modulo |
+| `serial` | **certa** | numero di serie letto dalla pagina, da SNMP o da IPP: vale per stampanti e apparati, non per i telefoni |
+| `hostname` | **probabile** | un nome si puo' riassegnare, ma di norma accompagna la macchina |
+| `address` | **nessuna** | non si ha un'identita' stabile: la permanenza riguarda **l'indirizzo**, e lo si dichiara |
+
+Il prodotto **non finge di sapere chi era**: la pagina mostra la fonte del
+riconoscimento come colonna, con un colore per grado di certezza, e quando piu' della
+meta' delle permanenze e' "solo dall'indirizzo" avvisa che lo storico va letto per
+quello che e' -- e dice come rimediare (configurare la community SNMP degli apparati
+che servono quella rete).
+
+Un MAC scritto con due punti, trattini, punti o attaccato e' **lo stesso** apparato: si
+normalizza, altrimenti due scritture darebbero due apparati diversi.
+
+### 14-bis.5 Quando non c'e' identita': l'impronta debole del profilo
+
+Anche senza identita' si sa qualcosa: TTL osservato, quali porte rispondono, famiglia
+di sistema. Insieme sono un'impronta **debole** -- mille telefoni uguali la
+condividono, quindi non identifica nessuno -- ma risponde a un'altra domanda, che e'
+quella giusta: **se l'impronta cambia sullo stesso indirizzo, l'indirizzo e' passato a
+un altro apparato**. E' l'unico modo di accorgersene senza il MAC, e in quel caso la
+permanenza si chiude e se ne apre una nuova con il motivo scritto.
+
+Dove c'e' un'identita' vera il profilo **non ha voce in capitolo**: un telefono che
+apre una porta resta quel telefono.
+
+### 14-bis.6 Le permanenze
+
+Una riga di `presence_sessions` e' una permanenza: un'identita', su un indirizzo, da un
+istante a un altro, con quanti avvistamenti la sostengono. Se ne apre una nuova quando:
+
+| Motivo | Significato |
+|---|---|
+| `prima` | primo avvistamento di questa identita' |
+| `indirizzo` | ricomparso su un altro indirizzo -- il fatto interessante di una rete senza fili, e senza il MAC non si vedrebbe |
+| `assenza` | tornato dopo piu' di 30 minuti (`GAP_SESSIONE_SEC`): con una passata ogni due minuti, mezz'ora sono quindici passate senza vederlo -- non e' un buco di misura, e' andato via |
+| `profilo` | l'indirizzo e' passato a un altro apparato (§ 14-bis.5) |
+
+Un istante illeggibile fa aprire una permanenza nuova: si spezza uno storico invece di
+unire due apparati diversi. E' la scelta prudente, ed e' voluta.
+
+**GDPR.** Un apparato personale in una rete Wi-Fi puo' riferirsi a una persona: MAC,
+nome host e presenza nel tempo sono, insieme, un dato personale (considerando 30 del
+Reg. UE 2016/679). Base giuridica: la stessa dell'inventario -- sicurezza della rete,
+art. 6(1)(f). Conseguenze pratiche nel codice: si conservano **solo** i campi tecnici
+che servono a riconoscere l'apparato, mai il contenuto del traffico, e lo storico ha
+una retention configurabile con cancellazione automatica (`presence.pulisci`,
+predefinita 90 giorni, art. 5(1)(e)).
+
+### 14-bis.7 L'andamento: quanti, quando, e per quanto ciascuno
+
+La tabella delle permanenze risponde a "chi". Non risponde a **quanti insieme**, che
+su una rete di utenza e' la domanda operativa: il respiro della rete -- il picco del
+mattino, il vuoto della notte -- e il giorno in cui quel respiro cambia. Da qui la
+pagina *Andamento*, raggiungibile con un pulsante dall'elenco, con due letture degli
+stessi dati:
+
+1. **il grafico**: apparati distinti presenti, intervallo per intervallo. Un apparato
+   conta in un intervallo se la sua permanenza lo TOCCA, anche solo in parte -- la
+   presenza e' un fatto continuo. Una permanenza cominciata prima della finestra viene
+   tagliata al bordo, **non ignorata**: ignorarla direbbe che l'apparato non c'era;
+2. **le fasce**: una riga per apparato, le sue permanenze disegnate sul tempo. Si legge
+   a colpo d'occhio la differenza fra un apparato che sta tutto il giorno (una
+   postazione, una stampante) e uno che passa venti minuti (il telefono di chi entra in
+   una stanza) -- che e' la distinzione che un inventario senza tempo non puo' fare.
+   Quando un apparato ha avuto **piu' indirizzi** nel periodo la riga lo dichiara: e'
+   il fatto per cui esiste l'identita' (§ 14-bis.4), e senza di essa non si vedrebbe.
+
+| Periodo | Passo | Punti |
+|---|---|---|
+| 24 ore | 1 ora | 24 |
+| 48 ore | 1 ora | 48 |
+| 7 giorni | 6 ore | 28 |
+| 30 giorni | 1 giorno | 30 |
+
+Il passo non e' una preferenza grafica: contare per ora su trenta giorni darebbe 720
+punti su una spezzata larga mille pixel -- rumore, non andamento -- e contare per
+giorno su ventiquattro ore ne darebbe uno. Un test verifica che ogni periodo resti fra
+12 e 200 punti, cosi' un periodo aggiunto in futuro non sfugge alla regola.
+
+La posizione di ogni fascia arriva calcolata **in percentuale dal server**: la pagina
+non fa conti e non ha bisogno di JavaScript (politica dei contenuti del progetto). Una
+permanenza di venti minuti su trenta giorni sarebbe larga zero: si tiene una larghezza
+minima visibile, perche' una fascia invisibile direbbe "mai stato qui".
+
+**Un difetto trovato da un test, e la lezione che porta.** La finestra si chiudeva al
+minuto in corso, troncando i secondi: un apparato visto trenta secondi prima cadeva
+DOPO la fine della finestra e spariva sia dal conteggio sia dalle fasce -- proprio
+quello che si guarda per primo. La finestra si chiude ora al minuto successivo, e gli
+estremi di una permanenza si riportano dentro la finestra invece di scartarla: l'istante
+lo dichiara la sonda, e l'orologio di una sonda qualche secondo avanti mette
+l'avvistamento nel futuro. Un dato imperfetto non e' un apparato inesistente.
+
+### 14-bis.8 Dove si vede
+
+- **Dispositivi -> Presenze Wi-Fi**: le permanenze in tabella, con quattro indicatori
+  in cima. Il piu' importante e' *senza identita'*: dice se lo storico e' affidabile.
+- **Scheda del dispositivo -> Cambiamenti e raggiungibilita'**: le presenze di quel
+  nodo, se ce ne sono. Compare solo dove esiste: su una rete cablata un riquadro vuoto
+  sarebbe una domanda in piu'.
+- **Interfaccia della sonda**: riquadro *Presenze sulle reti senza fili* con le reti
+  osservate, l'esito dell'ultima passata e quanti apparati attendono l'esame
+  prioritario. Compare solo se una rete e' dichiarata.
+
+---
+
+## 14-ter. Il sistema operativo nell'elenco: approssimazioni successive
+
+**Il problema.** La colonna *Sistema operativo* mostrava `os_name`, cioe' il solo
+rilevamento di nmap. Quel rilevamento richiede almeno una porta aperta e una chiusa,
+socket raw, e apparati che rispondano in modo canonico: su una rete di PA riesce
+raramente. Il risultato era una colonna vuota per la maggior parte dei nodi -- e una
+colonna vuota non dice "non si sa", sembra un guasto.
+
+Vuota, in realta', significava che si guardava **una fonte su otto**.
+`server/snapserver/os_guess.py` le mette in cascata, dalla piu' precisa alla piu'
+grossolana, e prende la prima che risponde:
+
+| # | Fonte | Certezza | Che cosa da' |
+|---|---|---|---|
+| 1 | rilevamento nmap (`os_name`) | rilevata | la versione, con la precisione dichiarata |
+| 2 | SMB (`smb-os-discovery`) | **dichiarata** | la versione esatta di Windows: e' l'apparato che parla di se', non una deduzione |
+| 3 | descrizione di sistema SNMP | **dichiarata** | scritta dal costruttore ("Cisco IOS Software...") |
+| 4 | famiglia rilevata (`os_family`) | rilevata | la famiglia, non la versione |
+| 5 | banner web | dichiarata | "Apache/2.4 (Ubuntu)" nomina la distribuzione; `Microsoft-IIS` e `Microsoft-HTTPAPI` **implicano** Windows, perche' girano solo la' |
+| 6 | profilo di porte | ipotesi | 445/139/135/3389 -> Windows; 22 senza quelle -> sistema tipo Unix |
+| 7 | TTL osservato | ipotesi | 64/128/255 distinguono tre famiglie e nient'altro |
+| 8 | classe dell'apparato | ipotesi | di una stampante il "sistema" e' il firmware del costruttore: dire "Linux" sarebbe vero e inutile |
+
+L'ultima riga della cascata **non e' il vuoto**: e' `non determinato` con il motivo
+("nessun indizio: l'apparato non ha porte parlanti, non dichiara nulla...").
+
+**Onesta' della presentazione.** Un'ipotesi dal TTL e una versione dichiarata da SMB
+non valgono lo stesso, e mostrarle uguali sarebbe una bugia tipografica: le ipotesi
+sono in corsivo grigio, sotto ogni valore c'e' la fonte, e il suggerimento spiega
+perche' quel valore vale quanto vale. Requisito **SR-215**.
+
+### 14-ter.1 La colonna *Info* al posto di *Subnet*
+
+La subnet si legge gia' dall'indirizzo e dal filtro: occupava il posto di cio' che
+l'apparato dichiara di se'. Al suo posto, le prime tre informazioni per valore
+raccolte dalle interfacce web (`web_presentation.riassunto_web`): prodotto, modello,
+nome, **posizione fisica**, firmware, titolo. La posizione ha un'icona propria perche'
+e' l'unico dato che nessun'altra fase puo' ricavare -- non sta in rete, sta scritta
+sull'apparato da chi lo ha installato. Lo stesso testo non si ripete su due porte: una
+multifunzione con la 80 e la 443 dichiara due volte le stesse cose, e in un elenco
+quella ripetizione occupa la riga senza aggiungere niente. La porta fisica dello switch
+resta in questa colonna, con la fonte dichiarata.
+
+Le due colonne si compongono con **quattro interrogazioni per l'intera pagina**
+(`inventory_queries.dati_accessori`), non con una sottointerrogazione per riga: la
+stessa pagina costerebbe centinaia di interrogazioni.
+
+---
+
 ## 15. Il dato grezzo di un dispositivo (JSON)
 
 L'interfaccia presenta cio' che il prodotto ha **capito**; questo documento serve al

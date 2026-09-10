@@ -21,6 +21,69 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.4.0",
+        "date": "2026-09-10",
+        "abstract": "Le reti senza fili si dichiarano e si osservano a parte: una"
+                    " ricognizione ogni due minuti, e chi compare viene approfondito"
+                    " subito invece di attendere il proprio turno. Nasce lo storico"
+                    " delle presenze -- chi c'era e quando -- e l'elenco dei nodi non"
+                    " lascia piu' vuota la colonna del sistema operativo.",
+        "changes": [
+            "Interruttore \"Senza fili\" su ogni subnet del Perimetro. Non e'"
+            " un'etichetta descrittiva: cambia il modo in cui la sonda osserva quella"
+            " rete. Su una rete Wi-Fi un apparato resta agganciato minuti, e una"
+            " passata completa ogni tre giorni non lo vede mai.",
+            "Nuova pagina Dispositivi > Presenze Wi-Fi: chi era in rete e quando."
+            " L'unita' non e' l'indirizzo -- che il DHCP riassegna -- ma l'apparato"
+            " riconosciuto, con la fonte del riconoscimento dichiarata in colonna.",
+            "Dalla pagina delle presenze un pulsante apre lo STORICO"
+            " DELL'ANDAMENTO: un grafico di quanti apparati erano in rete intervallo"
+            " per intervallo (il respiro di una rete di utenza: il picco del mattino,"
+            " il vuoto della notte) e, sotto, una riga per apparato con le sue"
+            " presenze disegnate sul tempo. Si legge a colpo d'occhio la differenza"
+            " fra un apparato che sta tutto il giorno e uno che passa venti minuti, e"
+            " la riga dichiara quando lo stesso apparato ha avuto piu' indirizzi."
+            " Quattro periodi: 24 ore, 48 ore, 7 giorni, 30 giorni, per rete o su"
+            " tutte.",
+            "L'identita' di un apparato senza fili segue quattro gradi di certezza:"
+            " indirizzo fisico e numero di serie identificano l'apparato, il nome host"
+            " e' probabile, e quando non c'e' nessuno dei tre il prodotto NON finge di"
+            " sapere chi era: dichiara che la permanenza riguarda l'indirizzo. La"
+            " pagina avvisa quando piu' della meta' dello storico e' in quel caso, e"
+            " dice come rimediare.",
+            "Senza indirizzo fisico si usa cio' che si e' raccolto: se le porte e il"
+            " TTL osservati su un indirizzo cambiano, quell'indirizzo e' passato a un"
+            " altro apparato, e lo storico lo registra come una visita nuova. E' il"
+            " solo modo di accorgersene quando il MAC non c'e'.",
+            "Lo storico delle presenze ha una conservazione a termine (90 giorni"
+            " predefiniti) con cancellazione automatica: la presenza di un apparato"
+            " personale e' un dato personale (GDPR art. 5).",
+            "Elenco dei nodi: la colonna \"Sistema operativo\" non resta mai vuota."
+            " Prima mostrava il solo rilevamento di nmap, che su una rete di PA riesce"
+            " raramente; ora otto fonti in cascata -- rilevamento, dichiarazione SMB,"
+            " descrizione SNMP, famiglia, banner web, profilo di porte, TTL, classe"
+            " dell'apparato -- e l'ultimo gradino dice \"non determinato\" con il"
+            " motivo. Le ipotesi si vedono che sono ipotesi.",
+            "Elenco dei nodi: al posto della colonna \"Subnet\" -- che si legge gia'"
+            " dall'indirizzo e dal filtro -- la colonna \"Info\" con cio' che"
+            " l'apparato dichiara nelle proprie pagine: modello, nome, POSIZIONE"
+            " FISICA, firmware. La posizione e' l'unico dato che nessuna scansione"
+            " puo' ricavare: non sta in rete, sta scritta sull'apparato.",
+            "I dati iniziali non creano piu' il tenant dimostrativo \"ACME"
+            " International\": serviva a provare l'isolamento fra organizzazioni, ma"
+            " quella e' una necessita' dei test, non di un'installazione -- e nel"
+            " selettore dei tenant di un amministratore di sistema un tenant finto e'"
+            " una cosa che qualcuno prima o poi apre. Le installazioni che lo hanno"
+            " gia' non lo perdono: si elimina, se si vuole, da Amministrazione >"
+            " Organizzazioni.",
+            "Corretto un difetto che impediva l'avvio dopo l'aggiornamento: lo schema"
+            " dichiarava un indice su una colonna che le migrazioni aggiungono dopo, e"
+            " su un database esistente la console riavviava in ciclo. Le colonne si"
+            " allineano ora PRIMA dello schema, e un test simula un database di una"
+            " versione precedente.",
+        ],
+    },
+    {
         "version": "1.3.1",
         "date": "2026-09-10",
         "abstract": "Gli apparati che non dicono niente di se' si identificano da come"

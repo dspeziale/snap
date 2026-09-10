@@ -38,7 +38,7 @@ from ..crypto import (
     generate_enrollment_token,
     token_fingerprint,
 )
-from ..db import execute, query, utc_now, utc_now_str
+from ..db import execute, parse_utc, query, utc_now, utc_now_str
 from ..blueprints.api_probe import (
     DISCOVERY_DAYS_MAX,
     DISCOVERY_DAYS_MIN,
@@ -211,6 +211,60 @@ def detail(probe_id: int):
         options_json=json.dumps(options, indent=2, ensure_ascii=False),
         available_commands=AVAILABLE_COMMANDS,
         offline_after=current_app.config["PROBE_OFFLINE_AFTER_SEC"],
+    )
+
+
+# Oltre questo tempo dall'ultima istantanea, quello che si guarda non e' piu' lo
+# stato della sonda: e' l'ultimo stato noto. La pagina lo dice, invece di lasciar
+# credere che sia attuale.
+CONSOLE_FRESCA_MINUTI = 2
+
+# Prima di questa versione la sonda non manda l'istantanea: serve a distinguere "non
+# sta parlando" da "parla, ma e' vecchia".
+CONSOLE_VERSIONE_MINIMA = "1.4.0"
+
+
+@bp.get("/<int:probe_id>/console")
+@login_required
+def console(probe_id: int):
+    """La console della sonda vista dal server.
+
+    Perche' e' un rispecchiamento e non un collegamento: la sonda vive nella rete del
+    cliente e apre lei la comunicazione: il server non puo' raggiungerla (NAT, e un
+    firewall che non lascia entrare nulla). Lo stato arriva quindi con il battito, e
+    questa pagina mostra l'ultima istantanea consegnata dichiarandone l'istante -- una
+    fotografia presentata come diretta sarebbe una bugia.
+    """
+    tenant_id = current_tenant_id()
+    probe = _load_probe(probe_id, tenant_id)
+    try:
+        consolle = json.loads(probe["console_json"] or "null")
+    except json.JSONDecodeError:
+        # Istantanea illeggibile: si dichiara nel diario e si mostra la pagina vuota,
+        # che e' meglio di un errore 500 su una pagina di sola lettura.
+        current_app.logger.warning(
+            "Istantanea di console illeggibile per la sonda %s", probe["code"])
+        consolle = None
+    if not isinstance(consolle, dict):
+        consolle = None
+
+    quando = parse_utc(probe["console_at"]) if probe["console_at"] else None
+    fresca = bool(quando and (utc_now() - quando)
+                  <= timedelta(minutes=CONSOLE_FRESCA_MINUTI))
+    visto = parse_utc(probe["last_seen_at"]) if probe["last_seen_at"] else None
+    online = bool(visto and (utc_now() - visto) <= timedelta(
+        seconds=int(current_app.config["PROBE_OFFLINE_AFTER_SEC"])))
+
+    return render_template(
+        "probes/console.html",
+        probe=probe,
+        consolle=consolle,
+        consolle_at=probe["console_at"],
+        fresca=fresca,
+        online=online,
+        versione=probe["agent_version"],
+        versione_minima=CONSOLE_VERSIONE_MINIMA,
+        soglia_minuti=CONSOLE_FRESCA_MINUTI,
     )
 
 

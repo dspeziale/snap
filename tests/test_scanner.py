@@ -413,6 +413,38 @@ def test_lo_stato_riassume_perimetro_capacita_e_nodi(sonda):
 # --------------------------------------------------------------------------- #
 # Traduzione della coda locale nei tipi di record del contratto
 # --------------------------------------------------------------------------- #
+def test_i_due_contratti_dei_generi_coincidono():
+    """I generi che la sonda sa CONFERIRE e quelli che il server sa APPLICARE devono
+    essere gli stessi insiemi. Nessuna eccezione.
+
+    Perche' questo test esiste, e perche' e' scritto come un confronto di insiemi
+    invece che come un elenco: lo STESSO difetto e' capitato tre volte. La lettura
+    web, l'enumerazione SMB e gli avvistamenti sulle reti senza fili sono stati
+    aggiunti al server e dimenticati nell'elenco della sonda -- che e' un'allowlist.
+    Il risultato ogni volta e' il piu' sgradevole possibile: la sonda raccoglie, mette
+    in coda, e SCARTA con un errore nel solo diario locale. Nessuna pagina dice
+    niente, la tabella sul server resta vuota, e sembra che la raccolta non funzioni.
+
+    Misurato sulla terza occorrenza: 247 avvistamenti raccolti, accodati e scartati,
+    con la pagina delle presenze vuota e la sonda che dichiarava "256 apparati
+    presenti". Un elenco scritto a mano non protegge da questo; un confronto di
+    insiemi si', perche' chi aggiunge un genere da un lato vede fallire il test
+    finche' non lo aggiunge anche dall'altro.
+    """
+    from snapprobe.agent import RECORD_TYPES
+    from snapserver.ingest import _APPLICATORI
+
+    sonda = set(RECORD_TYPES)
+    server = set(_APPLICATORI)
+
+    assert sonda - server == set(), (
+        "la sonda conferirebbe generi che il server rifiuta: %s"
+        % sorted(sonda - server))
+    assert server - sonda == set(), (
+        "il server sa applicare generi che la sonda non conferisce mai: %s"
+        % sorted(server - sonda))
+
+
 def test_ogni_genere_accodato_ha_un_tipo_di_record_corrispondente():
     """Senza questa traduzione i nodi finirebbero fra le annotazioni.
 

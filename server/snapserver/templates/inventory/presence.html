@@ -1,0 +1,213 @@
+{#
+  snap server - Storico delle presenze sulle reti senza fili.
+
+  Su una rete senza fili un indirizzo non identifica un apparato: il DHCP lo
+  riassegna. Questa pagina risponde a due domande separate -- chi, e quando era qui --
+  e dichiara sempre su che cosa l'apparato e' stato riconosciuto, perche' la certezza
+  non e' la stessa.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-10
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Presenze{% endblock %}
+{% block page_icon %}bi-wifi{% endblock %}
+{% block page_title %}Presenze sulle Reti Senza Fili{% endblock %}
+{% block page_subtitle %}
+  Chi era in rete, e quando. Su una rete senza fili l'indirizzo cambia: qui l'unita'
+  non e' l'indirizzo ma l'apparato riconosciuto, con la fonte del riconoscimento
+  dichiarata.
+{% endblock %}
+
+{% block content %}
+
+<div class="card mb-3">
+  <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <p class="mb-0 small text-body-secondary">
+      Questa pagina elenca le <strong>permanenze</strong>: chi, dove, da quando a
+      quando. L'andamento le disegna sul tempo e risponde a un'altra domanda --
+      quanti apparati insieme, e per quanto ciascuno.
+    </p>
+    <a class="btn btn-primary"
+       href="{{ url_for('inventory.presence_trend') }}">
+      <i class="bi bi-graph-up me-1"></i> Storico dell'andamento
+    </a>
+  </div>
+</div>
+
+{% if not reti_wifi %}
+<div class="alert alert-info">
+  <h2 class="h6"><i class="bi bi-info-circle me-1"></i> Nessuna rete dichiarata senza fili</h2>
+  <p class="mb-2">
+    La ricognizione delle presenze si attiva per dichiarazione, non per supposizione:
+    la sonda osserva spesso <strong>solo</strong> le subnet marcate come senza fili,
+    perche' su una rete cablata quel ritmo sarebbe traffico inutile.
+  </p>
+  <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-primary">
+    <i class="bi bi-bounding-box me-1"></i> Dichiarare una rete senza fili
+  </a>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">APPARATI DISTINTI</p>
+        <p class="snap-stat-value mb-0">{{ riepilogo.apparati }}</p>
+        <p class="snap-stat-foot mb-0">identita' diverse osservate</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">PERMANENZE</p>
+        <p class="snap-stat-value mb-0">{{ riepilogo.permanenze }}</p>
+        <p class="snap-stat-foot mb-0">visite registrate</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">CON INDIRIZZO FISICO</p>
+        <p class="snap-stat-value mb-0">{{ riepilogo.con_mac }}</p>
+        <p class="snap-stat-foot mb-0">riconoscimento certo</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-3">
+    {# E' il numero che dice se lo storico e' leggibile: se la maggior parte delle
+       permanenze e' riconosciuta solo dall'indirizzo, la rete non fornisce i MAC e
+       chi legge deve saperlo, non dedurlo. #}
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">SENZA IDENTITA'</p>
+        <p class="snap-stat-value mb-0">{{ riepilogo.senza_identita }}</p>
+        <p class="snap-stat-foot mb-0">solo l'indirizzo: si dichiara</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if riepilogo.senza_identita and riepilogo.permanenze
+      and riepilogo.senza_identita * 2 >= riepilogo.permanenze %}
+<div class="alert alert-warning">
+  <h2 class="h6"><i class="bi bi-exclamation-triangle me-1"></i> Lo storico va letto per quello che e'</h2>
+  <p class="mb-0">
+    {{ riepilogo.senza_identita }} permanenze su {{ riepilogo.permanenze }} sono
+    riconosciute <strong>solo dall'indirizzo</strong>: su quelle non si puo' dire che
+    l'apparato di ieri sia quello di oggi. Succede quando la sonda non sta sullo
+    stesso segmento della rete senza fili -- ARP non attraversa un router, quindi
+    l'indirizzo fisico non si vede. Si rimedia
+    <a href="{{ url_for('probes.index') }}">configurando la community SNMP</a> degli
+    apparati che servono quella rete: la loro tabella ARP riferisce i MAC per interi
+    segmenti.
+  </p>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-clock-history me-1"></i> Permanenze ({{ permanenze|length }})
+    </h2>
+    {% if reti_wifi %}
+    <span class="text-body-secondary small">
+      reti osservate: <span class="font-monospace">{{ reti_wifi|join(', ') }}</span>
+    </span>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="50">
+        <thead>
+          {# Nessuna colonna per la rete: si legge dall'indirizzo, e l'elenco e'
+             gia' filtrabile per subnet. #}
+          <tr><th>APPARATO</th><th>RICONOSCIUTO DA</th><th>INDIRIZZO</th>
+              <th>DALLE</th><th>ALLE</th><th>AVVISTAMENTI</th>
+              <th>APERTA PERCHE'</th></tr>
+        </thead>
+        <tbody>
+          {% for p in permanenze %}
+          <tr>
+            <td class="small fw-semibold">
+              {% if p.node_id %}
+              <a href="{{ url_for('inventory.node', node_id=p.node_id) }}"
+                 class="text-decoration-none">
+                {{ p.device_label or p.node_label or 'Non identificato' }}
+              </a>
+              {% else %}
+              {{ p.device_label or 'Non identificato' }}
+              {% endif %}
+              {% if p.hostname %}
+              <div class="fw-normal text-body-secondary">{{ p.hostname }}</div>
+              {% endif %}
+              {% if p.mac %}
+              <div class="fw-normal text-body-secondary font-monospace">{{ p.mac }}</div>
+              {% endif %}
+              {% if p.mac_vendor %}
+              <div class="fw-normal text-body-secondary">{{ p.mac_vendor }}</div>
+              {% endif %}
+            </td>
+            {# La certezza del riconoscimento e' la colonna piu' importante della
+               pagina: senza di essa una permanenza "solo dall'indirizzo" sembrerebbe
+               un apparato seguito nel tempo. #}
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if p.identity_certainty == 'certa'
+                                            else 'warning' if p.identity_certainty == 'probabile'
+                                            else 'secondary' }}"
+                    title="{{ p.identity_explained }}">
+                {{ p.identity_label }}
+              </span>
+            </td>
+            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small">{{ p.first_seen_at|dt }}</td>
+            <td class="small">
+              {{ p.last_seen_at|dt }}
+              <div class="text-body-secondary">{{ p.last_seen_at|ago }}</div>
+            </td>
+            <td class="small">{{ p.sightings }}</td>
+            <td class="small text-body-secondary">{{ p.opened_label }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not permanenze %}
+    <div class="p-3 text-body-secondary small">
+      Nessuna presenza registrata. La ricognizione conferisce gli avvistamenti man
+      mano: se una rete senza fili e' stata dichiarata adesso, i primi arrivano entro
+      pochi minuti.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-question-circle me-1"></i> Come si legge questa pagina</h2>
+  </div>
+  <div class="card-body small">
+    <p>
+      Una <strong>permanenza</strong> e' un apparato riconosciuto, su un indirizzo, da
+      un istante a un altro. Se ne apre una nuova quando lo stesso apparato ricompare
+      su un altro indirizzo, quando torna dopo un'assenza, o -- se non se ne conosce
+      l'identita' -- quando il profilo osservato su quell'indirizzo cambia: le porte e
+      il TTL diversi dicono che l'indirizzo e' passato a un altro apparato, ed e'
+      l'unico modo di accorgersene senza l'indirizzo fisico.
+    </p>
+    <p class="mb-0">
+      Il <strong>riconoscimento</strong> ha quattro gradi di certezza: l'indirizzo
+      fisico e il numero di serie identificano l'apparato; il nome host e' probabile
+      (si puo' riassegnare, ma di norma accompagna la macchina); "solo l'indirizzo"
+      significa che <em>non si ha</em> un'identita' stabile, e la permanenza riguarda
+      l'indirizzo e non un apparato. Il prodotto non finge di sapere chi era: lo
+      dichiara.
+    </p>
+  </div>
+</div>
+{% endblock %}

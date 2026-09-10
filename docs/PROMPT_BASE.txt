@@ -884,19 +884,24 @@ system_settings
 Dati iniziali (`snapserver/seed.py`, invocato da `python run.py --init`):
   - amministratore di sistema (superadmin, tenant_id NULL):
       admin@snap.local / Snap!Admin2026        (sovrascrivibili da ambiente)
-  - tenant dimostrativi:
+  - tenant iniziale (UNO SOLO):
       ised  "ISED S.p.a."             Europe/Rome
               admin@ised.local     (tenant_admin)
               analista@ised.local  (analyst)
               audit@ised.local     (viewer)
-      acme  "ACME International Ltd." America/New_York
-              admin@acme.local     (tenant_admin)
     password comune Snap!Tenant2026, tutti con must_change_pwd = 1
   - il seed e' IDEMPOTENTE: se un utente o un tenant esiste, lo segnala e non
     lo duplica; restituisce l'elenco delle operazioni svolte, che `run.py`
     stampa.
-  - I due fusi diversi non sono un dettaglio decorativo: servono a verificare
-    la normalizzazione oraria del requisito R9.
+  - Un secondo tenant dimostrativo ("ACME International", fuso America/New_York)
+    e' stato TOLTO: serviva a verificare l'isolamento multi-tenant e la
+    normalizzazione oraria del requisito R9, ma quella e' una necessita' dei
+    test, non dell'installazione -- in esercizio compariva nel selettore dei
+    tenant di ogni amministratore di sistema, e un tenant finto in un elenco
+    vero e' una cosa che qualcuno prima o poi apre. I test che hanno bisogno di
+    due tenant se lo creano (`_crea_secondo_tenant` in
+    tests/test_multitenancy.py, fuso America/New_York per la stessa ragione:
+    sei ore di differenza rendono visibile una conversione sbagliata).
 
 Le credenziali iniziali vanno riportate in `tips.txt` (escluso dal controllo di
 versione) con l'avvertenza di cambiarle al primo accesso.

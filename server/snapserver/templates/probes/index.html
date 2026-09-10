@@ -66,8 +66,14 @@
               <div class="text-body-secondary">{{ probe.last_sync_at|ago }}</div>
             </td>
             <td class="text-end">
+              {# La console prima della configurazione: si va a GUARDARE una sonda
+                 piu' spesso di quanto si vada a cambiarla. #}
+              <a href="{{ url_for('probes.console', probe_id=probe.id) }}"
+                 class="btn btn-sm btn-primary" title="Console della sonda">
+                <i class="bi bi-display"></i>
+              </a>
               <a href="{{ url_for('probes.detail', probe_id=probe.id) }}"
-                 class="btn btn-sm btn-outline-secondary">
+                 class="btn btn-sm btn-outline-secondary" title="Configurazione e comandi">
                 <i class="bi bi-gear"></i>
               </a>
             </td>

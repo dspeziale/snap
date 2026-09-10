@@ -22,6 +22,7 @@
                               'inventory.network_map_graphic', 'inventory.network_map_zones',
                               'monitor.status', 'inventory.certificates',
                               'monitor.changes', 'inventory.subnets',
+                              'inventory.presence', 'inventory.presence_trend',
                               'inventory.zone_index',
                               'inventory.deliveries', 'inventory.delivery') %}
 {% set in_mappa = endpoint in ('inventory.network_map', 'inventory.network_map_graphic',
@@ -206,6 +207,16 @@
               <a href="{{ url_for('inventory.certificates') }}"
                  class="nav-link {% if endpoint == 'inventory.certificates' %}active{% endif %}">
                 <i class="nav-icon bi bi-shield-lock"></i><p>Certificati TLS</p>
+              </a>
+            </li>
+            {# Le presenze riguardano le reti senza fili, dove l'inventario ha una
+               dimensione in piu': il tempo. Sta qui e non in Monitoraggio perche' la
+               domanda e' "che apparati ci sono stati", non "il servizio era su". #}
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.presence') }}"
+                 class="nav-link {% if endpoint in ('inventory.presence',
+                                                    'inventory.presence_trend') %}active{% endif %}">
+                <i class="nav-icon bi bi-wifi"></i><p>Presenze Wi-Fi</p>
               </a>
             </li>
             <li class="nav-item">

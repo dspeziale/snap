@@ -71,6 +71,9 @@ DEFAULT_CADENCES = {
     "os": 259200,
     "deep": 604800,
     "monitor": 120,
+    # Ricognizione delle presenze sulle reti senza fili (vedi presence.py). Non e' una
+    # fase del ciclo: ha un thread proprio, e questa e' la sua cadenza.
+    "presence": 120,
     # SNMP riguarda pochi nodi e cambia poco: mezza giornata basta. Quando la porta
     # si apre per la prima volta, la lettura avviene subito perche' il nodo non ha
     # ancora una lettura in archivio.
@@ -1869,6 +1872,25 @@ class NetworkScanner:
         return False
 
     # -- pianificazione dei compiti paralleli --------------------------------
+    def _in_ordine_di_priorita(self, nodi: list) -> list:
+        """I nodi comparsi su una rete senza fili prima di tutti gli altri.
+
+        Perche' serve: il ciclo dedica UN compito per giro all'esame delle porte dei
+        candidati, e su un perimetro di centinaia di indirizzi la coda e' lunga. Un
+        telefono che si e' agganciato adesso verrebbe esaminato quando e' gia' andato
+        via -- cioe' mai. La coda la scrive la ricognizione delle presenze
+        (presence.py), i piu' recenti davanti.
+        """
+        from .presence import CHIAVE_PRIORITA
+
+        coda = [ip for ip in (self.store.get_json(CHIAVE_PRIORITA, []) or [])
+                if isinstance(ip, str)]
+        if not coda:
+            return nodi
+        posizione = {ip: indice for indice, ip in enumerate(coda)}
+        # `sorted` e' stabile: chi non e' in coda conserva l'ordine che aveva.
+        return sorted(nodi, key=lambda n: posizione.get(n["ip"], len(coda)))
+
     def plan_tasks(self, limit: int = None) -> list:
         """Compone fino a `limit` compiti indipendenti fra loro.
 
@@ -1949,6 +1971,9 @@ class NetworkScanner:
         if len(compiti) < limite:
             porte_attesa = [n for n in self.pending_nodes("ports")
                             if n["ip"] not in assegnati]
+            # Chi e' comparso su una rete senza fili passa davanti: la sua finestra
+            # e' di minuti, quella di un apparato cablato non finisce.
+            porte_attesa = self._in_ordine_di_priorita(porte_attesa)
             if porte_attesa:
                 # UN SOLO compito con TUTTI gli host in attesa, non uno per host.
                 # E' il cuore del motore riprogettato: un processo nmap lavora gli
@@ -3083,6 +3108,20 @@ class NetworkScanner:
             "required_stages": list(self._required_stages()),
             "effort": self.effort(),
             "effort_label": EFFORT_PROFILES[self.effort()]["label"],
+            # Le scelte con il NUMERO VERO di thread di ciascun profilo. Stavano
+            # scritte a mano nella pagina e dicevano 1/2/4 mentre i profili erano
+            # diventati 1/16/32: un'etichetta che contraddice la spiegazione due righe
+            # sotto e' peggio di nessuna etichetta. Generandole da qui non possono
+            # piu' divergere.
+            "effort_choices": [
+                {"valore": chiave, "thread": voce["workers"],
+                 "nome": voce["label"].split(":", 1)[0]}
+                for chiave, voce in EFFORT_PROFILES.items()],
+            # Quali fasi usano DAVVERO il tempo per host: dalla riprogettazione del
+            # motore la fase delle porte non lo riceve piu' (il tetto e' sul processo,
+            # calcolato sulle sonde da inviare), e la pagina non deve far credere che
+            # quel valore governi la fase piu' lunga.
+            "host_timeout_stages": list(STAGES_NEEDING_TIME),
             "host_timeout": self.effort_profile()["host_timeout"],
             "host_timeout_chosen": self.host_timeout(),
             "host_timeout_choices": list(HOST_TIMEOUT_CHOICES),

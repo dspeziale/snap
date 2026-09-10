@@ -27,6 +27,40 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.4.0",
+        "date": "2026-09-10",
+        "abstract": "Le reti dichiarate senza fili hanno una ricognizione propria, in"
+                    " un thread a parte: chiede solo chi risponde, ogni due minuti, e"
+                    " chi compare passa in testa alla coda dell'esame delle porte.",
+        "changes": [
+            "Ricognizione delle presenze sulle reti senza fili: una passata breve ogni"
+            " due minuti sulle sole subnet dichiarate tali dalla console. Non esamina"
+            " porte e non rileva sistemi -- chiede soltanto chi risponde -- e per"
+            " questo sta in un thread proprio: una passata di porte dura minuti, e"
+            " condividendo il thread la ricognizione arriverebbe sempre dopo, cioe'"
+            " quando l'apparato comparso e' gia' andato via.",
+            "Un apparato mai visto prima passa in TESTA alla coda dell'esame delle"
+            " porte, e il ciclo si sveglia subito. Il ciclo dedica un compito per giro"
+            " a quella coda: su un perimetro grande, senza la precedenza un telefono"
+            " verrebbe esaminato quando non c'e' piu'.",
+            "Il tempo per host della ricognizione e' generoso (3 secondi) e non"
+            " aggressivo: un apparato radio in risparmio energetico risponde in"
+            " 150-2000 millisecondi, e un tempo breve perderebbe proprio gli apparati"
+            " che questa ricognizione esiste per trovare.",
+            "Nella pagina della sonda, riquadro \"Presenze sulle reti senza fili\":"
+            " reti osservate, esito dell'ultima passata, quanti apparati attendono"
+            " l'esame prioritario. Compare solo se una rete e' stata dichiarata.",
+            "Il nome che un apparato mostra di se' in rete (friendlyName UPnP) entra"
+            " fra i fatti dichiarati.",
+            "Corrette due etichette della pagina di configurazione che non"
+            " corrispondevano piu' al motore: lo sforzo diceva \"4 thread\" dove i"
+            " profili sono 1/16/32 (ora le etichette vengono dai profili e non possono"
+            " divergere), e il tempo per host non diceva la cosa piu' importante --"
+            " che la fase delle porte non lo usa piu', perche' il suo tetto e' sul"
+            " processo e calcolato sulle sonde da inviare.",
+        ],
+    },
+    {
         "version": "1.3.1",
         "date": "2026-09-10",
         "abstract": "La lettura delle pagine web arriva anche dove non c'e'"

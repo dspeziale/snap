@@ -72,7 +72,6 @@ cd server && python run.py --init
 | `admin@ised.local` | Amministratore tenant ISED | `Snap!Tenant2026` |
 | `analista@ised.local` | Analista tenant ISED | `Snap!Tenant2026` |
 | `audit@ised.local` | Consultazione tenant ISED | `Snap!Tenant2026` |
-| `admin@acme.local` | Amministratore tenant ACME | `Snap!Tenant2026` |
 
 **Sostituire le password al primo accesso.** Le credenziali iniziali possono
 essere modificate prima dell'inizializzazione con le variabili d'ambiente

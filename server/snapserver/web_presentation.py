@@ -201,3 +201,53 @@ def certificato_leggibile(cert_json: str | None) -> dict:
         "scaduto": bool(cert.get("cert_scaduto")),
         "non_ancora_valido": bool(cert.get("cert_non_ancora_valido")),
     }
+
+
+# Che cosa mostrare nella colonna "Info" dell'elenco dei nodi, in ordine di valore.
+# L'ordine e' quello dell'utilita' per chi guarda un elenco: che cos'e' (prodotto,
+# modello), come si chiama, DOVE STA fisicamente -- che e' l'informazione che nessuna
+# altra fase puo' dare -- e come si presenta.
+CAMPI_INFO_WEB = (
+    ("product", "prodotto", None),
+    ("model", "modello", None),
+    ("device_name", "nome", None),
+    ("location", "posizione", "bi-geo-alt"),
+    ("firmware", "firmware", None),
+    ("title", "titolo della pagina", None),
+    ("server_header", "server web", None),
+)
+# Quante voci stanno in una cella prima di diventare illeggibili.
+MAX_VOCI_INFO = 3
+MAX_TESTO_INFO = 42
+
+
+def riassunto_web(pagine) -> list:
+    """Le informazioni piu' utili raccolte dalle interfacce web, per una cella.
+
+    Sono le stesse che il dettaglio del nodo mostra per intero: qui si scelgono le
+    prime `MAX_VOCI_INFO` per valore informativo, senza ripetere lo stesso testo su
+    piu' porte -- una multifunzione con la 80 e la 443 dichiara due volte le stesse
+    cose, e in un elenco quella ripetizione occupa la riga senza aggiungere nulla.
+
+    Restituisce una lista di `{"campo", "etichetta", "valore", "icona", "porta"}`.
+    """
+    scelte = []
+    visti = set()
+    for campo, etichetta, icona in CAMPI_INFO_WEB:
+        for pagina in pagine or []:
+            valore = (pagina.get(campo) or "").strip()
+            if not valore:
+                continue
+            confronto = valore.lower()
+            if confronto in visti:
+                continue
+            visti.add(confronto)
+            testo = valore if len(valore) <= MAX_TESTO_INFO else \
+                valore[:MAX_TESTO_INFO - 1].rstrip() + "…"
+            scelte.append({"campo": campo, "etichetta": etichetta, "valore": testo,
+                           "completo": valore, "icona": icona,
+                           "porta": pagina.get("port")})
+            break  # un campo una volta: la prima porta che lo dichiara basta
+        if len(scelte) >= MAX_VOCI_INFO:
+            break
+    return scelte

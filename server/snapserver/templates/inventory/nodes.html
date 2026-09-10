@@ -314,7 +314,7 @@
              data-no-sort="AZIONI">
         <thead>
           <tr><th>STATO</th><th>CONTROLLI</th><th>INDIRIZZO</th><th>TIPO</th>
-              <th>CONF.</th><th>SISTEMA OPERATIVO</th><th>PORTE</th><th>SUBNET</th>
+              <th>CONF.</th><th>SISTEMA OPERATIVO</th><th>PORTE</th><th>INFO</th>
               <th>ULTIMO CONTATTO</th><th>AZIONI</th></tr>
         </thead>
         <tbody>
@@ -385,13 +385,40 @@
                 {{ n.device_confidence }}%
               </span>
             </td>
-            <td class="small">{{ n.os_name or '-' }}</td>
-            <td class="small">{{ n.open_ports }}</td>
+            {# SISTEMA OPERATIVO per approssimazioni successive (os_guess): il solo
+               rilevamento di nmap lasciava questa colonna vuota sulla maggior parte
+               dei nodi, perche' richiede almeno una porta aperta e una chiusa. Vuoto
+               non significava "non si sa": significava che si guardava una fonte
+               sola. Un'ipotesi e una versione dichiarata dall'apparato non valgono
+               lo stesso, quindi l'ipotesi si vede che e' un'ipotesi. #}
             <td class="small">
-              {{ n.subnet_cidr or '-' }}
-              {# La subnet dice dove il nodo sta logicamente, la porta dove sta
-                 fisicamente: la seconda viene dalla tabella di inoltro di un
-                 apparato, non dalla scansione, quindi si dichiara la fonte. #}
+              <span class="{{ 'fst-italic text-body-secondary'
+                              if n.os_guess.certezza in ('ipotesi', 'ignota') }}"
+                    title="{{ n.os_guess.spiegazione }}">{{ n.os_guess.testo }}</span>
+              <div class="text-body-secondary" style="font-size:.75rem">
+                {{ n.os_guess.fonte if n.os_guess.fonte != 'nessuna' else '' }}
+              </div>
+            </td>
+            <td class="small">{{ n.open_ports }}</td>
+            {# INFO: cio' che l'apparato dichiara di se' nelle proprie pagine di
+               gestione. Sta al posto della subnet, che si legge gia' dall'indirizzo
+               e dal filtro: la posizione fisica di una stampante, invece, non si
+               ricava da nessun'altra parte -- non sta in rete, sta scritta
+               sull'apparato da chi lo ha installato. #}
+            <td class="small">
+              {% for voce in n.info_web %}
+              <div title="{{ voce.etichetta }}: {{ voce.completo }}">
+                {% if voce.icona %}<i class="bi {{ voce.icona }} me-1"></i>{% endif %}
+                {{ voce.valore }}
+              </div>
+              {% endfor %}
+              {% if not n.info_web %}
+              <span class="text-body-secondary"
+                    title="Nessuna interfaccia web ha risposto, o non ha dichiarato nulla di se'">-</span>
+              {% endif %}
+              {# La porta fisica sta qui perche' e' l'altra informazione che non si
+                 ricava dalla scansione: viene dalla tabella di inoltro di un
+                 apparato, quindi si dichiara la fonte. #}
               {% if n.switch_port %}
               <div class="text-body-secondary"
                    title="Porta fisica letta dalla tabella di inoltro di {{ n.switch_device or 'un apparato di rete' }}">

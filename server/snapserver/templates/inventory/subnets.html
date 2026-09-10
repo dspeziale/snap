@@ -240,6 +240,7 @@
             </th>
             {%- endif %}
             <th>STATO</th><th>SUBNET</th><th>ETICHETTA</th><th>ZONA</th>
+            <th>SENZA FILI</th>
             <th>INDIRIZZI</th><th>NODI TROVATI</th>
             <th>ATTIVI</th><th>ORIGINE</th><th>IMPORTATA</th><th>AZIONI</th>
           </tr>
@@ -282,6 +283,29 @@
               {% else %}
               {% set dichiarata = zones|selectattr('chiave', 'equalto', s.zone)|first %}
               {{ dichiarata.nome if dichiarata else 'non dichiarata' }}
+              {% endif %}
+            </td>
+            {# SENZA FILI. Non e' un'etichetta: dichiara alla sonda che questa rete
+               va guardata spesso e in fretta, perche' i suoi apparati durano minuti.
+               Si cambia qui, dove la subnet vive. #}
+            <td class="small">
+              {% if has_role('tenant_admin') %}
+              <form method="post"
+                    action="{{ url_for('inventory.toggle_subnet_wifi', subnet_id=s.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit"
+                        class="btn btn-sm btn-{{ 'primary' if s.is_wifi else 'outline-secondary' }}"
+                        title="{{ 'Rete senza fili: ricognizione delle presenze attiva'
+                                  if s.is_wifi else
+                                  'Dichiarare che questa e&#39; una rete senza fili' }}">
+                  <i class="bi bi-{{ 'wifi' if s.is_wifi else 'wifi-off' }}"></i>
+                  {{ 'Wi-Fi' if s.is_wifi else 'no' }}
+                </button>
+              </form>
+              {% elif s.is_wifi %}
+              <span class="badge text-bg-primary"><i class="bi bi-wifi me-1"></i>Wi-Fi</span>
+              {% else %}
+              -
               {% endif %}
             </td>
             <td class="small">{{ s.host_count }}</td>

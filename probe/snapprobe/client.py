@@ -224,7 +224,7 @@ class ServerClient:
         self.store.set_setting("last_contact_at", utc_now_str())
         return answer
 
-    def heartbeat(self) -> dict:
+    def heartbeat(self, console: dict = None) -> dict:
         # `scan_paused` riporta al server se le scansioni sono sospese SULLA sonda, per
         # una pausa locale del tecnico: e' vera sia con la pausa dell'agente ("paused")
         # sia con quella specifica delle scansioni ("scan_paused"). L'interruttore del
@@ -238,6 +238,10 @@ class ServerClient:
                 "paused": self.store.get_setting("paused", "0") == "1",
                 "scan_paused": scan_paused,
                 "hostname": socket.gethostname(),
+                # Istantanea per la console remota: il server non puo' interrogare la
+                # sonda (NAT), quindi lo stato viaggia con il battito. Facoltativa: un
+                # battito senza istantanea resta un battito valido.
+                "console": console or None,
             },
         )
 

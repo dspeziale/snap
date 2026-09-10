@@ -34,6 +34,7 @@ from .checker import CheckRunner
 from .client import ProtocolError, ServerClient, TransportError
 from .collector import Collector
 from .nmap_runner import NmapError, NmapRunner
+from .presence import PresenceWatcher
 from .scanner import NetworkScanner, PerimeterViolation, ScanSuspended
 from .store import ProbeStore, utc_now_str
 
@@ -48,7 +49,13 @@ CONTACT_FRESH_SECONDS = 300
 # il genere con cui ogni record e' stato accodato: senza questa traduzione tutto
 # finirebbe fra le annotazioni e l'inventario resterebbe vuoto.
 RECORD_TYPES = ("events", "nodes", "ports", "os", "scripts", "snmp", "smb", "vuln",
-                "monitor", "scan_runs", "removals", "check_results", "web")
+                "monitor", "scan_runs", "removals", "check_results", "web",
+                # Avvistamenti sulle reti senza fili (presence.py). Va dichiarato QUI
+                # oltre che sul server: questo elenco e' un'allowlist, e un genere che
+                # non compare viene SCARTATO dalla coda con un errore nel diario --
+                # cioe' i dati si raccolgono, si accodano e si perdono, senza che
+                # nessuna pagina lo dica. E' esattamente quello che e' successo.
+                "presence")
 QUEUE_KIND_ALIASES = {"event": "events"}
 
 
@@ -71,6 +78,9 @@ class ProbeAgent:
         # I controlli condividono il runner dello scanner: le esecuzioni di nmap
         # sono cosi' contate e interrompibili insieme alle altre.
         self.checker = CheckRunner(store, self.scanner.runner)
+        # La ricognizione condivide l'esecutore di nmap dello scanner: le esecuzioni
+        # restano contate e interrompibili insieme a tutte le altre.
+        self.presence = PresenceWatcher(store, self.scanner)
 
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -82,6 +92,12 @@ class ProbeAgent:
         # Anche i controlli hanno un thread proprio: un endpoint lento non deve
         # ritardare il battito ne' attendere la fine di una scansione.
         self._checks_thread: threading.Thread | None = None
+        # La ricognizione delle presenze ha il proprio, e per una ragione diversa
+        # dalle altre due: deve girare OGNI DUE MINUTI su una rete senza fili, e una
+        # passata di porte dura minuti. Condividendo il thread della scansione
+        # arriverebbe sempre dopo -- cioe' quando l'apparato comparso e' gia' andato
+        # via, che e' esattamente il caso che deve intercettare (presence.py).
+        self._presence_thread: threading.Thread | None = None
         # Prima del primo battito non si sa nulla del collegamento: dichiararlo
         # interrotto sarebbe un'affermazione non verificata, e con una fase di
         # ispezione in corso il primo battito arriva dopo minuti. Si parte percio'
@@ -214,6 +230,45 @@ class ProbeAgent:
         self._checks_thread.start()
         return {"running": True, "started": True}
 
+    def _run_due_presence(self) -> dict | None:
+        """Ricognizione delle presenze, se e' dovuta e se ci sono reti senza fili.
+
+        Gli avvistamenti si accodano come tutto il resto: se il server non risponde
+        restano in coda, e lo storico delle presenze non ha buchi per un guasto di
+        collegamento. Gli errori non arrestano il ciclo: una rete di utenza che non
+        risponde e' una condizione di esercizio.
+        """
+        if not self.presence.due():
+            return None
+        try:
+            esito = self.presence.run_once()
+        except (NmapError, OSError) as errore:
+            self.store.log("warning", "Ricognizione delle presenze non eseguita: %s"
+                                      % errore)
+            self._last_error = str(errore)
+            return None
+        for genere, elementi in (esito.get("records") or {}).items():
+            for elemento in elementi:
+                self.store.enqueue(genere, elemento)
+        if esito.get("new"):
+            # Qualcuno e' comparso: il ciclo si sveglia subito invece di attendere il
+            # proprio battito, perche' l'esame delle porte di un apparato radio ha una
+            # finestra di minuti.
+            self.wake()
+        return esito
+
+    def _dispatch_presence(self) -> dict:
+        """Avvia la ricognizione in un thread proprio, se non e' gia' in corso."""
+        if self._presence_thread is not None and self._presence_thread.is_alive():
+            return {"running": True, "started": False}
+        self._presence_thread = threading.Thread(
+            target=self._run_due_presence, name="snap-probe-presence", daemon=True)
+        self._presence_thread.start()
+        return {"running": True, "started": True}
+
+    def _presence_step(self, in_background: bool):
+        return self._dispatch_presence() if in_background else self._run_due_presence()
+
     def _checks_step(self, in_background: bool):
         return self._dispatch_checks() if in_background else self._run_due_checks()
 
@@ -249,6 +304,7 @@ class ProbeAgent:
         if not self.store.is_enrolled():
             # Senza registrazione non c'e' con chi parlare: si raccoglie e si
             # scansiona in autonomia, che e' il comportamento previsto.
+            outcome["presence"] = self._presence_step(scan_in_background)
             outcome["scanned"] = self._scan_step(scan_in_background)
             return outcome
 
@@ -257,7 +313,9 @@ class ProbeAgent:
         # rimandarlo a dopo la scansione ritarderebbe i comandi di altrettanto e
         # farebbe apparire irraggiungibile un server che risponde.
         try:
-            answer = self.client.heartbeat()
+            # L'istantanea per la console remota viaggia col battito: e' l'unico
+            # canale che esista verso il server (vedi console_snapshot).
+            answer = self.client.heartbeat(self.console_snapshot())
             self._online = True
             self._last_error = ""
         except (TransportError, ProtocolError) as exc:
@@ -270,6 +328,7 @@ class ProbeAgent:
             )
             # La scansione non dipende dal server: prosegue comunque, e cio' che
             # produce resta in coda fino al ritorno del collegamento.
+            outcome["presence"] = self._presence_step(scan_in_background)
             outcome["scanned"] = self._scan_step(scan_in_background)
             return outcome
 
@@ -284,6 +343,10 @@ class ProbeAgent:
         # lo svuotamento della coda non ne attende la fine: cio' che produce parte al
         # giro successivo, quindici secondi dopo.
         outcome["checked"] = self._checks_step(scan_in_background)
+        # La ricognizione PRIMA della scansione: se ha trovato qualcuno di nuovo, lo
+        # mette in testa alla coda delle porte, e la scansione che parte subito dopo
+        # lo trova la'. Invertendo l'ordine, l'apparato aspetterebbe il giro dopo.
+        outcome["presence"] = self._presence_step(scan_in_background)
         outcome["scanned"] = self._scan_step(scan_in_background)
         outcome["synced"] = self.flush_queue()
         return outcome
@@ -697,6 +760,78 @@ class ProbeAgent:
         """Stato della scansione, per l'interfaccia locale."""
         return self.scanner.status()
 
+    # -- console remota ------------------------------------------------------
+    # Quante righe di diario e quante passate viaggiano col battito. Il tetto non e'
+    # prudenza generica: il battito parte ogni quindici secondi, e una busta che
+    # cresce con l'archivio locale finirebbe per costare piu' del conferimento dei
+    # dati veri. Con questi valori l'istantanea sta in pochi kilobyte.
+    CONSOLE_RIGHE_DIARIO = 40
+    CONSOLE_RIGHE_PASSATE = 20
+
+    def console_snapshot(self) -> dict:
+        """Lo stato della sonda come lo mostra la propria interfaccia locale.
+
+        PERCHE' ESISTE
+        La sonda sta nella rete del cliente e parla solo in uscita: il server non puo'
+        aprire una connessione verso di lei -- NAT e firewall -- quindi non puo'
+        chiedere nulla su richiesta. L'unico canale e' il battito, che la sonda apre
+        ogni quindici secondi. Chi vuole vedere la console da remoto deve percio'
+        ricevere lo stato *insieme al battito*, gia' pronto.
+
+        Cosa contiene: le stesse cose che si leggono aprendo l'interfaccia locale --
+        configurazione in vigore, avanzamento, coda, ricognizione delle presenze,
+        diario e ultime passate. Cosa NON contiene: nulla che non sia gia' noto al
+        server o che riguardi altri (nessun contenuto di pagina, nessuna credenziale,
+        nessun segreto: `status()` non ne espone).
+
+        Il ritardo e' dichiarato e non nascosto: l'istantanea vale al momento in cui e'
+        stata composta, e la pagina del server ne mostra l'istante.
+        """
+        istantanea = {
+            "at": utc_now_str(),
+            "agent": self.status(),
+            "scan": self.scanner.status(),
+            "diary": [
+                {"at": r["created_at"], "level": r["level"], "message": r["message"]}
+                for r in self.store.recent_events(self.CONSOLE_RIGHE_DIARIO)
+            ],
+            "syncs": [
+                {"at": r["created_at"], "records": r["records"],
+                 "status": r["status"], "detail": r["detail"]}
+                for r in self.store.recent_syncs(self.CONSOLE_RIGHE_PASSATE)
+            ],
+        }
+        # IL PERIMETRO NON VIAGGIA: lo ha mandato il server, quindi rimandarglielo e'
+        # traffico a vuoto -- ed era 30 dei 37 kilobyte della prima istantanea, con
+        # 380 subnet. Si manda il conteggio e le prime, che bastano a riconoscere di
+        # quale perimetro si tratta.
+        perimetro = istantanea["scan"].pop("perimeter", None) or []
+        istantanea["scan"]["perimeter_count"] = len(perimetro)
+        istantanea["scan"]["perimeter_head"] = [
+            (v.get("cidr") if isinstance(v, dict) else str(v))
+            for v in perimetro[:12]]
+
+        # Lo stato delle fasi pesa allo stesso modo: con centinaia di subnet sono
+        # migliaia di righe. Si manda il CONTEGGIO e le ultime, che e' quello che si
+        # guarda.
+        stati = istantanea["scan"].pop("states", None) or []
+        istantanea["scan"]["states_count"] = len(stati)
+        istantanea["scan"]["states_recent"] = [
+            {"target": s.get("target"), "stage": s.get("stage"),
+             "status": s.get("status"), "at": s.get("last_run_at"),
+             "detail": (s.get("detail") or "")[:200]}
+            for s in stati[:self.CONSOLE_RIGHE_PASSATE]
+        ]
+        # Le esecuzioni in corso portano la riga di comando di nmap: utile a capire
+        # cosa sta facendo, e non e' un segreto -- ma si tronca, perche' con molti
+        # bersagli e' lunghissima.
+        esecuzioni = istantanea["scan"].get("running_executions") or []
+        istantanea["scan"]["running_executions"] = [
+            {k: (str(v)[:300] if isinstance(v, str) else v) for k, v in e.items()}
+            for e in esecuzioni[:8]
+        ] if esecuzioni else []
+        return istantanea
+
     def status(self) -> dict:
         return {
             "running": self._thread is not None and self._thread.is_alive(),
@@ -707,4 +842,8 @@ class ProbeAgent:
             "oldest_queued_at": self.store.oldest_queued_at(),
             "paused": self.store.get_setting("paused", "0") == "1",
             "enrolled": self.store.is_enrolled(),
+            # Ricognizione delle presenze: quali reti senza fili, ogni quanto, e
+            # com'e' andata l'ultima passata. Su una rete Wi-Fi e' l'attivita' che
+            # produce piu' dato, e la pagina di stato deve dire se sta girando.
+            "presence": self.presence.stato(),
         }
