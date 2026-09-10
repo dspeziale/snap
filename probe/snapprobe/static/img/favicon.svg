@@ -11,7 +11,10 @@
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16"
      role="img" aria-label="SNAP">
-  <g fill="none" stroke="#0d6efd" stroke-width="1.1"
+  <!-- Arancione (#fd7e14, la tavolozza di Bootstrap): e' il colore d'identita' della
+       SONDA, che si distingue dal blu della console. Nella barra delle finestre del
+       browser due schede identiche sono un rischio operativo, non un dettaglio. -->
+  <g fill="none" stroke="#fd7e14" stroke-width="1.1"
      stroke-linecap="round" stroke-linejoin="round">
     <!-- Collegamenti: dal nodo in alto al bus, e dal bus ai tre nodi in basso. -->
     <path d="M8 4.6v2.2" />

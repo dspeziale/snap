@@ -131,6 +131,12 @@ services:
     # Stessa rete della sonda: il proxy raggiunge 127.0.0.1:5511 sul loopback
     # dell'host, dove la sonda ascolta.
     network_mode: host
+    # Dove sta la sonda, per nome. Qui e' il loopback (la sonda condivide questa
+    # rete); nella variante nativa e' il gateway dell'host, perche' la sonda gira
+    # fuori dal contenitore. Il nome tiene UNA SOLA nginx.conf per tutte le
+    # varianti -- vedi la nota in testa a nginx.conf.
+    extra_hosts:
+      - "sonda:127.0.0.1"
     depends_on:
       snap-probe:
         condition: service_started

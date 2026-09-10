@@ -125,6 +125,13 @@ calcolato sul lavoro richiesto (sonde da inviare / ritmo misurato) con margine.
 
 ## 5. Parallelismo: dentro un processo, non fra processi
 
+> **SUPERATO DALLA MISURA (vedi § 8-bis).** Questa sezione descrive la scelta
+> precedente e resta come storia del ragionamento. Con UN gruppo di 64 host era
+> giusta; con molti gruppi nello stesso processo no: 256 host in un processo hanno
+> dato **zero porte su 256**, e oltre 500 il processo non termina entro le due ore del
+> tetto. Il parallelismo e' tornato **fra** i processi -- fino a trentadue -- perche' il
+> budget di pacchetti di nmap e' per processo.
+
 Questa sezione conteneva la decisione opposta -- dividere le porte fra piu' processi,
 "cosi' la banda si somma" -- ed e' stata **scartata da una misura**. Vale scriverlo:
 era ragionevole in teoria e falsa in pratica.
@@ -232,6 +239,200 @@ Chi la rifa': lo schema e' quello di §3, confrontando il ritrovamento delle cop
 host-porta accertate aperte nello stesso momento. Serve la rete libera -- con la
 sonda che scandisce in parallelo il gruppo da 254 passa da 19 a 14 su 33, e le
 conclusioni si invertono.
+
+---
+
+## 8-bis. Il motore a due fasi: ricognizione, poi raffica per nodo
+
+### 8-bis.1 Tre strutture, tre misure
+
+Questa parte del prodotto e' stata rifatta tre volte, e ogni volta la ragione e' stata
+una misura sul campo. Vale la pena tenerle tutte, perche' la conclusione non e'
+intuitiva.
+
+| Struttura | Esito misurato |
+|---|---|
+| **Un processo per host**, un host per ciclo | 202 s per host: corretta ma troppo lenta -- su centinaia di indirizzi non finisce |
+| **Un processo con TUTTI gli host**, a gruppi di 64 | veloce, e su un gruppo solo con recall pieno (33 porte su 33). Ma: **256 host in un processo -> ZERO porte su 256**; oltre 500 host -> il processo **non termina entro le due ore** del tetto e la fase scade senza produrre nulla |
+| **Un processo per host, fino a 32 insieme** (attuale) | 3,3 s per host con le porte di riconoscimento, ~24 s con `-A`. Recall pieno, tempo prevedibile |
+
+**La causa e' una sola, e spiega tutte e tre le righe:** il budget di pacchetti e la
+finestra di congestione di nmap sono **per processo**. Dividerli fra molti host
+stringe la finestra su ognuno, e su una rete che filtra -- la postura normale di una
+rete di PA -- le porte vere passano per **filtrate**. Non e' un errore di
+configurazione: e' cio' che nmap fa quando gli si chiede troppo in un colpo.
+
+La conseguenza sul progetto e' che il parallelismo deve stare **fuori** dal processo,
+nel pool: trentadue processi da pochi secondi, non un processo da due ore.
+
+### 8-bis.2 Fase 1 -- chi risponde
+
+`-sn -PE -PS... -PA80 -PR` per subnet, con il proprio tempo per host breve. Dice quali
+indirizzi rispondono, il MAC dove ARP arriva, il nome host dove il DNS lo dice. Non
+guarda porte: e' cio' che la rende rapida.
+
+### 8-bis.3 Fase 2 -- la raffica (`raffica`)
+
+Un processo per nodo, con tutto quello che nmap sa fare:
+
+- **`-A`**: versione dei servizi, rilevamento del sistema operativo, script `default`,
+  traceroute;
+- **~234 porte** (riconoscimento + profondita' in un colpo solo): su un host per
+  processo il budget e' tutto suo, quindi si chiede tutto subito;
+- **29 script NSE curati** per famiglia di servizio (TLS, HTTP, SMB, SSH, FTP,
+  database, stampa, malware), scritti come `default,<catalogo>` perche' `--script` da
+  solo sostituirebbe il set che `-A` porta con se';
+- **il prefisso `+`** su quasi tutti: forza lo script anche dove nmap non ha
+  riconosciuto il servizio atteso. Non e' decorativo -- questo prodotto trova
+  interfacce web sulla 7070 e sulla 8443 e agenti su porte spostate, e senza il `+`
+  gli script non partirebbero **proprio dove servono**;
+- **`--script-args http.useragent=...`**: lo user-agent si dichiara, perche' nei log
+  del cliente si deve leggere chi ha fatto la richiesta.
+
+Una raffica riuscita **soddisfa** le fasi porte, servizi e sistema operativo
+(`FASI_COPERTE_DALLA_RAFFICA`): il contratto del profilo resta espresso nelle tre
+fasi -- cosi' un nodo profilato prima che la raffica esistesse resta valido -- ma si
+ottiene in una passata di secondi.
+
+### 8-bis.4 Il confine di sicurezza, scritto nel codice
+
+Le categorie NSE non sono equivalenti, e su una rete di produzione della PA il confine
+non e' un'opinione: `brute` blocca gli account e riempie i log, `dos` interrompe i
+servizi, `exploit` e `fuzzer` li corrompono. Un incidente causato da uno strumento di
+**inventario** e' inaccettabile, ed e' anche una violazione dell'autorizzazione con cui
+si scansiona.
+
+- **Ammesse**: `default`, `safe`, `version`, `discovery`, e i controlli `vuln` che si
+  limitano a verificare.
+- **Vietate**: `brute`, `dos`, `exploit`, `fuzzer`, `intrusive`
+  (`CATEGORIE_NSE_VIETATE`), piu' un elenco di script per nome
+  (`SCRIPT_NSE_VIETATI`). Un test cerca quegli script negli argomenti di **tutte** le
+  fasi, non solo della raffica.
+- **Rifiutati anche gli script ESTERNI** (`vulners`, `whois-ip`, `shodan-api`,
+  `http-virustotal`): su una rete senza uscita non funzionano, e dove funzionassero
+  manderebbero **fuori** l'inventario dei servizi del cliente. E' una fuga di
+  informazioni, non un arricchimento. La correlazione CVE, quando servira', va fatta
+  con una fonte **offline**.
+
+### 8-bis.5 Nessun nodo si scarta sulla parola di una sola passata
+
+**Il difetto piu' grave che questo prodotto abbia avuto**, e la sua correzione.
+
+In esercizio `10.10.60.1` -- il firewall che fa da gateway a una rete di utenza, con la
+53/tcp aperta servita da Unbound -- e' stato **scartato** come "nessuna informazione
+dopo le fasi ports, snmp". Lo stesso nmap, sullo stesso host, dalla stessa sonda, con
+le stesse porte, lo trova in **3,3 secondi**. La differenza era il contesto: quell'host
+era uno di 256 in un solo processo.
+
+Perdere un apparato vero non e' un dato mancante: e' un'**affermazione falsa**, e
+nessuno se ne accorge, perche' non si vede cio' che non c'e'. Da qui:
+
+1. prima di scartare, il nodo si riesamina **da solo** (`_riesamina_da_solo`);
+2. l'esito ha **tre valori** e vanno tenuti distinti: `trovato` (si fondono le prove e
+   il nodo resta), `muto` (si scarta), `non_verificato` (**non** si scarta). Confondere
+   gli ultimi due e' precisamente l'errore che fa sparire un apparato;
+3. il nodo si marca "verificato" **solo se la verifica e' avvenuta**. La prima versione
+   lo marcava prima di tentarla, e una verifica che non partiva -- esecutore saturo,
+   tempo scaduto -- bruciava l'unica occasione: misurato su `10.10.60.101`;
+4. **i nodi gia' persi si recuperano** (`_recupera_i_muti`), in qualunque stato si
+   trovino. Un nodo scartato che la ricognizione delle presenze rivede torna
+   "candidato" ma con la fase porte gia' segnata: nessuna coda lo riprende piu', e
+   guardare solo gli scartati avrebbe lasciato fuori proprio quel caso.
+
+Quattro verifiche per ciclo, una volta per nodo, e sempre dentro il perimetro.
+
+---
+
+## 8-ter. L'archivio della sonda: da SQLite a PostgreSQL
+
+### 8-ter.1 Perche'
+
+La sonda scriveva su un file SQLite nel volume, con un lucchetto in memoria a
+serializzare i thread. Due difetti che con trentadue thread di scansione si sentono:
+
+1. **il parallelismo si fermava all'archivio**: un file non regge scritture
+   concorrenti, e il lucchetto le metteva in fila;
+2. **un file che si corrompe e' la perdita di tutto il raccolto**, e l'archivio della
+   sonda e' una **coda di conferimento** che deve sopravvivere a giorni di server
+   irraggiungibile su un apparato lasciato in sede.
+
+Il contenitore PostgreSQL della sonda era gia' previsto e non usato, e le dipendenze
+(`SQLAlchemy`, `psycopg`) erano gia' nel file dei requisiti: il porting era
+predisposto.
+
+### 8-ter.2 Come, e perche' cosi'
+
+L'archivio ha **oltre sessanta punti di SQL** scritti sull'interfaccia di `sqlite3`.
+Riscriverli tutti avrebbe significato sessanta occasioni di sbagliare, in un archivio
+dove un errore silenzioso e' dato perso. Si e' scritto invece un **adattatore**
+(`snapprobe/db.py`: `Connessione`, `Cursore`, `Riga`) che parla come `sqlite3` e scrive
+su PostgreSQL: le interrogazioni restano quelle verificate, e cambia solo lo strato che
+le esegue. I punti convertiti a mano sono tre, non sessanta.
+
+`snapprobe/db.py` **rispecchia** `snapserver/db.py` invece di importarlo: sonda e
+server sono due applicativi su macchine diverse e non condividono codice. La
+duplicazione e' deliberata, e la regola e' che una correzione qui va portata anche la'.
+
+Cio' che ha richiesto una traduzione vera:
+
+| SQLite | PostgreSQL |
+|---|---|
+| `INTEGER PRIMARY KEY AUTOINCREMENT` | `INTEGER GENERATED BY DEFAULT AS IDENTITY` |
+| `cursor.lastrowid` | `RETURNING id` |
+| `INSERT OR IGNORE` | `ON CONFLICT DO NOTHING` (righe toccate 0 = la chiave era di un altro: la prenotazione atomica dei bersagli regge su questa semantica) |
+| `DO UPDATE SET runs = runs + 1` | `runs = scan_state.runs + 1` -- il nome da solo e' **ambiguo** fra tabella e `excluded`, e PostgreSQL lo rifiuta |
+| `datetime('now', '-2 hours')` | istante calcolato in Python e passato come parametro |
+| `PRAGMA table_info`, `sqlite_master` | `information_schema` |
+| `PRAGMA wal_checkpoint`, dimensione dei file | `pg_database_size`, e `VACUUM` che **non** restituisce spazio al sistema (vedi sotto) |
+
+**Due utenze, minimo privilegio**, come sul server: il **proprietario** crea e migra lo
+schema all'avvio, l'**applicativo** legge e scrive i dati e non puo' cambiare la
+struttura -- quindi un difetto del programma non puo' cancellare una tabella.
+
+**Il lucchetto c'e' ancora**, e va spiegato: serviva a SQLite, e con PostgreSQL non
+servirebbe. Si e' mantenuto per fare **una** modifica per volta -- il comportamento
+resta quello verificato. Togliendolo, il pool servirebbe i trentadue thread davvero in
+parallelo: e' il passo successivo, da fare misurando, non insieme al cambio di
+archivio.
+
+### 8-ter.3 I dati del vecchio archivio si importano
+
+Un porting che perde i dati non e' un porting, e' un azzeramento. Nel file SQLite di
+una sonda in esercizio ci sono tre cose che non si rifanno da zero senza intervento
+umano: la **registrazione** (senza, la sonda non e' piu' riconosciuta e va registrata a
+mano dalla console), la **coda** di conferimento, e lo **stato di nodi e fasi** (su
+78.000 indirizzi, giorni di lavoro).
+
+`ProbeStore.importa_da_sqlite` copia tutto al primo avvio. Misurato su
+un'installazione reale: **80.057 righe importate**, fra cui 79.000 nodi e la
+registrazione. Il file resta come copia, rinominato, e non viene piu' guardato.
+
+Due dettagli che sono costati un tentativo ciascuno:
+
+- **il criterio di "archivio non ancora in uso" e' la sola registrazione.** Contando
+  anche i nodi, un'importazione interrotta a metà (nodi copiati, impostazioni no)
+  risultava "in uso" al riavvio e non riprendeva -- lasciando la sonda **muta**;
+- **l'importazione e' ripetibile**: le impostazioni si sovrascrivono (quelle del
+  vecchio archivio sono le vere; le poche scritte dall'avvio sono valori predefiniti),
+  il resto si salta se c'e' gia'. Senza, una sola collisione su `settings` interrompeva
+  l'intera importazione -- ed e' quello che e' successo.
+
+### 8-ter.4 Cose da sapere in esercizio
+
+- **`VACUUM` non restituisce spazio al sistema operativo**: rende riutilizzabile quello
+  delle righe morte dentro il database. `compact()` percio' restituisce quasi sempre
+  zero, e lo dichiara. `VACUUM FULL` lo restituirebbe, ma richiede un lucchetto
+  esclusivo: su una coda di conferimento che trentadue thread stanno scrivendo non si
+  prende di iniziativa.
+- **La sonda attende l'archivio all'avvio** (fino a 90 secondi, riprovando): il
+  contenitore della base dati puo' partire dopo, e un errore all'avvio manderebbe la
+  sonda in ciclo di riavvio su un apparato in sede, senza nessuno che guardi.
+- **Con il compose per Docker Desktop non si riavvia la sola sonda.** La base dati usa
+  la RETE della sonda (`network_mode: "service:snap-probe"`), quindi riavviando solo
+  lei la base dati resta senza rete. Si riavvia l'insieme:
+  `docker compose -f docker-compose.yml -f docker-compose.desktop.yml restart`.
+
+---
 
 ## 8. Cosa si conserva del motore precedente
 

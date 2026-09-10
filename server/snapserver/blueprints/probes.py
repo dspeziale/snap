@@ -62,6 +62,11 @@ AVAILABLE_COMMANDS = {
     "scan": "Esecuzione immediata di una fase di scansione",
     "scan_pause": "Sospensione delle scansioni di rete",
     "scan_resume": "Ripresa delle scansioni di rete",
+    # Fa dimenticare alla sonda quali fasi ha gia' svolto, cosi' ricomincia dalla
+    # scoperta. Lo manda l'azzeramento del raccolto (purge.py): senza, il server
+    # dimenticherebbe un nodo che la sonda ricorda di avere profilato, e quel nodo
+    # non tornerebbe fino alla scadenza della cadenza -- giorni.
+    "forget": "Riavvio della raccolta dalla scoperta",
 }
 
 

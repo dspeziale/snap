@@ -257,17 +257,44 @@ class ProbeStore:
                     connessione.exec_driver_sql("SELECT 1")
                 return
             except OperationalError as errore:
+                # IL MOTIVO SI DICE SUBITO, non solo alla fine. La prima versione
+                # scriveva "non ancora pronto" e nient'altro: davanti a un archivio
+                # irraggiungibile per una ragione precisa -- una porta che accetta e
+                # chiude perche' PostgreSQL ascolta altrove -- quel messaggio manda a
+                # cercare nel posto sbagliato. Il primo tentativo porta la causa, i
+                # successivi solo il conteggio, cosi' il diario non si riempie.
+                primo = ultimo is None
                 ultimo = errore
                 if time.monotonic() >= scadenza:
                     break
-                diario.warning("Archivio non ancora pronto: nuovo tentativo fra %.0f s",
-                               self.ATTESA_FRA_TENTATIVI_SEC)
+                if primo:
+                    diario.warning(
+                        "Archivio non raggiungibile (%s): si riprova per %d s. %s",
+                        str(errore).splitlines()[0][:160],
+                        self.ATTESA_ARCHIVIO_SEC, self._suggerimento_archivio())
+                else:
+                    diario.warning("Archivio non ancora pronto: nuovo tentativo fra"
+                                   " %.0f s", self.ATTESA_FRA_TENTATIVI_SEC)
                 # Il motore va dimenticato: una connessione fallita resta nel pool.
                 azzera_motore()
                 time.sleep(self.ATTESA_FRA_TENTATIVI_SEC)
         raise RuntimeError(
-            "Archivio della sonda non raggiungibile dopo %d secondi: %s"
-            % (self.ATTESA_ARCHIVIO_SEC, str(ultimo).splitlines()[0][:200]))
+            "Archivio della sonda non raggiungibile dopo %d secondi: %s. %s"
+            % (self.ATTESA_ARCHIVIO_SEC, str(ultimo).splitlines()[0][:200],
+               self._suggerimento_archivio()))
+
+    @staticmethod
+    def _suggerimento_archivio() -> str:
+        """Dove guardare quando l'archivio non risponde.
+
+        Un messaggio che dice solo "non raggiungibile" costringe a indovinare. Questi
+        sono i due casi realmente incontrati, con il rimedio."""
+        return ("Verificare che la base dati sia avviata e che ascolti dove la sonda la"
+                " cerca: se la sonda gira FUORI dal contenitore, PostgreSQL deve"
+                " ascoltare su tutte le interfacce del contenitore"
+                " (listen_addresses=*, vedi docker-compose.nativa.yml) -- con"
+                " l'ascolto sul solo loopback la porta pubblicata accetta la"
+                " connessione e la chiude subito.")
 
     # Colonne introdotte dopo la prima installazione: CREATE TABLE IF NOT EXISTS
     # non tocca una tabella esistente, quindi vanno aggiunte esplicitamente.
@@ -331,7 +358,12 @@ class ProbeStore:
                 "SELECT (SELECT COUNT(*) FROM local_nodes) AS nodi,"
                 " (SELECT COUNT(*) FROM settings WHERE key = 'probe_uid') AS registrata"
             ).fetchone()
-        gia_in_uso = int(riga["nodi"]) > 0 or int(riga["registrata"]) > 0
+        # Il criterio e' la SOLA registrazione, e la ragione e' costata un tentativo:
+        # contando anche i nodi, un'importazione interrotta a meta' (i nodi copiati,
+        # le impostazioni no) risultava "in uso" al riavvio successivo e non
+        # riprendeva -- lasciando la sonda senza registrazione, cioe' muta. Una volta
+        # che la sonda e' registrata, invece, l'archivio e' suo e non si tocca.
+        gia_in_uso = int(riga["registrata"]) > 0
         if gia_in_uso:
             diario.info("Archivio SQLite presente (%s) ma il nuovo archivio e' gia'"
                         " in uso: non si importa nulla", origine)
@@ -357,10 +389,21 @@ class ProbeStore:
                 colonne = [c for c in colonne if c != "id"]
                 elenco = ",".join('"%s"' % nome_sicuro(c) for c in colonne)
                 segnaposto = ",".join("?" for _ in colonne)
+                # RIPETIBILE PER COSTRUZIONE. Le impostazioni si sovrascrivono --
+                # quelle dell'archivio precedente sono le vere, e le poche scritte
+                # dall'avvio sono valori predefiniti -- il resto si salta se c'e'
+                # gia'. Senza questo, una sola collisione interrompeva l'intera
+                # importazione a metà: e' quello che e' successo.
+                if tabella == "settings":
+                    coda_conflitto = (" ON CONFLICT (key) DO UPDATE SET"
+                                      " value = excluded.value,"
+                                      " updated_at = excluded.updated_at")
+                else:
+                    coda_conflitto = " ON CONFLICT DO NOTHING"
                 with self._lock, self._connect() as connessione:
                     connessione.executemany(
-                        "INSERT INTO %s (%s) VALUES (%s)"
-                        % (nome_sicuro(tabella), elenco, segnaposto),
+                        "INSERT INTO %s (%s) VALUES (%s)%s"
+                        % (nome_sicuro(tabella), elenco, segnaposto, coda_conflitto),
                         [tuple(r[c] for c in colonne) for r in righe_vecchie])
                 importate[tabella] = len(righe_vecchie)
         finally:

@@ -27,6 +27,94 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.5.0",
+        "date": "2026-09-10",
+        "abstract": "La sonda non usa piu' SQLite: l'archivio e' PostgreSQL, e i dati"
+                    " del vecchio archivio -- registrazione compresa -- si importano"
+                    " da soli al primo avvio. Il motore di scansione passa a due fasi:"
+                    " chi risponde, e poi una raffica di nmap su ciascun nodo.",
+        "changes": [
+            "ARCHIVIO SU POSTGRESQL. Era un file SQLite nel volume, con un lucchetto"
+            " che metteva in fila i trentadue thread di scansione: il parallelismo si"
+            " fermava all'archivio. E un file che si corrompe, su una coda di"
+            " conferimento che deve sopravvivere a giorni di server irraggiungibile,"
+            " e' la perdita di tutto il raccolto. Due utenze come sul server: il"
+            " proprietario crea lo schema, l'applicativo scrive i dati e non puo'"
+            " cambiare la struttura.",
+            "I dati del vecchio archivio si importano al primo avvio: registrazione,"
+            " coda, nodi e stato delle fasi. Su un'installazione reale sono state"
+            " importate 80.057 righe, fra cui 79.000 nodi e la registrazione -- senza"
+            " la quale la sonda andrebbe registrata di nuovo a mano. Il file resta"
+            " come copia, rinominato, e non viene piu' guardato.",
+            "MOTORE A DUE FASI. Prima la ricognizione dice chi risponde, poi ogni"
+            " nodo ha un processo nmap dedicato con `-A` (versioni, sistema"
+            " operativo, traceroute) e un catalogo di 29 script scelti per famiglia"
+            " di servizio. Fino a trentadue processi insieme.",
+            "Il motivo del cambio, misurato: un host per processo si esamina in 3,3"
+            " secondi con tutte le porte trovate; 256 host in un processo solo hanno"
+            " dato ZERO porte su 256; oltre 500 il processo non finiva entro le due"
+            " ore del tetto. Il budget di pacchetti di nmap e' per PROCESSO, e"
+            " dividerlo fra molti host fa passare per filtrate le porte vere. Il"
+            " parallelismo si e' spostato nel pool, dove nmap non lo penalizza.",
+            "Gli script si forzano con il prefisso `+` anche dove nmap non riconosce"
+            " il servizio atteso: questo prodotto trova interfacce web sulla 7070 e"
+            " sulla 8443 e agenti su porte spostate, e senza il `+` gli script non"
+            " partirebbero proprio dove servono. Lo user-agent e' dichiarato: nei log"
+            " del cliente si deve leggere chi ha fatto la richiesta.",
+            "Le categorie NSE brute, dos, exploit, fuzzer e intrusive sono VIETATE nel"
+            " codice, con un test che le cerca in tutte le fasi. Su una rete di"
+            " produzione un blocco di account o un servizio interrotto da uno"
+            " strumento di inventario e' un incidente, non una scansione. Rifiutati"
+            " anche gli script che interrogano servizi esterni (vulners, whois,"
+            " shodan): manderebbero fuori l'inventario dei servizi del cliente.",
+            "NESSUN NODO SI SCARTA SULLA PAROLA DI UNA SOLA PASSATA DI GRUPPO. Prima"
+            " di scartarlo lo si riesamina DA SOLO: costa tre secondi. Misurato in"
+            " esercizio, un firewall con la 53 aperta era stato scartato come \"nessuna"
+            " informazione\" mentre lo stesso nmap lo trovava in 3,3 secondi. Se la"
+            " verifica non si puo' fare, il nodo NON si scarta: perdere un apparato"
+            " vero e' un'affermazione falsa, e nessuno se ne accorge perche' non si"
+            " vede cio' che non c'e'. I nodi gia' persi vengono recuperati.",
+            "SCOPERTA RIFIUTATA QUANDO NON E' CREDIBILE. Su una /24 questo prodotto"
+            " dichiarava 256 nodi attivi su 256 indirizzi possibili, mentre lo stesso"
+            " `nmap -sn` dal PC dell'operatore ne trovava 5. La causa era la rete del"
+            " contenitore: su Docker Desktop il NAT della macchina virtuale risponde"
+            " PER OGNI INDIRIZZO, compresi quello di rete e quello di broadcast, dove"
+            " un host non puo' esistere. Ora quei due segnali insieme -- indirizzi"
+            " impossibili che rispondono e quasi tutto il segmento attivo -- fermano la"
+            " scoperta: nessun nodo registrato e il motivo nel diario. Un inventario"
+            " inventato e' peggio di un inventario vuoto: 251 nodi falsi con porte e"
+            " classificazioni sembrano lavoro fatto, e portano a decisioni sbagliate"
+            " su una rete vera.",
+            "L'INTERFACCIA DI USCITA SI PUO' DICHIARARE, invece di lasciarla scegliere"
+            " a nmap. nmap la prende dalla tabella di instradamento del sistema, e la"
+            " tabella puo' essere sbagliata: misurato su una macchina d'ufficio con"
+            " nove interfacce, la rotta predefinita con la metrica migliore era quella"
+            " di un adattatore Wi-Fi SPENTO (metrica 40) invece della LAN attiva"
+            " (metrica 55). Tutto cio' che non stava sulla rete locale usciva da"
+            " un'interfaccia morta, e l'esito era incoerente senza che nulla lo"
+            " dicesse. Con `SNAP_PROBE_SCAN_INTERFACE` e `SNAP_PROBE_SCAN_SOURCE_IP`"
+            " la scelta e' dichiarata; il nome viene accettato solo se corrisponde a"
+            " una forma valida, perche' finisce sulla riga di comando di un processo."
+            " Vale con i socket raw: una scansione per connessione passa dallo stack"
+            " del sistema, che non accetta quelle opzioni.",
+            "SONDA FUORI DAL CONTENITORE su Windows, CON IL TLS DAVANTI. Dove un"
+            " contenitore non vede la LAN, la sonda si avvia sulla macchina"
+            " (`start-nativa.ps1`) e in contenitore resta la sola base dati. La sonda"
+            " ascolta in chiaro SOLO sul proprio loopback e davanti le sta lo stesso"
+            " nginx dell'esercizio, che termina il TLS sulla 5510: dalla rete non"
+            " passa nulla in chiaro, password compresa. Che un contenitore raggiunga"
+            " un servizio legato al solo loopback dell'host non era ovvio, ed e' stato"
+            " misurato. La prima impostazione della password NON passa dal proxy --"
+            " la' ogni richiesta arriverebbe dall'indirizzo del gateway di Docker e un"
+            " permesso su quell'indirizzo aprirebbe la sonda a tutta la rete: si fa"
+            " dal loopback della macchina, dove l'indirizzo del client e' quello vero.",
+            "La console della sonda viaggia col battito: il server la mostra senza"
+            " poter raggiungere la sonda. Perimetro e stato delle fasi non tornano"
+            " indietro -- li ha mandati il server -- e l'istantanea sta in pochi"
+            " kilobyte.",
+        ],
+    },
+    {
         "version": "1.4.0",
         "date": "2026-09-10",
         "abstract": "Le reti dichiarate senza fili hanno una ricognizione propria, in"

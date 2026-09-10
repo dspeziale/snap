@@ -38,6 +38,7 @@
           <tr><th>CODICE</th><th>RAGIONE SOCIALE</th><th>FUSO ORARIO</th>
               <th class="text-end">UTENTI</th><th class="text-end">SONDE</th>
               <th class="text-end">CONFERIMENTI</th><th class="text-end">EVENTI</th>
+              <th class="text-end">RACCOLTO</th>
               <th>STATO</th><th>CONSERVAZIONE</th><th>AZIONI</th></tr>
         </thead>
         <tbody>
@@ -50,6 +51,16 @@
             <td class="text-end">{{ tenant['probe_count'] }}</td>
             <td class="text-end">{{ tenant['batch_count'] }}</td>
             <td class="text-end">{{ tenant['event_count'] }}</td>
+            {# Quanto hanno raccolto le sonde: e' il numero che l'azzeramento porta
+               via, e va visto prima di premere il bottone, non dopo. #}
+            <td class="text-end">
+              {% set conto = (raccolto.get(tenant['id']) or {}).get('totale', 0) %}
+              {% if conto %}
+                <span class="fw-semibold">{{ '{:,}'.format(conto).replace(',', '.') }}</span>
+              {% else %}
+                <span class="text-body-secondary">&mdash;</span>
+              {% endif %}
+            </td>
             <td>
               {% if tenant['is_active'] %}
                 <span class="badge text-bg-success">attivo</span>
@@ -63,6 +74,11 @@
                       data-bs-target="#modifica-{{ tenant['id'] }}" title="Modifica il tenant">
                 <i class="bi bi-pencil"></i>
               </button>
+              <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal"
+                      data-bs-target="#azzera-{{ tenant['id'] }}"
+                      title="Azzera le informazioni raccolte, conservando tenant, utenze, sonde e configurazione">
+                <i class="bi bi-eraser"></i>
+              </button>
               <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal"
                       data-bs-target="#elimina-{{ tenant['id'] }}"
                       title="Elimina il tenant e tutti i suoi dati">
@@ -71,7 +87,7 @@
             </td>
           </tr>
           {% else %}
-          <tr><td colspan="10" class="text-center text-body-secondary py-4">
+          <tr><td colspan="11" class="text-center text-body-secondary py-4">
             Nessun tenant censito: crearne uno per iniziare.</td></tr>
           {% endfor %}
         </tbody>
@@ -197,6 +213,100 @@
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Annulla</button>
           <button type="submit" class="btn btn-primary">
             <i class="bi bi-save me-1"></i> Salva modifiche
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{# AZZERAMENTO DEL RACCOLTO. Non e' l'eliminazione del tenant, e la modale deve
+   dirlo prima di ogni altra cosa: i due bottoni sono adiacenti e la differenza fra
+   "butto le scansioni" e "butto il cliente" non si deve capire dall'icona. #}
+{% set riepilogo = raccolto.get(tenant['id']) or {'totale': 0, 'voci': []} %}
+<div class="modal fade" id="azzera-{{ tenant['id'] }}" tabindex="-1"
+     aria-labelledby="azzera-titolo-{{ tenant['id'] }}" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header bg-warning-subtle">
+        <h5 class="modal-title" id="azzera-titolo-{{ tenant['id'] }}">
+          <i class="bi bi-eraser me-1"></i>
+          Azzeramento delle informazioni raccolte &mdash; {{ tenant['name'] }}
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Chiudi"></button>
+      </div>
+      <form method="post"
+            action="{{ url_for('admin.purge_tenant_data', tenant_id=tenant['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <p class="mb-3">
+            Il tenant <strong>resta</strong>: si azzera solo cio' che le sonde hanno
+            raccolto. L'operazione e' <strong>irreversibile</strong>, ma la raccolta
+            riparte da sola &mdash; alle sonde viene chiesto di ricominciare dalla
+            scoperta.
+          </p>
+          <div class="row g-3">
+            <div class="col-md-7">
+              <h6 class="text-danger-emphasis">
+                <i class="bi bi-x-circle me-1"></i> Viene eliminato
+                {% if riepilogo['totale'] %}
+                  ({{ '{:,}'.format(riepilogo['totale']).replace(',', '.') }} record)
+                {% endif %}
+              </h6>
+              {% if riepilogo['voci'] %}
+                <ul class="list-unstyled small mb-0">
+                  {% for voce in riepilogo['voci'] %}
+                  <li class="d-flex justify-content-between border-bottom py-1">
+                    <span>{{ voce['etichetta'] }}</span>
+                    <span class="fw-semibold ms-3">
+                      {{ '{:,}'.format(voce['record']).replace(',', '.') }}
+                    </span>
+                  </li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p class="small text-body-secondary mb-0">
+                  Non c'e' nulla di raccolto: l'operazione non eliminerebbe alcun
+                  record.
+                </p>
+              {% endif %}
+            </div>
+            <div class="col-md-5">
+              <h6 class="text-success-emphasis">
+                <i class="bi bi-check-circle me-1"></i> Viene conservato
+              </h6>
+              <ul class="small mb-0 ps-3">
+                <li>utenze e sonde registrate</li>
+                <li>perimetro e zone di rete</li>
+                <li>controlli e regole di notifica</li>
+                <li>report prodotti e notifiche inviate</li>
+                <li>registro di audit</li>
+                <li>incidenti con una comunicazione ad ACN</li>
+              </ul>
+              <p class="small text-body-secondary mt-2 mb-0">
+                Una comunicazione all'autorita' e' un atto dovuto: la sua prova non
+                si cancella con un bottone.
+              </p>
+            </div>
+          </div>
+          <hr>
+          <label class="form-label" for="azzera-conferma-{{ tenant['id'] }}">
+            Per procedere digitare il codice del tenant:
+            <code>{{ tenant['code'] }}</code>
+          </label>
+          <input type="text" class="form-control" id="azzera-conferma-{{ tenant['id'] }}"
+                 name="confirm_code" autocomplete="off" placeholder="{{ tenant['code'] }}">
+          <p class="small text-body-secondary mt-2 mb-0">
+            Nel registro di audit resta la traccia dell'azzeramento, con il conto di
+            cio' che e' stato eliminato.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+            Annulla
+          </button>
+          <button type="submit" class="btn btn-warning">
+            <i class="bi bi-eraser me-1"></i> Azzera le informazioni raccolte
           </button>
         </div>
       </form>

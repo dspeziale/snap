@@ -5,6 +5,24 @@
  * copyright: (c) 2024-26 DS Consulting
  * license: MIT
  */
+/* IL COLORE D'IDENTITA' DELLA SONDA: arancione, non il blu della console.
+ *
+ * Le due interfacce hanno la stessa struttura e lo stesso carattere, e questo e'
+ * voluto -- chi sa usare una sa usare l'altra. Ma sono due applicativi diversi su
+ * macchine diverse, e confonderli ha conseguenze reali: un comando dato alla sonda
+ * sbagliata, o una configurazione cambiata dove non si voleva. Il colore delle icone
+ * e' il segno che distingue le due a colpo d'occhio, prima di leggere qualunque
+ * scritta.
+ *
+ * E' l'arancione della tavolozza di Bootstrap (#fd7e14), non una tinta inventata:
+ * cosi' resta coerente con il resto e funziona in tema chiaro e scuro. I comandi
+ * (pulsanti, pastiglie) restano nella tavolozza standard: l'identita' la portano le
+ * ICONE, non i controlli, altrimenti l'arancione finirebbe a significare due cose
+ * diverse -- "sonda" e "attenzione". */
+.snap-marchio {
+  color: #fd7e14;
+}
+
 /* Indicatore di attivita': la spia pulsa mentre una scansione e' in corso, sta
    ferma quando la sonda e' in attesa, e diventa gialla se le scansioni sono
    sospese. Il colore da solo non basta: accanto c'e' sempre il testo. */

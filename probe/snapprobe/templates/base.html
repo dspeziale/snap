@@ -132,7 +132,9 @@
   <aside class="app-sidebar bg-body-secondary shadow">
     <div class="sidebar-brand">
       <a href="{{ url_for('probe.index') }}" class="brand-link">
-        <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
+        {# Arancione, non il blu della console: e' il segno che distingue le due
+           interfacce a colpo d'occhio (vedi `.snap-marchio` in probe.css). #}
+        <i class="bi bi-diagram-3 brand-image snap-marchio fs-3 ms-2 me-2"></i>
         {# Stesso carattere della console (brand-text), su due righe: `lh-1` toglie
            l'interlinea che altrimenti allontanerebbe "probe" dal nome. #}
         <span class="brand-text fw-bold d-inline-flex flex-column lh-1">
@@ -213,7 +215,7 @@
         <div class="row align-items-center">
           <div class="col-lg-7">
             <h3 class="mb-0 d-flex align-items-center gap-2">
-              <i class="bi {% block page_icon %}bi-activity{% endblock %} text-primary"></i>
+              <i class="bi {% block page_icon %}bi-activity{% endblock %} snap-marchio"></i>
               {% block page_title %}Stato della sonda{% endblock %}
             </h3>
             <p class="text-secondary mb-0 small">{% block page_subtitle %}{% endblock %}</p>

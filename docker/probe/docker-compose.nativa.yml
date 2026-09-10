@@ -1,0 +1,124 @@
+# -----------------------------------------------------------------
+# docker-compose.nativa.yml — solo la base dati, con la SONDA FUORI dal contenitore
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-10
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+# PERCHE' ESISTE QUESTA VARIANTE, con la misura che l'ha imposta.
+#
+# Su Docker Desktop (Windows/Mac) i contenitori non stanno sull'host ma dentro una
+# macchina virtuale, e il NAT di quella macchina RISPONDE PER OGNI INDIRIZZO. Misurato
+# sulla stessa subnet, nello stesso momento:
+#
+#   dal PC:                 nmap -sn 10.10.60.0/24  ->    5 host attivi
+#   dentro il contenitore:  nmap -sn 10.10.60.0/24  ->  256 host attivi su 256
+#
+# Non sono gli argomenti: e' `nmap -sn` nudo, in entrambi i casi. Una sonda in quelle
+# condizioni non fa inventario: lo INVENTA -- 251 nodi inesistenti su 256, con porte e
+# classificazioni che sembrano lavoro fatto. Il prodotto ora se ne accorge e rifiuta la
+# scoperta (vedi `scoperta_credibile` nello scanner), ma il rifiuto non e' una
+# soluzione: e' un allarme.
+#
+# La soluzione su Windows e' eseguire la SONDA sulla macchina, fuori dal contenitore,
+# dove vede le interfacce vere. Resta in contenitore la sola base dati, che di rete non
+# ha bisogno.
+#
+# IL TLS RESTA DAVANTI, e va detto perche' e' il punto che rende questa variante
+# usabile dalla rete. Fuori dal contenitore la sonda non ha piu' il proxy del compose
+# di esercizio: esporla direttamente significherebbe HTTP IN CHIARO sulla LAN, con la
+# password della sonda dentro. Qui il proxy c'e' comunque (`proxy-nativa`): la sonda
+# ascolta in chiaro SOLO sul proprio loopback e nginx termina il TLS sulla 5510.
+#
+# USO:
+#   docker compose -f docker-compose.yml -f docker-compose.nativa.yml up -d postgres proxy-nativa
+#   .\start-nativa.ps1
+#
+# ATTENZIONE a non avviare anche `snap-probe`: due sonde sullo stesso archivio si
+# contendono le prenotazioni dei bersagli. Lo script di avvio lo verifica.
+
+services:
+  postgres:
+    # Rete propria, non piu' quella della sonda: la sonda non e' piu' un contenitore,
+    # quindi non c'e' una sua rete da condividere.
+    network_mode: bridge
+    # ASCOLTO SU TUTTE LE INTERFACCE DEL CONTENITORE, e va spiegato perche' sembra il
+    # contrario di una scelta prudente.
+    #
+    # Nel compose di esercizio la base dati ascolta su `listen_addresses=127.0.0.1`, e
+    # la' e' giusto: con la rete condivisa quel loopback E' il loopback della macchina,
+    # quindi nessuno da fuori puo' raggiungerla. Qui la rete e' un'altra: il loopback
+    # del contenitore e' suo, e la porta pubblicata non lo raggiunge -- PostgreSQL
+    # accetta la connessione e la chiude subito ("server closed the connection
+    # unexpectedly"), che e' esattamente il sintomo osservato.
+    #
+    # Aprire l'ascolto NON apre la base dati alla rete: l'unica via d'ingresso resta la
+    # porta pubblicata, e quella e' legata a 127.0.0.1 della macchina. In piu'
+    # l'autenticazione dal loopback e' `scram-sha-256` (vedi initdb), quindi serve
+    # comunque la password.
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - port=5532
+    ports:
+      # SOLO LOOPBACK, e va detto perche' il progetto vieta di pubblicare la porta
+      # della base dati: qui il client (la sonda) gira sulla macchina, quindi la porta
+      # deve essere raggiungibile da 127.0.0.1 -- e solo da la'. Nessuna interfaccia
+      # di rete la espone, e la porta resta dentro il range del progetto (5500-5600).
+      - "127.0.0.1:5532:5532"
+
+  # ------------------------------------------------------------------------- #
+  # Il proxy TLS davanti alla sonda nativa
+  # ------------------------------------------------------------------------- #
+  # PERCHE' E' UN SERVIZIO A PARTE e non un `override` del `proxy` di esercizio.
+  #
+  # Il `proxy` del compose base dipende da `snap-probe` (`depends_on`), e quella
+  # dipendenza NON si puo' togliere da un file di override: verificato con
+  # `docker compose config`, un `depends_on: []` nell'override viene fuso, non
+  # sostituito, e la dipendenza resta. Un `docker compose up -d proxy` avvierebbe
+  # quindi anche la sonda in contenitore -- cioe' DUE sonde sullo stesso archivio,
+  # che e' il guasto che questa variante esiste per evitare. Un servizio con un
+  # nome proprio non ha quella dipendenza e non puo' tirarsi dietro nulla.
+  #
+  # La configurazione di nginx e i certificati sono gli stessi dell'esercizio: una
+  # sola configurazione da mantenere. L'unica differenza e' dove trova la sonda,
+  # e quella e' una riga di `extra_hosts`.
+  proxy-nativa:
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    container_name: snap-probe-proxy-nativa
+    restart: unless-stopped
+    network_mode: bridge
+    # LA SONDA E' SULLA MACCHINA, non in questo contenitore: `host-gateway` e'
+    # l'indirizzo con cui Docker fa raggiungere l'host da un contenitore.
+    #
+    # Misurato su questa installazione, perche' non e' ovvio che funzioni: un
+    # servizio legato al SOLO loopback di Windows (127.0.0.1:5599) risulta
+    # raggiungibile da un contenitore via `host-gateway`. Docker Desktop apre la
+    # connessione dal lato Windows, quindi per il servizio e' una connessione
+    # locale. E' cio' che permette alla sonda di NON esporre nulla in chiaro sulla
+    # rete: ascolta su 127.0.0.1:5511 e la raggiunge solo questo proxy.
+    extra_hosts:
+      - "sonda:host-gateway"
+    ports:
+      # Le stesse porte dell'esercizio, cosi' l'indirizzo non cambia fra le
+      # varianti: 5510 in HTTPS, 5512 che rimanda alla 5510. Dentro il range del
+      # progetto (5500-5600), vedi PORTS.md.
+      - "5510:5510"
+      - "5512:5512"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # La prima impostazione della password NON passa da qui: vedi il file, che
+      # spiega perche' non ammette nessun indirizzo e quale sia la via giusta.
+      - ./allow-primo-accesso.nativa.conf:/etc/nginx/allow-primo-accesso.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # `nginx -t` verifica anche che il nome `sonda` si risolva: se `extra_hosts`
+      # mancasse, il servizio risulterebbe malato invece di rispondere 502.
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

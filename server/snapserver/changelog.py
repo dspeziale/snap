@@ -21,6 +21,41 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.5.0",
+        "date": "2026-09-10",
+        "abstract": "La console della sonda si vede dal server: avanzamento, coda,"
+                    " diario e presenze, senza dover raggiungere la sonda. E il"
+                    " riconoscimento non attribuisce piu' a 128 nodi una porta che"
+                    " risponde per tutto il segmento.",
+        "changes": [
+            "Nuova pagina Console della sonda (Sonde > Console). Mostra quello che si"
+            " vede aprendo l'interfaccia della sonda in sede: configurazione in"
+            " vigore, nodi, coda da conferire, fasi in corso, ricognizione delle"
+            " presenze, ultime passate e -- soprattutto -- il DIARIO LOCALE, che"
+            " finora si poteva leggere solo stando davanti alla sonda.",
+            "La console dichiara sempre di QUANDO e' il dato che mostra, e avvisa"
+            " quando il battito non arriva da piu' di due minuti: la sonda vive nella"
+            " rete del cliente e parla solo in uscita -- il server non puo'"
+            " interrogarla -- quindi lo stato arriva col battito. Una fotografia"
+            " presentata come diretta sarebbe una bugia.",
+            "Porte iniettate: la prova decisiva non dipende piu' dalla diffusione."
+            " Se una porta risponde sull'indirizzo di rete o di broadcast di una"
+            " subnet -- dove un host non puo' esistere -- la serve un apparato"
+            " intermedio per tutto il segmento, e tanto basta. Misurato sulla rete"
+            " ospiti di un'installazione: la tcp/5060 era aperta sul 53% dei nodi"
+            " (sotto la soglia) e su entrambi gli indirizzi impossibili, e produceva"
+            " 128 \"Telefono VoIP\" inesistenti. Ora sono zero.",
+            "Sulle subnet dove gli indirizzi impossibili RISPONDONO (anche solo al"
+            " ping) la soglia di diffusione scende al 50%: su un segmento cosi' non"
+            " si sa nemmeno quali indirizzi siano host, e una porta presente su meta'"
+            " di essi non e' attribuibile a nessuno. Non scende a zero, perche'"
+            " dietro l'apparato intermedio ci sono anche macchine vere.",
+            "Il conferimento accetta il genere \"presence\" (avvistamenti sulle reti"
+            " senza fili) e conserva l'istantanea della console consegnata dalla"
+            " sonda, con il proprio istante.",
+        ],
+    },
+    {
         "version": "1.4.0",
         "date": "2026-09-10",
         "abstract": "Le reti senza fili si dichiarano e si osservano a parte: una"

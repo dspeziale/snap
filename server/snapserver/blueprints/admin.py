@@ -29,6 +29,7 @@ from flask import (
     url_for,
 )
 
+from .. import purge
 from ..audit import log_event
 from ..db import days_ago_str, execute, query, scalar, utc_now_str
 from ..security import (
@@ -73,7 +74,8 @@ def tenants():
         " (SELECT COUNT(*) FROM audit_events e WHERE e.tenant_id = t.id) AS event_count"
         " FROM tenants t ORDER BY t.name COLLATE NOCASE"
     )
-    return render_template("admin/tenants.html", tenants=rows, timezones=_timezones())
+    return render_template("admin/tenants.html", tenants=rows, timezones=_timezones(),
+                           raccolto=purge.riepiloghi())
 
 
 @bp.post("/tenants")
@@ -225,6 +227,91 @@ def delete_tenant(tenant_id: int):
         global_event=True,
     )
     flash("Tenant e dati associati eliminati.", "info")
+    return redirect(url_for("admin.tenants"))
+
+
+@bp.post("/tenants/<int:tenant_id>/purge-collected")
+@role_required(ROLE_SUPERADMIN)
+def purge_tenant_data(tenant_id: int):
+    """Azzera le informazioni RACCOLTE del tenant, lasciandolo in piedi.
+
+    Non e' l'eliminazione del tenant: qui restano utenze, sonde, perimetro,
+    controlli e regole, e si butta solo cio' che le sonde hanno osservato -- vedi
+    `purge.py`, che dichiara il confine e le due eccezioni (comunicazioni ad ACN e
+    notifiche inviate).
+
+    La conferma e' la stessa dell'eliminazione: digitare il codice del tenant. Un
+    `.confirm()` si chiude per sbaglio, un codice da trascrivere no -- e questa
+    operazione butta il lavoro di giorni di scansione.
+    """
+    tenant = query("SELECT * FROM tenants WHERE id = ?", (tenant_id,), one=True)
+    if tenant is None:
+        abort(404)
+    if (request.form.get("confirm_code") or "").strip().lower() != tenant["code"]:
+        flash(
+            "Per azzerare le informazioni raccolte digitare esattamente il codice del"
+            " tenant: %s. Nessun dato eliminato." % tenant["code"],
+            "warning",
+        )
+        return redirect(url_for("admin.tenants"))
+
+    esito = purge.azzera(tenant_id)
+
+    # Gli eventi SIEM di un'installazione con archivio dedicato non seguono il
+    # tenant per vincolo: nessuna chiave esterna li raggiunge. Vanno cancellati a
+    # parte, come nell'eliminazione del tenant. Un errore qui non deve annullare
+    # l'azzeramento, che e' gia' avvenuto: si dichiara e si prosegue.
+    try:
+        from ..siem import store as siem_store
+
+        siem_store.delete_tenant_events(tenant_id)
+    except Exception as errore:  # noqa: BLE001 - l'azzeramento ha priorita'
+        current_app.logger.warning(
+            "Eventi SIEM del tenant %s non cancellati dall'archivio dedicato: %s",
+            tenant_id, errore)
+
+    # LE SONDE VANNO AVVISATE, altrimenti il bottone sembra rotto. Ogni sonda
+    # ricorda quali fasi ha gia' svolto su quali bersagli: se il server dimentica un
+    # nodo ma la sonda ricorda di averlo profilato, quel nodo non torna fino alla
+    # scadenza della cadenza -- che sono giorni. Il comando `forget` fa dimenticare
+    # alla sonda lo stato delle fasi, cosi' ricomincia dalla scoperta.
+    sonde = query("SELECT id, name, code FROM probes WHERE tenant_id = ?", (tenant_id,))
+    avvisate = []
+    for sonda in sonde or ():
+        pendente = query(
+            "SELECT id FROM probe_commands WHERE tenant_id = ? AND probe_id = ?"
+            " AND command = 'forget' AND status IN ('pending', 'delivered')",
+            (tenant_id, int(sonda["id"])), one=True)
+        if pendente is not None:
+            continue
+        execute(
+            "INSERT INTO probe_commands (tenant_id, probe_id, command, payload_json,"
+            " status, created_by, created_at) VALUES (?, ?, 'forget', '{}', 'pending',"
+            " ?, ?)",
+            (tenant_id, int(sonda["id"]), int(g.user["id"]), utc_now_str()))
+        avvisate.append(sonda["name"] or sonda["code"])
+
+    log_event(
+        "tenant.collected.purged",
+        "Informazioni raccolte del tenant %s (%s) azzerate: %s"
+        % (tenant["name"], tenant["code"], purge.descrizione(esito)),
+        severity="critical",
+        entity="tenant",
+        entity_id=tenant_id,
+        # SUL TENANT, non globale: il tenant resta in piedi e chi lo amministra deve
+        # poter vedere nel proprio registro che il raccolto e' stato azzerato, da chi
+        # e quando. Il registro di audit non e' fra le tabelle che questo azzeramento
+        # tocca (vedi TABELLE_CONSERVATE), quindi la traccia sopravvive.
+        tenant_id=tenant_id,
+    )
+    flash("Informazioni raccolte azzerate: %s." % purge.descrizione(esito), "info")
+    if avvisate:
+        flash("Alle sonde (%s) e' stato chiesto di ricominciare da zero: lo stato"
+              " delle fasi viene dimenticato al prossimo contatto e la raccolta"
+              " riparte dalla scoperta." % ", ".join(avvisate), "secondary")
+    elif sonde:
+        flash("Alle sonde era gia' stato chiesto di ricominciare: non viene"
+              " accodata un'altra richiesta.", "secondary")
     return redirect(url_for("admin.tenants"))
 
 

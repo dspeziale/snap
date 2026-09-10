@@ -61,7 +61,7 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.4.0"
+    APP_VERSION = "1.5.0"
     APP_SUBTITLE = "Secure Network Assessment Platform"
     # Quale dei due componenti si sta guardando. Compare sotto il marchio e nel piede
     # di pagina: con console e sonda aperte in due schede e' l'informazione che

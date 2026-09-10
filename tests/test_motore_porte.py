@@ -434,3 +434,209 @@ def test_la_raffica_soddisfa_le_fasi_del_profilo(scanner, probe_store):
     for fase in FASI_COPERTE_DALLA_RAFFICA:
         assert fase in svolte, fase
     assert probe_store.local_node("192.0.2.77")["open_ports"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Una scoperta in cui risponde tutto non e' una scoperta
+# --------------------------------------------------------------------------- #
+# IL CASO MISURATO, e va scritto perche' e' costato una giornata a compensare a valle
+# un difetto che stava a monte.
+#
+# Su 10.10.60.0/24 il prodotto dichiarava 256 nodi attivi su 256 indirizzi possibili.
+# Dal PC dell'operatore, lo stesso `nmap -sn` sulla stessa subnet trovava 5 host. Non
+# erano gli argomenti: anche `nmap -sn` nudo, DENTRO il contenitore della sonda,
+# trovava 256 su 256. La causa era la rete del contenitore -- su Docker Desktop la
+# sonda gira dietro il NAT della macchina virtuale, che risponde per ogni indirizzo.
+#
+# Un inventario inventato e' il peggior esito possibile: un dato mancante si vede,
+# 251 nodi falsi con porte e classificazioni sembrano lavoro fatto.
+def _finto_xml(indirizzi) -> str:
+    host = "".join(
+        '<host><status state="up" reason="echo-reply" reason_ttl="63"/>'
+        '<address addr="%s" addrtype="ipv4"/><hostnames></hostnames>'
+        '<times srtt="1700" rttvar="1000" to="100000"/></host>' % ip
+        for ip in indirizzi)
+    return ('<?xml version="1.0"?><nmaprun scanner="nmap" args="-sn" start="1"'
+            ' version="7.95" xmloutputversion="1.05">' + host +
+            '<runstats><finished elapsed="2" exit="success"/></runstats></nmaprun>')
+
+
+def test_una_subnet_in_cui_risponde_tutto_viene_rifiutata(probe_store):
+    """256 su 256, indirizzo di rete e broadcast compresi: non e' la rete che
+    risponde, e' un intermediario. Nessun nodo viene registrato."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_json("scan_subnets", [{"cidr": "10.10.60.0/24"}])
+    tutti = ["10.10.60.%d" % n for n in range(256)]
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    credibile, motivo = scanner.scoperta_credibile("10.10.60.0/24", tutti)
+
+    assert credibile is False
+    assert "10.10.60.0 e 10.10.60.255" in motivo
+    assert "intermediario" in motivo
+    assert "network_mode: host" in motivo, "il motivo deve dire come si rimedia"
+
+
+def test_una_subnet_normale_resta_credibile(probe_store):
+    """Il caso vero della stessa rete, visto dal PC dell'operatore: cinque host su
+    256, nessun indirizzo impossibile. Si registra tutto."""
+    from snapprobe.scanner import NetworkScanner
+
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+    veri = ["10.10.60.1", "10.10.60.77", "10.10.60.78", "10.10.60.95", "10.10.60.101"]
+
+    assert scanner.scoperta_credibile("10.10.60.0/24", veri) == (True, "")
+
+
+def test_una_rete_piena_senza_indirizzi_impossibili_resta_credibile(probe_store):
+    """Una /24 con tutti gli host attivi esiste (un laboratorio, una rete di
+    macchine virtuali): senza il secondo segnale non si rifiuta niente."""
+    from snapprobe.scanner import NetworkScanner
+
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+    tutti_i_possibili = ["10.10.60.%d" % n for n in range(1, 255)]
+
+    credibile, _ = scanner.scoperta_credibile("10.10.60.0/24", tutti_i_possibili)
+
+    assert credibile is True
+
+
+def test_su_una_rete_minuscola_il_controllo_non_si_applica(probe_store):
+    """Su una /30 "quasi tutti" non significa niente: due indirizzi utili e due
+    impossibili sono la norma, non un'anomalia."""
+    from snapprobe.scanner import NetworkScanner
+
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    assert scanner.scoperta_credibile(
+        "10.0.0.0/30", ["10.0.0.0", "10.0.0.1", "10.0.0.2", "10.0.0.3"]) == (True, "")
+
+
+def test_la_scoperta_rifiutata_non_registra_nessun_nodo(probe_store):
+    """La prova che conta: non un giudizio, ma il fatto che l'inventario resti
+    pulito."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_json("scan_subnets", [{"cidr": "10.10.60.0/24"}])
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+    letto = __import__("snapprobe.nmap_xml", fromlist=["parse_scan"]).parse_scan(
+        _finto_xml(["10.10.60.%d" % n for n in range(256)]), ports_examined=False)
+
+    record = scanner._records_discovery(letto, None, "10.10.60.0/24")
+
+    assert record == {}, "nessun record conferito"
+    assert probe_store.local_nodes() == [], "nessun nodo registrato"
+    diario = " ".join(r["message"] for r in probe_store.recent_events(10))
+    assert "RIFIUTATA" in diario, "il rifiuto deve essere dichiarato nel diario"
+
+
+# --------------------------------------------------------------------------- #
+# L'interfaccia di uscita: nmap non deve scegliere da se'
+# --------------------------------------------------------------------------- #
+# IL CASO MISURATO. Sonda su Windows, fuori dal contenitore, NOVE interfacce. Nella
+# tabella di instradamento due rotte predefinite:
+#
+#   0.0.0.0/0  eth6  metrica 40  gateway 10.10.60.1   <- Wi-Fi SPENTO, senza indirizzo
+#   0.0.0.0/0  eth7  metrica 55  gateway 10.20.10.1   <- la LAN vera, attiva
+#
+# La rotta migliore era quella di un'interfaccia spenta. nmap sceglie dalla tabella,
+# quindi eredita l'errore: le sonde partivano da un'interfaccia morta e l'esito era
+# incoerente senza che nulla lo dicesse.
+def test_l_interfaccia_di_uscita_si_dichiara_a_nmap(probe_store):
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_interface", "eth7")
+    probe_store.set_setting("scan_source_ip", "10.20.10.42")
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    argomenti = scanner._arguments_for("ports", {"raw_sockets": True},
+                                       scanner.effort_profile(), ["10.0.0.1"])
+
+    assert argomenti[argomenti.index("-e") + 1] == "eth7"
+    assert argomenti[argomenti.index("-S") + 1] == "10.20.10.42"
+
+
+def test_vale_per_tutte_le_fasi_che_scandiscono(probe_store):
+    """Sta nell'involucro comune, non in una fase: nessuna fase deve potersela
+    dimenticare -- e' lo stesso posto e la stessa ragione di `--exclude-ports`."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_interface", "eth7")
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    for fase in ("discovery", "raffica", "ports", "monitor"):
+        argomenti = scanner._arguments_for(fase, {"raw_sockets": True},
+                                           scanner.effort_profile(), ["10.0.0.1"])
+        assert "-e" in argomenti, fase
+
+
+def test_senza_socket_raw_non_si_dichiara(probe_store):
+    """Una scansione per connessione passa dallo stack del sistema, che non accetta
+    ne' `-e` ne' `-S`: passarli sarebbe un errore di nmap, non una precisazione."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_interface", "eth7")
+    probe_store.set_setting("scan_source_ip", "10.20.10.42")
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    argomenti = scanner._arguments_for("ports", {"raw_sockets": False},
+                                       scanner.effort_profile(), ["10.0.0.1"])
+
+    assert "-e" not in argomenti and "-S" not in argomenti
+
+
+def test_senza_configurazione_decide_il_sistema(probe_store):
+    """E' il comportamento di sempre, e va conservato: dove c'e' una sola interfaccia
+    (sonda in contenitore su Linux con rete host) dichiararla non serve."""
+    from snapprobe.scanner import NetworkScanner
+
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    argomenti = scanner._arguments_for("ports", {"raw_sockets": True},
+                                       scanner.effort_profile(), ["10.0.0.1"])
+
+    assert "-e" not in argomenti and "-S" not in argomenti
+
+
+@pytest.mark.parametrize("cattivo", [
+    "eth7; rm -rf /",
+    "eth7 --script exploit",
+    "eth7 -oN /tmp/fuori",
+    "$(whoami)",
+    "a" * 200,
+])
+def test_un_nome_di_interfaccia_non_valido_viene_rifiutato(probe_store, cattivo):
+    """Questo valore finisce sulla riga di comando di un processo: l'allowlist e'
+    l'unico modo di escludere che ci finisca altro. Rifiutare significa tornare al
+    comportamento del sistema, non fermare la scansione."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_interface", cattivo)
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    assert scanner.interfaccia_di_uscita() == ""
+    diario = " ".join(r["message"] for r in probe_store.recent_events(5))
+    assert "non valido" in diario, "il rifiuto va dichiarato, non taciuto"
+
+
+@pytest.mark.parametrize("cattivo", ["non-un-ip", "10.20.10.999", "0", "; drop"])
+def test_un_indirizzo_di_partenza_non_valido_viene_rifiutato(probe_store, cattivo):
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_source_ip", cattivo)
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    assert scanner.indirizzo_di_uscita() == ""
+
+
+def test_l_ambiente_ha_la_precedenza_sull_archivio(probe_store, monkeypatch):
+    """La sonda sa dove gira: l'installazione dichiara l'interfaccia nell'ambiente, e
+    quella vince su un valore rimasto nell'archivio."""
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_setting("scan_interface", "eth0")
+    monkeypatch.setenv("SNAP_PROBE_SCAN_INTERFACE", "eth7")
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    assert scanner.interfaccia_di_uscita() == "eth7"

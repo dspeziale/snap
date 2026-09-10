@@ -35,6 +35,7 @@ from __future__ import annotations
 import concurrent.futures
 import ipaddress
 import json
+import os
 import re
 import socket
 import time
@@ -44,7 +45,7 @@ from datetime import datetime, timezone
 from . import mac_costruttori
 from . import nmap_xml
 from . import snmp_raccolta
-from .nmap_runner import NmapAborted, NmapError, NmapRunner, NmapTimeout
+from .nmap_runner import NmapAborted, NmapError, NmapRunner, NmapTimeout, filtra_script
 
 # Fasi nell'ordine di priorita' con cui vengono valutate.
 STAGES = ("discovery", "monitor", "raffica", "ports", "services", "os", "deep",
@@ -327,6 +328,77 @@ MAX_HOSTGROUP = 64
 # 64 host in un processo danno recall completo; 256 in un processo danno ZERO porte su
 # 256 host; oltre 500 non terminano entro le due ore del tetto. Il budget di pacchetti
 # di nmap e' per PROCESSO, quindi piu' gruppi nello stesso processo se lo dividono.
+# --------------------------------------------------------------------------- #
+# Controllo di sanita' della scoperta
+# --------------------------------------------------------------------------- #
+# QUANDO UNA SCOPERTA NON E' CREDIBILE, E PERCHE' VA RIFIUTATA.
+#
+# Il caso misurato, e va raccontato per intero perche' e' costato una giornata di
+# lavoro a compensare a valle un difetto che stava a monte.
+#
+# Sulla subnet 10.10.60.0/24 questo prodotto dichiarava 256 nodi attivi su 256
+# indirizzi possibili. Dal PC dell'operatore, lo stesso `nmap -sn` sulla stessa
+# subnet trovava 5 host. La differenza non erano gli argomenti: anche `nmap -sn`
+# nudo, eseguito DENTRO il contenitore della sonda, trovava 256 su 256.
+#
+# La causa e' la rete del contenitore. Su Docker Desktop la sonda gira in
+# `network_mode: bridge` e il NAT della macchina virtuale RISPONDE PER OGNI
+# INDIRIZZO: ogni sonda di raggiungibilita' torna positiva, compresi l'indirizzo di
+# rete e quello di broadcast, dove un host non puo' esistere. Il documento del
+# contenitore lo avvertiva ("su Docker Desktop la rete host e' limitata e la sonda
+# non vedrebbe la LAN: in esercizio la sonda va su Linux"), ma il prodotto non se ne
+# accorgeva: produceva 251 nodi inesistenti e li conferiva come inventario.
+#
+# Un inventario inventato e' il peggior esito possibile per questo prodotto. Un dato
+# mancante si vede; 251 nodi falsi con porte e classificazioni sembrano lavoro fatto,
+# e portano a decisioni sbagliate su una rete vera.
+#
+# I due segnali, insieme, sono conclusivi:
+#   1. rispondono l'indirizzo di RETE o quello di BROADCAST -- la' non c'e' un host,
+#      per definizione (RFC 950): se rispondono, risponde qualcos'altro;
+#   2. risponde QUASI TUTTO il segmento (oltre la soglia): una /24 con 254 host tutti
+#      attivi esiste, ma insieme al primo segnale non e' una rete, e' un intermediario.
+#
+# In quel caso la scoperta si RIFIUTA: nessun nodo registrato, e il motivo scritto nel
+# diario. Meglio una subnet vuota e un avviso che 251 nodi inventati.
+SANITA_QUOTA_SOSPETTA = 0.95
+
+# --------------------------------------------------------------------------- #
+# Interfaccia di uscita delle scansioni
+# --------------------------------------------------------------------------- #
+# PERCHE' SI PUO' FISSARE, con il caso che lo ha imposto.
+#
+# Una sonda che gira su una macchina d'ufficio non ha una sola interfaccia. Misurato
+# su un'installazione reale (Windows, sonda fuori dal contenitore): NOVE interfacce --
+# la LAN, due adattatori virtuali di Docker/WSL e sei link-local -- e nella tabella di
+# instradamento due rotte predefinite:
+#
+#   0.0.0.0/0   eth6  metrica 40   gateway 10.10.60.1   <- Wi-Fi, SPENTO, senza IP
+#   0.0.0.0/0   eth7  metrica 55   gateway 10.20.10.1   <- la LAN vera, attiva
+#
+# La rotta con la metrica migliore era quella di un'interfaccia SPENTA, rimasta appesa
+# al Wi-Fi. Tutto cio' che non stava sulla rete locale usciva da la': le scansioni
+# partivano da un'interfaccia morta, e l'esito era incoerente senza che nulla lo
+# dicesse.
+#
+# nmap sceglie l'interfaccia dalla tabella di instradamento, quindi eredita l'errore.
+# Dichiararla esplicitamente e' l'unica difesa: `-e` per l'interfaccia e `-S` per
+# l'indirizzo di partenza. Vale solo con i socket raw -- una scansione per connessione
+# passa dallo stack del sistema e non li accetta.
+#
+# Si configura con l'ambiente (la sonda sa dove gira) oppure nell'archivio locale:
+#   SNAP_PROBE_SCAN_INTERFACE=eth7          il nome che usa NMAP (nmap --iflist)
+#   SNAP_PROBE_SCAN_SOURCE_IP=10.20.10.42
+#
+# Vuoto significa "come decide il sistema": e' il comportamento di sempre, ed e' giusto
+# dove c'e' una sola interfaccia (la sonda in contenitore su Linux con rete host).
+
+# Che cosa e' un nome di interfaccia accettabile. Non e' pedanteria: questo valore
+# finisce sulla riga di comando di un processo, e un'allowlist e' l'unico modo di
+# escludere che ci finisca altro. Comprende la forma di Windows
+# (`\Device\NPF_{GUID}`) oltre ai nomi brevi.
+RE_INTERFACCIA = re.compile(r"^[A-Za-z0-9_.:\\{}-]{1,64}$")
+
 MAX_HOST_PER_PROCESSO_PORTE = 64
 
 GRUPPO_HOST = 64
@@ -700,11 +772,15 @@ SCRIPT_RAFFICA = (
     # Unix e apparati.
     "+ssh-hostkey", "+ssh2-enum-algos", "+ssh-auth-methods",
     "+ftp-anon", "+telnet-encryption",
-    # Basi di dati: dicono versione e a volte nomi di istanza.
-    "+mysql-info", "+ms-sql-info", "+pgsql-info", "+mongodb-info", "+redis-info",
+    # Basi di dati: dicono versione e a volte nomi di istanza. Per PostgreSQL non
+    # c'e' uno script di sola lettura (esiste `pgsql-brute`, categoria vietata da
+    # questo prodotto): la versione la dichiara `-sV`.
+    "+mysql-info", "+ms-sql-info", "+mongodb-info", "+redis-info",
     "+oracle-tns-version",
-    # Stampanti e apparati di stampa.
-    "+ipp-info",
+    # Stampanti e apparati di stampa. `cups-info` e non `ipp-info`, che NON ESISTE:
+    # il nome sbagliato faceva uscire nmap prima di scansionare -- vedi la nota su
+    # `script_conosciuti` in nmap_runner.py.
+    "+cups-info",
     # Malware: rileva backdoor note. E' categoria `safe`, non intrusiva.
     "+malware",
 )
@@ -827,6 +903,9 @@ class NetworkScanner:
         self._perimeter_index = {}
         self._perimeter_read_at = None
         self._reported_outside = set()
+        # Fasi per cui si e' gia' detto quali script del catalogo questo nmap non
+        # conosce: si dice una volta, non a ogni processo.
+        self._script_scartati_detti = set()
 
     # -- configurazione ------------------------------------------------------
     def perimeter(self) -> list[dict]:
@@ -857,6 +936,41 @@ class NetworkScanner:
                            "Profilo di sforzo '%s' non riconosciuto: si usa '%s'"
                            % (valore, DEFAULT_EFFORT))
             return DEFAULT_EFFORT
+        return valore
+
+    def interfaccia_di_uscita(self) -> str:
+        """L'interfaccia da cui devono partire le sonde, o vuoto per lasciar decidere
+        il sistema. Vedi la nota su RE_INTERFACCIA per il caso che l'ha imposta."""
+        valore = (os.environ.get("SNAP_PROBE_SCAN_INTERFACE")
+                  or self.store.get_setting("scan_interface", "") or "").strip()
+        if not valore:
+            return ""
+        if not RE_INTERFACCIA.match(valore):
+            self.store.log("warning",
+                           "Nome di interfaccia non valido (%r): ignorato, l'uscita la"
+                           " decide il sistema" % valore[:40])
+            return ""
+        return valore
+
+    def indirizzo_di_uscita(self) -> str:
+        """L'indirizzo da cui devono partire le sonde, o vuoto.
+
+        Si accetta solo un indirizzo IP valido: un valore qualunque finirebbe sulla
+        riga di comando di nmap.
+        """
+        import ipaddress
+
+        valore = (os.environ.get("SNAP_PROBE_SCAN_SOURCE_IP")
+                  or self.store.get_setting("scan_source_ip", "") or "").strip()
+        if not valore:
+            return ""
+        try:
+            ipaddress.ip_address(valore)
+        except ValueError:
+            self.store.log("warning",
+                           "Indirizzo di partenza non valido (%r): ignorato"
+                           % valore[:40])
+            return ""
         return valore
 
     def excluded_ports(self) -> str:
@@ -1762,7 +1876,47 @@ class NetworkScanner:
         escluse = self.excluded_ports()
         if escluse and stage not in ("discovery", "monitor"):
             argomenti = argomenti + ["--exclude-ports", escluse]
+
+        # L'INTERFACCIA DI USCITA, dichiarata a nmap invece che lasciata alla tabella
+        # di instradamento (vedi la nota su RE_INTERFACCIA: su una macchina con nove
+        # interfacce la rotta migliore era quella di un adattatore SPENTO). Solo con i
+        # socket raw: una scansione per connessione passa dallo stack del sistema, che
+        # non accetta ne' `-e` ne' `-S`.
+        if capacita.get("raw_sockets"):
+            interfaccia = self.interfaccia_di_uscita()
+            if interfaccia:
+                argomenti = argomenti + ["-e", interfaccia]
+            partenza = self.indirizzo_di_uscita()
+            if partenza:
+                argomenti = argomenti + ["-S", partenza]
         return argomenti
+
+    def _script_utilizzabili(self, fase: str, voci) -> list:
+        """Dell'elenco resta cio' che l'nmap installato conosce davvero.
+
+        UN NOME SBAGLIATO NON DEVE POTER FERMARE UNA FASE. nmap rifiuta di partire
+        se un solo nome non corrisponde a nulla ("did not match a category,
+        filename, or directory" e QUITTING!): la fase finisce in pochi secondi
+        senza un record, e il diario non dice perche'. E' successo in esercizio con
+        `ipp-info` e `pgsql-info`, che non esistono -- vedi la nota su
+        `script_conosciuti` in nmap_runner.py.
+
+        Serve anche in condizioni normali: le versioni di nmap non hanno tutti gli
+        stessi script, e una sonda lasciata in sede puo' averne una piu' vecchia.
+
+        Cio' che si scarta si scrive nel diario UNA VOLTA per fase: un elenco
+        ridotto in silenzio sarebbe una perdita di dati invisibile.
+        """
+        tenuti, scartati = filtra_script(voci)
+        if scartati and fase not in self._script_scartati_detti:
+            self._script_scartati_detti.add(fase)
+            self.store.log(
+                "warning",
+                "Fase %s: %d script del catalogo non esistono in questo nmap e sono"
+                " stati esclusi (%s). Senza l'esclusione nmap rifiuterebbe di"
+                " partire e la fase non produrrebbe nulla."
+                % (fase, len(scartati), ", ".join(s.lstrip("+") for s in scartati)))
+        return tenuti
 
     def _arguments_base(self, stage: str, capacita: dict, profilo: dict = None,
                         hosts: list = None) -> list:
@@ -1787,15 +1941,17 @@ class NetworkScanner:
             argomenti = [("-sS" if raw else "-sT"), "-Pn", "-A", timing]
             argomenti += ["-p", ",".join(str(porta)
                                          for porta in self._porte_della_raffica())]
-            argomenti += ["--script", "default," + ",".join(SCRIPT_RAFFICA)]
+            argomenti += ["--script", ",".join(
+                self._script_utilizzabili("raffica", ("default",) + SCRIPT_RAFFICA))]
             argomenti += ["--script-args", ARGOMENTI_SCRIPT_RAFFICA]
             # Un tempo per host generoso: `-A` su un apparato lento impiega minuti, e
             # sotto la soglia la raffica non conclude e non lascia dato -- che e' il
             # difetto peggiore, perche' consuma tempo senza produrre niente.
             argomenti += ["--host-timeout", ATTESA_RAFFICA_HOST]
-            escluse = self.excluded_ports()
-            if escluse:
-                argomenti += ["--exclude-ports", escluse]
+            # `--exclude-ports` NON si aggiunge qui: lo mette `_arguments_for`, che
+            # avvolge questa funzione per tutte le fasi che scandiscono porte.
+            # Aggiungerlo due volte non e' innocuo -- nmap rifiuta l'esecuzione con
+            # "Only 1 --exclude-ports option allowed" e la fase non produce nulla.
             return argomenti
 
         if stage == "discovery":
@@ -1830,9 +1986,10 @@ class NetworkScanner:
             # bloccava il completamento del profilo. Per la maggioranza degli host,
             # che non espone SNMP, i servizi restano una rilevazione TCP e veloce.
             snmp = self._snmp_open_on(hosts)
-            script = "banner," + ENRICHMENT_SCRIPTS
-            if snmp:
-                script = script + "," + SNMP_SCRIPTS
+            script = ",".join(self._script_utilizzabili(
+                "services",
+                ("banner",) + tuple(ENRICHMENT_SCRIPTS.split(","))
+                + (tuple(SNMP_SCRIPTS.split(",")) if snmp else ())))
             argomenti = [("-sS" if raw else "-sT")]
             if snmp:
                 argomenti.append("-sU")
@@ -2719,17 +2876,64 @@ class NetworkScanner:
     def _records_from(self, stage: str, letto: dict, target: str, claimed=None,
                       hosts: list = None, alive_extra: dict = None) -> dict:
         if stage == "discovery":
-            return self._records_discovery(letto, claimed)
+            # Il bersaglio (la subnet) serve al controllo di sanita': senza sapere
+            # QUALE subnet si e' guardata non si puo' dire se la risposta e' credibile.
+            return self._records_discovery(letto, claimed, target)
         if stage == "monitor":
             return self._records_monitor(letto, hosts or [], alive_extra or {})
         return self._records_inspection(letto, stage, hosts or [])
 
-    def _records_discovery(self, letto: dict, claimed=None) -> dict:
+    def scoperta_credibile(self, cidr: str, visti: list) -> tuple:
+        """`(credibile, motivo)` per l'esito di una scoperta su una subnet.
+
+        Vedi la nota su SANITA_QUOTA_SOSPETTA: qui si riconosce una rete che risponde
+        per interposta persona -- il NAT di un contenitore, un apparato intermedio --
+        prima che i suoi indirizzi diventino nodi dell'inventario.
+        """
+        import ipaddress
+
+        try:
+            rete = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            return (True, "")
+        if rete.num_addresses < 8:
+            # Su una /30 o piu' piccola "quasi tutti" non significa niente.
+            return (True, "")
+
+        indirizzi = {str(i) for i in visti}
+        impossibili = sorted(indirizzi & {str(rete.network_address),
+                                          str(rete.broadcast_address)})
+        quota = len(indirizzi) / float(rete.num_addresses)
+        if not impossibili or quota < SANITA_QUOTA_SOSPETTA:
+            return (True, "")
+        return (False,
+                "rispondono %d indirizzi su %d (%d%%) COMPRESI %s, dove un host non"
+                " puo' esistere: non e' la rete che risponde ma un intermediario"
+                " -- il NAT di un contenitore, o un apparato che risponde per il"
+                " segmento. Nessun nodo registrato: un inventario inventato e' peggio"
+                " di un inventario vuoto. Se la sonda gira in un contenitore su"
+                " Docker Desktop, va eseguita con accesso reale alla rete"
+                " (network_mode: host su Linux, oppure fuori dal contenitore)."
+                % (len(indirizzi), rete.num_addresses, round(quota * 100),
+                   " e ".join(impossibili)))
+
+    def _records_discovery(self, letto: dict, claimed=None, target: str = "") -> dict:
         """La scoperta conferisce i nodi con prove; i nudi restano candidati.
 
         Gli indirizzi prenotati da un altro compito del ciclo vengono ignorati:
         li sta esaminando qualcun altro e non va toccato il loro stato.
+
+        Prima di registrare qualunque cosa si verifica che l'esito sia CREDIBILE: una
+        rete in cui risponde tutto, indirizzo di rete e di broadcast compresi, non e'
+        una rete ma un intermediario che risponde per lei (vedi `scoperta_credibile`).
         """
+        visti = [p["ip"] for p in
+                 letto["nodes"] + letto["candidates"] + letto["discarded"]]
+        credibile, motivo = self.scoperta_credibile(target, visti)
+        if not credibile:
+            self.store.log("error", "Scoperta di %s RIFIUTATA: %s" % (target, motivo))
+            return {}
+
         occupati = set()
         for chiave in (claimed or ()):
             if chiave.startswith("node:"):

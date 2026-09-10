@@ -662,6 +662,27 @@ class ProbeAgent:
         if name == "reset":
             self.collector.reset()
             return "conteggio dei cicli azzerato"
+        if name == "forget":
+            # RICOMINCIARE DA ZERO. Lo manda il server quando azzera le informazioni
+            # raccolte di un tenant: la' l'inventario e' stato buttato, e qui va
+            # buttato il RICORDO di averlo raccolto. Senza, la sonda considererebbe
+            # svolte le fasi dei nodi che ha gia' profilato e non li riconferirebbe
+            # fino alla scadenza della cadenza -- giorni, durante i quali la console
+            # resta vuota e il bottone sembra rotto.
+            #
+            # Non basta dimenticare lo stato delle fasi: `pending_nodes` salta i nodi
+            # che risultano GIA' CONFERITI, quindi resterebbero fuori dalla coda e
+            # non tornerebbero mai. Si dimenticano percio' i nodi locali insieme allo
+            # stato -- ed e' cio' che fa `clear_local_nodes`, che azzera local_nodes,
+            # scan_state e le prenotazioni in una sola transazione.
+            #
+            # Non si tocca la coda: cio' che e' in attesa di conferimento e' stato
+            # raccolto e va consegnato. Non si tocca la registrazione: la sonda resta
+            # la stessa sonda dello stesso tenant.
+            dimenticati = self.store.clear_local_nodes()
+            self.scanner.forget_caches()
+            return ("raccolta riavviata: %d nodi noti dimenticati, la prossima passata"
+                    " riparte dalla scoperta" % dimenticati)
         raise ValueError("comando non supportato: %s" % name)
 
     # -- conferimento --------------------------------------------------------
