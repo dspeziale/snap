@@ -718,17 +718,26 @@ def test_i_servizi_interrogano_le_porte_gia_trovate(sonda):
     assert "--top-ports" not in argomenti
 
 
-def test_senza_porte_note_si_torna_alle_prime_porte(sonda):
-    """Un bersaglio di cui non si sa nulla ha bisogno di una ricognizione."""
+def test_senza_porte_note_si_usa_l_elenco_curato(sonda):
+    """Un bersaglio di cui non si sa nulla ha bisogno di una ricognizione.
+
+    Si usava l'intervallo "1-N", cioe' le prime porte per frequenza. Ora si usa
+    l'elenco curato di profondita': nel prodotto esiste UNA lista di porte, scelta
+    per famiglia di apparato, e non due criteri diversi in due punti del codice.
+    """
+    from snapprobe.scanner import PORTE_PROFONDITA
+
     sonda.upsert_local_node("192.0.2.31", state="confirmed", stages_done="ports")
     esecutore = EsecutoreFinto(leggi("nmap_porte_servizi_os.xml"))
     scanner = NetworkScanner(sonda, esecutore)
 
-    scanner.run_stage("services", "*")
+    scanner.run_stage("services", "192.0.2.31")
     argomenti = esecutore.chiamate[-1]["arguments"]
     elenco = argomenti[argomenti.index("-p") + 1]
-    # Senza porte note si sondano le prime porte TCP per frequenza (niente UDP).
-    assert elenco.startswith("1-") and "U:" not in elenco, elenco
+    # Solo TCP: in UDP quelle porte non esistono, e sondarle e' tempo speso ad
+    # attendere un timeout.
+    assert "U:" not in elenco, elenco
+    assert elenco == ",".join(str(p) for p in PORTE_PROFONDITA)
 
 
 def test_un_profilo_illeggibile_non_ferma_la_fase(sonda):
@@ -850,7 +859,7 @@ def test_gli_script_snmp_si_aggiungono_solo_se_la_porta_ha_risposto(sonda):
 
     from snapprobe.scanner import ENRICHMENT_SCRIPTS
 
-    scanner.run_stage("services", "*")
+    scanner.run_stage("services", "192.0.2.50")
     script = esecutore.chiamate[-1]["arguments"]
     valore = script[script.index("--script") + 1]
     # La fase dei servizi porta il banner e il set curato di arricchimento (auto-limitato
@@ -865,7 +874,12 @@ def test_gli_script_snmp_si_aggiungono_solo_se_la_porta_ha_risposto(sonda):
                                 "tcp/80": {"protocol": "tcp", "port": 80, "state": "open"},
                                 "udp/161": {"protocol": "udp", "port": 161,
                                             "state": "open"}}}))
-    scanner.run_stage("services", "*")
+    # Il bersaglio si indica: da quando ogni compito porta UN host (vedi
+    # EFFORT_PROFILES, misura del ritmo per processo), un compito "*" ne scegliera'
+    # uno solo -- e con i nodi aggiunti dall'XML della passata precedente non e'
+    # detto che sia questo. Cio' che il controllo verifica e' la regola sugli
+    # script, non quale host la pianificazione peschi.
+    scanner.run_stage("services", "192.0.2.50")
     script = esecutore.chiamate[-1]["arguments"]
     valore = script[script.index("--script") + 1]
     assert valore.startswith("banner,")

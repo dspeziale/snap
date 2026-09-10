@@ -44,6 +44,7 @@ deve trovarlo scritto.
 
 from __future__ import annotations
 
+import concurrent.futures
 import ipaddress
 
 from . import snmp, snmp_raccolta
@@ -56,10 +57,18 @@ COMMUNITY_DI_FABBRICA = ("public", "private")
 # Porte che, viste aperte insieme, indicano un apparato di rete piu' che un server.
 PORTE_DA_APPARATO = ({22, 23}, {23, 161}, {22, 161}, {161})
 
-# Quanti candidati si provano al massimo in una scoperta. Ogni prova e' un paio di
-# pacchetti UDP con attesa breve, ma su un perimetro con decine di subnet il numero
-# cresce e la scoperta non deve durare piu' di un ciclo di scansione.
-MAX_CANDIDATI = 200
+# Quanti candidati si provano al massimo in una scoperta.
+#
+# Misurato: l'intera /24 (254 indirizzi) interrogata in 8,1 s con 64 fili -- una GET
+# di sysDescr per indirizzo, attesa breve. Il tetto serve per i perimetri grandi
+# (migliaia di indirizzi), dove la scoperta non deve durare piu' di un ciclo: a
+# questo ritmo mille candidati costano una trentina di secondi.
+MAX_CANDIDATI = 1024
+
+# Quante interrogazioni contemporanee. Una GET SNMP e' attesa di un pacchetto, non
+# calcolo: i fili costano nulla e il guadagno e' lineare (misurato: /24 in 16,0 s con
+# 32 fili, 8,1 s con 64).
+FILI_PROVA = 64
 
 # Attese brevi: qui non si vuole leggere una tabella, si vuole sapere se risponde.
 TIMEOUT_PROVA = 1.5
@@ -138,10 +147,36 @@ def candidati(scanner) -> list[dict]:
                                      % ",".join(str(p) for p in sorted(insieme)))
                 break
 
+    # 3. Tutti gli host vivi dell'inventario locale.
+    #
+    # Perche' tutti, e non solo quelli con la 161 vista aperta: la 161 e' UDP, e un
+    # port scan UDP non sa distinguere "aperta" da "nessuna risposta" -- misurato,
+    # nmap restituisce `open|filtered` su 32 indirizzi su 32, quindi come indizio non
+    # vale nulla (e aggiungere `-sU` alla scansione le fa perdere 7 porte TCP su 8).
+    #
+    # Una GET di sysDescr, invece, risponde o non risponde: e' la domanda vera, e la
+    # risposta e' esattamente cio' che serve sapere -- se l'apparato e'
+    # INTERROGABILE. Costa 8 secondi per una /24 (64 fili), cioe' nulla rispetto a
+    # una passata di porte. Chiedere a tutti e' quindi piu' semplice E piu' affidabile
+    # che indovinare a chi chiedere.
+    for nodo in store.local_nodes("confirmed"):
+        aggiungi(nodo["ip"], "host vivo dell'inventario")
+
     elenco = [{"indirizzo": ip, "motivi": motivi} for ip, motivi in visti.items()]
-    # Prima i nodi osservati, poi le congetture: se il limite taglia, taglia le
-    # congetture.
-    elenco.sort(key=lambda v: any(m.startswith("gateway") for m in v["motivi"]))
+
+    # L'ordine conta quando il limite taglia: prima cio' che si e' OSSERVATO (161
+    # aperta, porte da apparato), poi le congetture sui gateway, infine il resto
+    # degli host vivi.
+    def priorita(voce):
+        motivi = voce["motivi"]
+        if any(m.startswith("161") or m.startswith("porte da apparato")
+               for m in motivi):
+            return 0
+        if any(m.startswith("gateway") for m in motivi):
+            return 1
+        return 2
+
+    elenco.sort(key=priorita)
     return elenco[:MAX_CANDIDATI]
 
 
@@ -203,11 +238,37 @@ def scopri(scanner, aggiungi_all_elenco: bool = True) -> dict:
     gia_presenti = {a["indirizzo"] for a in snmp_raccolta.apparati_dichiarati(store)}
     nuovi = []
 
-    for candidato in elenco:
+    # Le prove si eseguono in PARALLELO: una GET SNMP e' attesa di un pacchetto, non
+    # calcolo, e in sequenza un candidato muto costa il timeout intero. Misurato:
+    # l'intera /24 in 8,1 s con 64 fili contro oltre sei minuti in sequenza -- ed e'
+    # la differenza fra "si puo' chiedere a tutti" e "bisogna indovinare a chi".
+    #
+    # Gli esiti si raccolgono qui e si scrivono DOPO, in un punto solo: i fili non
+    # toccano l'archivio, che non e' pensato per scritture concorrenti.
+    def prova_candidato(candidato):
+        indirizzo = candidato["indirizzo"]
+        con_configurata = _prova(indirizzo, configurata) if configurata else None
+        if con_configurata is not None:
+            return candidato, con_configurata, None
+        # La community configurata non ha funzionato (o non c'e'): si provano quelle
+        # di fabbrica. Non per usarle -- per SEGNALARLE.
+        for fabbrica in COMMUNITY_DI_FABBRICA:
+            if fabbrica == configurata:
+                continue
+            aperto = _prova(indirizzo, fabbrica)
+            if aperto is not None:
+                return candidato, None, (fabbrica, aperto)
+        return candidato, None, None
+
+    with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(FILI_PROVA, len(elenco)),
+            thread_name_prefix="snap-snmp") as pool:
+        esiti = list(pool.map(prova_candidato, elenco))
+
+    for candidato, risposta, di_fabbrica in esiti:
         indirizzo = candidato["indirizzo"]
         motivi = ", ".join(candidato["motivi"])
 
-        risposta = _prova(indirizzo, configurata) if configurata else None
         if risposta is not None:
             if not risposta["voci_arp"]:
                 # Risponde ma non ha tabella ARP: nell'elenco non serve, e dirlo
@@ -224,24 +285,18 @@ def scopri(scanner, aggiungi_all_elenco: bool = True) -> dict:
                 nuovi.append("%s|%s" % (indirizzo, etichetta))
             continue
 
-        # La community configurata non ha funzionato (o non c'e'): si prova con
-        # quelle di fabbrica. Non per usarle -- per SEGNALARLE.
-        for fabbrica in COMMUNITY_DI_FABBRICA:
-            if fabbrica == configurata:
-                continue
-            aperto = _prova(indirizzo, fabbrica)
-            if aperto is None:
-                continue
+        if di_fabbrica is not None:
+            fabbrica, aperto = di_fabbrica
             esito["di_fabbrica"].append({"indirizzo": indirizzo,
                                          "community": fabbrica,
                                          "nome": aperto["nome"],
                                          "voci_arp": aperto["voci_arp"]})
             store.log("warning",
-                      "Apparato %s risponde in SNMP con la community di fabbrica"
-                      " '%s': e' un'esposizione da chiudere. Non e' stato aggiunto"
+                      "Apparato %s (%s) risponde in SNMP con la community di fabbrica"
+                      " '%s': chiunque sulla rete puo' leggerne la configurazione."
+                      " E' un'esposizione da chiudere. Non e' stato aggiunto"
                       " all'elenco -- il prodotto conserva una sola community."
-                      % (indirizzo, fabbrica))
-            break
+                      % (indirizzo, aperto.get("nome") or "senza nome", fabbrica))
         else:
             esito["muti"] += 1
 

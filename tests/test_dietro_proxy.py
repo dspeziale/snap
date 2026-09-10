@@ -76,12 +76,13 @@ def test_dietro_proxy_vale_l_indirizzo_scritto_dal_proxy(tmp_path, monkeypatch):
         "dalla rete resta rifiutata: la sonda appartiene a chi l'ha installata")
 
 
-def test_il_server_dietro_proxy_si_sa_in_https(tmp_path, monkeypatch):
+def test_il_server_dietro_proxy_si_sa_in_https(tmp_path, monkeypatch,
+                                               database_di_prova):
     """Senza questo, l'applicazione si crederebbe in chiaro e costruirebbe
     collegamenti http:// dentro un sito servito in https."""
     import importlib
 
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "server.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "test-secret-key")
 
     import snapserver

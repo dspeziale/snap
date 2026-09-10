@@ -83,3 +83,63 @@ def test_un_elenco_valido_viene_usato_come_scritto(scanner):
 
     # Gli spazi si tolgono: nmap non li accetta in un elenco di porte.
     assert scanner.excluded_ports() == "6000-6009,5900"
+
+
+# --------------------------------------------------------------------------- #
+# L'esclusione prevale sull'elenco esplicito
+# --------------------------------------------------------------------------- #
+def test_l_esclusione_prevale_sulle_porte_chieste_esplicitamente(scanner, probe_store):
+    """Il motore riprogettato chiede le porte con `-p` (elenco curato) invece di
+    `--top-ports`, e l'elenco CONTIENE la 6000: e' in elenco di proposito, perche'
+    l'esclusione e' il punto di controllo unico e configurabile.
+
+    Questo controllo pretende che i due meccanismi non si contraddicano: se qualcuno
+    componesse gli argomenti in modo che `-p` prevalga, la finestra "consenti accesso
+    al server X?" tornerebbe sul PC di chi lavora -- il difetto segnalato
+    dall'operatore. Verificato con nmap sulla rete reale: con
+    `--exclude-ports 6000-6009` la 6000 non viene sondata nemmeno se chiesta
+    esplicitamente (senza l'esclusione risponde "6000/tcp open X11").
+    """
+    import json
+
+    from snapprobe.scanner import DEFAULT_EXCLUDED_PORTS, PORTE_PROFONDITA
+
+    probe_store.upsert_local_node(
+        "192.0.2.40", state="confirmed", stages_done="ports",
+        profile_json=json.dumps({"ip": "192.0.2.40", "ports_index": {
+            "tcp/80": {"protocol": "tcp", "port": 80, "state": "open"}}}))
+
+    argomenti = scanner._arguments_for("ports", CAPACITA, scanner.effort_profile(),
+                                       hosts=["192.0.2.40"])
+
+    # La porta e' chiesta...
+    assert 6000 in PORTE_PROFONDITA
+    assert "6000" in argomenti[argomenti.index("-p") + 1].split(",")
+    # ...e l'esclusione c'e', dopo di essa negli argomenti.
+    assert "--exclude-ports" in argomenti
+    assert argomenti[argomenti.index("--exclude-ports") + 1] == DEFAULT_EXCLUDED_PORTS
+    assert argomenti.index("--exclude-ports") > argomenti.index("-p")
+
+
+def test_svuotare_l_esclusione_riattiva_la_rilevazione_anche_in_profondita(
+        scanner, probe_store):
+    """L'esclusione e' una scelta reversibile: un X11 esposto in rete e' un'esposizione
+    vera (permette di leggere i tasti premuti e catturare lo schermo delle altre
+    finestre), e chi svuota l'impostazione vuole tornare a rilevarlo.
+
+    Se la 6000 non fosse nell'elenco curato, svuotare l'esclusione non avrebbe
+    effetto: sarebbe un secondo cancello nascosto.
+    """
+    import json
+
+    probe_store.set_setting("scan_exclude_ports", "")
+    probe_store.upsert_local_node(
+        "192.0.2.41", state="confirmed", stages_done="ports",
+        profile_json=json.dumps({"ip": "192.0.2.41", "ports_index": {
+            "tcp/80": {"protocol": "tcp", "port": 80, "state": "open"}}}))
+
+    argomenti = scanner._arguments_for("ports", CAPACITA, scanner.effort_profile(),
+                                       hosts=["192.0.2.41"])
+
+    assert "--exclude-ports" not in argomenti
+    assert "6000" in argomenti[argomenti.index("-p") + 1].split(",")

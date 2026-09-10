@@ -21,42 +21,15 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
-        "version": "1.2.9",
-        "date": "2026-09-09",
-        "abstract": "Cancellare una sonda non fallisce piu' con l'archivio occupato;"
-                    " console e sonda si distribuiscono in container con TLS e base dati"
-                    " dedicata; il motore di scansione non scarta piu' un apparato per"
-                    " un limite di tempo nostro.",
+        "version": "1.3.0",
+        "date": "2026-09-10",
+        "abstract": "Il motore di scansione e' riprogettato: una /24 completa e"
+                    " accurata passa da MAI a circa sette minuti. Arrivano gli indirizzi"
+                    " MAC e la porta fisica dagli apparati di rete, la copia"
+                    " dell'archivio dalla console torna disponibile su PostgreSQL, e le"
+                    " porte scandite sono scelte per famiglia di apparato invece che per"
+                    " frequenza statistica.",
         "changes": [
-            "Cancellazione di una sonda: non risponde piu' \"archivio occupato\"."
-            " Le colonne di vincolo delle tabelle che crescono (nodi, esecuzioni, esiti"
-            " dei controlli, misure, esposizioni, diario) sono ora indicizzate: senza"
-            " indice ogni cancellazione scandiva le tabelle per intero -- una sola sonda"
-            " comportava l'aggiornamento di circa 118.000 righe. L'attesa sul blocco e'"
-            " diventata una scelta dichiarata (trenta secondi) invece del valore"
-            " predefinito della libreria (cinque).",
-            "Se l'archivio risulta occupato, l'operazione lo DICE e dichiara che nulla"
-            " e' stato cancellato, invece di mostrare una pagina di errore.",
-            "Distribuzione in container per console e sonda: TLS sulle interfacce,"
-            " Gunicorn, utente non privilegiato, base dati PostgreSQL predisposta con"
-            " utenze separate (proprietario e applicativo) e script di avvio e arresto"
-            " per Windows e Linux.",
-            "Sonda in container: la scansione SYN e il rilevamento del sistema operativo"
-            " funzionano senza privilegi di amministratore, tramite le capacita' del"
-            " kernel concesse al solo nmap.",
-            "La sonda verifica il certificato del server e si puo' indicare di quale"
-            " certificato fidarsi (CA interna o certificato proprio del server): serve"
-            " quando la console e' passata a HTTPS con un certificato non pubblico.",
-            "Motore di scansione: un apparato che nmap abbandona per scadenza non viene"
-            " piu' scartato dall'inventario. Non essendo stato esaminato e' IGNOTO, non"
-            " assente, e scartarlo lo faceva sparire per un limite di tempo nostro.",
-            "Motore di scansione: il tempo minimo per host delle fasi di rilevazione"
-            " torna al valore misurato come funzionante. Era stato abbassato per drenare"
-            " piu' in fretta la coda, ma sotto quella soglia la fase gira senza produrre"
-            " nulla.",
-            "Il tempo massimo di una scansione si calcola sulle ondate che nmap esegue"
-            " davvero, non sul numero di bersagli: un compito non puo' piu' restare"
-            " appeso per ore bloccando il ciclo.",
             "Indirizzi MAC dalle tabelle ARP degli apparati di rete (SNMP). Su una rete"
             " reale, di 7.309 nodi solo 39 avevano il MAC -- tutti nella subnet della"
             " sonda, perche' ARP non attraversa un router. La sonda ora interroga gli"
@@ -106,10 +79,94 @@ CHANGELOG = [
             " eliminate ma non lo restituisce al sistema operativo (servirebbe VACUUM"
             " FULL, che fermerebbe l'applicazione): il messaggio dichiara quante"
             " righe sono state recuperate, che e' cio' che l'operazione fa davvero.",
+            "Motore di scansione riprogettato: una /24 completa e accurata passa da"
+            " MAI a circa sette minuti. Il difetto non era un parametro mal tarato ma"
+            " un'assunzione sbagliata -- che gli host di un gruppo si scansionino in"
+            " parallelo senza costo. Il ritmo di invio di nmap e' PER PROCESSO, quindi"
+            " ventiquattro host costano ventiquattro volte uno, e con un tetto di tempo"
+            " per host venivano abbandonati TUTTI: sul campo 66 abbandoni di fila sugli"
+            " stessi indirizzi, ondate da 257 secondi che restituivano zero host.",
+            "La fase delle porte non usa piu' un tetto di tempo per host: in quella"
+            " struttura non proteggeva da nulla e causava il difetto. Al suo posto un"
+            " tetto sul PROCESSO, calcolato dal lavoro richiesto (sonde da inviare"
+            " diviso il ritmo misurato). Il tetto per host resta dove serve davvero:"
+            " nelle fasi che eseguono script su un singolo servizio.",
+            "Due livelli di esame delle porte. Ogni ciclo, ventotto porte che dicono"
+            " CHE COS'E' un apparato, su tutti gli host: e' la passata che si completa"
+            " in minuti. A cadenza lunga, le prime mille porte sui soli host che hanno"
+            " gia' mostrato un segnale -- sulla rete di prova 142 indirizzi su 256 non"
+            " hanno alcuna porta aperta, e chiederne mille a tutti costa oltre quattro"
+            " ore per non imparare nulla.",
+            "Scartate due strade piu' rapide perche' PERDONO porte aperte, e un"
+            " inventario incompleto e' peggio di uno lento: forzare il ritmo di nmap"
+            " (0-4 porte note su 13, esiti irriproducibili) e dividere le porte fra"
+            " piu' processi (piu' lento E meno accurato di un processo solo).",
             "Cancellazione di una sonda: il messaggio che spiega \"archivio occupato,"
             " nulla e' stato cancellato\" non poteva comparire, perche' il codice"
             " intercettava l'errore di SQLite. Su PostgreSQL l'operatore vedeva una"
             " pagina di errore. Corretto.",
+            "Le porte della passata di approfondimento scendono da mille a 232,"
+            " scelte per FAMIGLIA DI APPARATO -- postazioni Windows, Linux, apparati di"
+            " rete, stampanti, telefoni, telecamere, banche dati, impianti, gestione"
+            " fuori banda -- piu' tutte quelle effettivamente trovate aperte sulla rete."
+            " Le prime mille di nmap sono ordinate per frequenza su Internet: meta' sono"
+            " servizi che in un ufficio non esistono, e mancano porte di gestione che"
+            " qui contano (per esempio Intel AMT su una postazione). La passata di"
+            " approfondimento passa da ~28 minuti a ~6,5.",
+            "Se la scansione trova un apparato SNMP, viene interrogato da se': non"
+            " serve piu' premere \"Scopri e popola l'elenco\". Si interrogano tutti gli"
+            " host vivi con una richiesta SNMP diretta -- otto secondi per una /24 --"
+            " invece di sondare la porta 161 in UDP, che non sa distinguere \"aperta\""
+            " da \"nessuna risposta\" e darebbe ogni indirizzo per buono.",
+            "Un apparato entra fra quelli interrogati solo se SUPERA LA PROVA: risponde"
+            " alla community configurata e ha una tabella ARP non vuota. Chi risponde"
+            " con la community di fabbrica (public/private) non viene aggiunto ma"
+            " segnalato nel diario: chiunque sulla rete puo' leggerne la"
+            " configurazione, ed e' un'esposizione da chiudere.",
+            "La scansione continua a non toccare l'intervallo dei server X"
+            " (6000-6009), che apriva sui PC degli operatori la finestra \"consenti"
+            " accesso al server X?\". Verificato che l'esclusione prevale anche ora che"
+            " le porte si chiedono con un elenco esplicito, e la garanzia e' fissata da"
+            " un test.",
+        ],
+    },
+    {
+        "version": "1.2.9",
+        "date": "2026-09-09",
+        "abstract": "Cancellare una sonda non fallisce piu' con l'archivio occupato;"
+                    " console e sonda si distribuiscono in container con TLS e base dati"
+                    " dedicata; il motore di scansione non scarta piu' un apparato per"
+                    " un limite di tempo nostro.",
+        "changes": [
+            "Cancellazione di una sonda: non risponde piu' \"archivio occupato\"."
+            " Le colonne di vincolo delle tabelle che crescono (nodi, esecuzioni, esiti"
+            " dei controlli, misure, esposizioni, diario) sono ora indicizzate: senza"
+            " indice ogni cancellazione scandiva le tabelle per intero -- una sola sonda"
+            " comportava l'aggiornamento di circa 118.000 righe. L'attesa sul blocco e'"
+            " diventata una scelta dichiarata (trenta secondi) invece del valore"
+            " predefinito della libreria (cinque).",
+            "Se l'archivio risulta occupato, l'operazione lo DICE e dichiara che nulla"
+            " e' stato cancellato, invece di mostrare una pagina di errore.",
+            "Distribuzione in container per console e sonda: TLS sulle interfacce,"
+            " Gunicorn, utente non privilegiato, base dati PostgreSQL predisposta con"
+            " utenze separate (proprietario e applicativo) e script di avvio e arresto"
+            " per Windows e Linux.",
+            "Sonda in container: la scansione SYN e il rilevamento del sistema operativo"
+            " funzionano senza privilegi di amministratore, tramite le capacita' del"
+            " kernel concesse al solo nmap.",
+            "La sonda verifica il certificato del server e si puo' indicare di quale"
+            " certificato fidarsi (CA interna o certificato proprio del server): serve"
+            " quando la console e' passata a HTTPS con un certificato non pubblico.",
+            "Motore di scansione: un apparato che nmap abbandona per scadenza non viene"
+            " piu' scartato dall'inventario. Non essendo stato esaminato e' IGNOTO, non"
+            " assente, e scartarlo lo faceva sparire per un limite di tempo nostro.",
+            "Motore di scansione: il tempo minimo per host delle fasi di rilevazione"
+            " torna al valore misurato come funzionante. Era stato abbassato per drenare"
+            " piu' in fretta la coda, ma sotto quella soglia la fase gira senza produrre"
+            " nulla.",
+            "Il tempo massimo di una scansione si calcola sulle ondate che nmap esegue"
+            " davvero, non sul numero di bersagli: un compito non puo' piu' restare"
+            " appeso per ore bloccando il ciclo.",
         ],
     },
     {

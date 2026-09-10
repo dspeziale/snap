@@ -1,9 +1,11 @@
 """
 snap - Test degli indici sulle colonne di vincolo del database del server.
 
-Perche' esiste: SQLite, per applicare `ON DELETE SET NULL` o `CASCADE`, deve TROVARE
-le righe che referenziano la riga cancellata. Senza indice sulla colonna del vincolo
-fa una scansione completa della tabella figlia.
+Perche' esiste: per applicare `ON DELETE SET NULL` o `CASCADE`, la base dati deve
+TROVARE le righe che referenziano la riga cancellata. Senza indice sulla colonna del
+vincolo fa una scansione completa della tabella figlia. Vale per SQLite come per
+PostgreSQL: quest'ultimo NON crea indici sulle chiavi esterne da se' -- li crea per
+le chiavi primarie e per i vincoli di unicita', non per i riferimenti.
 
 Difetto misurato in esercizio: la cancellazione di una sonda dalla console rispondeva
 `database is locked` (HTTP 500) tre tentativi di seguito. Una sola sonda comportava
@@ -41,28 +43,29 @@ VINCOLI_DA_INDICIZZARE = [
 ]
 
 
-def _prime_colonne_indicizzate(connection, tabella: str) -> set[str]:
+def _prime_colonne_indicizzate(tabella: str) -> set[str]:
     """Prima colonna di ogni indice della tabella.
 
     Serve la PRIMA: un indice su (a, b) accelera la ricerca per `a`, non per `b`.
+    Si legge dal catalogo di PostgreSQL: `indkey[0]` e' l'attributo in testa
+    all'indice.
     """
-    prime = set()
-    for indice in connection.execute("PRAGMA index_list(%s)" % tabella).fetchall():
-        colonne = [riga["name"] for riga in
-                   connection.execute("PRAGMA index_info(%s)" % ('"%s"' % indice["name"]))]
-        if colonne and colonne[0]:
-            prime.add(colonne[0])
-    return prime
+    from snapserver.db import query
+
+    righe = query(
+        "SELECT a.attname AS colonna"
+        " FROM pg_index i"
+        " JOIN pg_class t ON t.oid = i.indrelid"
+        " JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]"
+        " WHERE t.relname = ?", (tabella,))
+    return {r["colonna"] for r in righe}
 
 
 def test_i_vincoli_delle_tabelle_che_crescono_sono_indicizzati(server_app):
     with server_app.app_context():
-        from snapserver.db import get_db
-
-        connection = get_db()
         scoperti = []
         for tabella, colonna in VINCOLI_DA_INDICIZZARE:
-            if colonna not in _prime_colonne_indicizzate(connection, tabella):
+            if colonna not in _prime_colonne_indicizzate(tabella):
                 scoperti.append("%s.%s" % (tabella, colonna))
 
         assert not scoperti, (
@@ -74,24 +77,41 @@ def test_le_colonne_dichiarate_sono_davvero_vincoli(server_app):
     """Se un vincolo viene rimosso, l'elenco qui sopra va aggiornato: un indice
     mantenuto per un vincolo che non esiste piu' e' solo costo in scrittura."""
     with server_app.app_context():
-        from snapserver.db import get_db
+        from snapserver.db import query
 
-        connection = get_db()
         for tabella, colonna in VINCOLI_DA_INDICIZZARE:
-            vincoli = {riga["from"] for riga in
-                       connection.execute("PRAGMA foreign_key_list(%s)" % tabella)}
+            vincoli = {r["colonna"] for r in query(
+                "SELECT k.column_name AS colonna"
+                " FROM information_schema.table_constraints c"
+                " JOIN information_schema.key_column_usage k"
+                "   ON k.constraint_name = c.constraint_name"
+                "   AND k.constraint_schema = c.constraint_schema"
+                " WHERE c.constraint_type = 'FOREIGN KEY' AND c.table_name = ?",
+                (tabella,))}
             assert colonna in vincoli, (
                 "%s.%s non e' piu' una chiave esterna: aggiornare l'elenco"
                 % (tabella, colonna))
 
 
 def test_l_attesa_sul_blocco_e_una_scelta_non_un_valore_predefinito(server_app):
-    """Il modulo Python attende 5 secondi per difetto: troppo poco per le operazioni
-    lunghe, e nessuno l'aveva scelto. Ora e' dichiarato in configurazione."""
-    with server_app.app_context():
-        from snapserver.db import get_db
+    """L'attesa su un blocco e' dichiarata in configurazione, non lasciata al valore
+    predefinito della libreria.
 
-        connection = get_db()
-        atteso = int(server_app.config["DB_BUSY_TIMEOUT_MS"])
+    Su PostgreSQL si chiama `lock_timeout` e per difetto e' ZERO, cioe' "attendi
+    per sempre": una richiesta che tocca una riga bloccata resterebbe appesa finche'
+    qualcuno non la interrompe. Il valore scelto la fa fallire con un messaggio
+    leggibile, che e' cio' che l'operatore puo' usare.
+    """
+    with server_app.app_context():
+        from snapserver.db import scalar
+
+        atteso = int(server_app.config["DB_LOCK_TIMEOUT_MS"])
         assert atteso >= 15000, "un'attesa breve fa fallire le operazioni lunghe"
-        assert connection.execute("PRAGMA busy_timeout").fetchone()[0] == atteso
+        # `SHOW` restituisce il valore con l'unita' ("30s", "500ms"): si confronta
+        # in millisecondi, che e' l'unita' della configurazione.
+        grezzo = str(scalar("SHOW lock_timeout"))
+        millisecondi = (int(grezzo[:-2]) if grezzo.endswith("ms")
+                        else int(float(grezzo[:-1]) * 1000) if grezzo.endswith("s")
+                        else int(grezzo))
+        assert millisecondi == atteso, (
+            "lock_timeout in vigore %s, atteso %d ms" % (grezzo, atteso))

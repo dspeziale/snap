@@ -103,7 +103,7 @@ class Config:
     # Versione del PRODOTTO, la stessa della console: un solo numero per la coppia
     # server+sonda (prima la sonda aveva una numerazione propria e l'immagine di
     # distribuzione un'altra, e in assistenza non si capiva quale contasse).
-    APP_VERSION = "1.2.9"
+    APP_VERSION = "1.3.0"
     APP_SUBTITLE = "Sonda di raccolta - canale cifrato SNAP-SEC/1"
     # Vedi la nota omonima nel server: distingue le due interfacce, che ora hanno la
     # stessa struttura. Un solo valore per il marchio e per il piede.

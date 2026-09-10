@@ -1574,17 +1574,56 @@ pubblica `dot1dBasePortIfIndex`, per esempio) la porta **non viene indovinata** 
 resta senza il dato, che e' l'unico esito onesto. Il numero di porta del bridge non e'
 il numero stampato sullo chassis, e presentarlo come tale sarebbe un'informazione falsa.
 
+### 13-sexies.3-bis Come si trova un apparato SNMP: chiedendo, non sondando la porta
+
+Richiesta dell'operatore: «se nella scansione trovi SNMP aperto fai anche una
+scansione per quello». La strada apparente -- aggiungere la 161/UDP alle porte
+scandite -- e' stata **misurata e scartata**, su due fronti indipendenti:
+
+| Passata su 32 host | Durata | Porte TCP trovate | 161/UDP |
+|---|---|---|---|
+| solo TCP | 9,5 s | **8** | -- |
+| TCP + `U:161` | 21,0 s | **1** | `open\|filtered` su 32 su 32 |
+
+* il risultato UDP e' **inutilizzabile**: "nessuna risposta" e "aperta" sono lo
+  stesso valore, quindi registrarlo come SNMP aperto metterebbe ogni indirizzo della
+  rete nell'elenco degli apparati;
+* e in piu' **degrada la scansione TCP**: da otto porte trovate a una, per la
+  saturazione delle sonde in volo (§3).
+
+La domanda giusta non e' "la porta e' aperta?" ma **"l'apparato e' interrogabile?"**,
+e a quella risponde una GET di `sysDescr` con la community configurata: risponde o
+non risponde, senza ambiguita'. Costo misurato con il client SNMP della sonda:
+
+| Fili paralleli | Intera /24 |
+|---|---|
+| 32 | 16,0 s |
+| **64** | **8,1 s** |
+
+Otto secondi per 254 indirizzi, contro i sette minuti di una passata di porte: e'
+abbastanza poco da poter chiedere a **tutti** gli host vivi invece di indovinare a
+chi chiedere. La scoperta si esegue percio' a ogni ciclo di raccolta, in parallelo,
+e trova da se' gli apparati nuovi -- senza dipendere dalla fase `deep` ne' da un port
+scan UDP.
+
+Sulla prima esecuzione reale ha trovato un apparato che il port scan non sapeva
+distinguere: una stampante che risponde alla community di fabbrica `public`.
+
 ### 13-sexies.4 Come si popola l'elenco degli apparati
 
 Dichiarare gli apparati a mano non regge su decine di subnet: si dimenticano e
-cambiano. Dalla pagina di configurazione della sonda, **Scopri e popola l'elenco**
-prova i candidati che la sonda **gia' conosce**, senza scansioni aggiuntive:
+cambiano. La scoperta e' quindi **automatica**: gira a ogni ciclo di raccolta
+(§13-sexies.3-bis) e resta disponibile a richiesta dal pulsante **Scopri e popola
+l'elenco** nella pagina di configurazione della sonda. Prova questi candidati, in
+quest'ordine -- cosi' se il tetto taglia, taglia le congetture:
 
 1. il primo e l'ultimo indirizzo utilizzabile di ogni subnet del perimetro -- una
    congettura dichiarata, dove sta il router in nove reti su dieci;
 2. i nodi dell'inventario locale con la **161/udp osservata aperta** -- non una
    congettura, un'osservazione;
-3. i nodi con porte tipiche di un apparato di rete (22+23, 23+161, 22+161).
+3. i nodi con porte tipiche di un apparato di rete (22+23, 23+161, 22+161);
+4. **tutti gli host vivi** dell'inventario locale: costa 8 secondi per una /24 e
+   non richiede di indovinare chi parli SNMP.
 
 Un candidato entra nell'elenco **solo se supera la prova**: risponde con la community
 configurata *e* ha almeno una voce ARP. Un apparato che "sembra" un router ma non

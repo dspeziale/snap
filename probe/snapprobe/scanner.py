@@ -199,11 +199,26 @@ MAX_CANDIDATE_ATTEMPTS = 2
 # scartarlo lo fa sparire dall'inventario per un limite nostro (e' il caso misurato
 # della multifunzione con undici porte aperte). Vedi `_annota_scadenza`.
 #
-# Cosa risponde invece allo spreco: lo host che scade non blocca gli altri, perche' le
-# fasi di ispezione scansionano il gruppo in PARALLELO (`--min-hostgroup` e
-# SERVICE_MIN_PARALLELISM); le ore perdute venivano da un gruppo serializzato. Se lo
-# spreco tornasse a farsi sentire, la mossa e' guardarlo piu' RARAMENTE contando
-# `timeout_count`, non cancellarlo: un dato ignoto va tenuto come ignoto.
+# Cosa risponde allo spreco: si guarda quell'host piu' RARAMENTE, contando
+# `timeout_count`. E' cio' che questo commento prescriveva e che mancava: senza,
+# gli stessi indirizzi tornavano in coda a OGNI ciclo e la scansione non finiva mai.
+# Misurato sul campo: 66 abbandoni consecutivi sugli stessi 24 indirizzi, ondate da
+# 257 s che restituivano zero host, per ore. Vedi `ATTESA_RITENTATIVO_*` e
+# `_scadenza_troppo_recente`.
+#
+# L'attesa raddoppia a ogni abbandono e si ferma a un tetto: l'host resta IGNOTO --
+# non scartato, non assente -- ma smette di occupare uno slot in ogni ciclo. Chi
+# torna a rispondere viene ripreso al primo tentativo utile.
+
+# Attesa prima di riprovare un host che nmap ha abbandonato per scadenza. Raddoppia
+# a ogni abbandono (1 -> 30 min, 2 -> 1 h, 3 -> 2 h, ...) fino al tetto.
+#
+# Perche' un'attesa e non un tetto ai tentativi: un host abbandonato non e' stato
+# ESAMINATO, quindi non si puo' concludere nulla su di lui. Riprovarlo ogni ciclo e'
+# spreco, rinunciarvi e' perdita di inventario; riprovarlo di rado e' l'unica delle
+# tre che non butta via un dato ne' blocca le altre.
+ATTESA_RITENTATIVO_BASE_SEC = 30 * 60
+ATTESA_RITENTATIVO_TETTO_SEC = 24 * 3600
 
 # Quante volte una FASE DI ISPEZIONE puo' scadere su un nodo GIA' confermato prima di
 # rinunciare e segnarla "tentata". Uno: un nodo con le porte aperte e' gia' inventario
@@ -239,6 +254,178 @@ EXCLUDED_PORTS_PATTERN = re.compile(r"^[0-9,\-]+$")
 
 MAX_HOSTGROUP = 64
 
+# --------------------------------------------------------------------------- #
+# Il motore delle porte: due livelli, un processo, nessun tetto per host
+# --------------------------------------------------------------------------- #
+# Riprogettato dopo che una /24 non finiva mai. Le decisioni e le misure che le
+# giustificano stanno in docs/14_MOTORE_DI_SCANSIONE.md; qui il minimo per capire
+# il codice senza aprire il documento.
+#
+# IL VINCOLO. Il ritmo di invio di nmap e' governato dal suo controllo di
+# congestione. Su questa rete gli host SCARTANO i SYN (rispondono al ping, tacciono
+# su ogni porta): con il 100% di mancate risposte nmap legge congestione e scende a
+# ~10 pacchetti/s. Il budget e' PER PROCESSO, quindi N host in un processo costano N
+# volte uno -- e con un tetto di tempo per host scadono tutti. Misurato: 24 host da
+# 1000 porte richiedono ~41 minuti di pacchetti mentre ciascuno viene abbandonato a
+# 4 minuti; esito osservato, 66 abbandoni di fila e zero host restituiti.
+#
+# COSA NON FUNZIONA, provato e scartato:
+#   * forzare il ritmo (`--min-rate`): dieci volte piu' veloce e PERDE porte aperte
+#     (0-4 su 13 note, esiti irriproducibili). La velocita' che perde dati non e'
+#     velocita';
+#   * dividere le porte fra piu' processi: piu' lento E meno accurato di un processo
+#     solo (82,3 s e 7/13 contro 33,5 s e 12/13), perche' i processi puntano agli
+#     stessi bersagli e si contendono lo stesso percorso.
+#
+# COSA FUNZIONA. Un solo processo, tutti gli host, e nmap che li lavora a GRUPPI:
+# dentro un gruppo le sonde si distribuiscono su host diversi, quindi nessun
+# bersaglio viene limitato dal proprio rate limiting e la finestra resta aperta
+# perche' qualcuno risponde. Misurato su 16 host vivi con l'elenco di
+# riconoscimento: 2,6 s e recall COMPLETO (33 coppie host-porta su 33 realmente
+# aperte).
+
+# Quanti host nmap lavora insieme dentro il processo. E' il solo parametro di
+# taratura del motore.
+#
+# MISURATO sulla /24 del committente, a rete libera, 28 porte per host, confrontando
+# il ritrovamento di 33 coppie host-porta accertate aperte in quel momento:
+#
+#     gruppi da  16  ->  449 s   27 su 33
+#     gruppi da  32  ->  444 s   30 su 33
+#     gruppi da  64  ->  445 s   33 su 33   <- scelto
+#
+# Due letture, entrambe utili:
+#   * il TEMPO non dipende dalla dimensione del gruppo (445 s in tutti i casi):
+#     dipende dal lavoro totale, host x porte;
+#   * il RECALL migliora con gruppi piu' grandi, perche' piu' host che rispondono
+#     tengono aperta la finestra di congestione di nmap.
+#
+# Perche' 64 e non tutta la subnet in un gruppo: in esercizio questa fase gira
+# insieme alle altre, e sotto contesa i gruppi grandi crollano -- la stessa prova
+# con la sonda che scandiva in parallelo dava 14 su 33 con un gruppo da 254. Con 64
+# il recall e' pieno e resta margine per il carico concorrente.
+GRUPPO_HOST = 64
+
+# Ritmo accurato misurato, sonde al secondo, un processo. Serve a calcolare quanto
+# tempo concedere a un processo.
+#
+# Vale 16 e non piu': una stima precedente di 68 veniva da una prova con 9 porte per
+# host, e il ritmo NON e' indipendente dal numero di porte -- con piu' porte per host
+# nmap incontra piu' silenzio di fila e riduce la finestra piu' spesso. Il valore
+# giusto e' quello misurato nella condizione d'uso: 7.112 sonde in 445 s.
+#
+# Se la rete cambia si rimisura e si aggiorna qui: e' un parametro dichiarato, non
+# una costante magica.
+SONDE_AL_SECONDO = 16.0
+
+# Di quanto il tetto di tempo del processo sta sopra il lavoro misurato.
+#
+# Due, non quattro come nella vecchia formula "a ondate": la' la stima era indiretta
+# (un tetto per host moltiplicato per il numero di ondate) e serviva un margine
+# ampio. Qui la stima viene da una misura diretta -- sonde diviso ritmo -- quindi il
+# doppio basta e tiene il ciclo reattivo: con il fattore 4 un processo appeso
+# occupava un posto per mezz'ora dove il lavoro ne richiede sette minuti.
+MARGINE_TEMPO_PORTE = 2
+
+# Porte del livello di RICONOSCIMENTO.
+#
+# Non sono "le piu' comuni" per frequenza statistica: sono quelle che dicono CHE
+# COS'E' un apparato -- gestione, stampa, telefonia, condivisione, banche dati,
+# controllo remoto. E' la differenza fra un inventario e un elenco di numeri.
+#
+# Perche' poche: il costo di una passata e' host x porte, e su questa rete 142
+# indirizzi su 256 non hanno ALCUNA porta aperta fra le prime mille. Chiederne mille
+# a tutti costa oltre un'ora per non imparare nulla; chiederne ventotto costa
+# ~7.100 sonde, cioe' un paio di minuti per l'intera /24. La profondita' si riserva
+# a chi ha mostrato un segnale.
+PORTE_RICONOSCIMENTO = (
+    21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 515, 631,
+    1025, 1433, 1521, 3306, 3389, 5060, 5357, 5432, 5900, 7070, 8080, 8443, 9100,
+)
+
+# Porte del livello di PROFONDITA'.
+#
+# Sostituiscono `--top-ports 1000`, e la differenza non e' il numero: e' il CRITERIO.
+# Le prime mille di nmap sono ordinate per frequenza statistica su Internet, dove
+# meta' sono servizi che su una rete di uffici non esistono e mancano invece porte di
+# gestione che qui contano. Queste sono scelte per FAMIGLIA DI APPARATO -- postazioni
+# Windows, Linux, apparati di rete, stampanti, telefoni, telecamere, banche dati,
+# gestione fuori banda -- piu' tutte quelle effettivamente trovate aperte su questa
+# rete.
+#
+# Il costo scende con il numero: la passata di profondita' riguarda i soli host che
+# hanno mostrato un segnale, e con ~230 porte invece di 1000 costa un quarto.
+#
+# L'elenco resta diviso per famiglia perche' e' cosi' che si mantiene: chi aggiunge un
+# apparato nuovo sa dove mettere le sue porte, e chi legge sa perche' una porta c'e'.
+PORTE_PROFONDITA_PER_FAMIGLIA = {
+    # Trovate aperte sulla rete del committente: nessuna di queste puo' mancare,
+    # sono l'unico dato empirico che si ha.
+    #
+    # La 6000 (X11) e' in elenco DI PROPOSITO anche se l'esclusione predefinita la
+    # sopprime (DEFAULT_EXCLUDED_PORTS: apriva una finestra "consenti accesso al
+    # server X?" sul PC di chi lavorava). L'esclusione e' il punto di controllo
+    # UNICO e configurabile: chi la svuota vuole tornare a rilevare un X11 esposto
+    # -- che e' un'esposizione vera -- e deve ottenerlo senza toccare il codice. Se
+    # invece togliessimo la porta da qui, svuotare l'esclusione non avrebbe effetto:
+    # sarebbe un secondo cancello nascosto. Verificato che `--exclude-ports` prevale
+    # su `-p` esplicito (vedi test_porte_escluse.py).
+    "osservate": (22, 53, 80, 111, 135, 139, 443, 445, 1000, 1025, 3389, 5357,
+                  6000, 7070, 8080, 8081, 8443),
+    # Postazioni e server Windows: RPC e le sue porte alte, dominio (Kerberos,
+    # LDAP, catalogo globale), amministrazione remota (RDP, WinRM, WSD).
+    "windows": (42, 88, 135, 139, 389, 445, 464, 593, 636, 1026, 1027, 1028, 1029,
+                1030, 2179, 3268, 3269, 3343, 3389, 5357, 5722, 5985, 5986, 9389,
+                47001),
+    # Linux e Unix: accesso, posta, condivisione file, stampa, servizi storici che
+    # su una macchina non aggiornata sono ancora aperti.
+    "linux": (21, 22, 25, 69, 79, 110, 111, 143, 177, 465, 512, 513, 514, 515, 587,
+              631, 873, 993, 995, 2049, 3306, 5432, 6001, 6002, 10000),
+    # Apparati di rete: gestione (SSH, Telnet, web, NETCONF), instradamento (BGP),
+    # autenticazione degli accessi (RADIUS, TACACS+) e le porte proprietarie che
+    # identificano un costruttore (Winbox di MikroTik, Smart Install di Cisco).
+    "rete": (22, 23, 49, 80, 179, 443, 830, 1723, 1812, 1813, 2000, 4786, 5000,
+             7547, 8291, 8728, 8729, 32764),
+    # Stampanti e multifunzione: stampa diretta, IPP, LPD e le interfacce di
+    # gestione. Su una rete di uffici sono fra gli apparati piu' numerosi.
+    "stampa": (21, 23, 80, 443, 515, 631, 7627, 8080, 9100, 9101, 9102, 9103, 9220,
+               9500, 9600),
+    "voip": (1719, 1720, 2000, 5060, 5061, 5090, 8000),
+    "videosorveglianza": (80, 443, 554, 8000, 8081, 8554, 8899, 34567, 37777, 37778),
+    # UPS, automazione e impianti: Modbus e i suoi vicini. Un impianto raggiungibile
+    # da una rete di utenza e' un riscontro di sicurezza, non un dettaglio.
+    "impianti": (102, 502, 789, 1911, 2404, 3052, 4911, 5000, 20000, 44818),
+    "archiviazione": (111, 445, 548, 2049, 3260, 5000, 5001, 9000, 50000),
+    "banche_dati": (1433, 1521, 1830, 3306, 5432, 5433, 5984, 6379, 7000, 7001,
+                    8086, 9042, 9200, 9300, 11211, 27017, 27018, 27019, 50000),
+    # Gestione fuori banda: IPMI, WBEM, agenti di monitoraggio e -- soprattutto --
+    # Intel AMT, che su una postazione da ufficio e' un'interfaccia di gestione
+    # completa e indipendente dal sistema operativo.
+    "fuori_banda": (161, 199, 623, 664, 2381, 3283, 4949, 5666, 5938, 5988, 5989,
+                    6568, 9990, 10050, 10051, 16992, 16993),
+    "virtualizzazione": (902, 903, 2375, 2376, 2379, 6443, 8006, 10250),
+    "copie": (8014, 9392, 13720, 13724),
+    "desktop_remoto": (1494, 2222, 2598, 3390, 4899, 5800, 5900, 5901, 5902),
+    "web_gestione": (81, 88, 591, 1080, 3000, 3128, 4000, 4443, 4444, 6080, 7080,
+                     8000, 8001, 8008, 8009, 8010, 8069, 8082, 8083, 8088, 8090,
+                     8140, 8161, 8180, 8181, 8280, 8500, 8834, 8880, 8888, 9080,
+                     9090, 9091, 9443, 10443, 15672),
+    "trasferimento": (20, 26, 69, 115, 873, 989, 990, 2121, 2525, 3690, 6881, 8021),
+    "code": (1099, 4505, 4506, 4848, 5222, 5672),
+    # Protocolli storici: aperti solo su macchine mai aggiornate, ed e' esattamente
+    # per questo che si guardano -- trovarli E' il riscontro.
+    "storici": (7, 9, 13, 17, 19, 37, 70, 113, 119, 194, 540, 543, 544, 2323, 6667,
+                6668),
+    "varie": (5040, 7680, 9999),
+}
+
+# L'elenco piatto, ordinato: e' cio' che finisce sulla riga di comando di nmap.
+PORTE_PROFONDITA = tuple(sorted({
+    porta for porte in PORTE_PROFONDITA_PER_FAMIGLIA.values() for porta in porte
+}))
+
+
+
 # Tetto all'intensita' della rilevazione versione (-sV) nella fase dei servizi. Al
 # massimo (7) nmap invia troppe sonde per porta: su apparati che non rispondono come
 # previsto la fase si trascina per centinaia di secondi. Cinque mantiene le
@@ -259,26 +446,47 @@ NO_INFORMATION_COOLDOWN_SECONDS = 7 * 24 * 3600
 #
 #   workers            esecuzioni di nmap contemporanee
 #   timing             modello temporale di nmap (-T)
-#   top_ports          quante porte fra le piu' comuni
 #   version_intensity  insistenza del riconoscimento dei servizi
 #   host_timeout       tempo massimo per host
 #   hosts_per_task     nodi affidati a un singolo compito
 #   udp_ports          porte UDP interrogate nella fase di approfondimento
+# I profili di sforzo governano il PARALLELISMO FRA COMPITI e l'aggressivita' della
+# singola scansione. Non governano piu' la fase delle porte, che ha un motore proprio
+# (vedi GRUPPO_HOST e PORTE_RICONOSCIMENTO): quella usa UN processo con tutti gli
+# host, perche' processi diversi puntati sugli stessi bersagli si contendono il
+# percorso e perdono risposte -- misurato, 82,3 s e 7/13 contro 33,6 s e 12/13.
+#
+# Dove il parallelismo fra processi FUNZIONA: le fasi che lavorano su host DIVERSI e
+# pochi (servizi, sistema operativo, letture SNMP/SMB/web). La' i processi non si
+# contendono gli stessi bersagli e il ritmo si somma -- misurato, 32 processi su 32
+# host diversi danno 159 sonde/s contro 9,9 di un processo solo, senza perdite.
+#
+# `hosts_per_task` resta a 1 per quelle fasi: un host per processo, molti processi.
+# Le PORTE non stanno piu' nei profili: la fase porte usa due elenchi curati
+# (PORTE_RICONOSCIMENTO e PORTE_PROFONDITA), gli stessi per ogni profilo. Un numero
+# di porte regolabile era un parametro morto -- nessuno sapeva quale valore fosse
+# giusto, e "le prime mille per frequenza" non e' un criterio per una rete di uffici.
+# `host_timeout` vale per le fasi che eseguono script su un servizio: la' un apparato
+# che non risponde come previsto puo' tenere appeso nmap, e il tetto e' l'unica cosa
+# che lo ferma. Alla fase delle porte NON si passa piu'.
 EFFORT_PROFILES = {
     "min": {
-        "workers": 1, "timing": "-T2", "top_ports": 100, "version_intensity": 2,
-        "host_timeout": "60s", "hosts_per_task": 8, "udp_ports": "161,137",
+        # Il profilo gentile resta gentile: UNA scansione per volta. E' cio' che
+        # promette, e la parallelizzazione e' l'opzione degli altri due -- non il
+        # nuovo minimo. Con un host per compito e 100 porte costa ~10 s per host.
+        "workers": 1, "timing": "-T2", "version_intensity": 2,
+        "host_timeout": "120s", "hosts_per_task": 1, "udp_ports": "161,137",
         "label": "minimo: una scansione per volta, rete poco disturbata",
     },
     "med": {
-        "workers": 2, "timing": "-T3", "top_ports": 200, "version_intensity": 5,
-        "host_timeout": "120s", "hosts_per_task": 16, "udp_ports": UDP_IDENTIFYING_PORTS,
-        "label": "medio: due scansioni in parallelo, equilibrio fra velocita e prudenza",
+        "workers": 16, "timing": "-T3", "version_intensity": 5,
+        "host_timeout": "180s", "hosts_per_task": 1, "udp_ports": UDP_IDENTIFYING_PORTS,
+        "label": "medio: sedici host in parallelo, equilibrio fra velocita e prudenza",
     },
     "max": {
-        "workers": 4, "timing": "-T4", "top_ports": 1000, "version_intensity": 7,
-        "host_timeout": "180s", "hosts_per_task": 24, "udp_ports": UDP_IDENTIFYING_PORTS,
-        "label": "massimo: quattro scansioni in parallelo, inventario piu ricco e rapido",
+        "workers": 32, "timing": "-T3", "version_intensity": 7,
+        "host_timeout": "300s", "hosts_per_task": 1, "udp_ports": UDP_IDENTIFYING_PORTS,
+        "label": "massimo: trentadue host in parallelo, inventario piu ricco e rapido",
     },
 }
 DEFAULT_EFFORT = "med"
@@ -299,6 +507,7 @@ HOST_TIMEOUT_MAX_SECONDS = 1800
 # tempo per host non e' una preferenza, e' una condizione di funzionamento. Il valore
 # scelto dall'operatore resta valido per la scoperta e per le porte.
 MIN_HOST_TIMEOUT_INSPECTION = 180
+
 # Tempo per host dello SWEEP di scoperta, indipendente dalla scelta dell'operatore:
 # `-sn` manda pochi pacchetti e non scansiona porte, quindi non serve di piu'; e su
 # una subnet fatta in gran parte di indirizzi morti un valore lungo allungherebbe la
@@ -364,9 +573,37 @@ PROCESS_TIMEOUT_MAX_SECONDS = 7200
 # danno 470s con 180s per host (2,6x) e ~300s con 90s per host (3,3x). Quattro sta
 # sopra entrambe e lascia margine per l'avvio e per le fasi degli script.
 PROCESS_TIMEOUT_WAVE_FACTOR = 4
-# Limite invalicabile, indipendente dal profilo: quattro processi nmap sono il
-# massimo che si accetta di avere contemporaneamente su una sonda.
-MAX_WORKERS = 4
+# Limite invalicabile, indipendente dal profilo.
+#
+# Era quattro, con l'idea che quattro processi nmap fossero tutto il carico
+# accettabile su una sonda. La misura dice altro: il ritmo di invio e' governato da
+# nmap PER PROCESSO, e con un solo processo si resta a ~9,5 pacchetti/s su bersagli
+# che non rispondono. Il parallelismo dei processi e' percio' l'unica leva che
+# aumenta la banda senza forzare il ritmo -- e forzarlo (`--min-rate`) e' stato
+# provato e scartato: fa PERDERE porte aperte (misurato: un host con 135, 139, 445
+# ne restituiva zero).
+#
+# Costo verificato sul campo con 34 processi nmap contemporanei: CPU 1,8%, memoria
+# 443 MB su 12 CPU e 16 GB. Una scansione e' attesa di pacchetti, non calcolo.
+MAX_WORKERS = 32
+
+# Le fasi di ARRICCHIMENTO: non servono a completare il profilo di un nodo (quello
+# lo fanno porte, servizi e sistema operativo) ma sono cio' che rende un inventario
+# utile. Si nominano qui, in un punto solo, perche' erano elencate a mano in due
+# posti e in uno mancava `snmp` -- con l'effetto che il posto riservato alla lettura
+# SNMP era codice morto: la condizione lo scartava sempre, il monitoraggio si
+# prendeva il nodo prima, e la raccolta dei MAC dagli apparati partiva solo per caso.
+FASI_ARRICCHIMENTO = ("snmp", "smb", "vuln", "web")
+
+# Posti che il completamento del profilo NON puo' prendere, per lasciarli alle fasi
+# di arricchimento. Uno per fase.
+#
+# Serve da quando ogni compito porta UN host: la soglia che decideva "arretrato
+# grande" era "piu' di un lotto", e con lotti da un host e' diventata "piu' di un
+# nodo" -- cioe' sempre. Il completamento riempiva ogni ciclo e le letture di
+# arricchimento non partivano mai; fra queste c'e' la raccolta SNMP, che e' l'unica
+# fonte dei MAC sulle subnet instradate.
+RISERVA_ARRICCHIMENTO = len(FASI_ARRICCHIMENTO)
 
 # Le prenotazioni scadute vengono liberate: se un thread muore senza rilasciare,
 # il bersaglio non deve restare bloccato.
@@ -375,6 +612,16 @@ CLAIM_MAX_AGE_SECONDS = 1800
 
 def _now_str() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _durata_leggibile(secondi: int) -> str:
+    """Una durata in parole. Nel diario "21600 s" non si legge; "6 ore" si'."""
+    if secondi < 3600:
+        return "%d minuti" % max(1, round(secondi / 60))
+    ore = secondi / 3600.0
+    if ore < 2:
+        return "un'ora" if abs(ore - 1) < 0.05 else "%.1f ore" % ore
+    return "%d ore" % round(ore)
 
 
 def parse_timeout(value) -> int | None:
@@ -587,6 +834,12 @@ class NetworkScanner:
             # invece conferito o scartato subito dopo 'ports'.
             if stage not in ("discovery", "ports") and self._niente_da_profilare(nodo):
                 continue
+            # Un candidato che nmap ha appena abbandonato non torna subito in coda:
+            # riprovarlo con gli stessi mezzi dara' lo stesso esito, e intanto
+            # occupa lo slot di un host esaminabile. L'attesa cresce a ogni
+            # abbandono, l'host resta candidato (ignoto, non assente).
+            if self._scadenza_troppo_recente(nodo):
+                continue
             if stage not in svolte and precedenti <= svolte:
                 attesa.append(nodo)
         # Il filtro del perimetro sta qui perche' questo e' l'unico punto da cui i
@@ -595,6 +848,44 @@ class NetworkScanner:
         if stage is None:
             return attesa
         return self._within_perimeter_only(attesa, stage)
+
+    def _scadenza_troppo_recente(self, nodo: dict) -> bool:
+        """Vero se questo candidato e' stato abbandonato per scadenza troppo di
+        recente per riprovarlo adesso.
+
+        L'attesa raddoppia a ogni abbandono, fino al tetto. Serve a togliere dalla
+        coda gli host che nmap non riesce a esaminare, SENZA scartarli: restano
+        candidati (cioe' ignoti) e tornano quando l'attesa e' passata.
+
+        Senza questo, gli stessi indirizzi rientravano in ogni ciclo: misurati 66
+        abbandoni consecutivi sugli stessi 24, e una scansione che non finiva.
+        """
+        if nodo.get("state") != "candidate":
+            return False
+        grezzo = nodo.get("profile_json")
+        if not grezzo:
+            return False
+        try:
+            profilo = json.loads(grezzo) or {}
+        except (TypeError, ValueError):
+            return False
+        quante = int(profilo.get("timeout_count") or 0)
+        if quante <= 0:
+            return False
+        quando = profilo.get("timed_out_at")
+        if not quando:
+            # Conteggio senza istante: viene da una versione precedente. Si concede
+            # un tentativo -- e l'istante verra' scritto se scade di nuovo.
+            return False
+        try:
+            ultimo = datetime.strptime(quando, "%Y-%m-%d %H:%M:%S").replace(
+                tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return False
+        attesa = min(ATTESA_RITENTATIVO_BASE_SEC * (2 ** (quante - 1)),
+                     ATTESA_RITENTATIVO_TETTO_SEC)
+        trascorso = (datetime.now(timezone.utc) - ultimo).total_seconds()
+        return trascorso < attesa
 
     def next_due(self) -> tuple | None:
         """Prima fase dovuta, nell'ordine di priorita'. None se nulla e' dovuto.
@@ -856,8 +1147,13 @@ class NetworkScanner:
         # controllo del perimetro rifiuta l'intero compito. Non e' un tentativo di
         # violazione, e' un perimetro cambiato: il nodo resta in inventario e non
         # viene piu' scelto.
-        return [n["ip"] for n in self._within_perimeter_only(nodi, stage)
-                ][:self.effort_profile()["hosts_per_task"]]
+        dentro = [n["ip"] for n in self._within_perimeter_only(nodi, stage)]
+        if stage == "ports":
+            # Nessun troncamento: il motore delle porte lavora l'intero insieme in
+            # UN processo, a gruppi di GRUPPO_HOST. Tagliare i bersagli qui
+            # significherebbe tornare alla struttura che non finiva mai.
+            return dentro
+        return dentro[:self.effort_profile()["hosts_per_task"]]
 
     def _compiled_perimeter(self) -> list:
         """Reti del perimetro, compilate una volta sola e indicizzate per prefisso.
@@ -1043,9 +1339,12 @@ class NetworkScanner:
         if note and len(note) <= MAX_EXPLICIT_PORTS:
             tcp = ",".join(str(p) for p in note)
         else:
-            # Senza porte note si sondano le prime porte per frequenza: l'elenco
-            # esplicito serve perche' --top-ports non si combina con -p.
-            tcp = "1-%d" % int(profilo["top_ports"])
+            # Senza porte note si usa l'elenco curato di profondita', non "le prime
+            # N per frequenza": e' la stessa scelta della fase delle porte (vedi
+            # PORTE_PROFONDITA_PER_FAMIGLIA) e nel prodotto esiste UNA lista sola.
+            # L'elenco esplicito serve anche perche' --top-ports non si combina
+            # con -p, che qui serve per distinguere TCP da UDP.
+            tcp = ",".join(str(p) for p in PORTE_PROFONDITA)
         if snmp:
             # Prefisso di protocollo esplicito: senza, nmap applicherebbe l'elenco a
             # entrambi i protocolli e tenterebbe in UDP porte che in UDP non esistono.
@@ -1217,19 +1516,80 @@ class NetworkScanner:
     def _port_selection(self, stage: str, hosts: list, profilo: dict) -> list:
         """Scelta delle porte per una fase di ispezione.
 
-        Le porte note prevalgono sulle prime porte per frequenza: sono poche, sono
-        quelle che hanno risposto, e permettono di concludere entro il tempo per
-        host. Senza porte note si torna alle prime porte.
+        Le porte note prevalgono: sono poche, sono quelle che hanno risposto, e
+        permettono di concludere entro il tempo per host. Senza porte note si usa
+        l'elenco curato di profondita' -- non "le prime N per frequenza", che
+        contiene servizi che su una rete di uffici non esistono e non contiene porte
+        di gestione che qui contano.
         """
         note = self._known_open_ports(hosts)
         if note and len(note) <= MAX_EXPLICIT_PORTS:
             return ["-p", ",".join(str(p) for p in note)]
-        return ["--top-ports", str(profilo["top_ports"])]
+        return ["-p", ",".join(str(p) for p in PORTE_PROFONDITA)]
+
+    def _porte_della_fase(self, hosts: list, profilo: dict) -> list:
+        """Quali porte chiedere in questa passata: riconoscimento o profondita'.
+
+        RICONOSCIMENTO (il caso normale): l'elenco di PORTE_RICONOSCIMENTO su tutti
+        gli host. Poche porte, ma quelle che dicono che cos'e' un apparato, e un
+        costo che permette di concludere l'intera subnet in un paio di minuti.
+
+        PROFONDITA': PORTE_PROFONDITA, e riguarda i soli host che hanno GIA' mostrato
+        almeno una porta aperta. Sono poche decine invece di 254, quindi il costo
+        torna sostenibile. Un host che tace su tutte le porte di riconoscimento non
+        diventa interessante alla duecentesima: se cambia, lo dira' aprendone una di
+        quelle che si guardano sempre.
+
+        Non si usa piu' `--top-ports`: le prime mille di nmap sono ordinate per
+        frequenza su Internet, mentre queste sono scelte per famiglia di apparato e
+        comprendono tutte quelle trovate aperte su questa rete. Meno porte e piu'
+        pertinenti -- vedi PORTE_PROFONDITA_PER_FAMIGLIA.
+        """
+        if self._tutti_con_porte_note(hosts):
+            return ["-p", ",".join(str(p) for p in PORTE_PROFONDITA)]
+        return ["-p", ",".join(str(p) for p in PORTE_RICONOSCIMENTO)]
+
+    def _tutti_con_porte_note(self, hosts: list) -> bool:
+        """Vero se OGNI host del compito ha gia' almeno una porta aperta conosciuta.
+
+        E' la condizione della passata di profondita': si allarga l'esame solo dove
+        c'e' gia' un segnale. Basta un host senza porte note perche' il compito
+        torni al livello di riconoscimento -- meglio una passata veloce in piu' che
+        una lenta su chi non ha nulla da dire.
+        """
+        if not hosts:
+            return False
+        for ip in hosts:
+            locale = self.store.local_node(ip)
+            if not locale:
+                return False
+            porte = (self._profilo_di(locale).get("ports_index") or {})
+            if not any(v.get("state") == "open" for v in porte.values()):
+                return False
+        return True
 
     def _hostgroup(self, hosts: list = None) -> str:
-        """Quanti host far scansionare a nmap in parallelo: tutti quelli del compito,
-        entro un tetto. E' cio' che rende una passata lunga quanto il singolo host e
-        non la somma dei suoi host lenti."""
+        """Quanti host far scansionare a nmap in parallelo dentro UN processo.
+
+        SMENTITO DA UNA MISURA, e vale scriverlo perche' l'assunzione contraria ha
+        fatto girare a vuoto una scansione per ore. Qui c'era scritto che un gruppo
+        parallelo "rende una passata lunga quanto il singolo host e non la somma".
+        E' falso: il ritmo di invio e' di nmap ed e' PER PROCESSO, non per host.
+        Misurato sugli stessi bersagli, 200 porte ciascuno:
+
+            1 host  -> 21,1 s   (9,5 pacchetti/s)
+            4 host  -> 81,2 s   (9,9 pacchetti/s)
+
+        Quattro host costano quattro volte uno: la passata dura quanto la SOMMA. Con
+        un tetto di tempo PER HOST, un gruppo grande garantisce che scadano tutti --
+        24 host da 1000 porte richiedono ~41 minuti di pacchetti mentre ciascuno
+        viene abbandonato a 4 minuti. E' cio' che accadeva: ondate da 257 s, zero
+        host restituiti, per 66 volte di seguito.
+
+        La conseguenza sta nei profili di sforzo: un host per compito, molti processi
+        in parallelo. Ogni processo ha allora il proprio budget di pacchetti e
+        conclude. Questo tetto resta per i casi in cui un compito porti piu' host.
+        """
         return str(max(1, min(len(hosts or []) or 1, MAX_HOSTGROUP)))
 
     def _arguments_for(self, stage: str, capacita: dict, profilo: dict = None,
@@ -1255,7 +1615,6 @@ class NetworkScanner:
         raw = bool(capacita.get("raw_sockets"))
         profilo = profilo or self.effort_profile()
         timing = profilo["timing"]
-        porte = str(profilo["top_ports"])
         attesa = self._host_timeout_for(stage, profilo, hosts)
 
         if stage == "discovery":
@@ -1266,8 +1625,20 @@ class NetworkScanner:
             return ["-sn", "-PE", "-PS22,80,443,3389,445", "-PA80", "-PR", timing,
                     "--host-timeout", DISCOVERY_HOST_TIMEOUT]
         if stage == "ports":
-            return [("-sS" if raw else "-sT"), "-Pn", timing, "--top-ports", porte,
-                    "--host-timeout", attesa]
+            # NESSUN `--host-timeout`. Non e' una dimenticanza: in questa struttura
+            # non protegge da nulla e CAUSAVA il difetto per cui una /24 non finiva
+            # mai (gli host di un gruppo si dividono il budget di pacchetti del
+            # processo, quindi con un tetto per host scadono tutti). La rete di
+            # sicurezza e' il tetto di tempo del PROCESSO, calcolato sulle sonde da
+            # inviare -- vedi `_process_timeout`.
+            #
+            # `--max-hostgroup` fissa il gruppo invece di lasciarlo adattare a nmap:
+            # e' il solo parametro di taratura, e i suoi due effetti opposti sono
+            # spiegati su GRUPPO_HOST.
+            gruppo = str(GRUPPO_HOST)
+            return ([("-sS" if raw else "-sT"), "-Pn", timing]
+                    + self._porte_della_fase(hosts, profilo)
+                    + ["--min-hostgroup", gruppo, "--max-hostgroup", gruppo])
         if stage == "services":
             # Rilevazione dei servizi in TCP: -sV sulle porte gia' trovate aperte, con
             # lo script 'banner' (il testo che i servizi annunciano, spesso identifica
@@ -1347,33 +1718,77 @@ class NetworkScanner:
                     timing, "--host-timeout", "20s"]
         raise NmapError("fase non prevista: %s" % stage)
 
-    def _process_timeout(self, stage: str, hosts: int, profilo: dict) -> int:
+    def _quante_porte(self, argomenti: list) -> int:
+        """Quante porte chiede questa invocazione di nmap.
+
+        Si leggono dagli ARGOMENTI gia' composti, non si indovinano: la passata di
+        riconoscimento e quella di profondita' chiedono numeri molto diversi, e un
+        tetto di tempo calcolato sul caso peggiore terrebbe occupato un posto del
+        ciclo per un'ora dove servono due minuti.
+        """
+        if "--top-ports" in argomenti:
+            try:
+                return int(argomenti[argomenti.index("--top-ports") + 1])
+            except (IndexError, ValueError):
+                return len(PORTE_RICONOSCIMENTO)
+        if "-p" in argomenti:
+            elenco = argomenti[argomenti.index("-p") + 1]
+            quante = 0
+            for pezzo in str(elenco).split(","):
+                if "-" in pezzo.lstrip("TU:"):
+                    estremi = pezzo.lstrip("TU:").split("-")
+                    try:
+                        quante += abs(int(estremi[1]) - int(estremi[0])) + 1
+                    except (IndexError, ValueError):
+                        quante += 1
+                else:
+                    quante += 1
+            return max(1, quante)
+        return len(PORTE_RICONOSCIMENTO)
+
+    def _process_timeout(self, stage: str, hosts: int, profilo: dict,
+                         porte: int = None) -> int:
         """Tempo massimo del processo nmap per un compito.
 
-        Il calcolo segue come nmap lavora DAVVERO. Con `--min-hostgroup` gli host di
-        un compito vengono scansionati in parallelo, a ONDATE di al massimo
-        MAX_HOSTGROUP host: il tempo di un'ondata e' quello del singolo host, non la
-        somma dei suoi host lenti. Quindi il tempo cresce con il numero di ONDATE, non
-        con il numero di bersagli.
+        I compiti portano UN host (vedi EFFORT_PROFILES), quindi il calcolo e' il
+        tempo per host piu' il margine di avvio -- moltiplicato per il fattore che
+        copre cio' che `--host-timeout` non limita: l'avvio di nmap, la rilevazione
+        di versione e le fasi degli script, che sul campo hanno portato una passata a
+        2,6-3,3 volte il tempo per host.
 
-        Perche' non si moltiplica per i bersagli, com'era prima: il limite arrivava a
+        La formula per ONDATE resta perche' un compito puo' ancora portare piu' host
+        (una richiesta esplicita dalla console, o un profilo futuro). Ma l'assunzione
+        su cui era costruita -- "il tempo di un'ondata e' quello del singolo host, non
+        la somma" -- E' FALSA, ed e' stata misurata falsa: il ritmo di invio di nmap e'
+        per PROCESSO, e quattro host in un processo costano quattro volte uno (81,2 s
+        contro 21,1 s, 200 porte). Se un compito portera' di nuovo molti host, il
+        tetto qui va calcolato sulla SOMMA, non sull'ondata. Con un host per compito
+        le due formule coincidono e la questione non si pone.
+
+        Perche' non si moltiplicava per i bersagli, com'era prima: il limite arrivava a
         migliaia di secondi e sul campo una passata di servizi su host VoIP che
         appendono nmap ha tenuto un ciclo bloccato per ore -- e senza che il compito si
         concludesse, il "give-up" per fase non scattava mai.
-
-        Perche' un fattore per ondata e non il solo tempo per host: `--host-timeout`
-        limita la scansione di un host, ma un'ondata comprende anche l'avvio, la
-        rilevazione di versione e le fasi degli script. Le due misure disponibili
-        danno un rapporto fra 2,6 e 3,3 (24 host: ~470s con 180s per host; ~300s con
-        90s per host): il fattore 4 sta sopra entrambe, con margine.
         """
         # Il tempo su cui si calcola il tetto deve essere quello che nmap RICEVE
         # davvero: la scoperta ha il proprio, breve, indipendente dalla scelta
         # dell'operatore (vedi DISCOVERY_HOST_TIMEOUT e `_arguments_for`).
+        bersagli = max(1, int(hosts or 1))
+
+        # La fase delle porte non ha piu' un tetto per host: il suo tempo si calcola
+        # dal LAVORO, cioe' dalle sonde da inviare diviso il ritmo misurato. E' un
+        # conto verificabile e si adatta da se' al numero di host e di porte, invece
+        # di moltiplicare un tetto per host che non esiste piu'.
+        if stage == "ports":
+            quante = int(porte or len(PORTE_RICONOSCIMENTO))
+            sonde = bersagli * quante
+            stimato = int(sonde / SONDE_AL_SECONDO * MARGINE_TEMPO_PORTE)
+            return int(min(PROCESS_TIMEOUT_MAX_SECONDS,
+                           stimato + PROCESS_TIMEOUT_MARGIN_SECONDS))
+
         effettivo = (DISCOVERY_HOST_TIMEOUT if stage == "discovery"
                      else self._host_timeout_for(stage, profilo))
         per_host = parse_timeout(effettivo) or 120
-        bersagli = max(1, int(hosts or 1))
         ondate = -(-bersagli // MAX_HOSTGROUP)  # divisione per eccesso
         stimato = ondate * per_host * PROCESS_TIMEOUT_WAVE_FACTOR
         return int(min(PROCESS_TIMEOUT_MAX_SECONDS,
@@ -1393,6 +1808,13 @@ class NetworkScanner:
         secondi = parse_timeout(attesa) or MIN_HOST_TIMEOUT_INSPECTION
         if stage in STAGES_NEEDING_TIME and secondi < MIN_HOST_TIMEOUT_INSPECTION:
             secondi = MIN_HOST_TIMEOUT_INSPECTION
+
+        # La fase delle porte NON riceve piu' un tetto per host: qui c'era il
+        # calcolo di un minimo ricavato dal numero di porte, aggiunto quando la
+        # struttura era "un host per processo". Con il motore a gruppi il tetto per
+        # host e' scomparso del tutto da quella fase (vedi `_arguments_base`), e un
+        # minimo per un valore che non viene passato sarebbe solo un messaggio
+        # fuorviante nel diario.
 
         # Il raddoppio "seconda occasione" NON si applica al completamento del profilo:
         # servizi e sistema operativo si arrendono dopo una sola scadenza (l'host viene
@@ -1452,15 +1874,26 @@ class NetworkScanner:
         profilo = self.effort_profile()
         limite = max(1, int(limit or profilo["workers"]))
         per_compito = int(profilo["hosts_per_task"])
+        # Posti che il completamento del profilo non puo' prendere: restano alle fasi
+        # che vengono DOPO (monitoraggio, SNMP, SMB, vulnerabilita', web). Con un
+        # host per compito il completamento riempiva l'intero ciclo e quelle fasi non
+        # partivano mai -- fra queste la lettura SNMP, unica fonte dei MAC sulle
+        # subnet instradate.
+        tetto_profilo = max(1, limite - RISERVA_ARRICCHIMENTO)
         cadenze = self.cadences()
         compiti = []
         assegnati = set()
 
-        def aggiungi_nodi(fase, nodi):
-            """Spezza i nodi in compiti da `per_compito`, senza ripetere indirizzi."""
+        def aggiungi_nodi(fase, nodi, tetto=None):
+            """Spezza i nodi in compiti da `per_compito`, senza ripetere indirizzi.
+
+            `tetto` limita quanti posti del ciclo questa fase puo' occupare: serve a
+            non far riempire l'intero ciclo da una fase sola.
+            """
+            massimo = limite if tetto is None else min(limite, tetto)
             gruppo = []
             for nodo in nodi:
-                if len(compiti) >= limite:
+                if len(compiti) >= massimo:
                     break
                 if nodo["ip"] in assegnati:
                     continue
@@ -1469,7 +1902,7 @@ class NetworkScanner:
                 if len(gruppo) >= per_compito:
                     compiti.append({"stage": fase, "target": "*", "hosts": list(gruppo)})
                     gruppo = []
-            if gruppo and len(compiti) < limite:
+            if gruppo and len(compiti) < massimo:
                 compiti.append({"stage": fase, "target": "*", "hosts": list(gruppo)})
 
         def aggiungi_un_compito(fase, nodi):
@@ -1505,7 +1938,19 @@ class NetworkScanner:
             porte_attesa = [n for n in self.pending_nodes("ports")
                             if n["ip"] not in assegnati]
             if porte_attesa:
-                aggiungi_un_compito("ports", porte_attesa)
+                # UN SOLO compito con TUTTI gli host in attesa, non uno per host.
+                # E' il cuore del motore riprogettato: un processo nmap lavora gli
+                # host a gruppi di GRUPPO_HOST, e dentro un gruppo le sonde si
+                # distribuiscono su host diversi. Misurato: 16 host vivi con
+                # l'elenco di riconoscimento in 2,6 s con recall completo, contro
+                # 202 s PER HOST della struttura a un host per compito.
+                #
+                # Il posto occupato nel ciclo e' uno solo, quindi le altre fasi
+                # restano libere di avanzare in parallelo.
+                indirizzi = [n["ip"] for n in porte_attesa]
+                assegnati.update(indirizzi)
+                compiti.append({"stage": "ports", "target": "*",
+                                "hosts": indirizzi})
 
         # 1-ante-2. Un posto riservato al COMPLETAMENTO del profilo: le fasi necessarie
         #    al conferimento (servizi e, dove possibile, sistema operativo) DOPO le
@@ -1528,7 +1973,12 @@ class NetworkScanner:
                     continue
                 pendenti[fase] = [n for n in self.pending_nodes(fase)
                                   if n["ip"] not in assegnati]
-            molti = sum(len(v) for v in pendenti.values()) > per_compito
+            # "Arretrato grande" si misura in POSTI del ciclo, non in lotti: con un
+            # host per compito un lotto e' un nodo, e "piu' di un nodo" avrebbe
+            # dichiarato grande qualunque arretrato.
+            molti = (sum(len(v) for v in pendenti.values())
+                     > max(per_compito, limite // 2))
+
             for fase in reversed(self._required_stages()):
                 if fase == "ports" or len(compiti) >= limite:
                     continue
@@ -1541,7 +1991,7 @@ class NetworkScanner:
                     # Arretrato piccolo: un solo lotto di profilo, poi l'arricchimento.
                     break
                 completa = [n for n in completa if n["ip"] not in assegnati]
-                while completa and len(compiti) < limite:
+                while completa and len(compiti) < tetto_profilo:
                     prima = len(compiti)
                     aggiungi_un_compito(fase, completa)
                     if len(compiti) == prima:
@@ -1560,7 +2010,8 @@ class NetworkScanner:
                                 ("web", self._web_pending)):
             if len(compiti) >= limite:
                 break
-            if fase not in self._required_stages() and fase not in ("web", "smb", "vuln"):
+            if (fase not in self._required_stages()
+                    and fase not in FASI_ARRICCHIMENTO):
                 continue
             attesa = [n for n in mai_lette() if n["ip"] not in assegnati]
             if attesa:
@@ -1585,9 +2036,9 @@ class NetworkScanner:
         #    lavoro mentre le altre non arriverebbero mai al proprio turno. Cosi'
         #    i nodi piu' avanzati vengono portati a termine per primi.
         for fase in reversed(self._required_stages()):
-            if len(compiti) >= limite:
+            if len(compiti) >= tetto_profilo:
                 break
-            aggiungi_nodi(fase, self.pending_nodes(fase))
+            aggiungi_nodi(fase, self.pending_nodes(fase), tetto=tetto_profilo)
 
         # 3. Altre subnet da scoprire, se restano posti.
         for cidr in da_scoprire[1:]:
@@ -1596,12 +2047,17 @@ class NetworkScanner:
             compiti.append({"stage": "discovery", "target": cidr, "hosts": [cidr]})
 
         # 3. Sorvegliare i nodi gia' noti al server.
-        if len(compiti) < limite and self._due("*", "monitor", cadenze["monitor"]):
+        #    Con la riserva, come il completamento del profilo: il monitoraggio
+        #    riguarda TUTTI i nodi conferiti, quindi con un host per compito
+        #    riempirebbe da solo ogni ciclo e le letture che vengono dopo (SNMP, SMB,
+        #    vulnerabilita', web) non partirebbero mai. Rileggere lo stato di un nodo
+        #    gia' noto non vale piu' della PRIMA lettura di un apparato mai letto.
+        if len(compiti) < tetto_profilo and self._due("*", "monitor", cadenze["monitor"]):
             noti = self._within_perimeter_only(
                 [n for n in self.store.local_nodes("confirmed")
                  if n.get("conferred_at") and n["ip"] not in assegnati], "monitor")
             if noti:
-                aggiungi_nodi("monitor", noti)
+                aggiungi_nodi("monitor", noti, tetto=tetto_profilo)
 
         # 4. Leggere SNMP dove la porta e' aperta. Prima della ri-ispezione, non
         #    dopo: la ri-ispezione prende per se' tutti i nodi confermati e un
@@ -1748,7 +2204,8 @@ class NetworkScanner:
             return self._run_web_task(task, bersagli)
 
         argomenti = self._arguments_for(stage, capacita, profilo, bersagli)
-        attesa_processo = self._process_timeout(stage, len(bersagli), profilo)
+        attesa_processo = self._process_timeout(stage, len(bersagli), profilo,
+                                                porte=self._quante_porte(argomenti))
         inizio = _now_str()
         avvio = time.monotonic()
         try:
@@ -2502,8 +2959,10 @@ class NetworkScanner:
     def _annota_scadenza(self, ip: str, locale: dict = None) -> None:
         """Registra che nmap ha abbandonato questo host, e lo lascia candidato.
 
-        Il conteggio serve alla decisione successiva: un host che scade due volte va
-        esaminato con piu' tempo, non riprovato con lo stesso.
+        Il conteggio serve a due decisioni: quando riprovare (attesa progressiva,
+        vedi `_scadenza_troppo_recente`) e con quanto tempo, nelle fasi che un tetto
+        per host lo ricevono ancora. La fase delle porte non ne riceve piu', quindi
+        da la' non arrivano piu' abbandoni per scadenza: nmap conclude il gruppo.
         """
         profilo = {}
         if locale and locale.get("profile_json"):
@@ -2526,17 +2985,24 @@ class NetworkScanner:
         # Peggio: la scoperta lo ritrova vivo, rientra candidato, scade di nuovo, e il
         # nodo appare e sparisce dalla console.
         #
-        # Se lo slot occupato tornera' a essere un problema, la risposta e'
-        # DEPRIORITIZZARE (guardarlo piu' raramente, contando `timeout_count`), non
-        # cancellarlo: un dato ignoto va tenuto come ignoto.
+        # Lo slot occupato E' stato un problema (66 abbandoni consecutivi sugli
+        # stessi indirizzi, ondate da 257 s a vuoto): la risposta e' quella scritta
+        # qui sopra, DEPRIORITIZZARE. L'attesa e' calcolata da
+        # `_scadenza_troppo_recente` e si dichiara nel diario, perche' "riprovato
+        # fra sei ore" e "rinunciato" non sono la stessa cosa e chi legge deve
+        # distinguerle.
         self.store.upsert_local_node(
             ip, state="candidate",
             profile_json=json.dumps(profilo, ensure_ascii=False))
+        attesa = min(ATTESA_RITENTATIVO_BASE_SEC * (2 ** (quante - 1)),
+                     ATTESA_RITENTATIVO_TETTO_SEC)
         self.store.log(
             "warning",
-            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e). Il"
-            " tentativo non conta e l'host resta candidato: la prossima volta avra'"
-            " piu' tempo." % (ip, quante))
+            "Host %s: nmap ha abbandonato l'esame per scadenza (%d volta/e). Resta"
+            " candidato -- ignoto, non assente -- e verra' riprovato fra %s: con gli"
+            " stessi mezzi un tentativo immediato darebbe lo stesso esito e"
+            " occuperebbe il posto di un host esaminabile."
+            % (ip, quante, _durata_leggibile(attesa)))
 
     def _node_record(self, prove: dict, ports_examined: bool) -> dict:
         mac = prove.get("mac")

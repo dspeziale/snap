@@ -676,8 +676,14 @@ class ProbeStore:
     # Tabelle dei dati raccolti, nell'ordine in cui si svuotano. L'elenco e'
     # esplicito e non ricavato da sqlite_master: una tabella nuova deve comparire
     # qui per scelta, non trovarsi cancellata per effetto collaterale.
+    # Tutte le tabelle di DATI, cioe' quelle che l'azzeramento deve svuotare. Le
+    # letture SNMP ci stanno per un motivo preciso: `snmp_arp` e `snmp_porta`
+    # contengono le corrispondenze indirizzo-MAC e le porte fisiche lette dagli
+    # apparati di RETE DEL CLIENTE. Un archivio azzerato che le conservasse
+    # riporterebbe in inventario i MAC dell'installazione precedente -- su una sonda
+    # spostata da un cliente a un altro sarebbe una fuga di dati fra due reti.
     DATA_TABLES = ("scan_claims", "scan_state", "local_nodes", "check_state",
-                   "spool", "sync_log", "events")
+                   "spool", "sync_log", "events", "snmp_arp", "snmp_porta")
 
     def reset(self, keep_enrollment: bool = False) -> dict:
         """Azzera l'archivio. Restituisce quante righe sono state rimosse.

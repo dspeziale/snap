@@ -110,17 +110,34 @@ def con_nodi(sonda, quanti: int, stato: str = "candidate"):
 # Profili di sforzo
 # --------------------------------------------------------------------------- #
 def test_i_tre_profili_esistono_e_sono_ordinati():
+    """I numeri sono cambiati con la misura del ritmo di nmap (vedi EFFORT_PROFILES):
+    cio' che il controllo pretende e' l'ORDINE crescente e la struttura -- un host
+    per compito, perche' il budget di pacchetti di nmap e' per processo."""
     assert set(EFFORT_PROFILES) == {"min", "med", "max"}
-    assert EFFORT_PROFILES["min"]["workers"] == 1
-    assert EFFORT_PROFILES["med"]["workers"] == 2
-    assert EFFORT_PROFILES["max"]["workers"] == 4
-    for chiave in ("timing", "top_ports", "version_intensity", "host_timeout",
+    lavoratori = [EFFORT_PROFILES[n]["workers"] for n in ("min", "med", "max")]
+    assert lavoratori == sorted(lavoratori), "i profili devono crescere di sforzo"
+    assert len(set(lavoratori)) == 3, "tre profili identici non sono tre profili"
+    assert EFFORT_PROFILES["min"]["workers"] == 1, (
+        "il profilo gentile promette UNA scansione per volta")
+    for nome, profilo in EFFORT_PROFILES.items():
+        assert profilo["hosts_per_task"] == 1, (
+            "%s: un host per compito, altrimenti gli host di un gruppo si dividono"
+            " il budget di pacchetti e scadono tutti" % nome)
+    # Le porte non stanno piu' nei profili: la fase porte usa due elenchi curati,
+    # gli stessi per ogni profilo. "Quante porte" non era un criterio -- lo e' "quali
+    # porte, e perche'" (vedi PORTE_PROFONDITA_PER_FAMIGLIA).
+    for profilo in EFFORT_PROFILES.values():
+        assert "top_ports" not in profilo
+    for chiave in ("timing", "version_intensity", "host_timeout",
                    "hosts_per_task", "udp_ports", "label"):
         for nome, profilo in EFFORT_PROFILES.items():
             assert chiave in profilo, "il profilo %s non dichiara %s" % (nome, chiave)
-    # Lo sforzo crescente non deve mai diminuire il lavoro richiesto.
-    assert (EFFORT_PROFILES["min"]["top_ports"] < EFFORT_PROFILES["med"]["top_ports"]
-            < EFFORT_PROFILES["max"]["top_ports"])
+    # Lo sforzo crescente non deve mai diminuire il lavoro richiesto: cio' che
+    # cresce e' il PARALLELISMO fra compiti e l'insistenza sul riconoscimento dei
+    # servizi, non il numero di porte.
+    assert (EFFORT_PROFILES["min"]["version_intensity"]
+            <= EFFORT_PROFILES["med"]["version_intensity"]
+            <= EFFORT_PROFILES["max"]["version_intensity"])
 
 
 def test_nessun_profilo_supera_il_limite_di_thread():
@@ -149,8 +166,18 @@ def test_lo_sforzo_governa_gli_argomenti_di_nmap(sonda):
     scanner.run_stage("ports", "*")
     massimo = " ".join(esecutore.chiamate[-1]["arguments"])
 
-    assert "-T2" in minimo and "-T4" in massimo
-    assert "--top-ports 100" in minimo and "--top-ports 1000" in massimo
+    # Il profilo governa il MODELLO TEMPORALE di nmap. Non piu' il numero di porte:
+    # una passata di riconoscimento chiede l'elenco fisso di PORTE_RICONOSCIMENTO su
+    # tutti gli host, e il numero di porte del profilo vale per la passata di
+    # profondita' (i soli host che hanno gia' mostrato un segnale).
+    assert "-T2" in minimo and "-T3" in massimo
+    from snapprobe.scanner import GRUPPO_HOST, PORTE_RICONOSCIMENTO
+
+    for argomenti in (minimo, massimo):
+        assert str(PORTE_RICONOSCIMENTO[0]) in argomenti
+        assert "--max-hostgroup %d" % GRUPPO_HOST in argomenti
+        assert "--host-timeout" not in argomenti, (
+            "la fase delle porte non riceve un tetto per host")
 
 
 def test_lo_sforzo_arriva_dalla_configurazione_del_server(probe_store):
@@ -429,7 +456,7 @@ def test_lo_stato_dichiara_sforzo_thread_e_prenotazioni(sonda):
     sonda.set_setting("scan_effort", "max")
     stato = scanner.status()
     assert stato["effort"] == "max"
-    assert stato["workers"] == 4
+    assert stato["workers"] == EFFORT_PROFILES["max"]["workers"]
     assert stato["max_workers"] == MAX_WORKERS
     assert stato["effort_label"]
     assert stato["active_claims"] == 0
@@ -545,3 +572,46 @@ def test_lo_stato_non_dichiara_attivita_senza_esecuzioni(sonda):
     stato = scanner.status()
     assert stato["running_scans"] == 0
     assert stato["active_claims"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# La riserva per l'arricchimento
+# --------------------------------------------------------------------------- #
+def test_il_completamento_del_profilo_non_affama_l_arricchimento(sonda):
+    """Difetto introdotto passando a un host per compito, e insidioso perche' muto.
+
+    La soglia che decideva "arretrato grande" era "piu' di un lotto"; con lotti da un
+    host e' diventata "piu' di un nodo", cioe' sempre. Il completamento del profilo
+    riempiva l'intero ciclo e le fasi che vengono dopo -- monitoraggio, SNMP, SMB,
+    vulnerabilita', web -- non partivano piu'. Fra queste c'e' la raccolta SNMP, che
+    e' l'unica fonte dei MAC sulle subnet instradate: si sarebbe spenta senza che
+    nulla lo dichiarasse.
+    """
+    import json as _json
+
+    from snapprobe.scanner import RISERVA_ARRICCHIMENTO
+
+    # Molti nodi in attesa di profilo: e' la condizione che riempiva il ciclo.
+    for n in range(40):
+        sonda.upsert_local_node("192.0.2.%d" % (n + 10), state="confirmed",
+                                stages_done="ports")
+    # E un nodo con SNMP aperto, mai letto.
+    sonda.upsert_local_node(
+        "192.0.2.200", state="confirmed", stages_done="ports,services,os",
+        conferred_at="2026-01-01 00:00:00",
+        profile_json=_json.dumps({"ip": "192.0.2.200", "ports_index": {
+            "udp/161": {"protocol": "udp", "port": 161, "state": "open"}}}))
+
+    scanner = NetworkScanner(sonda, EsecutoreConcorrente(leggi("nmap_scoperta.xml")))
+    compiti = scanner.plan_tasks(limit=16)
+
+    fasi = {c["stage"] for c in compiti}
+    assert "snmp" in fasi, (
+        "la lettura SNMP non ha ricevuto un posto: con l'arretrato di profilo grande"
+        " veniva affamata, e con lei la raccolta dei MAC")
+    # La riserva non impedisce che i posti AVANZATI vadano alla ri-ispezione: quella
+    # gira dopo l'arricchimento, e riempire cio' che resta e' giusto. La proprieta'
+    # da garantire e' che l'arricchimento arrivi al proprio turno, cioe' che non
+    # esista un ciclo in cui il profilo prende tutto.
+    assert len(compiti) == 16, "il ciclo deve essere pieno: i posti non si sprecano"
+    assert RISERVA_ARRICCHIMENTO >= 1

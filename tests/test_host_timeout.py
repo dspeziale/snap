@@ -117,14 +117,18 @@ def test_il_valore_scelto_prevale_sul_profilo(sonda):
 
 
 def test_il_valore_scelto_arriva_negli_argomenti_di_nmap(sonda):
+    """La scelta dell'operatore arriva a nmap nelle fasi che un tetto per host lo
+    ricevono ancora. Il controllo usava la fase delle porte, che dal motore
+    riprogettato non lo riceve piu' (vedi
+    test_la_fase_delle_porte_non_riceve_un_tetto_per_host)."""
     scanner, esecutore = scanner_di(sonda)
-    sonda.upsert_local_node("192.0.2.12", state="confirmed")
-    sonda.set_setting("scan_host_timeout", "300s")
+    sonda.upsert_local_node("192.0.2.12", state="confirmed", stages_done="ports")
+    sonda.set_setting("scan_host_timeout", "600s")
 
-    scanner.run_stage("ports", "*")
+    scanner.run_stage("services", "192.0.2.12")
     argomenti = esecutore.chiamate[-1]["arguments"]
     assert "--host-timeout" in argomenti
-    assert argomenti[argomenti.index("--host-timeout") + 1] == "300s"
+    assert argomenti[argomenti.index("--host-timeout") + 1] == "600s"
 
 
 def test_un_valore_non_utilizzabile_viene_rifiutato_dichiarandolo(sonda):
@@ -166,32 +170,31 @@ def test_il_tempo_del_processo_cresce_con_il_tempo_per_host(sonda):
     assert lungo > breve, "il tempo del processo non e' cresciuto con quello per host"
 
 
-def test_il_tempo_del_processo_cresce_con_le_ondate_non_con_i_bersagli(sonda):
-    """Requisito cambiato, dichiarato invece di lasciato implicito.
+def test_il_tempo_del_processo_delle_porte_si_calcola_dalle_sonde(sonda):
+    """Il tetto di tempo di un processo della fase porte viene dal LAVORO: sonde da
+    inviare (host x porte) diviso il ritmo misurato.
 
-    Prima il tempo massimo del processo era `tempo per host x numero di bersagli`. Non
-    e' cosi' che nmap lavora: con `--min-hostgroup` gli host di un compito si
-    scansionano in PARALLELO, a ondate di al massimo MAX_HOSTGROUP. Moltiplicare per i
-    bersagli portava il limite a migliaia di secondi e un compito appeso teneva
-    bloccato il ciclo -- e, non concludendosi, non faceva scattare nemmeno la resa
-    per fase.
-
-    La proprieta' giusta e' quindi: entro un'ondata il tempo NON cresce (gli host sono
-    in parallelo), oltre l'ondata cresce.
+    Prima si contava in "ondate" moltiplicando un tetto per host. Quel calcolo
+    poggiava su un'assunzione misurata falsa -- che entro un'ondata gli host vadano
+    in parallelo senza costo aggiuntivo -- ed e' la stessa assunzione per cui una
+    /24 non finiva mai: gli host di un gruppo si DIVIDONO il budget di pacchetti del
+    processo, quindi il tempo cresce con i bersagli.
     """
-    from snapprobe.scanner import MAX_HOSTGROUP
+    from snapprobe.scanner import (MARGINE_TEMPO_PORTE, PORTE_RICONOSCIMENTO,
+                                   PROCESS_TIMEOUT_MARGIN_SECONDS, SONDE_AL_SECONDO)
 
     scanner, _ = scanner_di(sonda)
-    profilo = dict(EFFORT_PROFILES["med"], host_timeout="120s")
+    profilo = dict(EFFORT_PROFILES["med"])
 
-    una_ondata = scanner._process_timeout("ports", MAX_HOSTGROUP, profilo)
-    meta_ondata = scanner._process_timeout("ports", MAX_HOSTGROUP // 2, profilo)
-    due_ondate = scanner._process_timeout("ports", MAX_HOSTGROUP + 1, profilo)
+    poco = scanner._process_timeout("ports", 16, profilo)
+    molto = scanner._process_timeout("ports", 254, profilo)
 
-    assert meta_ondata == una_ondata, (
-        "entro un'ondata gli host sono in parallelo: il tempo non deve crescere")
-    assert due_ondate > una_ondata, (
-        "oltre l'ondata nmap serializza: il tempo deve crescere")
+    assert molto > poco, "piu' bersagli sono piu' sonde: il tempo deve crescere"
+    atteso = int(254 * len(PORTE_RICONOSCIMENTO) / SONDE_AL_SECONDO
+                 * MARGINE_TEMPO_PORTE) + PROCESS_TIMEOUT_MARGIN_SECONDS
+    assert molto == atteso, "il tetto deve venire dal conto delle sonde"
+    # E deve bastare: la misura sul campo da' ~104 s per una /24 di riconoscimento.
+    assert molto > 445, "il tetto deve stare sopra il costo misurato di una /24"
 
 
 def test_il_tempo_del_processo_non_supera_il_limite(sonda):
@@ -202,27 +205,39 @@ def test_il_tempo_del_processo_non_supera_il_limite(sonda):
 
 
 def test_il_tempo_del_processo_copre_il_lavoro_richiesto(sonda):
-    """Deve coprire le ONDATE che nmap eseguira' davvero (vedi il test sopra per il
-    perche' non si moltiplica piu' per i bersagli): almeno il tempo per host per
-    ciascuna ondata, altrimenti il compito viene ucciso mentre sta ancora lavorando e
-    la fase non produce nulla."""
-    from snapprobe.scanner import MAX_HOSTGROUP
+    """Deve coprire il lavoro: sonde da inviare diviso il ritmo misurato, con
+    margine. Altrimenti il compito viene ucciso mentre sta ancora lavorando e la
+    fase non produce nulla -- che e' il difetto da cui il motore e' stato
+    riprogettato.
+
+    Il conto non e' piu' "ondate x tempo per host": quella formula poggiava su
+    un'assunzione misurata falsa, che entro un'ondata gli host non costino nulla.
+    """
+    from snapprobe.scanner import PORTE_RICONOSCIMENTO, SONDE_AL_SECONDO
 
     scanner, _ = scanner_di(sonda)
-    profilo = dict(EFFORT_PROFILES["med"], host_timeout="120s")
-    for bersagli in (1, 10, MAX_HOSTGROUP, MAX_HOSTGROUP * 3 + 5):
-        ondate = -(-bersagli // MAX_HOSTGROUP)
-        calcolato = scanner._process_timeout("ports", bersagli, profilo)
-        assert calcolato >= 120 * ondate, (
-            "con %d bersagli nmap fa %d ondate: il tempo non le copre"
-            % (bersagli, ondate))
+    profilo = dict(EFFORT_PROFILES["med"])
+    porte = len(PORTE_RICONOSCIMENTO)
+    for bersagli in (1, 10, 64, 254):
+        nudo = bersagli * porte / SONDE_AL_SECONDO
+        calcolato = scanner._process_timeout("ports", bersagli, profilo, porte=porte)
+        assert calcolato > nudo, (
+            "con %d bersagli il lavoro nudo e' %.0f s: il tetto non lo copre"
+            % (bersagli, nudo))
 
 
 def test_le_fasi_di_raggiungibilita_non_moltiplicano_il_tempo(sonda):
+    """Uno sweep di scoperta manda pochi pacchetti e non scandisce porte: deve
+    costare meno di un esame delle porte sugli stessi bersagli.
+
+    Il confronto si fa su un numero di bersagli realistico per una passata di
+    porte: con pochi host il tetto e' dominato dal margine di avvio, che e' lo
+    stesso per entrambe le fasi.
+    """
     scanner, _ = scanner_di(sonda)
-    profilo = dict(EFFORT_PROFILES["med"], host_timeout="120s")
-    ispezione = scanner._process_timeout("ports", 24, profilo)
-    scoperta = scanner._process_timeout("discovery", 24, profilo)
+    profilo = dict(EFFORT_PROFILES["med"])
+    ispezione = scanner._process_timeout("ports", 254, profilo)
+    scoperta = scanner._process_timeout("discovery", 254, profilo)
     assert scoperta < ispezione
 
 
@@ -357,9 +372,37 @@ def test_le_fasi_di_ispezione_hanno_un_minimo_per_host(sonda):
         assert scanner._host_timeout_for(fase, profilo) == "%ds" % MIN_HOST_TIMEOUT_INSPECTION, (
             "la fase %s non ha ricevuto il minimo" % fase
         )
-    # Scoperta, porte e monitoraggio rispettano la scelta dell'operatore.
-    for fase in ("discovery", "ports", "monitor"):
+    # Scoperta e monitoraggio rispettano la scelta dell'operatore: mandano pochi
+    # pacchetti e 30 s bastano.
+    for fase in ("discovery", "monitor"):
         assert scanner._host_timeout_for(fase, profilo) == "30s"
+
+
+def test_la_fase_delle_porte_non_riceve_un_tetto_per_host(sonda):
+    """Qui si pretendeva un minimo per host nella fase delle porte. Quel minimo era
+    la toppa a una struttura sbagliata: un host per processo.
+
+    Il motore riprogettato lavora l'intero insieme in UN processo, a gruppi, e alla
+    fase delle porte NON passa piu' alcun `--host-timeout`. In quella struttura il
+    tetto per host non protegge da nulla e causava il difetto: gli host di un gruppo
+    si dividono il budget di pacchetti del processo, quindi con un tetto per host
+    scadono tutti (misurato: 66 abbandoni di fila, zero host restituiti).
+
+    La rete di sicurezza e' il tetto di tempo del PROCESSO, calcolato sulle sonde da
+    inviare -- verificato in test_motore_porte.py.
+    """
+    scanner, _ = scanner_di(sonda)
+    sonda.set_setting("scan_host_timeout", "30s")
+    profilo = scanner.effort_profile()
+
+    argomenti = scanner._arguments_for("ports", {"raw_sockets": True}, profilo,
+                                       hosts=["10.10.5.1", "10.10.5.2"])
+    assert "--host-timeout" not in argomenti, (
+        "la fase delle porte non deve ricevere un tetto per host")
+    # E le altre fasi lo mantengono, con il proprio minimo misurato.
+    for fase in ("services", "os", "deep"):
+        assert "--host-timeout" in scanner._arguments_for(
+            fase, {"raw_sockets": True}, profilo, hosts=["10.10.5.1"])
 
 
 def test_un_valore_generoso_non_viene_abbassato(sonda):

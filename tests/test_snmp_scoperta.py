@@ -159,3 +159,133 @@ def test_il_nome_dell_apparato_si_ripulisce(scanner, monkeypatch):
     elenco = snmp_raccolta.apparati_dichiarati(scanner.store)
     assert elenco == [{"indirizzo": "10.20.10.1",
                        "etichetta": "sw core sede principale"}]
+
+
+# --------------------------------------------------------------------------- #
+# Scoperta AUTOMATICA: se la scansione trova SNMP aperto, si interroga
+# --------------------------------------------------------------------------- #
+# Richiesta dell'operatore: "se nella scansione trovi snmp aperto fai anche una
+# scansione per quello". Prima l'elenco degli apparati si popolava SOLO col pulsante
+# "Scopri e popola l'elenco": un apparato trovato dalla scansione restava invisibile
+# alla raccolta, e i MAC delle sue subnet non arrivavano mai.
+def _agente(probe_store):
+    """Agente con lo scanner della fixture, senza avviare nulla."""
+    import snapprobe.agent as modulo
+
+    agente = modulo.ProbeAgent.__new__(modulo.ProbeAgent)
+    agente.store = probe_store
+    from snapprobe.scanner import NetworkScanner
+
+    agente.scanner = NetworkScanner(probe_store, None, "1.0.0-test")
+    return agente
+
+
+def test_un_apparato_con_snmp_aperto_entra_da_se_nell_elenco(scanner, monkeypatch):
+    """E' la richiesta: trovata la 161 aperta, si prova e -- se risponde -- si
+    interroga, senza che nessuno prema un pulsante."""
+    from snapprobe import snmp, snmp_raccolta
+
+    _nodo_con_porte(scanner.store, "10.20.10.77", [161, 22])
+    monkeypatch.setattr(snmp, "arp_table",
+                        lambda h, c, **k: {"10.20.10.5": "aa:bb:cc:00:00:01"}
+                        if h == "10.20.10.77" else {})
+    monkeypatch.setattr(snmp, "identifica", lambda h, c, **k: {"nome": "switch-piano1"})
+
+    agente = _agente(scanner.store)
+    scoperti = agente._scopri_apparati_snmp()
+
+    assert "10.20.10.77" in scoperti
+    dichiarati = [a["indirizzo"] for a in snmp_raccolta.apparati_dichiarati(scanner.store)]
+    assert "10.20.10.77" in dichiarati
+
+
+def test_senza_community_non_si_aggiunge_nulla(scanner, monkeypatch):
+    """La PROVA e' il criterio di ammissione, e senza community non si puo' provare:
+    aggiungere alla cieca riempirebbe l'elenco di apparati muti."""
+    from snapprobe import snmp, snmp_raccolta
+
+    scanner.store.set_setting(snmp_raccolta.CHIAVE_COMMUNITY, "")
+    _nodo_con_porte(scanner.store, "10.20.10.78", [161])
+    chiamate = []
+    monkeypatch.setattr(snmp, "arp_table",
+                        lambda h, c, **k: chiamate.append(h) or {})
+
+    agente = _agente(scanner.store)
+
+    assert agente._scopri_apparati_snmp() == []
+    assert not chiamate, "senza community non si deve interrogare nessuno"
+
+
+def test_un_apparato_gia_dichiarato_non_si_duplica(scanner, monkeypatch):
+    """La scoperta si esegue per intero a ogni ciclo -- costa 8 s per una /24 e
+    verifica anche che gli apparati noti rispondano ancora -- quindi un apparato
+    dichiarato viene riprovato. Cio' che non deve accadere e' che finisca due volte
+    nell'elenco.
+    """
+    from snapprobe import snmp, snmp_raccolta
+
+    _nodo_con_porte(scanner.store, "10.20.10.79", [161])
+    scanner.store.set_setting(snmp_raccolta.CHIAVE_APPARATI, "10.20.10.79|switch")
+    monkeypatch.setattr(snmp, "arp_table",
+                        lambda h, c, **k: {"10.20.10.5": "aa:bb:cc:00:00:01"}
+                        if h == "10.20.10.79" else {})
+    monkeypatch.setattr(snmp, "identifica", lambda h, c, **k: {"nome": "switch"})
+
+    agente = _agente(scanner.store)
+    agente._scopri_apparati_snmp()
+    agente._scopri_apparati_snmp()
+
+    dichiarati = [a["indirizzo"] for a
+                  in snmp_raccolta.apparati_dichiarati(scanner.store)]
+    assert dichiarati.count("10.20.10.79") == 1, (
+        "l'apparato e' stato dichiarato piu' volte: %s" % dichiarati)
+
+
+def test_si_interrogano_tutti_gli_host_vivi_non_solo_quelli_con_la_161(scanner):
+    """La 161 e' UDP, e un port scan UDP non distingue "aperta" da "nessuna
+    risposta": nmap risponde `open|filtered` su 32 indirizzi su 32, quindi come
+    indizio non vale nulla. Una GET di sysDescr invece risponde o non risponde.
+
+    Chiedere a tutti gli host vivi costa 8 s per una /24 (misurato, 64 fili) ed e'
+    piu' semplice E piu' affidabile che indovinare a chi chiedere.
+    """
+    from snapprobe import snmp_scoperta
+
+    # Un host vivo SENZA la 161 fra le porte note.
+    _nodo_con_porte(scanner.store, "10.20.10.90", [80, 443])
+
+    indirizzi = {v["indirizzo"] for v in snmp_scoperta.candidati(scanner)}
+
+    assert "10.20.10.90" in indirizzi
+
+
+def test_l_ordine_mette_prima_cio_che_si_e_osservato(scanner):
+    """Quando il tetto taglia, deve tagliare le congetture: prima gli indirizzi su
+    cui si e' visto qualcosa, poi i gateway probabili, infine il resto."""
+    from snapprobe import snmp_scoperta
+
+    _nodo_con_porte(scanner.store, "10.20.10.90", [80])          # host qualunque
+    _nodo_con_porte(scanner.store, "10.20.10.91", [161])         # osservato
+    elenco = snmp_scoperta.candidati(scanner)
+    posizioni = {v["indirizzo"]: i for i, v in enumerate(elenco)}
+
+    assert posizioni["10.20.10.91"] < posizioni["10.20.10.90"]
+
+
+def test_un_errore_della_scoperta_non_ferma_la_raccolta(scanner, monkeypatch):
+    """E' un arricchimento dell'arricchimento: se fallisce, la raccolta dai
+    apparati gia' noti deve proseguire."""
+    from snapprobe import snmp_scoperta
+
+    _nodo_con_porte(scanner.store, "10.20.10.80", [161])
+
+    def esplode(*_a, **_k):
+        raise RuntimeError("rete irraggiungibile")
+
+    monkeypatch.setattr(snmp_scoperta, "candidati", esplode)
+
+    agente = _agente(scanner.store)
+
+    assert agente._scopri_apparati_snmp() == []
+    righe = " ".join(r["message"] for r in scanner.store.recent_events(10))
+    assert "Scoperta automatica" in righe, "il fallimento va dichiarato nel diario"

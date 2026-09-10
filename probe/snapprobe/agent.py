@@ -346,16 +346,57 @@ class ProbeAgent:
         La raccolta e' un arricchimento: se gli apparati non rispondono, la sonda
         continua a scansionare e a conferire come prima -- semplicemente senza i MAC
         delle subnet instradate.
+
+        Prima di interrogare si guarda se la scansione ha trovato SNMP aperto su
+        nodi che non sono ancora nell'elenco: se si', si provano e si aggiungono.
+        Senza questo passo un apparato SNMP scoperto dalla scansione restava
+        invisibile alla raccolta finche' qualcuno non premeva il pulsante
+        "Scopri e popola l'elenco" -- e i MAC delle sue subnet non arrivavano.
         """
         from . import snmp_raccolta
 
+        scoperti = self._scopri_apparati_snmp()
         try:
             esito = snmp_raccolta.raccogli(self.store)
         except Exception as errore:  # noqa: BLE001 - vedi la docstring
             self.store.log("error", "Raccolta SNMP non riuscita: %s" % errore)
             return {"errore": str(errore)}
         self.store.set_setting("last_snmp_at", utc_now_str())
+        if scoperti:
+            esito["scoperti"] = scoperti
         return esito
+
+    def _scopri_apparati_snmp(self) -> list:
+        """Aggiunge all'elenco gli apparati con SNMP aperto trovati dalla scansione.
+
+        Si interrogano TUTTI gli host vivi, non solo quelli con la 161 vista aperta.
+        Il motivo e' misurato: la 161 e' UDP, e un port scan UDP non distingue
+        "aperta" da "nessuna risposta" (nmap risponde `open|filtered` su 32 indirizzi
+        su 32), quindi come indizio non vale nulla. Una GET di sysDescr invece
+        risponde o non risponde, ed e' la domanda vera -- l'apparato e'
+        INTERROGABILE? Costa 8 secondi per una /24 con 64 fili, cioe' nulla rispetto
+        a una passata di porte: chiedere a tutti e' piu' semplice E piu' affidabile
+        che indovinare a chi chiedere.
+
+        Un candidato viene aggiunto solo se SUPERA LA PROVA -- risponde con la
+        community configurata e ha una tabella ARP con almeno una voce -- perche'
+        rispondere non basta: un apparato senza tabella ARP non ha MAC da riferire.
+
+        Un errore qui non ferma la raccolta: e' un arricchimento dell'arricchimento.
+        """
+        from . import snmp_raccolta, snmp_scoperta
+
+        try:
+            if not (self.store.get_setting(snmp_raccolta.CHIAVE_COMMUNITY, "") or "").strip():
+                # Senza community non si puo' provare nulla: la prova E' il criterio.
+                return []
+            esito = snmp_scoperta.scopri(self.scanner)
+            return [v["indirizzo"] for v in esito.get("aggiunti", [])]
+        except Exception as errore:  # noqa: BLE001 - vedi la docstring
+            self.store.log("warning",
+                           "Scoperta automatica degli apparati SNMP non riuscita: %s"
+                           % errore)
+            return []
 
     def _collection_due(self) -> bool:
         """Vero se e' trascorso l'intervallo di raccolta configurato."""
