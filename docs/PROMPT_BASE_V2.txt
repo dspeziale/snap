@@ -1,0 +1,1514 @@
+# -----------------------------------------------------------------
+# PROMPT_BASE_V2.txt — Prompt di realizzazione di "snap core":
+#                      server + sonda, due dashboard, dati mock
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-03
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+
+================================================================================
+snap core - PROMPT DI REALIZZAZIONE (FASE 1: MONDO SERVER-SONDA)
+================================================================================
+Prompt da consegnare a Claude Code per costruire, da una cartella vuota, il
+nucleo del prodotto "snap": un SERVER multi-tenant con console web e una SONDA
+autonoma con interfaccia locale, collegati da un canale cifrato applicativo.
+
+Questa fase si ferma DELIBERATAMENTE a:
+  * il mondo server-sonda (registrazione, canale cifrato, coda, comandi);
+  * le DUE dashboard (console del server, pagina di stato della sonda);
+  * una sonda che conferisce SOLTANTO DATI MOCK, generati localmente senza
+    toccare la rete.
+
+Tutto il resto (inventario, scansioni, controlli, report, SIEM, threat
+intelligence, zone, ACN) è FUORI AMBITO e verrà aggiunto in fasi successive
+sopra questo nucleo. Il documento ricava requisiti, protocollo, modello dati e
+trappole dal prodotto esistente, e li riallinea alle istruzioni di progetto in
+vigore (CLAUDE.md): Python >= 3.12, Flask con application factory, SQLAlchemy +
+Alembic, SQLite in sviluppo e PostgreSQL in produzione, ruff, dipendenze
+pinnate, AdminLTE 4.3.1 via npm, notifiche Gmail + Telegram.
+
+--------------------------------------------------------------------------------
+SEZIONE 0 - COME USARE QUESTO FILE
+--------------------------------------------------------------------------------
+1. Creare una cartella vuota e aprirla con Claude Code.
+2. Copiare nella cartella il file CLAUDE.md del progetto (quello in vigore, con
+   le sezioni "Stack tecnologico", "Convenzioni", "Layout AdminLTE", "Requisiti
+   di sicurezza", "Reportistica PDF e sistema di notifiche") e compilare le voci
+   TODO come indicato nella sezione 1.
+3. Salvare questo file in `docs/PROMPT_BASE_V2.txt` e scrivere:
+
+      "Realizza il sistema descritto in docs/PROMPT_BASE_V2.txt, integralmente
+       e nell'ordine della sezione 27. Le istruzioni di CLAUDE.md valgono per
+       ogni file che produci. Non chiedere conferme per le scelte già fissate
+       nel documento; chiedi solo dove il documento rimanda esplicitamente a
+       una decisione."
+
+4. Le sezioni 25 (trappole) e 26 (criteri di accettazione) non sono opzionali:
+   raccolgono errori già commessi nel prodotto originale e costati giorni.
+5. Il documento è autosufficiente: dove indica valori esatti (nomi di rotta,
+   codici di errore, etichette, nomi di colonna) vanno rispettati alla lettera,
+   perché test e documentazione li verificano.
+6. Dove questo documento e CLAUDE.md dovessero divergere, PREVALE CLAUDE.md, e
+   la divergenza va segnalata all'utente prima di procedere.
+
+Dimensione attesa dell'obiettivo: circa 9.000 righe fra codice, template, test
+e documentazione, escluse le librerie di terze parti installate via npm/uv.
+
+================================================================================
+SEZIONE 1 - ISTRUZIONI DI PROGETTO (CLAUDE.md)
+================================================================================
+Il CLAUDE.md del nuovo progetto è quello in vigore, riportato integralmente.
+Vanno compilate SOLTANTO le tre voci lasciate come TODO nel modello:
+
+1.1 Sezione "## Progetto"
+
+    `snap` (Secure Network Assessment Platform) — sistema server/sonda per la
+    raccolta di dati presso le reti di organizzazioni distinte (multi-tenant).
+    Una sonda installata dal cliente raccoglie dati e li conferisce a un server
+    centrale su un canale cifrato applicativo; la sonda conosce il server, non
+    viceversa, e lavora anche isolata accumulando in una coda locale. In questa
+    fase la sonda produce soltanto dati mock. Destinatari: operatori di
+    sicurezza (console del server) e tecnici di installazione (interfaccia
+    della sonda).
+
+1.2 Sezione "## Struttura" — sostituire con:
+
+    - `server/` — applicativo server (pacchetto `snapserver`), console e canale
+    - `probe/`  — applicativo sonda (pacchetto `snapprobe`), separato dal server
+    - `tests/`  — test (importano entrambi i pacchetti)
+    - `docs/`   — documentazione (01-05 + questo prompt)
+    - `tools/`  — strumenti di supporto (manuali .docx, collaudo interfaccia)
+    - `docker/` — compose di produzione (server + PostgreSQL) e script di backup
+
+    La struttura NON usa una cartella `src/` unica: server e sonda si
+    distribuiscono separatamente (requisito R3 della sezione 2) e ciascuno ha
+    il proprio `pyproject.toml`, lockfile, Dockerfile e cartella `static/`.
+
+1.3 Sezione "## Comandi" — sostituire con:
+
+    ```bash
+    # install
+    make setup            # .venv con uv, dipendenze server+sonda+dev, npm ci, build asset
+    # dev
+    make dev              # server 5500 + sonda 5510 (equivale a .\start.ps1 -DevMode)
+    # build
+    make assets           # SCSS + JS con esbuild -> static/dist di server e sonda
+    # test
+    make test             # pytest su SQLite in memoria
+    make test-pg          # suite di integrazione su PostgreSQL in container
+    # lint
+    make lint             # ruff check + ruff format --check + mypy
+    # migrate
+    make migrate m="..."  # alembic revision --autogenerate (server e sonda)
+    make upgrade          # alembic upgrade head (server e sonda)
+    ```
+
+    Su Windows PowerShell gli stessi comandi sono offerti da `.\start.ps1`
+    (sezione 22); il Makefile resta la definizione di riferimento.
+
+1.4 Note da aggiungere in coda a CLAUDE.md (sezione "## Note", nuova):
+
+    - I cookie sono definiti per dominio e ignorano la porta: server e sonda
+      convivono su 127.0.0.1 e usano nomi di cookie distinti
+      (`snap_server_session`, `snap_probe_session`).
+    - Il modulo di configurazione sta dentro il pacchetto e si chiama
+      `settings.py`: un `config.py` alla radice collide quando i test importano
+      server e sonda nello stesso processo.
+    - In PowerShell il parametro non può chiamarsi `-Debug`: si usa `-DevMode`.
+    - Ogni query di dominio sul server passa da `tenant_scope()` (sezione 13):
+      l'isolamento multi-tenant è un requisito centrale e deve restare
+      leggibile anche con l'ORM.
+    - L'archivio locale della sonda è SEMPRE SQLite: è un agente embedded a
+      processo singolo. PostgreSQL riguarda il solo server.
+    - Nessuno script inline nei template: il JS legge la configurazione da
+      attributi `data-*`, così la CSP resta restrittiva.
+
+================================================================================
+SEZIONE 2 - OBIETTIVO E REQUISITI FONDANTI
+================================================================================
+Realizzare il nucleo di "snap", composto da due applicativi distribuiti
+separatamente:
+
+  * un SERVER centrale multi-tenant con console web;
+  * una SONDA (probe) installata presso il cliente, con interfaccia locale.
+
+Requisiti fondanti, non negoziabili:
+
+  R1.  Il dialogo fra sonda e server avviene su un CANALE CIFRATO applicativo
+       (SNAP-SEC/1, sezione 7), indipendente da TLS. TLS può essere aggiunto
+       come strato esterno dal reverse proxy senza modifiche al codice.
+  R2.  La sonda conosce il server; il server NON conosce l'indirizzo della
+       sonda. Ogni contatto è iniziato dalla sonda: il server non apre
+       connessioni verso la sonda e la sonda non espone porte in ingresso
+       (la sua interfaccia locale è un servizio per il tecnico, non un canale).
+  R3.  Server e sonda risiedono in due directory COMPLETAMENTE SEPARATE,
+       `server/` e `probe/`, senza codice condiviso e senza import reciproci.
+  R4.  La sonda funziona ANCHE DA SOLA: senza server continua a produrre record
+       e li accumula in una coda locale persistente. Quando il server torna,
+       conferisce e SI SVUOTA, solo dopo conferma di acquisizione.
+  R5.  Entrambi gli applicativi hanno un'interfaccia web professionale basata
+       su AdminLTE 4.3.1, con una DASHBOARD ciascuno (sezioni 15 e 16).
+  R6.  L'interfaccia della SONDA serve SOLTANTO a registrare la sonda,
+       configurarla e osservarne lo stato. Nessuna analisi, nessun report.
+  R7.  L'interfaccia del SERVER comprende dashboard con indicatori, flotta
+       sonde, audit e amministrazione multi-tenant.
+  R8.  Multi-tenant con ISOLAMENTO COMPLETO dei dati.
+  R9.  Ogni tenant ha il proprio fuso orario; TUTTE le date e le ore mostrate
+       sono normalizzate a quel fuso. Persistenza sempre in UTC.
+  R10. Utenti per tenant con EMAIL e PASSWORD (nessuno username), MFA TOTP
+       opzionale compatibile con Google Authenticator.
+  R11. La sonda conferisce SOLTANTO DATI MOCK (sezione 21): record generati
+       localmente, deterministici e riconoscibili come tali. Il contratto di
+       conferimento è ESTENSIBILE: aggiungere un tipo di dato non richiede
+       modifiche al trasporto cifrato.
+  R12. Avvio completo per Windows PowerShell e per shell POSIX, più Makefile.
+  R13. Il server gira su SQLite in sviluppo e su PostgreSQL in container in
+       produzione, con la stessa base di codice (SQLAlchemy ORM + Alembic).
+  R14. Ogni componente integra il modulo di notifiche Gmail + Telegram
+       (sezione 20) almeno per: errori critici, sonde che perdono o riprendono
+       il contatto, esito del job di conservazione.
+
+================================================================================
+SEZIONE 3 - PERIMETRO: DENTRO E FUORI
+================================================================================
+3.1 DENTRO (da realizzare integralmente in questa fase)
+    - Canale SNAP-SEC/1: enroll, heartbeat, ingest, command-ack, ping.
+    - Server: autenticazione (email/password, MFA, blocco), ruoli, tenant,
+      utenti, impostazioni, flotta sonde con scheda, token, comandi, revoca,
+      audit, dashboard, conservazione dei dati, notifiche.
+    - Sonda: agente in thread, coda con prenotazione dei lotti, generatore di
+      dati mock, interfaccia locale con accesso protetto, dashboard di stato,
+      registrazione, configurazione, diario.
+    - Infrastruttura: pyproject + lock, ruff, mypy, pytest, Alembic, docker
+      compose (server + Postgres), backup pg_dump, Makefile, start.ps1,
+      start.sh, PORTS.md, .env.example.
+    - Documentazione: docs/01..05, README, manuali .docx.
+
+3.2 FUORI (non realizzare, in nessuna forma: né voci di menu, né tabelle, né
+    schede, né colonne "predisposte")
+    - Inventario, nodi, subnet, perimetro, mappe di rete, zone.
+    - Scansioni di rete, nmap, SNMP, SMB, IPP, letture web, fingerprint.
+    - Controlli periodici, incidenti, metriche, sala operativa NOC/SOC.
+    - Report PDF, resoconto quotidiano, archivio report.
+    - Motore delle regole, SIEM, syslog, threat intelligence, CVE/KEV/ATT&CK.
+    - Comunicazioni ACN.
+    Nota su CLAUDE.md: il modello di progetto prevede un modulo di
+    reportistica PDF. In questa fase NON si realizza: si RISERVA il pacchetto
+    `snapserver/reports/` con un solo `__init__.py` che ne dichiara lo scopo e
+    la fase in cui arriverà. La deroga va scritta in docs/02 (decisione AD-16).
+
+3.3 PUNTI DI ESTENSIONE da lasciare pronti (senza implementare nulla oltre)
+    - Registro degli applicatori di record sul server (`ingest.APPLICATORS`).
+    - Registro dei generatori sulla sonda (`collector.GENERATORS`).
+    - Struttura dati del menu (sezione 15.3) con permessi per voce.
+    - Registro degli eventi notificabili (`notifications.NOTIFY_EVENTS`).
+    - Tabella `system_settings` chiave/valore per impostazioni future.
+
+================================================================================
+SEZIONE 4 - STACK E DIPENDENZE (elenco CHIUSO: altro solo dopo aver chiesto)
+================================================================================
+Linguaggio   Python >= 3.12, dichiarato in pyproject.toml E nei Dockerfile
+             (stessa versione ovunque).
+Framework    Flask 3, application factory `create_app(config)`, blueprint.
+Dati         SQLAlchemy 2 (ORM, stile dichiarativo con `Mapped[]`),
+             Flask-SQLAlchemy, Flask-Migrate (Alembic).
+             Server: SQLite (dev/test) e PostgreSQL 16 (prod).
+             Sonda: SQLite sempre.
+Sessioni     Flask-Login. Form e CSRF: Flask-WTF.
+Crittografia cryptography (X25519, HKDF, AES-GCM). Hash password: scrypt
+             tramite Werkzeug (nessuna dipendenza aggiuntiva; argon2id
+             ammesso solo se si concorda `argon2-cffi`).
+MFA          pyotp, qrcode[pil] (solo server).
+HTTP client  requests (solo sonda: il server non contatta nessuno, R2).
+Produzione   gunicorn, psycopg[binary] (solo server), werkzeug ProxyFix.
+Tooling      uv (venv + lock), ruff (lint + format), mypy, pytest,
+             pytest-cov. Fuori dall'esercizio: python-docx (manuali),
+             playwright (collaudo interfaccia, opzionale).
+Frontend     npm con lockfile, versioni pinnate: admin-lte@4.3.1,
+             bootstrap@5.3.x, bootstrap-icons, datatables.net e
+             datatables.net-bs5 nella variante senza jQuery (il prodotto
+             attuale usa la 3.0.2), awesome-notifications@3.1.3, sass,
+             esbuild. Nessuna CDN a runtime: gli asset sono compilati in
+             `static/dist/` e serviti dall'applicazione.
+
+server/pyproject.toml   [project] name = "snapserver", requires-python >= 3.12
+                        dipendenze: flask, flask-sqlalchemy, flask-migrate,
+                        flask-login, flask-wtf, sqlalchemy, alembic,
+                        cryptography, pyotp, qrcode[pil], tzdata, gunicorn,
+                        psycopg[binary]
+probe/pyproject.toml    [project] name = "snapprobe"
+                        dipendenze: flask, flask-sqlalchemy, flask-migrate,
+                        flask-wtf, sqlalchemy, alembic, cryptography, requests,
+                        tzdata
+pyproject.toml (radice) solo tooling: [tool.ruff] (line-length 100, select
+                        E,F,I,B,UP,S; target py312), [tool.mypy] (strict sul
+                        codice nuovo, `ignore_missing_imports` per le
+                        estensioni Flask senza stub), [tool.pytest.ini_options]
+                        (testpaths tests, filterwarnings).
+Lockfile: `uv.lock` per ciascun pyproject; `package-lock.json` per npm.
+
+La sonda NON dipende da pyotp, qrcode, gunicorn, psycopg. Il server NON
+dipende da requests. Le due liste sono la prova documentale dell'asimmetria.
+
+SBOM: prevedere `make sbom` che produce CycloneDX per Python (uv export +
+`cyclonedx-py` se concordato; altrimenti documentare come generarlo) e per
+npm (`npm sbom --sbom-format cyclonedx`). Requisito CRA.
+
+================================================================================
+SEZIONE 5 - STRUTTURA DELLE DIRECTORY
+================================================================================
+snap/
+  CLAUDE.md                      istruzioni di progetto (sezione 1)
+  README.md                      presentazione, installazione, uso
+  PORTS.md                       registro delle porte 5500-5600 (sezione 19.3)
+  LICENSE                        testo MIT
+  Makefile                       comandi operativi (sezione 22)
+  start.ps1  start.sh            avvio completo (sezione 22)
+  pyproject.toml                 tooling (ruff, mypy, pytest)
+  .env.example                   TUTTE le variabili con valori di esempio
+  .gitignore                     (sezione 5.1)
+  tips.txt                       credenziali iniziali in chiaro (NON versionato)
+
+  docs/
+    PROMPT_BASE_V2.txt           questo documento
+    01_REQUISITI.md              requisiti (ISO/IEC/IEEE 29148:2018)
+    02_ARCHITETTURA.md           viste UML, modello dati, decisioni AD-nn
+    03_PROTOCOLLO_SNAP_SEC.md    specifica del canale cifrato
+    04_CICLO_DI_VITA.md          processi (ISO/IEC/IEEE 15288:2023), GDPR/CRA/NIS2
+    05_MANUALE_OPERATIVO.md      installazione, esercizio, diagnostica
+    docx/                        manuali generati (NON versionato)
+
+  docker/
+    docker-compose.yml           server + postgres:16.x (sezione 23)
+    server.Dockerfile            immagine del server, non-root, gunicorn
+    backup/pg_backup.sh          pg_dump schedulabile con retention
+
+  server/
+    pyproject.toml  uv.lock  package.json  package-lock.json
+    run.py                       avvio in sviluppo (dev server) + controlli porta
+    wsgi.py                      entry point per gunicorn
+    migrations/                  Alembic (env.py con render_as_batch per SQLite)
+    assets/                      sorgenti frontend
+      scss/main.scss             variabili PRIMA degli import di AdminLTE
+      js/main.js                 entry esbuild: importa i moduli usati
+    data/ instance/              database SQLite, chiave di sessione (NON versionati)
+    snapserver/
+      __init__.py                create_app, hook, gestori di errore, CSP
+      settings.py                DevelopmentConfig / ProductionConfig / TestingConfig
+      extensions.py              db, migrate, login_manager, csrf
+      models.py                  modelli ORM (sezione 8)
+      tenancy.py                 contesto tenant, tenant_scope(), filtri Jinja
+      security.py                password, ruoli, TOTP, decoratori
+      audit.py                   log_event()
+      crypto.py                  SNAP-SEC/1 lato server
+      ingest.py                  registro APPLICATORS, apply_batch()
+      queries.py                 indicatori e letture aggregate della dashboard
+      notifications/             Notifier, GmailNotifier, TelegramNotifier,
+                                 coda, dispatcher (sezione 20)
+      maintenance.py             conservazione (retention) e pulizia nonce
+      seed.py                    dati iniziali idempotenti
+      reports/__init__.py        RISERVATO (sezione 3.2)
+      blueprints/
+        auth.py dashboard.py probes.py admin.py audit_views.py api_probe.py
+        guide.py                 guida in linea (una pagina statica per area)
+      navigation.py              struttura dati del menu (sezione 15.3)
+      templates/                 (sezione 15.5)
+      static/
+        dist/                    OUTPUT del build (versionato? NO: generato in
+                                 setup; in Docker generato nella build stage)
+        fonts/                   PT Sans woff2 (versionati: nessuna CDN)
+        css/snap-fonts.css       @font-face
+
+  probe/
+    pyproject.toml  uv.lock  package.json  package-lock.json
+    run.py                       interfaccia + agente; --headless; --enroll; --status
+    migrations/                  Alembic dello store locale (SQLite, batch mode)
+    assets/  data/  instance/    come sopra
+    snapprobe/
+      __init__.py  settings.py  extensions.py
+      models.py                  settings, spool, events, sync_log
+      store.py                   ProbeStore: API sull'archivio, lock, prenotazione
+      crypto.py                  SNAP-SEC/1 lato sonda (implementazione indipendente)
+      client.py                  ServerClient, parse_bundle, errori
+      collector.py               registro GENERATORS dei dati mock (sezione 21)
+      agent.py                   ciclo autonomo in thread
+      auth.py                    accesso con password unica (sezione 12.8)
+      timefmt.py                 filtri di presentazione oraria
+      views.py                   rotte dell'interfaccia (sezione 11)
+      templates/  static/        come il server, duplicati
+
+  tests/
+    conftest.py                  fixture: app server (SQLite memoria), store sonda,
+                                 client autenticati per ruolo, sonda con password
+    test_crypto_channel.py  test_probe_server_flow.py  test_multitenancy.py
+    test_timezones.py  test_probe_interface.py  test_accesso_sonda.py
+    test_interfaccia.py  test_sessione.py  test_dashboard.py  test_notifiche.py
+    test_migrazioni.py  test_mock_data.py
+    integration/                 suite su PostgreSQL (marker `pg`)
+
+  tools/
+    genera_manuale.py            Markdown -> .docx (PT Sans Narrow 19pt)
+    collaudo_ui.py               Playwright: tabelle, AWN, dashboard (opzionale)
+
+5.1 .gitignore: __pycache__/, *.py[cod], .venv/, .pytest_cache/, .mypy_cache/,
+    .ruff_cache/, node_modules/, */static/dist/, server/data/, server/instance/,
+    probe/data/, probe/instance/, *.sqlite3, *.sqlite3-wal, *.sqlite3-shm,
+    .snap-pids.json, .snap-run/, logs/, tips.txt, docs/docx/, .env, .env.*,
+    !.env.example, docker/backup/out/.
+
+================================================================================
+SEZIONE 6 - INTESTAZIONE DEI FILE
+================================================================================
+Ogni file sorgente NUOVO inizia con l'header prescritto da CLAUDE.md, adattato
+al commento del linguaggio (`#` Python/YAML/Makefile/ps1-con-`<# #>`,
+`/* */` CSS/JS/SCSS, `{# #}` Jinja, `<!-- -->` Markdown, `--` SQL):
+
+    # -----------------------------------------------------------------
+    # <nome file> — <descrizione in una riga>
+    # Autore: Daniele Speziale
+    # Data creazione: <YYYY-MM-DD>
+    # Copyright (c) 2024-26 DS Consulting
+    # Licenza: MIT
+    # -----------------------------------------------------------------
+
+Alla modifica di un file esistente si aggiunge/aggiorna solo la riga
+`# Ultima modifica: <YYYY-MM-DD> (<motivo in tre parole>)`, mai si riscrive
+l'header. Codice e identificatori in inglese; commenti, docstring, messaggi
+utente e documentazione in italiano (accenti ammessi ovunque tranne che nei
+nomi di file).
+
+================================================================================
+SEZIONE 7 - PROTOCOLLO SNAP-SEC/1 (canale cifrato sonda -> server)
+================================================================================
+Il protocollo è l'UNICO contratto fra i due applicativi e va implementato due
+volte, in modo indipendente (`snapserver/crypto.py`, `snapprobe/crypto.py`):
+è l'unica duplicazione ammessa in deroga al principio di riuso, motivata da R3
+nel commento di testa di entrambi i moduli. L'interoperabilità è verificata da
+test che fanno dialogare i due moduli.
+
+7.1 Modello di sicurezza
+    Il trasporto HTTP è NON FIDATO: osservabile, ritardabile, ripetibile. Il
+    token di registrazione viaggia per via fidata (console -> tecnico).
+      riservatezza del payload      AES-256-GCM, chiave da ECDH X25519
+      autenticità e integrità       tag GCM su ciphertext + dati associati
+      autenticazione della sonda    chiave di sessione + API key nel payload
+      anti-replay                   nonce registrato per sonda + finestra 300 s
+      non trasferibilità            AAD = v | probe | nonce | ts | path
+      riservatezza del token        il server conserva SHA-256 e chiave derivata
+      revocabilità                  azzeramento della chiave di sessione
+    Non obiettivi: anonimato della sonda verso l'osservatore di rete; forward
+    secrecy per sessione (chiave a lunga durata, rinnovata con nuovo enroll).
+
+7.2 Primitive
+      scambio di chiavi   X25519 (RFC 7748), chiavi grezze 32 byte
+      derivazione         HKDF-SHA256 (RFC 5869), salt "snap-sec/1|static-salt",
+                          lunghezza 32 byte
+      cifratura           AES-256-GCM, nonce 96 bit da `secrets`
+      impronte            SHA-256 esadecimale
+      codifica            Base64 URL-safe senza riempimento
+    Etichette HKDF (info):
+      registrazione  "snap-sec/1|enrollment-transport"
+      sessione       "snap-sec/1|session-data"
+
+7.3 Busta (corpo di ogni richiesta e risposta di sessione)
+      { "v": "SNAP-SEC/1", "probe": "<identità>", "nonce": "<b64url>",
+        "ts": 1774537200, "data": "<ciphertext||tag b64url>" }
+    AAD = v | probe | nonce | ts | path (es. `/api/v1/ingest`). `probe` è il
+    CODICE della sonda in enrollment e il PROBE_UID dopo.
+
+7.4 Fase 1 - Registrazione
+    Lato server, alla creazione della sonda: assegna `probe_uid` (32 hex) e
+    `code`; genera token T (32 byte casuali, b64url); memorizza
+      enrollment_token_hash = SHA256(T)
+      enrollment_key        = HKDF(T | code, info=registrazione)
+      enrollment_expires_at = adesso + ENROLLMENT_TTL_HOURS (24)
+    T non viene conservato: è mostrato UNA volta nel pacchetto
+      SNAP1-<b64url({"url": "<server>", "code": "<code>", "token": "<T>"})>
+
+    POST /api/v1/enroll
+      { "token_hint": "<SHA256(T) hex>", "envelope": { ...busta con Ke... } }
+    Payload cifrato con Ke:
+      { "probe_code", "probe_public_key", "agent_version", "platform",
+        "hostname", "requested_at" }
+    Verifiche del server, in ordine: sonda con quell'impronta (403
+    enroll_unknown) -> non revocata (403 probe_revoked) -> token non usato (409
+    enroll_used) -> non scaduto (403 enroll_expired) -> busta apribile (403
+    enroll_crypto) -> chiave pubblica presente (400 enroll_nokey) -> ECDH
+    riuscito (400 enroll_kex).
+    Risposta, cifrata con Ke:
+      { "probe_uid", "api_key" (32 byte b64url), "server_public_key",
+        "server_time",
+        "config": { "collect_interval_sec": 300, "tenant_code", "tenant_name",
+                    "tenant_timezone", "probe_name", "options": {} } }
+    Il server calcola Ks = HKDF(ECDH, info=sessione), salva Ks e
+    SHA256(api_key), AZZERA enrollment_key e porta lo stato ad `active`.
+
+7.5 Fase 2 - Sessione. Tutte POST con header `X-Snap-Probe: <probe_uid>` e
+    busta cifrata con Ks; ogni payload porta `auth` = api_key.
+
+    /api/v1/heartbeat
+      req  { "auth", "agent_version", "queue_size", "paused", "hostname" }
+      resp { "server_time", "config": {...}, "commands": [ {"id","command",
+             "payload"} ], "queue_ack": <queue_size ricevuto> }
+    /api/v1/ingest
+      req  { "auth", "batch_uid" (32 hex), "generated_at",
+             "records": { "<tipo>": [ ... ], ... } }
+      resp { "accepted": true, "duplicate": false, "batch_uid", "records": n,
+             "detail": { "<tipo>": n, ... } }
+      Tipi ammessi in questa fase: `events` e `samples` (sezione 21). Un lotto
+      con tipi non registrati è RIFIUTATO (400 protocol_error) indicando i tipi
+      non ammessi. `batch_uid` è univoco per sonda: un lotto già acquisito è
+      riconfermato con `duplicate: true` senza riapplicare i dati.
+    /api/v1/command-ack
+      req  { "auth", "results": [ {"id", "ok", "detail"} ] }
+      resp { "acknowledged": [id, ...] }
+    GET /api/v1/ping (in chiaro, nessun dato di tenant)
+      { "service": "snap", "protocol": "SNAP-SEC/1", "server_time" }
+
+7.6 Comandi (server -> sonda, in piggyback sull'heartbeat)
+      flush        conferimento immediato della coda
+      reconfigure  ricarica della configurazione al contatto successivo
+      pause        sospensione di raccolta e conferimento
+      resume       ripresa
+      wipe         svuotamento della coda locale senza conferimento
+    Stati in `probe_commands`: pending -> delivered -> completed | failed.
+
+7.7 Anti-replay: nonce in `probe_nonces` con unicità (probe_id, nonce); buste
+    con |ora_server - ts| > 300 s rifiutate; nonce più vecchi di
+    NONCE_RETENTION_HOURS rimossi durante gli heartbeat.
+
+7.8 Errori, in chiaro: { "error", "detail", "v": "SNAP-SEC/1" }
+      protocol_error 400 | enroll_unknown 403 | enroll_used 409 |
+      enroll_expired 403 | enroll_crypto 403 | enroll_nokey 400 |
+      enroll_kex 400 | probe_revoked 403 | auth_failed 403
+    La sonda: su errore di trasporto conserva la coda e ritenta al tick
+    successivo; su errore applicativo definitivo lo registra nel diario e
+    libera il lotto. Nessun ramo silenzioso.
+
+7.9 Materiale crittografico
+      chiave privata sonda     solo sulla sonda
+      chiave privata server    solo sul server, una per sonda
+      Ks                       entrambi i lati, fino a revoca / nuovo enroll
+      token                    impronta + chiave derivata sul server; 24 h o primo uso
+      API key                  in chiaro sulla sonda, solo impronta sul server
+    REVOCA: azzera `session_key` e `api_key_hash`; ogni conferimento riceve
+    403 auth_failed; la sonda conserva la coda fino a nuova registrazione.
+
+================================================================================
+SEZIONE 8 - MODELLO DATI DEL SERVER (snapserver/models.py + Alembic)
+================================================================================
+Convenzioni ORM:
+  * tipi neutri: `DateTime(timezone=True)` per ogni istante (sempre UTC),
+    `JSON` per i campi strutturati, `Text`, `Integer`, `Boolean`, `Numeric`;
+  * ogni tabella di dominio ha `tenant_id` con FK `ON DELETE CASCADE`
+    (diritto alla cancellazione, GDPR) e un indice su `tenant_id`;
+  * mixin `TimestampMixin` (created_at, updated_at con default UTC) e
+    `TenantMixin` (tenant_id + relationship);
+  * NESSUN `db.create_all()` fuori dai test: lo schema nasce da
+    `alembic upgrade head`. `migrations/env.py` con `render_as_batch=True`
+    quando il dialetto è SQLite;
+  * la validazione dei dati sta nel codice (SQLite è permissivo sui tipi).
+
+Tabelle (nomi e colonne da rispettare):
+
+tenants          id, code (unique), name, timezone (default 'Europe/Rome'),
+                 locale ('it_IT'), contact_email, retention_days (365),
+                 is_active, notes, created_at, updated_at
+users            id, tenant_id (NULL = superadmin), email (unique),
+                 password_hash, full_name, role ('viewer'), is_active,
+                 mfa_enabled, mfa_secret, mfa_confirmed_at, must_change_pwd,
+                 failed_logins, locked_until, last_login_at,
+                 pref_theme ('light'), pref_font_size ('normal'),
+                 pref_layout ('wide'), hidden_kpis (JSON, default []),
+                 created_at, updated_at
+probes           id, tenant_id, probe_uid (unique), code, name, description,
+                 site, status ('pending'|'active'|'revoked'),
+                 enrollment_token_hash, enrollment_key, enrollment_expires_at,
+                 enrolled_at, probe_public_key, server_private_key,
+                 server_public_key, session_key, api_key_hash, agent_version,
+                 last_seen_at, last_sync_at, collect_interval_sec (300),
+                 config (JSON, default {}), revoked_at, created_at, updated_at
+                 UNIQUE (tenant_id, code)
+probe_nonces     id, probe_id, nonce, seen_at   UNIQUE (probe_id, nonce)
+probe_commands   id, tenant_id, probe_id, command, payload (JSON), status,
+                 result (JSON), created_by (FK users, SET NULL), created_at,
+                 delivered_at, acked_at   INDEX (probe_id, status)
+ingest_batches   id, tenant_id, probe_id, batch_uid, record_count,
+                 payload_bytes, status ('accepted'), detail (JSON),
+                 received_at   UNIQUE (probe_id, batch_uid)
+probe_samples    id, tenant_id, probe_id, metric, value (Numeric(12,3)),
+                 sampled_at, batch_id   INDEX (tenant_id, metric, sampled_at)
+                 -- destinazione dei record mock `samples` (sezione 21)
+audit_events     id, tenant_id (NULL = evento globale), user_id (SET NULL),
+                 actor ('system'), event_type, severity ('info'|'warning'|
+                 'critical'), entity, entity_id, description, detail (JSON),
+                 source_ip, created_at   INDEX (tenant_id, created_at)
+notifications    id, tenant_id (nullable), channel ('email'|'telegram'),
+                 event_type, recipient, subject, body_ref, status
+                 ('pending'|'sent'|'failed'|'dry_run'), attempts,
+                 next_attempt_at, last_error, created_at, sent_at
+system_settings  key (PK), value, updated_at
+
+Il server NON conserva alcun indirizzo di rete della sonda: `hostname` e
+`platform` ricevuti in enrollment/heartbeat vanno solo nell'audit come
+descrizione, mai in una colonna interrogabile (R2, minimizzazione GDPR).
+
+Seed (`flask --app snapserver seed`, idempotente, stampa cosa ha fatto):
+  - superadmin  admin@snap.local / Snap!Admin2026  (sovrascrivibili da env)
+  - tenant `ised` "ISED S.p.a." Europe/Rome:
+      admin@ised.local (tenant_admin), analista@ised.local (analyst),
+      audit@ised.local (viewer)
+  - tenant `acme` "ACME International Ltd." America/New_York:
+      admin@acme.local (tenant_admin)
+  password comune Snap!Tenant2026, must_change_pwd = 1.
+  I due fusi diversi servono a verificare R9. Le credenziali finiscono in
+  `tips.txt` (non versionato) con l'avvertenza di cambiarle.
+
+================================================================================
+SEZIONE 9 - ARCHIVIO LOCALE DELLA SONDA (snapprobe/models.py + store.py)
+================================================================================
+SQLite in `probe/data/snap_probe.sqlite3`, `PRAGMA journal_mode = WAL`,
+accesso serializzato da un `threading.RLock` nello store: agente e interfaccia
+concorrono sullo stesso file. Sempre SQLite (agente embedded): Alembic in
+batch mode, nessun percorso PostgreSQL.
+
+settings   key (PK), value, updated_at
+spool      id, kind, payload (JSON), created_at, locked_batch (nullable)
+           INDEX (kind, id)
+events     id, level ('info'), message, created_at   INDEX (created_at)
+sync_log   id, batch_uid, records, status, detail, created_at
+
+PRENOTAZIONE DEL LOTTO (cuore di R4): `reserve_batch(limit)` marca fino a
+MAX_RECORDS_PER_BATCH (300) righe con `locked_batch = <batch_uid>`; se esiste
+già un lotto prenotato lo restituisce IDENTICO (stesso batch_uid, stesse
+righe). Le righe sono CANCELLATE solo in `ack_batch(batch_uid)` dopo la
+conferma del server. `release_batch()` toglie la prenotazione senza cancellare
+(errore applicativo definitivo). Non deve esistere alcun percorso che svuoti
+la coda prima dell'ack, salvo il comando `wipe` e l'azione locale SVUOTA.
+
+Chiavi di `settings` usate: server_url, probe_code, probe_uid, api_key,
+session_key, probe_private_key, tenant_code, tenant_name, tenant_timezone,
+probe_name, collect_interval_sec, paused, agent_version, collection_cycle,
+last_collection_at, last_contact_at, last_sync_at, last_error, ui_*
+(sezione 12.8).
+
+================================================================================
+SEZIONE 10 - ROTTE DEL SERVER
+================================================================================
+Console (Flask-Login, CSRF su ogni POST):
+  GET  /                                 dashboard.index
+  GET/POST /login                        auth.login
+  GET/POST /mfa                          auth.mfa_challenge
+  POST /logout                           auth.logout
+  POST /switch-tenant                    auth.switch_tenant_route (superadmin)
+  POST /preferences                      auth.preferences (tema, carattere, larghezza)
+  POST /preferences/kpi                  auth.kpi_preferences (nascondi/mostra)
+  GET  /profile                          auth.profile
+  POST /profile/password                 auth.change_password
+  GET  /profile/mfa/setup                auth.mfa_setup
+  POST /profile/mfa/enable               auth.mfa_enable
+  POST /profile/mfa/disable              auth.mfa_disable
+  GET  /diagnostics/session              auth.session_diagnostics (JSON, 10.1)
+  GET  /probes/                          probes.index      flotta
+  GET/POST /probes/new                   probes.create     (tenant_admin+)
+  GET  /probes/<id>                      probes.detail
+  POST /probes/<id>/config               probes.update_config
+  POST /probes/<id>/command              probes.send_command
+  POST /probes/<id>/token                probes.regenerate_token
+  POST /probes/<id>/revoke               probes.revoke
+  POST /probes/<id>/delete               probes.delete
+  GET  /probes/<id>/batches/<batch_id>   probes.batch_detail  contenuto di un lotto
+  GET  /audit/                           audit.index
+  GET/POST /admin/tenants                admin.tenants / create_tenant (superadmin)
+  POST /admin/tenants/<id>/update        admin.update_tenant
+  POST /admin/tenants/<id>/delete        admin.delete_tenant
+  GET/POST /admin/users                  admin.users / create_user (tenant_admin+)
+  POST /admin/users/<id>/update          admin.update_user
+  POST /admin/users/<id>/password        admin.reset_password
+  POST /admin/users/<id>/mfa-reset       admin.reset_mfa
+  POST /admin/users/<id>/delete          admin.delete_user
+  GET/POST /admin/settings               admin.settings / save_settings
+  POST /admin/maintenance/retention      admin.apply_retention
+  GET  /admin/notifications              admin.notifications  coda e stato canali
+  POST /admin/notifications/test         admin.notifications_test  invio di prova
+  GET  /guide/                           guide.index
+
+Canale sonde (nessuna sessione, CSRF esente, corpo cifrato): sezione 7.5.
+
+10.1 /diagnostics/session -> JSON senza dati riservati:
+     { "nome_cookie", "cookie_ricevuto", "sessione_con_utente",
+       "secondo_fattore_superato", "durata_sessione_minuti" }
+
+10.2 Hook before_request: se `request.path` inizia con `/api/v1/` o
+     l'endpoint è `static`, `g.user = g.tenant = None` e ritorno immediato;
+     altrimenti caricare utente e contesto tenant. I file statici NON devono
+     aprire la sessione (sezione 18).
+
+10.3 CSRFError: sugli endpoint di autenticazione -> 303 al login con avviso;
+     altrove -> 303 al referrer SOLO se dello stesso host, con avviso "nessuna
+     modifica applicata, ripetere". Mai un redirect verso l'esterno.
+
+10.4 Intestazioni di risposta: X-Content-Type-Options nosniff,
+     Referrer-Policy same-origin, X-Frame-Options (DENY, SAMEORIGIN in
+     modalità incorporata), Content-Security-Policy
+     `default-src 'self'; img-src 'self' data:; style-src 'self';
+      script-src 'self'; frame-ancestors 'none'`. La CSP è possibile perché
+     NON esistono script né stili inline (CLAUDE.md, Layout).
+
+10.5 ProxyFix (x_for=1, x_proto=1, x_host=1) attivo in ProductionConfig.
+
+================================================================================
+SEZIONE 11 - ROTTE DELLA SONDA (interfaccia locale, porta 5510)
+================================================================================
+  GET  /primo-accesso  POST /primo-accesso   auth.primo_accesso (solo loopback)
+  GET  /login  POST /login                   auth.login
+  POST /logout                               auth.logout
+  GET  /                                     probe.index       dashboard di stato
+  GET  /status.json                          probe.status_json (aggiornamento AJAX)
+  GET  /enroll   POST /enroll                probe.enroll_form / enroll
+  POST /enroll/reset                         probe.enroll_reset (parola AZZERA)
+  GET  /configuration  POST /configuration   probe.configuration / save
+  POST /server-url                           probe.update_server_url
+  GET  /diary                                probe.diary
+  POST /actions/test                         probe.action_test      ping al server
+  POST /actions/collect                      probe.action_collect   raccolta immediata
+  POST /actions/flush                        probe.action_flush     conferimento
+  POST /actions/pause                        probe.action_pause     sospendi/riprendi
+  POST /actions/queue/clear                  probe.action_clear_queue (parola SVUOTA)
+  POST /actions/collector/reset              probe.action_reset_collector
+  GET  /guide                                probe.guide
+
+REGOLE (R6): nessuna pagina di analisi, nessun report, nessun elenco dei dati
+raccolti oltre al diario tecnico e all'anteprima dell'ultimo lotto mock.
+
+11.1 /enroll raggiungibile IN QUALSIASI STATO (variabile `already`): la
+     sostituzione della registrazione è legittima. Il menu la offre sempre.
+11.2 La sostituzione richiede la spunta esplicita `replace`; senza, la
+     registrazione in corso NON viene toccata.
+11.3 Prima di sostituire si prende un'istantanea; se il tentativo fallisce
+     (pacchetto malformato, server irraggiungibile, errore di protocollo) lo
+     stato precedente viene RIPRISTINATO e la coda resta intatta.
+11.4 Operazioni distruttive con parola da digitare, dichiarata nella pagina:
+     AZZERA (registrazione), SVUOTA (coda). Parola errata: nessuna azione e il
+     messaggio dichiara la parola attesa.
+11.5 Il campo del pacchetto è etichettato "Pacchetto di registrazione" con la
+     spiegazione che contiene URL, codice e token; accetta anche i tre valori
+     separati.
+
+================================================================================
+SEZIONE 12 - SICUREZZA E ACCESSI
+================================================================================
+12.1 Identificazione con la SOLA email (R10).
+12.2 Password: `generate_password_hash(pwd, method="scrypt")` di Werkzeug.
+12.3 Politica (lista di errori vuota se conforme): >= 10 caratteri, una
+     maiuscola, una minuscola, una cifra. Stessa regola su server e sonda.
+12.4 Blocco: MAX_FAILED_LOGINS = 5 -> LOCKOUT_MINUTES = 15.
+12.5 MFA TOTP opzionale: pyotp per segreto e verifica, qrcode come data URI
+     (nessun file temporaneo, nessuna richiesta esterna). Attivazione con
+     codice valido; disattivazione dell'utente con codice valido; azzeramento
+     amministrativo.
+12.6 Ruoli con livello numerico:
+       viewer 10 "Consultazione" | analyst 20 "Analista" |
+       tenant_admin 30 "Amministratore Tenant" | superadmin 40 "Amministratore di Sistema"
+     Il superadmin ha tenant_id NULL e commuta il contesto. Decoratori
+     `@login_required` (Flask-Login) e `@role_required(min_role)`.
+12.7 Audit: accessi riusciti/falliti/bloccati, creazioni e cancellazioni,
+     token emessi/rinnovati, revoche, modifiche di configurazione, comandi,
+     conferimenti, cambi di preferenza NO (rumore). `log_event(...,
+     global_event=False)`: con `global_event=True` scrive tenant_id NULL, che
+     serve per l'evento "tenant cancellato" (altrimenti viola la FK).
+     Nei log e nell'audit MAI password, token, api key, chiavi, né il
+     contenuto completo dei record conferiti.
+12.8 Accesso all'interfaccia della SONDA: una sola credenziale, nessun elenco
+     utenti, nessuna password di fabbrica. La prima impostazione è ammessa
+     SOLO da loopback (127.0.0.1, ::1); finché la password non esiste ogni
+     altra rotta rimanda a /primo-accesso (o 403 se remoto). Hash scrypt,
+     5 tentativi -> 15 minuti di blocco, ogni accesso nel diario locale. Rotte
+     libere (allowlist chiusa): auth.login, auth.primo_accesso, static.
+     Chiavi in `settings`: ui_password_hash, ui_password_set_at,
+     ui_failed_logins, ui_locked_until, ui_last_login_at, ui_theme.
+12.9 Segreti solo da variabili d'ambiente o file in `instance/` (chiave di
+     sessione generata una volta). `.env` mai committato; `.env.example`
+     sempre aggiornato con TUTTE le variabili della sezione 19.
+12.10 Validazione degli input con allowlist: codice sonda
+     `^[a-z0-9][a-z0-9._-]{2,31}$`; fuso orario in `zoneinfo.available_timezones()`;
+     ruolo, tema, dimensione carattere, comando, intervallo (60..86400) da
+     elenchi chiusi. Valori non riconosciuti -> messaggio esplicito, mai
+     applicazione silenziosa.
+
+================================================================================
+SEZIONE 13 - MULTI-TENANCY E FUSI ORARI
+================================================================================
+13.1 Isolamento (R8) con l'ORM:
+     - `tenancy.tenant_scope(Model)` restituisce
+       `db.select(Model).where(Model.tenant_id == current_tenant_id())`; è
+       l'UNICO modo ammesso per interrogare una tabella con `TenantMixin`
+       dalle pagine. Un test (`test_multitenancy.py::test_ogni_lettura_di_
+       dominio_passa_da_tenant_scope`) ispeziona i blueprint e fallisce se
+       trova `db.select(<ModelloTenant>)` o `<Modello>.query` fuori da
+       tenancy.py, ingest.py e maintenance.py.
+     - `require_tenant_access(tenant_id)`: 403 e log per ogni tentativo di
+       forzare un tenant altrui.
+     - `_remember_tenant()` scrive `session["tenant_id"]` SOLO se cambia.
+     - La cancellazione di un tenant (cascata ORM + FK) lascia la console
+       utilizzabile anche se era il tenant selezionato o l'ultimo rimasto.
+13.2 Normalizzazione oraria (R9):
+     - persistenza `DateTime(timezone=True)` in UTC; `utc_now()` unica
+       funzione che produce istanti;
+     - conversione al fuso del tenant SOLO in presentazione, a ogni richiesta;
+       ora legale per ISTANTE;
+     - filtri Jinja: dt "%d/%m/%Y %H:%M", d "%d/%m/%Y", dts con i secondi,
+       dtz con sigla del fuso "(CEST)", ago ("3 min fa", "2 h fa", "mai"),
+       bytes ("1,26 MB"), intero ("2.446");
+     - raggruppamenti per giornata con il confine del fuso del tenant (usare
+       `func.date(...)` su istanti già convertiti in Python, o CTE portabile:
+       niente `strftime` né `AT TIME ZONE` nudi nelle query);
+     - la sonda mostra gli orari nel fuso ricevuto dal server e dichiara UTC
+       quando non è registrata (`display_timezone`, `display_timezone_known`).
+
+================================================================================
+SEZIONE 14 - INTERFACCIA: IMPIANTO COMUNE (AdminLTE 4.3.1 via npm)
+================================================================================
+14.1 Asset: `assets/scss/main.scss` ridefinisce le variabili (palette
+     istituzionale: primario #1f4e79, secondario #5b6770, accento #c8102e;
+     radius 0.375rem; font di testo system-ui, titoli PT Sans Narrow) PRIMA
+     di `@import "admin-lte/src/scss/adminlte"` e dei sorgenti Bootstrap;
+     `assets/js/main.js` importa solo i moduli usati (AdminLTE layout,
+     Bootstrap collapse/dropdown/tab/modal, DataTables + tema bs5, AWN) più i
+     moduli propri `snap-tables.js`, `snap-dialogs.js`, `snap-charts.js`,
+     `snap-ui.js`. esbuild produce `static/dist/snap.css` e
+     `static/dist/snap.js` (minificati, con sourcemap in dev). La stessa
+     pipeline è duplicata nella sonda (pacchetto `snapprobe`), con la stessa
+     palette.
+14.2 Tema chiaro/scuro con `data-bs-theme` sulla radice, applicato lato server
+     dal profilo (nessun flash of wrong theme); il tema riguarda ANCHE la
+     sidebar. Dimensione del carattere: small | normal | large | xlarge come
+     classe `snap-font-<v>` sulla radice, scala in SCSS. Larghezza narrow |
+     wide `snap-layout-<v>`. Sidebar collassabile (mini) con stato persistito
+     nel profilo (server) o in `settings.ui_*` (sonda), header sticky,
+     breadcrumb su ogni pagina, footer con versione.
+14.3 Nessuno script inline, nessun `onclick`, nessun `style=`: ogni
+     comportamento è dichiarato con attributi `data-*` letti dai moduli JS.
+     Un test verifica l'assenza di `<script>` senza `src` e di `on*=` nei
+     template.
+14.4 Tabelle: TUTTE con DataTables (ordinamento, paginazione 10/25/50/100,
+     ricerca generale), attivate da `<table data-snap-table data-page-size
+     data-order-column data-order-dir data-no-sort data-no-search>`; colonne
+     individuate PER NOME dall'intestazione; traduzione italiana completa
+     definita nel modulo; le tabelle con la sola riga segnaposto `colspan`
+     vengono saltate. Il contenuto resta HTML prodotto dal server, leggibile
+     senza JS. Processing server-side sopra le 1.000 righe: in questa fase
+     riguarda l'audit e i conferimenti, che offrono paginazione remota
+     (`?page=`) con finestra di 500 righe lato client.
+14.5 Dialoghi: Awesome Notifications. `[data-confirm="testo"]` sui form
+     intercetta l'invio e chiede conferma con `.confirm()`; i messaggi flash
+     marcati `data-snap-flash` diventano notifiche (restano HTML senza JS);
+     posizione top-right, max 6, durate success 5s / info 6s / warning 9s /
+     alert 12s, etichette italiane. Nessun `alert()`/`confirm()` nativo: un
+     test lo verifica. Ogni azione distruttiva ha `data-confirm`.
+14.6 Grafici: modulo proprio `snap-charts.js` in SVG (nessuna libreria),
+     attivato da `<div data-snap-chart data-points='[["ISO", v], ...]'
+     data-label data-height data-unit data-scale="percent" data-step="day">`;
+     ascissa temporale reale (i buchi si vedono), colore da `currentColor`,
+     ridisegno alla larghezza reale. Serve alle due dashboard.
+14.7 Form: validazione Bootstrap `was-validated` lato client SEMPRE
+     affiancata da quella server-side (Flask-WTF), feedback per campo.
+14.8 Accessibilità: contrasti WCAG 2.1 AA (la palette va verificata), ARIA
+     sui componenti interattivi, navigazione da tastiera; `lang="it"`.
+14.9 Tipografia: PT Sans Narrow (regular, bold) per i titoli, PT Sans
+     (regular, italic, bold, bold italic) per corsivi; sei @font-face in
+     `static/css/snap-fonts.css`, file woff2 versionati, variabili
+     `--snap-font-titoli`, `--snap-font-corsivo`; collegato in ogni layout.
+     Classe `.snap-documento` (PT Sans Narrow 19pt) per i testi lunghi.
+14.10 Toast Bootstrap ammessi per gli esiti asincroni (aggiornamento AJAX
+     della dashboard della sonda); AWN per conferme ed esiti dei form.
+
+================================================================================
+SEZIONE 15 - INTERFACCIA DEL SERVER E PRIMA DASHBOARD
+================================================================================
+15.1 Layout `templates/base.html` con blocchi: title, page_icon, page_title,
+     page_subtitle, breadcrumb, page_actions, content, scripts. Partials:
+     navbar (selettore tenant per superadmin, commutatori tema e carattere
+     con il valore corrente, profilo, indicatore "sonde in contatto"),
+     sidebar (da `navigation.py`), flash, pagination, breadcrumb.
+
+15.2 Menu laterale, ESATTAMENTE queste voci:
+       Dashboard
+       -- MONITORAGGIO --
+       Sonde  (gruppo)
+           Flotta sonde
+           Registra sonda           (tenant_admin+)
+       -- SICUREZZA --
+       Audit & Eventi
+       -- AMMINISTRAZIONE --        (tenant_admin+)
+           Tenant                   (superadmin)
+           Utenti
+           Notifiche
+           Impostazioni Sistema
+       Guida
+     Nessuna voce per inventario, scansioni, controlli, report, SIEM, threat,
+     ACN (sezione 3.2). Un test verifica che il menu contenga solo queste voci
+     e che nessun `url_for` punti a endpoint inesistenti.
+
+15.3 `navigation.py`: lista di dict `{key, label, icon, endpoint | children,
+     min_role, header}`; il template itera e calcola la voce attiva
+     confrontando `request.endpoint` (e i suoi prefissi) con gli endpoint del
+     gruppo. Nessun endpoint hardcoded nell'HTML della sidebar.
+
+15.4 DASHBOARD (`dashboard/index.html`, endpoint `dashboard.index`) - R7.
+     Sottotitolo: "Tenant <nome> · fuso orario <tz> · ultimo conferimento
+     <ago>". Composizione, dall'alto:
+
+     a) STRISCIA DI RIQUADRI (`small-box`/`info-box` di AdminLTE, solo qui):
+          SONDE IN CONTATTO   "<online>/<totale>"  nota "<pending> in attesa"
+          CONFERIMENTI 24H    n lotti              nota "<record> record"
+          DATI RICEVUTI 24H   kB/MB                nota "sul canale cifrato"
+          EVENTI 24H          n                    nota "<critici> critici"
+          COMANDI IN ATTESA   n                    nota "al prossimo contatto"
+          NOTIFICHE IN CODA   n                    nota "<fallite> fallite"
+        Tonalità: success/warning/danger secondo lo stato, mappate e
+        documentate in docs/02 (badge coerenti in tutto il prodotto).
+        Ogni riquadro è un collegamento alla pagina di dettaglio.
+
+     b) ANDAMENTI (due card con `data-snap-chart`, header con tools
+        collapse/refresh e overlay di caricamento):
+          "Record conferiti"    per ora, ultime 24 ore (da ingest_batches)
+          "Campione mock"       ultime 24 ore della metrica `mock.latency_ms`
+                                (da probe_samples), con soglia a 100
+        Le etichette sono nel fuso del tenant (filtro `fmt_chart`).
+
+     c) SCHEDE (nav-tabs) in una card, per tenere la pagina in uno schermo:
+          Indicatori   riquadri KPI da `queries.dashboard_indicators()`:
+                       coverage "Copertura sonde" <online>/<totale>;
+                       pending "In attesa di registrazione";
+                       flow "Conferimenti 24h" con record acquisiti;
+                       volume "Dati ricevuti 24h";
+                       commands "Comandi in attesa";
+                       events "Eventi rilevanti 7g" (warning+critical);
+                       samples "Campioni mock 24h";
+                       notifications "Notifiche fallite 7g".
+                       Ogni KPI: key, label, value, hint, icon, tone. L'utente
+                       può NASCONDERE un KPI (form `auth.kpi_preferences`,
+                       persistito in `users.hidden_kpis`) e riattivarlo dalla
+                       lista "Nascosti da te"; il filtro avviene nella vista,
+                       non nel template.
+          Sonde        tabella: STATO (pallino online/pending/revoked/offline),
+                       CODICE (link alla scheda), NOME, VERSIONE, ULTIMO
+                       CONTATTO (dt + ago), ULTIMO CONFERIMENTO.
+                       Nota sopra: "Il server non contatta le sonde: ogni
+                       scambio è iniziato dalla sonda."
+          Conferimenti tabella: RICEVUTO, SONDA, RECORD, BYTE, CONTENUTO
+                       (detail per tipo), azione "vedi" -> probes.batch_detail.
+          Eventi       tabella: QUANDO, GRAVITÀ (badge), TIPO, ATTORE,
+                       DESCRIZIONE; link ad Audit & Eventi.
+          Timeline     componente `timeline` AdminLTE con gli ultimi 15 eventi
+                       del tenant (enroll, revoche, comandi, offline/online,
+                       notifiche), raggruppati per giorno nel fuso del tenant.
+        Ogni scheda mostra il conteggio nel titolo e un segnaposto esplicito
+        quando è vuota ("Nessuna sonda censita. Registrare la prima sonda.").
+
+     d) La dashboard NON contiene nulla che rimandi a funzioni assenti dal
+        menu. Se il superadmin non ha tenant, redirect a admin.tenants.
+
+15.5 Altri template:
+       auth/login, auth/mfa, auth/mfa_setup, auth/profile
+       probes/index (flotta), probes/new, probes/detail (identità, canale,
+         configurazione con intervallo e opzioni JSON validato, comandi con
+         stato, ultimi 20 conferimenti, token: rinnova/revoca), probes/
+         credentials (pacchetto SNAP1-..., mostrato UNA volta, con pulsante
+         copia via data-attribute), probes/batch (contenuto di un lotto:
+         tipi, conteggi, anteprima dei record)
+       audit/index (filtri per gravità, tipo, periodo; paginazione remota)
+       admin/tenants, admin/users, admin/settings (indirizzo pubblico del
+         server, stato dell'istanza, volumi del tenant, conservazione con
+         pulsante "Applica ora"), admin/notifications (stato canali, dry-run,
+         coda con ritentativi, invio di prova)
+       guide/index (guida in linea: registrazione passo-passo, glossario)
+       errors/error
+     Le azioni distruttive sono VISIBILI senza aprire pannelli; la
+     cancellazione di un tenant richiede la digitazione del suo codice, e una
+     conferma errata dichiara il codice atteso.
+
+================================================================================
+SEZIONE 16 - INTERFACCIA DELLA SONDA E SECONDA DASHBOARD
+================================================================================
+16.1 Layout della sonda: stesso impianto AdminLTE (sidebar collassabile,
+     header, footer con versione e fuso), tinte chiare per difetto, tema
+     chiaro/scuro persistito in `settings.ui_theme`. Menu: Stato della sonda,
+     Registrazione (badge "da fare" se non registrata), Configurazione, Diario
+     locale, Guida (nuova finestra). Nel piede della sidebar, visibile da ogni
+     pagina: badge del canale (Canale attivo / Server non raggiungibile / Non
+     registrata), coda locale (n record), fuso, pulsante Esci.
+
+16.2 DASHBOARD DI STATO (`index.html`, endpoint `probe.index`).
+     Azioni in testa: Verifica server, Raccogli ora, Conferisci ora
+     (disabilitato se non registrata), Sospendi/Riprendi.
+     Se non registrata: card in evidenza "Sonda non registrata" con il
+     rimando a /enroll e la spiegazione che la raccolta locale è comunque
+     attiva.
+
+     a) RIQUADRI (calcolati nella vista da `_status_cards()` e restituiti
+        identici da `/status.json`):
+          CANALE VERSO IL SERVER  Attivo | In attesa | Non registrata
+                                  nota: URL del server
+          CODA LOCALE             n record; nota "in attesa dal <dt>"
+          RACCOLTA                Attiva | Sospesa; nota "ogni N secondi"
+          ULTIMO CONFERIMENTO     ago; nota "<dt> · fuso <tz>"
+          ULTIMO CONTATTO         ago; nota "heartbeat"
+          DATI MOCK               "cycle <n>"; nota "generatori: events, samples"
+        Ogni riquadro ha `data-card="<key>"`, `data-card-val`, `data-card-note`,
+        `data-card-tone`: `snap-ui.js` li aggiorna ogni 30 s leggendo
+        `/status.json` SENZA ricaricare la pagina (una pagina che si ricarica
+        da sola è stata la causa della trappola dei cookie, sezione 18).
+     b) CARD TENANT: "I dati vengono conferiti al tenant <nome>" con codice,
+        fuso, URL del server e badge del canale.
+     c) GRAFICO "Record conferiti" (`data-snap-chart`, compatto): ultimi 30
+        lotti da `sync_log`, in ordine cronologico.
+     d) SCHEDE: Conferimenti (ultimi 10: QUANDO, LOTTO, RECORD, ESITO,
+        DETTAGLIO), Diario (ultimi 12 eventi: QUANDO, LIVELLO, MESSAGGIO),
+        Ultimo lotto mock (anteprima JSON dell'ultimo record per generatore,
+        formattata, in sola lettura: è l'unico "dato" visibile sulla sonda).
+
+16.3 Pagine: enroll (pacchetto o tre campi; `already`; spunta replace;
+     azzeramento con parola AZZERA), configuration (intervallo di raccolta
+     locale finché il server non lo impone, sospensione, svuotamento con
+     parola SVUOTA, reset del contatore, tema), diary (tabella completa con
+     DataTables, filtro per livello), guide, login, primo_accesso, error.
+
+================================================================================
+SEZIONE 17 - AGENTE DELLA SONDA
+================================================================================
+17.1 Thread interno al processo dell'interfaccia (un solo processo);
+     `--headless` avvia il solo agente. `TestingConfig.AUTOSTART_AGENT=False`.
+17.2 Tick ogni TICK_SECONDS (15). Ordine del ciclo, motivato nel docstring:
+       1. RACCOLTA    se collect_interval_sec è scaduto, esegue i generatori
+                      mock e accoda;
+       2. CONTATTO    se registrata: heartbeat; applica config; riceve comandi;
+       3. COMANDI     esegue e conferma con command-ack;
+       4. CONFERIMENTO prenota un lotto, invia, cancella solo dopo ack; ripete
+                      finché la coda ha record (max 10 lotti per tick).
+     Il contatto precede il conferimento perché porta i comandi (fra cui
+     pause/wipe).
+17.3 Un errore nel ciclo NON arresta l'agente: va nel diario con contesto e il
+     ciclo prosegue. `last_error` in settings per la dashboard.
+17.4 `status()` restituisce: enrolled, online (ultimo contatto entro
+     CONTACT_FRESH_SECONDS = 300), queue_size, oldest_queued_at, paused,
+     last_contact_at, last_sync_at, cycle, last_error, generators.
+17.5 La sonda raccoglie anche se NON registrata: i record restano in coda.
+17.6 Comandi: flush -> conferimento immediato; reconfigure -> ricarica config
+     al tick dopo; pause/resume -> settings.paused; wipe -> `store.clear_queue()`
+     con evento warning nel diario. Ogni esito riportato in command-ack.
+
+================================================================================
+SEZIONE 18 - SESSIONI E COOKIE: LA TRAPPOLA PRINCIPALE
+================================================================================
+Difetto che nel prodotto originale è costato più sessioni di lavoro. Va
+implementato SUBITO, prima delle pagine.
+18.1 I cookie ignorano la porta: server (5500) e sonda (5510) su 127.0.0.1 con
+     lo stesso nome di cookie si sovrascrivono a vicenda. Obbligatorio:
+       server  SESSION_COOKIE_NAME = env SNAP_SERVER_COOKIE_NAME, default
+               "snap_server_session"
+       sonda   SESSION_COOKIE_NAME = env SNAP_PROBE_COOKIE_NAME, default
+               "snap_probe_session"
+18.2 SESSION_REFRESH_EACH_REQUEST = False su entrambi: con il rinnovo attivo
+     le risposte parallele dei file statici riscrivono il cookie e una
+     risposta tardiva sovrascrive lo stato più recente.
+18.3 I file statici non aprono il contesto di sessione (10.2); il contesto
+     tenant scrive in sessione solo se cambia (13.1).
+18.4 PERMANENT_SESSION_LIFETIME 120 min (server) / 480 min (sonda);
+     HTTPONLY True; SECURE da env (True in produzione); SAMESITE "Lax"
+     ("None" con SNAP_SERVER_EMBEDDED=1, documentando che richiede HTTPS);
+     FRAME_OPTIONS DENY (SAMEORIGIN in modalità incorporata).
+18.5 Chiave di sessione persistente: da env oppure generata in
+     `instance/secret_key`. Non cancellarla per "provare".
+18.6 La dashboard della sonda si aggiorna via `/status.json`, NON ricaricando
+     la pagina: riduce le occasioni di riscrittura del cookie.
+
+================================================================================
+SEZIONE 19 - CONFIGURAZIONE PER VARIABILI D'AMBIENTE
+================================================================================
+19.1 Classi in `settings.py`: `BaseConfig`, `DevelopmentConfig`,
+     `ProductionConfig` (ProxyFix, cookie Secure, DEBUG False, pool
+     `pool_pre_ping=True`, `pool_recycle=280`), `TestingConfig` (SQLite
+     `sqlite:///:memory:` con `StaticPool`, WTF_CSRF_ENABLED False, chiave
+     fissa, AUTOSTART disattivi). `create_app(config_name | classe)` con
+     selezione da `SNAP_SERVER_ENV` (development | production | testing).
+     Funzioni `_bool`, `_int` con ricaduta sul default commentata.
+
+19.2 Server, prefisso SNAP_SERVER_:
+     ENV development | HOST 127.0.0.1 | APP_PORT 5500 (alias PORT) |
+     DATABASE_URL sqlite:///data/snap_server.sqlite3
+       (prod: postgresql+psycopg://snap_app:***@db:5432/snap) |
+     SECRET_KEY | SESSION_MINUTES 120 | COOKIE_NAME snap_server_session |
+     COOKIE_SECURE false | COOKIE_SAMESITE Lax | EMBEDDED false |
+     FRAME_OPTIONS DENY | TRACE_SESSION false | LOG_FILE "" |
+     PUBLIC_URL "" (indirizzo nei pacchetti SNAP1) |
+     ENROLLMENT_TTL_HOURS 24 | PROBE_OFFLINE_AFTER_SEC 900 |
+     NONCE_RETENTION_HOURS 24 | MAX_UPLOAD_MB 32 |
+     ADMIN_EMAIL admin@snap.local | ADMIN_PASSWORD Snap!Admin2026 |
+     RETENTION_JOB_HOUR 3 (ora locale del server per la conservazione) |
+     NOTIFY_DRY_RUN true | NOTIFY_EMAIL_ENABLED false |
+     GMAIL_USER "" | GMAIL_APP_PASSWORD "" | GMAIL_FROM "" | GMAIL_TO "" |
+     GMAIL_THROTTLE_PER_MIN 20 | NOTIFY_TELEGRAM_ENABLED false |
+     TELEGRAM_BOT_TOKEN "" | TELEGRAM_CHAT_IDS "" (lista separata da virgole,
+     allowlist) | NOTIFY_MAX_ATTEMPTS 6 | NOTIFY_BACKOFF_BASE_SEC 30
+
+     Sonda, prefisso SNAP_PROBE_:
+     ENV | HOST 127.0.0.1 | APP_PORT 5510 | STORE_URL
+     sqlite:///data/snap_probe.sqlite3 | SECRET_KEY | SESSION_MINUTES 480 |
+     COOKIE_NAME snap_probe_session | TICK_SECONDS 15 | COLLECT_INTERVAL 300 |
+     HTTP_TIMEOUT 15 | LOG_FILE "" | MOCK_SEED 20260903 (seme dei generatori)
+
+     Le porte DEVONO essere lette da APP_PORT e stare in 5500-5600: `run.py` e
+     `create_app` rifiutano il resto con codice di uscita 2.
+
+19.3 PORTS.md alla radice:
+       | 5500 | HTTP | Console server (snapserver) | SNAP_SERVER_APP_PORT |
+       | 5510 | HTTP | Interfaccia sonda (snapprobe) | SNAP_PROBE_APP_PORT |
+       | 5432 | interna Docker | PostgreSQL | NON pubblicata sull'host |
+     Ogni servizio futuro si registra qui prima di scegliere la porta.
+
+================================================================================
+SEZIONE 20 - NOTIFICHE GMAIL + TELEGRAM (snapserver/notifications/)
+================================================================================
+Modulo unificato, richiesto da CLAUDE.md per ogni applicazione. Vive sul solo
+SERVER: la sonda non ha recapiti e non contatta servizi esterni oltre al
+server (R2); ciò che la riguarda viene notificato dal server (decisione AD-17).
+
+20.1 `base.py`: `class Notifier(Protocol)` con
+     `send(subject: str, body: str, attachments: list[Path] = ()) -> SendResult`
+     e `name`. `gmail.py`: `GmailNotifier` (SMTP `smtp.gmail.com:587` con
+     STARTTLS obbligatorio o 465 SSL, App Password da env, MAI fallback in
+     chiaro, HTML + plain text, allegati <= 25 MB, throttling per minuto,
+     errori 4xx/5xx distinti in `SendResult`). `telegram.py`:
+     `TelegramNotifier` (Bot API `sendMessage` HTML con escaping, `sendDocument`
+     <= 50 MB, 429 con `retry_after` rispettato, allowlist di chat_id; il bot
+     NON legge messaggi in ingresso in questa fase, ma la funzione
+     `is_authorized_chat()` esiste già). `dry_run.py`: `DryRunNotifier` che
+     registra e non invia (default in development e testing).
+20.2 Coda: tabella `notifications` (sezione 8). `enqueue(event_type, subject,
+     body, tenant_id=None)` scrive una riga per canale abilitato. Dispatcher in
+     thread (`start_dispatcher(app)`), avviato solo se non TESTING e solo nel
+     processo che serve le richieste (`WERKZEUG_RUN_MAIN == "true"` con il
+     reloader; in gunicorn: un solo worker dedicato via `--preload` +
+     controllo su un lock file, documentato). Retry con exponential backoff
+     (base 30 s, fattore 2, max 6 tentativi, jitter); un fallimento su un
+     canale NON blocca l'altro.
+20.3 Eventi notificabili (registro `NOTIFY_EVENTS`, con etichetta):
+       probe.offline     una sonda non contatta il server da PROBE_OFFLINE_AFTER_SEC
+       probe.online      la sonda ha ripreso il contatto
+       probe.enrolled    registrazione completata
+       probe.revoked     revoca
+       system.error      eccezione non gestita (500) — con id dell'errore, non lo stack
+       job.retention     esito del job di conservazione (righe rimosse per tabella)
+       user.created      credenziali provvisorie (solo email, mai Telegram)
+     Il rilevamento offline/online avviene in un controllo periodico nel
+     dispatcher (ogni 60 s), non nelle pagine.
+20.4 Contenuto: minimizzazione. Mai password, token, chiavi; per i record
+     conferiti si cita l'ID del lotto, non il contenuto. Il log di ogni invio
+     registra canale, destinatario (mascherato: a***@dominio, chat id
+     troncato), esito, timestamp.
+20.5 Pagina admin/notifications: stato dei canali (abilitato, configurato,
+     dry-run), coda con ritentativi e ultimo errore, pulsante "Invio di prova"
+     con `data-confirm`. Esiti mostrati con AWN.
+
+================================================================================
+SEZIONE 21 - DATI MOCK (snapprobe/collector.py + snapserver/ingest.py)
+================================================================================
+R11: la sonda produce SOLTANTO dati simulati, senza toccare la rete. I mock
+servono a esercitare l'intero percorso raccolta -> coda -> conferimento ->
+applicazione -> dashboard, e a dimostrare l'estensibilità del contratto con
+DUE tipi di record.
+
+21.1 Registro dei generatori: `GENERATORS: dict[str, Callable[[Context],
+     list[dict]]]` con chiave = tipo di record. Ogni generatore riceve un
+     `Context` (store, cycle, now, rng) e restituisce record. `rng` è
+     `random.Random(MOCK_SEED + cycle)`: la sequenza è RIPRODUCIBILE a parità
+     di seme, così i test hanno valori attesi.
+
+     "events" -> tre annotazioni per ciclo:
+       { "type": "probe.cycle",       "severity": "info",
+         "description": "Ciclo di raccolta <n> eseguito dalla sonda (mock)",
+         "created_at": "<UTC>", "detail": { "cycle": n, "queued": q,
+         "interval_sec": i, "platform": "...", "host": "...",
+         "agent_version": "...", "mock": true } }
+       { "type": "probe.queue", "severity": "info"|"warning" (warning se
+         queued > 1000), "description": "Coda locale a <q> record", ... }
+       { "type": "probe.mock.alert", "severity": "warning"|"critical" ogni
+         7° ciclo (deterministico), "description": "Evento simulato di
+         gravità <sev>", "detail": { "mock": true, "reason": "test del
+         percorso di allerta" } }
+     "samples" -> tre metriche simulate per ciclo, random walk limitato:
+       { "metric": "mock.latency_ms",  "value": 20..250, "sampled_at": "<UTC>" }
+       { "metric": "mock.cpu_pct",     "value": 0..100 }
+       { "metric": "mock.queue_depth", "value": q }
+     Ogni record porta `"mock": true` (negli events dentro `detail`, nei
+     samples come campo): il server lo conserva nel `detail` e la dashboard
+     etichetta "mock" ciò che lo porta.
+
+21.2 Registro degli applicatori sul server: `APPLICATORS: dict[str,
+     Callable[[Probe, list[dict], IngestBatch], int]]`.
+       "events"  -> `audit_events` del tenant con actor "probe:<code>",
+                    severity normalizzata (info|warning|critical, altro ->
+                    info), `detail` conservato come JSON; created_at non
+                    interpretabile -> ora di ricezione.
+       "samples" -> `probe_samples` (metric da allowlist `mock.*` in questa
+                    fase; valori non numerici scartati con conteggio in
+                    `detail.rejected`).
+     `apply_batch()` è atomico: o tutto il lotto o niente (transazione), e
+     registra `ingest_batches` con `detail = {"events": n, "samples": m,
+     "rejected": r}`.
+
+21.3 Aggiungere un tipo = un generatore + un applicatore + una migrazione se
+     serve una tabella. Nessuna modifica a crypto.py, client.py, api_probe.py.
+     Un test (`test_mock_data.py::test_un_tipo_nuovo_non_tocca_il_trasporto`)
+     registra un tipo fittizio a runtime e verifica che passi end-to-end.
+
+21.4 Anteprima sulla sonda (16.2 d): l'ultimo record per generatore, formattato,
+     in sola lettura. Sul server: `probes.batch_detail` mostra tipi, conteggi
+     e i primi 50 record del lotto (dal `detail` e dalle tabelle di
+     destinazione), con la dicitura "dati simulati" quando `mock` è vero.
+
+================================================================================
+SEZIONE 22 - AVVIO, RIGA DI COMANDO, MAKEFILE
+================================================================================
+22.1 Makefile (riferimento): setup, dev, assets, test, test-pg, lint, format,
+     migrate, upgrade, seed, sbom, docker-up, docker-down, backup, clean.
+     `setup` = uv venv + uv sync in server/ e probe/ + npm ci + assets +
+     upgrade + seed. `dev` avvia i due dev server con `SNAP_*_ENV=development`.
+22.2 start.ps1 (Windows PowerShell): -Setup, -DevMode, -Only all|server|probe,
+     -ServerPort 5500, -ProbePort 5510, -ServerHost, -Test, -Lint, -Stop,
+     -NoVenv. Deve: preferire `.venv`; verificare che le porte siano libere
+     (`Test-PortInUse`); registrare in `.snap-pids.json` il PID DEL PROCESSO
+     IN ASCOLTO (con lo stub Python del Microsoft Store il processo lanciato
+     non è quello che apre la porta); arrestare l'albero dei processi con
+     ricaduta sulla riga di comando e VERIFICARE la porta liberata; diari in
+     `logs/`; MAI avviare i servizi dentro `Start-Job`. Il parametro NON può
+     chiamarsi `-Debug` (conflitto con i parametri comuni): `-DevMode`.
+     Documentare il prefisso `.\`.
+22.3 start.sh (POSIX/Git Bash): setup | test | stop | server | probe | all.
+22.4 server/run.py: dev server con `threaded=True`, `--host`, `--port`
+     (rifiuto fuori 5500-5600, exit 2), stampa versione, URL, rotta di ping e
+     DATABASE_URL mascherata. Comandi Flask CLI: `flask db upgrade`,
+     `flask seed`, `flask retention`, `flask notify-test`.
+     server/wsgi.py: `app = create_app("production")` per gunicorn
+     (`gunicorn -w 2 -b 0.0.0.0:${APP_PORT} wsgi:app`).
+22.5 probe/run.py: interfaccia (5510), `--headless`, `--enroll "SNAP1-..."`,
+     `--status` (stampa stato e esce), `--host`, `--port`.
+
+================================================================================
+SEZIONE 23 - PRODUZIONE IN CONTAINER (docker/)
+================================================================================
+23.1 `docker-compose.yml`: servizi `db` (postgres:16.4, volume `pgdata`,
+     healthcheck `pg_isready`, porta NON pubblicata, utente applicativo
+     `snap_app` creato da `initdb.d/01_app_user.sql` con soli privilegi sul
+     database `snap`: niente superuser) e `server` (build da
+     server.Dockerfile, `depends_on: db: condition: service_healthy`, env da
+     `.env`, porta `${SNAP_SERVER_APP_PORT}:5500`, comando: `flask db upgrade`
+     poi gunicorn). Rete interna `snap_net`.
+23.2 `server.Dockerfile`: multi-stage; stage `assets` con `node:22-alpine`
+     esegue `npm ci` e il build esbuild; stage finale `python:3.12-slim`, uv
+     per l'installazione dal lockfile, utente non-root `snap` (uid 10001),
+     nessun segreto in build, `HEALTHCHECK` su `/api/v1/ping`.
+23.3 `backup/pg_backup.sh`: `pg_dump -Fc` via `docker compose exec db`, file
+     datati in `backup/out/`, retention in giorni da `BACKUP_RETENTION_DAYS`
+     (default 30), log dell'esito, exit code non zero su errore; esempio di
+     crontab nel manuale. L'esito viene notificato (job.retention riusa il
+     canale; evento `job.backup` da aggiungere al registro).
+23.4 La sonda NON gira in container in questa fase (si installa sull'host del
+     cliente); un `probe.Dockerfile` è facoltativo e non richiesto.
+
+================================================================================
+SEZIONE 24 - TEST, LINT, DOCUMENTAZIONE
+================================================================================
+24.1 Suite pytest su SQLite in memoria (`TestingConfig`). `conftest.py`
+     aggiunge `server/` e `probe/` a sys.path, fornisce: `server_app`
+     (migrazioni applicate con `flask_migrate.upgrade()` su un DB temporaneo
+     su file, così si testano davvero le migrazioni), `server_client`,
+     `logged_client` (superadmin), `tenant_client(role)`, `probe_app`
+     (store temporaneo, agente fermo, password impostata), `probe_client`
+     (autenticato; `anonimo=True` per i test di accesso).
+
+     File e comportamenti che DEVONO essere coperti (ciascuno ha rotto il
+     prodotto originale almeno una volta):
+     test_crypto_channel    Ks coincide fra le due implementazioni; Ke
+                            riproducibile; sonda sigilla/server apre e
+                            viceversa; busta legata a rotta e identità;
+                            ciphertext manomesso rifiutato; chiave errata;
+                            busta scaduta; l'impronta non rivela il token.
+     test_probe_server_flow enroll stabilisce il canale; token monouso; token
+                            errato; LA SONDA LAVORA OFFLINE POI CONFERISCE E
+                            SVUOTA; ritrasmissione idempotente; comandi
+                            consegnati al contatto; revoca blocca il
+                            conferimento; busta ripetuta respinta; sonda non
+                            registrata continua a raccogliere; lotto con tipo
+                            sconosciuto rifiutato.
+     test_mock_data         generatori deterministici a parità di seme; ogni
+                            record porta mock=true; samples finiscono in
+                            probe_samples; severità normalizzata; tipo nuovo
+                            registrato a runtime passa end-to-end.
+     test_multitenancy      vede solo le proprie sonde; non apre quelle
+                            altrui; non commuta tenant; il superadmin sì;
+                            viewer non raggiunge admin; analyst non gestisce
+                            tenant; cancellazione in cascata; azione visibile;
+                            conferma errata dichiara il codice; cancellare il
+                            tenant selezionato/ultimo lascia la console
+                            utilizzabile; ogni lettura di dominio passa da
+                            tenant_scope (ispezione dei sorgenti).
+     test_timezones         fuso del tenant; ora legale per istante;
+                            raggruppamento per giorno nel fuso; la sonda usa il
+                            fuso ricevuto e dichiara UTC se non registrata.
+     test_accesso_sonda     primo accesso solo da loopback; nessuna rotta
+                            senza password; blocco dopo 5 tentativi; accessi
+                            nel diario.
+     test_probe_interface   /enroll in ogni stato; replace esplicito;
+                            pacchetto malformato non altera; server
+                            irraggiungibile ripristina; coda sopravvive;
+                            AZZERA/SVUOTA dichiarano la parola; status.json
+                            coerente con i riquadri.
+     test_dashboard         riquadri e KPI del server con i valori attesi da
+                            un dataset noto; KPI nascosti persistono; grafici
+                            ricevono punti nel fuso; dashboard della sonda
+                            mostra cycle e ultimo lotto; nessun rimando a
+                            funzioni fuori ambito (grep sui template per le
+                            parole inventario, scansione, report, SIEM...).
+     test_interfaccia       ogni tabella attrezzata; nessun <script> inline né
+                            on*=; nessun riferimento a host esterni; flash
+                            esposti ad AWN; nessun confirm()/alert(); azioni
+                            distruttive con data-confirm; menu con le sole
+                            voci previste; nessun url_for verso endpoint
+                            inesistenti; caratteri serviti localmente; CSP
+                            presente.
+     test_sessione          i file statici non riscrivono la sessione; pagine
+                            invariate non riemettono il cookie; cookie emesso
+                            al login e al cambio tenant; tre giri su tutte le
+                            pagine; token CSRF ancora valido; diagnostica;
+                            NOMI DI COOKIE DISTINTI; un cookie della sonda non
+                            invalida il server.
+     test_notifiche         enqueue per canale abilitato; dry-run non
+                            contatta nulla; backoff cresce; fallimento di un
+                            canale non blocca l'altro; offline/online
+                            producono una sola notifica per transizione;
+                            nessun segreto nel corpo né nel log; destinatario
+                            mascherato.
+     test_migrazioni        `alembic upgrade head` poi `downgrade base` puliti
+                            su SQLite; lo schema dopo upgrade coincide con i
+                            modelli (`alembic check` / autogenerate vuoto).
+     integration/ (marker `pg`, saltati senza `SNAP_TEST_PG_URL`): le stesse
+                            prove di flusso, multitenancy e migrazioni su
+                            PostgreSQL in container; CI le esegue.
+
+24.2 Lint: `ruff check` e `ruff format --check` puliti; `mypy` pulito sul
+     codice nuovo. Dopo OGNI passo della sezione 27: lint + test prima di
+     dichiararlo concluso. File strutturati (JSON, YAML, HTML, CSS, JS) validati
+     con parser prima della consegna (`python -m json.tool`, build esbuild,
+     rendering dei template nei test).
+
+24.3 Documentazione (docs/, italiano, aggiornata a ogni modifica). Ogni
+     documento dichiara in testa a QUALI standard è conforme e in QUALE
+     sezione:
+     01_REQUISITI.md       ISO/IEC/IEEE 29148:2018: scopo, ambito (con il
+                           FUORI AMBITO della sezione 3.2), definizioni,
+                           stakeholder, requisiti SR-nn e NFR-nn ciascuno con
+                           il test che lo verifica, casi d'uso UC-01
+                           registrazione, UC-02 raccolta e conferimento mock,
+                           UC-03 governo di una sonda, UC-04 notifica di
+                           sonda offline; matrice di tracciabilità.
+     02_ARCHITETTURA.md    ISO/IEC 19505 (UML) in Mermaid: contesto,
+                           componenti, sequenza di enrollment e conferimento,
+                           attività dell'agente, stati della sonda, classi del
+                           modello dati, deployment (dev SQLite / prod Docker
+                           + Postgres). Decisioni AD-nn con alternative:
+                           cifratura applicativa; ORM con tenant_scope (e
+                           perché il prodotto precedente non usava l'ORM);
+                           crypto duplicata; comandi in piggyback; prenotazione
+                           del lotto; asset locali via npm; agente in thread;
+                           presentazione oraria a richiesta; contratto
+                           estensibile; DataTables sull'HTML del server; cookie
+                           distinti; AD-16 report rinviati; AD-17 notifiche
+                           solo sul server; AD-18 store della sonda sempre
+                           SQLite.
+     03_PROTOCOLLO_SNAP_SEC.md  la sezione 7 in forma di norma.
+     04_CICLO_DI_VITA.md   ISO/IEC/IEEE 15288:2023: processi tecnici e di
+                           supporto; GDPR (dati personali trattati: email
+                           utenti, hostname nelle descrizioni di audit; base
+                           giuridica, minimizzazione, retention per tenant,
+                           cancellazione in cascata); CRA (SBOM,
+                           aggiornamenti, gestione vulnerabilità); NIS2 (log
+                           per la notifica incidenti, backup, continuità).
+     05_MANUALE_OPERATIVO.md  prerequisiti, installazione (dev e Docker),
+                           primo accesso, tenant e utenti, registrazione della
+                           sonda passo-passo, flotta e comandi, notifiche,
+                           conservazione e backup, tabella completa delle
+                           variabili, DIAGNOSTICA (accesso richiesto
+                           ripetutamente -> /diagnostics/session e cause note;
+                           sonda "in attesa"; coda che cresce; notifiche
+                           fallite; migrazione fallita su Postgres).
+     README.md             presentazione, avvio rapido (make e start.ps1),
+                           credenziali iniziali, indirizzo delle due
+                           interfacce, funzioni, canale cifrato in tabella,
+                           verifica, indice dei documenti, licenza.
+     Manuali .docx da `tools/genera_manuale.py` (PT Sans Narrow 19 pt, stili
+     predefiniti di Word: Normal, Heading 1-4, Title, Caption, List Bullet,
+     List Number; frontespizio, sommario automatico, numerazione pagine,
+     versione e data). Non versionati.
+
+================================================================================
+SEZIONE 25 - TRAPPOLE NOTE (errori già commessi, da non ripetere)
+================================================================================
+25.1  Cookie di sessione con lo stesso nome su server e sonda: accessi
+      richiesti ogni pochi secondi. Sezione 18. Implementare per primo.
+25.2  Rinnovo del cookie a ogni risposta, file statici compresi: perdita
+      intermittente della sessione.
+25.3  `config.py` alla radice dei due applicativi: collisione di modulo nei
+      test. Il modulo è `settings.py` dentro il pacchetto.
+25.4  Parametro `-Debug` in PowerShell con `[CmdletBinding()]`:
+      `ParameterNameAlreadyExistsForCommand`. Usare `-DevMode`.
+25.5  PowerShell richiede `.\start.ps1`. Documentarlo.
+25.6  Stub Python del Microsoft Store: il PID lanciato non è quello in
+      ascolto. Registrare il PID del listener e verificare la porta.
+25.7  In Jinja `group.items` è il metodo del dizionario: usare
+      `group['items']`. Latente finché non ci sono dati.
+25.8  `pattern` HTML con trattino non protetto: `[a-z0-9][a-z0-9._\-]{1,31}`.
+25.9  Audit dopo la cancellazione del tenant viola la FK: `global_event=True`.
+25.10 Jinja tiene in cache i template: riavviare prima di concludere che una
+      modifica non funziona.
+25.11 Diagnostica distruttiva: non cancellare `instance/secret_key` né
+      `data/`; non terminare processi Python non avviati dallo script; non
+      far girare due istanze della sonda sullo stesso store.
+25.12 Apostrofi italiani negli heredoc di shell: scrivere i file con lo
+      strumento di scrittura, non con `cat <<EOF`.
+25.13 File strutturati rotti (tag non chiuso, virgola JSON) bloccano l'app in
+      modi illeggibili: validare dopo ogni riscrittura.
+25.14 Riprodurre il difetto e verificarne l'assenza in un browser ESTERNO
+      reale: per la sessione, due schede aperte 40 secondi con la dashboard
+      della sonda che si aggiorna, contando le richieste di login (zero).
+25.15 Tabelle e dialoghi in un modulo unico per applicativo: la libreria è
+      cambiata una volta su richiesta del committente.
+25.16 Perimetro: non reintrodurre per iniziativa propria nulla della sezione
+      3.2, nemmeno "predisposto" (colonne vuote, voci disabilitate, tab).
+25.17 NUOVA - Alembic su SQLite: senza `render_as_batch=True` ogni ALTER
+      fallisce; su PostgreSQL il batch è innocuo. Provare le migrazioni su
+      entrambi (test_migrazioni + integration).
+25.18 NUOVA - `db.create_all()` "per comodità" nei test nasconde migrazioni
+      rotte: i test applicano `upgrade()`.
+25.19 NUOVA - Thread avviati in `create_app` con il reloader di Flask partono
+      due volte (processo sorvegliante + processo che serve): controllare
+      `WERKZEUG_RUN_MAIN`. Con gunicorn e più worker partono N volte: un solo
+      dispatcher, con lock file, documentato.
+25.20 NUOVA - `DateTime(timezone=True)` su SQLite restituisce datetime NAIVE:
+      il layer di lettura (`TypeDecorator` `UTCDateTime`) riattacca `tzinfo=UTC`
+      sempre, così il codice non distingue i due database.
+25.21 NUOVA - `Numeric` su SQLite arriva come `Decimal` o `float` a seconda
+      del driver: convertire esplicitamente in presentazione.
+25.22 NUOVA - Nessuno script inline con la CSP: un `onclick` o un
+      `<script>` di una riga "per il pulsante copia" rompe la policy in
+      silenzio (il browser lo blocca e la funzione non funziona). Tutto via
+      `data-*` e moduli.
+25.23 NUOVA - esbuild e `sass`: il build va eseguito nel setup e nel
+      Dockerfile; non versionare `static/dist/` e non lasciare che una pagina
+      referenzi asset assenti (un test verifica l'esistenza dei file collegati
+      dopo il build).
+25.24 NUOVA - `flask --app` con due pacchetti nel repo: sempre indicare il
+      pacchetto (`--app snapserver` dentro `server/`), altrimenti si avvia
+      l'applicativo sbagliato.
+
+================================================================================
+SEZIONE 26 - CRITERI DI ACCETTAZIONE
+================================================================================
+Il nucleo è completo quando TUTTE le verifiche passano:
+C1.  `make setup` (o `.\start.ps1 -Setup`) crea ambiente, installa Python e
+     npm, compila gli asset, applica le migrazioni e il seed senza errori.
+C2.  `make dev` avvia server (5500) e sonda (5510); entrambe rispondono;
+     `-Stop` arresta e libera le porte.
+C3.  `make lint` e `make test` puliti; `make test-pg` verde con Postgres in
+     container (`docker compose -f docker/docker-compose.yml up db`).
+C4.  Registrazione completa: creare una sonda dalla console, copiare il
+     pacchetto SNAP1-..., incollarlo nella sonda, stato `active`, sonda in
+     contatto nella flotta e nella dashboard.
+C5.  Dati mock: entro un intervallo di raccolta la dashboard del server mostra
+     eventi con actor `probe:<code>`, il grafico "Campione mock" si popola, la
+     scheda Conferimenti elenca il lotto con `{"events": 3, "samples": 3}`.
+C6.  Autonomia: arrestato il server la coda della sonda cresce; riavviato,
+     conferisce tutto dichiarando record e lotti, coda a zero.
+C7.  Idempotenza: la ritrasmissione dello stesso lotto è riconosciuta come
+     duplicato e non altera i dati.
+C8.  Revoca: dopo la revoca ogni conferimento riceve `auth_failed`; la sonda
+     conserva i dati; la notifica `probe.revoked` è in coda (dry-run).
+C9.  Anti-replay: la ripresentazione di una busta valida è rifiutata.
+C10. Isolamento: un utente di tenant non vede né raggiunge dati altrui,
+     nemmeno forzando gli id negli URL.
+C11. Fusi: due tenant con fusi diversi mostrano lo stesso istante con orari
+     diversi e coerenti, ora legale compresa; cambiando il fuso cambiano anche
+     le date storiche e i confini dei grafici per giorno.
+C12. Accesso: email e password, blocco dopo 5 tentativi, MFA attivabile con
+     Google Authenticator; sulla sonda primo accesso solo da loopback.
+C13. Sessione: minuti di navigazione su tutte le pagine con la dashboard della
+     sonda aperta in un'altra scheda, SENZA nuove richieste di login.
+C14. Tabelle: ogni tabella ordina, impagina e cerca, in italiano.
+C15. Dialoghi: ogni conferma passa da AWN; nessun confirm() nativo; i flash
+     diventano notifiche.
+C16. Nessuna richiesta verso host esterni caricando qualunque pagina; CSP
+     presente e senza violazioni nella console del browser.
+C17. Menu ed elenchi con le sole voci previste; nessun link a pagine
+     inesistenti; nulla della sezione 3.2 in nessuna forma.
+C18. Interfaccia: tema chiaro/scuro (sidebar compresa), quattro dimensioni del
+     carattere, sidebar mini persistita, breadcrumb, footer con versione.
+C19. Tipografia: titoli in PT Sans Narrow servito localmente.
+C20. Notifiche: canali configurabili, dry-run in sviluppo, invio di prova dal
+     pannello, sonda offline/online notificata una volta per transizione.
+C21. Produzione: `docker compose up` porta su Postgres (porta non pubblicata,
+     utente non superuser) e server (gunicorn, non-root, ProxyFix,
+     migrazioni all'avvio); `pg_backup.sh` produce un dump e applica la
+     retention.
+C22. `make sbom` produce gli SBOM CycloneDX (o documenta il comando).
+C23. I cinque documenti e il README sono coerenti con il codice, con matrice
+     di tracciabilità requisiti/test e dichiarazione degli standard;
+     `python tools/genera_manuale.py` produce i .docx.
+C24. Ogni file ha l'header della sezione 6; codice in inglese, commenti e
+     documentazione in italiano; nessuna dipendenza oltre la sezione 4;
+     `.env.example` elenca tutte le variabili; PORTS.md aggiornato.
+
+================================================================================
+SEZIONE 27 - ORDINE DI REALIZZAZIONE
+================================================================================
+ 1. CLAUDE.md (sezione 1), .gitignore, LICENSE, README iniziale, PORTS.md,
+    .env.example, pyproject di radice, Makefile con i soli bersagli setup/lint.
+ 2. Server: pyproject + uv.lock, settings.py (le tre classi, cookie e sessione
+    secondo la sezione 18 SUBITO), extensions.py, models.py, Alembic
+    inizializzato, prima migrazione, seed. Verificare `upgrade` su SQLite.
+ 3. Canale cifrato: snapserver/crypto.py e snapprobe/crypto.py, poi
+    IMMEDIATAMENTE test_crypto_channel.py.
+ 4. Sicurezza e multi-tenancy: security.py, tenancy.py (tenant_scope), audit.py.
+ 5. Canale sonde: api_probe.py, ingest.py con APPLICATORS per events e samples.
+ 6. Sonda: pyproject, settings.py, models.py + Alembic, store.py (prenotazione),
+    client.py, collector.py (mock), agent.py, run.py. Poi
+    test_probe_server_flow.py e test_mock_data.py, compresa l'autonomia offline.
+ 7. Frontend comune: package.json pinnato, SCSS con variabili, esbuild,
+    snap-tables/dialogs/charts/ui, snap-fonts.css. Build funzionante PRIMA dei
+    template.
+ 8. Interfaccia del server: base, navbar, sidebar da navigation.py,
+    autenticazione e MFA, dashboard (sezione 15.4), flotta e scheda sonda,
+    audit, amministrazione, guida.
+ 9. Interfaccia della sonda: auth (primo accesso), base, dashboard di stato con
+    status.json, enroll, configuration, diary, guide.
+10. Notifiche: modulo, coda, dispatcher, rilevamento offline/online, pannello
+    admin, test_notifiche.py.
+11. Manutenzione: retention per tenant, pulizia nonce, comando CLI e job.
+12. test_multitenancy, test_timezones, test_accesso_sonda,
+    test_probe_interface, test_dashboard, test_interfaccia, test_sessione,
+    test_migrazioni.
+13. Docker: compose, Dockerfile, utente DB, backup; suite integration su
+    Postgres; Makefile completo; start.ps1 e start.sh.
+14. Documentazione docs/01-05, README finale, tips.txt, tools/genera_manuale.py,
+    SBOM.
+15. Collaudo contro la sezione 26 in un browser esterno reale, con Postgres in
+    container e con la sonda avviata su un secondo host (o seconda porta) per
+    la prova di autonomia.
+
+Dopo ogni passo: `make lint` e `make test` prima di dichiararlo concluso.
+
+================================================================================
+FINE DEL PROMPT
+================================================================================
