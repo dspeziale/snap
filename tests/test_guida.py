@@ -24,11 +24,18 @@ RADICE = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture()
-def probe_client(tmp_path, monkeypatch):
+def probe_client(tmp_path, monkeypatch, database_di_prova):
     """Client dell'interfaccia locale della sonda, con archivio temporaneo."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "probe.sqlite3"))
+    from snapprobe import db as probe_db
+
+    # L'archivio della sonda e' PostgreSQL: ogni prova ha il proprio database, come
+    # quelle del server. Il motore e' unico per processo e va dimenticato fra una
+    # prova e l'altra, altrimenti la seconda scriverebbe nel database della prima --
+    # che intanto e' stato distrutto.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-secret-key")
 
     import snapprobe

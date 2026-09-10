@@ -154,14 +154,17 @@ def test_il_diario_non_si_apre_due_volte(tmp_path, monkeypatch, radice_pulita,
 
 
 def test_la_sonda_scrive_il_diario_sul_file_indicato(tmp_path, monkeypatch,
-                                                     radice_pulita):
+                                                     radice_pulita,
+                                                     database_di_prova):
     import importlib
 
     import snapprobe
     import snapprobe.settings as impostazioni
+    from snapprobe import db as probe_db
 
     percorso = tmp_path / "sonda.log"
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "sonda.sqlite3"))
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "prova")
     monkeypatch.setenv("SNAP_PROBE_LOG_FILE", str(percorso))
 

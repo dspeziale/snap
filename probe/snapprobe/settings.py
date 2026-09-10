@@ -110,7 +110,12 @@ class Config:
     APP_COMPONENT = "probe"
 
     SECRET_KEY = load_secret_key()
-    STORE_PATH = os.environ.get("SNAP_PROBE_STORE", str(DATA_DIR / "snap_probe.sqlite3"))
+    # L'ARCHIVIO NON E' PIU' UN FILE. Era SQLite nel volume; ora e' PostgreSQL, e
+    # l'indirizzo di connessione arriva dall'ambiente -- mai una credenziale nel
+    # codice. `STORE_PATH` resta, vuoto, perche' l'avvio assistito e la pagina di
+    # stato lo mostravano: dove non c'e' un file non si mostra un percorso.
+    DATABASE_URL = os.environ.get("SNAP_PROBE_DATABASE_URL", "")
+    STORE_PATH = ""
 
     # Diario su file, in aggiunta a quello a schermo (vedi l'avvio assistito).
     LOG_FILE = os.environ.get("SNAP_PROBE_LOG_FILE", "")

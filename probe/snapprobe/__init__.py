@@ -70,7 +70,11 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
     from .agent import ProbeAgent
     from .store import ProbeStore
 
-    store = ProbeStore(app.config["STORE_PATH"])
+    # L'archivio si apre dall'indirizzo di connessione, non da un percorso: la
+    # variabile la legge `db.dsn()`. Qui si dichiara nella configurazione perche' la
+    # pagina di stato deve poter dire A QUALE archivio e' collegata la sonda -- senza
+    # la password, che sta nell'indirizzo.
+    store = ProbeStore()
     store.set_setting("agent_version", app.config["APP_VERSION"])
     if not store.get_setting("scan_interval_sec"):
         store.set_setting("scan_interval_sec", app.config["DEFAULT_SCAN_INTERVAL"])

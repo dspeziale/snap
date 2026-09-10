@@ -47,13 +47,23 @@ from . import snmp_raccolta
 from .nmap_runner import NmapAborted, NmapError, NmapRunner, NmapTimeout
 
 # Fasi nell'ordine di priorita' con cui vengono valutate.
-STAGES = ("discovery", "monitor", "ports", "services", "os", "deep", "snmp", "smb",
-          "vuln", "web")
+STAGES = ("discovery", "monitor", "raffica", "ports", "services", "os", "deep",
+          "snmp", "smb", "vuln", "web")
 
 # Fasi che compongono il profilo di un dispositivo. Il nodo viene conferito solo
 # quando tutte quelle applicabili sono state eseguite su di esso: il server
 # riceve dispositivi interi, non frammenti.
+# Il profilo di un dispositivo resta definito dalle tre fasi che lo compongono: porte,
+# servizi, sistema operativo. La RAFFICA non cambia il contratto -- lo SODDISFA in un
+# processo solo, marcando tutte e tre (vedi FASI_COPERTE_DALLA_RAFFICA). Cosi' il primo
+# profilo si ottiene in una passata di pochi secondi, e le tre fasi restano disponibili
+# per la RI-ispezione di un nodo gia' conferito, dove interessa una cosa per volta.
 PROFILE_STAGES = ("ports", "services", "os")
+
+# Le fasi che la raffica SVOLGE. Quando la raffica riesce, queste risultano fatte:
+# ha chiesto le porte, le versioni dei servizi e il sistema operativo in un colpo
+# solo, e dichiararle da fare significherebbe rifarle.
+FASI_COPERTE_DALLA_RAFFICA = ("ports", "services", "os")
 
 # Cadenze predefinite, in secondi. La scoperta ricensisce il perimetro: una rete
 # non cambia di minuto in minuto, e su centinaia di subnet una scoperta continua
@@ -66,6 +76,10 @@ BUDGET_WEB_COMPITO = 180.0
 
 DEFAULT_CADENCES = {
     "discovery": 3 * 24 * 3600,
+    # La raffica e' il primo profilo di un nodo: si esegue quando il nodo non ce l'ha
+    # ancora, non a cadenza. Il valore serve alla RI-esecuzione su un nodo gia'
+    # profilato, e sei ore sono la stessa cadenza che avevano le porte.
+    "raffica": 21600,
     "ports": 21600,
     "services": 43200,
     "os": 259200,
@@ -307,6 +321,14 @@ MAX_HOSTGROUP = 64
 # insieme alle altre, e sotto contesa i gruppi grandi crollano -- la stessa prova
 # con la sonda che scandiva in parallelo dava 14 su 33 con un gruppo da 254. Con 64
 # il recall e' pieno e resta margine per il carico concorrente.
+# QUANTI HOST IN UN PROCESSO DI FASE PORTE. Uguale al gruppo: un processo, un gruppo.
+#
+# Misurato in esercizio, e i numeri stanno nel pianificatore accanto alla suddivisione:
+# 64 host in un processo danno recall completo; 256 in un processo danno ZERO porte su
+# 256 host; oltre 500 non terminano entro le due ore del tetto. Il budget di pacchetti
+# di nmap e' per PROCESSO, quindi piu' gruppi nello stesso processo se lo dividono.
+MAX_HOST_PER_PROCESSO_PORTE = 64
+
 GRUPPO_HOST = 64
 
 # Ritmo accurato misurato, sonde al secondo, un processo. Serve a calcolare quanto
@@ -562,6 +584,9 @@ SERVICE_MIN_PARALLELISM = 24
 # previsto, e insistere ruberebbe la passata a tutti gli altri.
 MAX_HOST_TIMEOUT_RETRY = 300
 STAGES_NEEDING_TIME = ("services", "os", "deep", "snmp", "smb", "vuln")
+# La raffica NON e' in elenco: ha un tempo per host proprio e generoso
+# (ATTESA_RAFFICA_HOST), scelto sulla misura di `-A`, e non deve essere riscritto dal
+# minimo delle fasi di ispezione ne' dal valore scelto dall'operatore.
 # Gli script SNMP interrogano molte tabelle (interfacce, processi, software): su un
 # apparato lento cinque minuti non sono troppi, e riguardano pochi nodi per volta.
 SNMP_HOST_TIMEOUT = "300s"
@@ -600,6 +625,103 @@ PROCESS_TIMEOUT_WAVE_FACTOR = 4
 #
 # Costo verificato sul campo con 34 processi nmap contemporanei: CPU 1,8%, memoria
 # 443 MB su 12 CPU e 16 GB. Una scansione e' attesa di pacchetti, non calcolo.
+# --------------------------------------------------------------------------- #
+# LA RAFFICA: nmap -A piu' un catalogo NSE curato, su UN nodo per volta
+# --------------------------------------------------------------------------- #
+# PERCHE' UN NODO PER VOLTA, con i numeri misurati su questa rete.
+#
+# Il budget di pacchetti di nmap e' PER PROCESSO: dividerlo fra molti host stringe la
+# finestra di congestione su ognuno, e su una rete che filtra (la posizione normale di
+# una rete di PA) le porte vere passano per filtrate. Misurato:
+#
+#   1 host,  30 porte                ->   3,3 s, trova tutto
+#   1 host,  -A                      ->  ~24 s, trova versione, sistema, traceroute
+#   64 host in un processo           ->  recall completo
+#   256 host in un processo          ->  ZERO porte su 256 host
+#   500+ host in un processo         ->  non termina in 2 ore, la fase scade
+#
+# Da qui la struttura: la ricognizione dice CHI risponde, poi ogni nodo ha il proprio
+# processo con tutto quello che nmap sa fare. Il parallelismo sta nel pool -- fino a
+# MAX_WORKERS processi insieme -- dove nmap non lo penalizza, invece che dentro un
+# processo solo dove lo penalizza.
+#
+# CATEGORIE NSE AMMESSE E VIETATE.
+#
+# Le categorie di nmap si dividono per rischio, e su una rete di produzione della PA
+# il confine non e' un'opinione: `brute` blocca gli account e riempie i log,
+# `dos` interrompe i servizi, `exploit` e `fuzzer` li corrompono. Un incidente causato
+# da uno strumento di inventario e' inaccettabile -- e sarebbe anche una violazione
+# dell'autorizzazione con cui si scansiona.
+#
+# Ammesse: default, safe, version, discovery e i controlli `vuln` che si limitano a
+# VERIFICARE senza sfruttare. Vietate: brute, dos, exploit, fuzzer, intrusive. Un test
+# verifica che nessuno script di quelle categorie finisca negli argomenti.
+CATEGORIE_NSE_VIETATE = ("brute", "dos", "exploit", "fuzzer", "intrusive")
+
+# Script NSE che NON si eseguono mai, per nome: appartengono a categorie vietate o
+# fanno un numero di richieste che su una rete di utenza si nota (e che il lettore web
+# di questo prodotto fa meglio, in modo mirato).
+SCRIPT_NSE_VIETATI = (
+    # Forza bruta: blocco degli account, log pieni.
+    "ssh-brute", "http-brute", "smb-brute", "ftp-brute", "mysql-brute",
+    "ms-sql-brute", "snmp-brute", "vnc-brute", "rdp-brute", "telnet-brute",
+    "http-form-brute", "pgsql-brute", "oracle-brute", "ldap-brute",
+    # Denial of service e sfruttamento.
+    "smb-flood", "http-slowloris", "ipv6-ra-flood", "smb-vuln-ms06-025",
+    "http-vuln-cve2010-2861", "smb2-vuln-uptime",
+    # Enumerazione a forza di richieste: centinaia per host. Il lettore web di questo
+    # prodotto (web_probe) legge le pagine in modo mirato e dice di piu'.
+    "http-enum", "http-wordpress-enum", "dns-brute",
+    # Interrogano servizi ESTERNI: su una rete senza uscita non funzionano, e dove
+    # funzionassero manderebbero fuori l'inventario dei servizi del cliente.
+    "vulners", "http-virustotal", "whois-ip", "whois-domain", "targets-asn",
+    "shodan-api", "hostmap-robtex", "http-shodan-api",
+)
+
+# Il catalogo della raffica, per famiglia di servizio. Il prefisso `+` forza lo script
+# anche dove nmap non ha riconosciuto il servizio atteso: questo prodotto trova
+# interfacce web sulla 7070 e la 8443 e agenti SNMP su porte spostate, e senza il `+`
+# quegli script non partirebbero proprio dove servono.
+#
+# Tutti safe/default/version/discovery: leggono cio' che il servizio dichiara.
+SCRIPT_RAFFICA = (
+    # Identita' del servizio, qualunque porta.
+    "banner",
+    # TLS: il certificato nomina l'apparato piu' spesso della pagina, e la scadenza e'
+    # un dato operativo che nessun'altra fase raccoglie.
+    "+ssl-cert", "+ssl-enum-ciphers",
+    # Web: titolo, intestazioni, generatore, icona. Sono le stesse cose su cui si
+    # regge il riconoscimento dalle pagine.
+    "+http-title", "+http-server-header", "+http-generator", "+http-favicon",
+    "+http-methods", "+http-security-headers", "+http-robots.txt",
+    # Windows: nome, dominio, versione. La fonte piu' precisa che esista su Windows.
+    "+smb-os-discovery", "+smb-security-mode", "+smb2-security-mode",
+    "+smb-protocols", "+rdp-ntlm-info", "+nbstat",
+    # Unix e apparati.
+    "+ssh-hostkey", "+ssh2-enum-algos", "+ssh-auth-methods",
+    "+ftp-anon", "+telnet-encryption",
+    # Basi di dati: dicono versione e a volte nomi di istanza.
+    "+mysql-info", "+ms-sql-info", "+pgsql-info", "+mongodb-info", "+redis-info",
+    "+oracle-tns-version",
+    # Stampanti e apparati di stampa.
+    "+ipp-info",
+    # Malware: rileva backdoor note. E' categoria `safe`, non intrusiva.
+    "+malware",
+)
+
+# Argomenti degli script. Lo user-agent si dichiara: nei log del cliente si deve
+# leggere CHI ha fatto la richiesta, e un'impronta anonima in un registro di sicurezza
+# e' esattamente cio' che questo prodotto serve a evitare.
+ARGOMENTI_SCRIPT_RAFFICA = (
+    "http.useragent=snap-probe (inventario di rete autorizzato)")
+
+# Tempo massimo per host della raffica. Misurato: `-A` su un host di questa rete
+# impiega ~24 s; su un apparato lento (VoIP, IoT, sistemi che non rispondono a -sV) si
+# arriva ai minuti. Sotto i due minuti la raffica non conclude e non produce nulla --
+# che e' il difetto peggiore, perche' consuma tempo e non lascia dato.
+ATTESA_RAFFICA_HOST = "240s"
+ATTESA_RAFFICA_PROCESSO_SEC = 420
+
 MAX_WORKERS = 32
 
 # Le fasi di ARRICCHIMENTO: non servono a completare il profilo di un nodo (quello
@@ -812,7 +934,12 @@ class NetworkScanner:
         return trascorso >= cadenza
 
     def _required_stages(self) -> tuple:
-        """Fasi necessarie a dichiarare completo il profilo di un dispositivo."""
+        """Fasi necessarie a dichiarare completo il profilo di un dispositivo.
+
+        Le soddisfa la RAFFICA in un processo solo (FASI_COPERTE_DALLA_RAFFICA); il
+        contratto resta espresso in termini delle tre fasi, cosi' un nodo profilato
+        prima che la raffica esistesse resta valido.
+        """
         if self.capabilities().get("os_detection"):
             return PROFILE_STAGES
         # Senza accesso raw il sistema operativo non e' rilevabile: il profilo si
@@ -847,7 +974,8 @@ class NetworkScanner:
             # tutti sulle porte. Metterlo in coda per quelle fasi e' tempo sprecato -- su
             # una rete reale sono migliaia gli host che rispondono al solo ping -- e viene
             # invece conferito o scartato subito dopo 'ports'.
-            if stage not in ("discovery", "ports") and self._niente_da_profilare(nodo):
+            if (stage not in ("discovery", "ports", "raffica")
+                    and self._niente_da_profilare(nodo)):
                 continue
             # Un candidato che nmap ha appena abbandonato non torna subito in coda:
             # riprovarlo con gli stessi mezzi dara' lo stesso esito, e intanto
@@ -1542,6 +1670,18 @@ class NetworkScanner:
             return ["-p", ",".join(str(p) for p in note)]
         return ["-p", ",".join(str(p) for p in PORTE_PROFONDITA)]
 
+    def _porte_della_raffica(self) -> tuple:
+        """Le porte della raffica: riconoscimento piu' profondita', in un colpo solo.
+
+        Su un host per processo si puo': sono ~260 porte con un budget di pacchetti
+        tutto per lui. Erano divise in due elenchi -- riconoscimento per tutti,
+        profondita' per chi dava segno -- perche' un processo doveva servire centinaia
+        di host e le sonde si dividevano fra loro. Con un host per processo quella
+        economia non serve piu', e chiedere tutto subito significa un nodo profilato
+        per intero al primo passaggio.
+        """
+        return tuple(sorted(set(PORTE_RICONOSCIMENTO) | set(PORTE_PROFONDITA)))
+
     def _porte_della_fase(self, hosts: list, profilo: dict) -> list:
         """Quali porte chiedere in questa passata: riconoscimento o profondita'.
 
@@ -1631,6 +1771,32 @@ class NetworkScanner:
         profilo = profilo or self.effort_profile()
         timing = profilo["timing"]
         attesa = self._host_timeout_for(stage, profilo, hosts)
+
+        if stage == "raffica":
+            # TUTTO QUELLO CHE NMAP SA FARE, SU UN NODO SOLO.
+            #
+            # `-A` e' versione dei servizi, rilevamento del sistema operativo, script
+            # `default` e traceroute in una sigla. Vi si aggiunge il catalogo curato:
+            # `--script` da solo SOSTITUIREBBE il set `default` che `-A` porta con
+            # se', quindi si scrive "default" davanti e lo si conserva.
+            #
+            # Il `+` davanti a molti script non e' decorativo: forza lo script anche
+            # dove nmap non ha riconosciuto il servizio atteso. Questo prodotto trova
+            # interfacce web sulla 7070 e sulla 8443 e agenti su porte spostate, e
+            # senza il `+` gli script non partirebbero proprio dove servono.
+            argomenti = [("-sS" if raw else "-sT"), "-Pn", "-A", timing]
+            argomenti += ["-p", ",".join(str(porta)
+                                         for porta in self._porte_della_raffica())]
+            argomenti += ["--script", "default," + ",".join(SCRIPT_RAFFICA)]
+            argomenti += ["--script-args", ARGOMENTI_SCRIPT_RAFFICA]
+            # Un tempo per host generoso: `-A` su un apparato lento impiega minuti, e
+            # sotto la soglia la raffica non conclude e non lascia dato -- che e' il
+            # difetto peggiore, perche' consuma tempo senza produrre niente.
+            argomenti += ["--host-timeout", ATTESA_RAFFICA_HOST]
+            escluse = self.excluded_ports()
+            if escluse:
+                argomenti += ["--exclude-ports", escluse]
+            return argomenti
 
         if stage == "discovery":
             # La scoperta conserva il proprio tempo breve anche quando se ne sceglie
@@ -1794,6 +1960,14 @@ class NetworkScanner:
         # dal LAVORO, cioe' dalle sonde da inviare diviso il ritmo misurato. E' un
         # conto verificabile e si adatta da se' al numero di host e di porte, invece
         # di moltiplicare un tetto per host che non esiste piu'.
+        if stage == "raffica":
+            # Un host per processo, con ~234 porte, `-A` e il catalogo di script: il
+            # tetto e' il tempo per host della raffica piu' il margine, non un calcolo
+            # sulle sonde. Misurato: 24 s su un host che risponde, minuti su un
+            # apparato lento.
+            return int(min(PROCESS_TIMEOUT_MAX_SECONDS,
+                           ATTESA_RAFFICA_PROCESSO_SEC * max(1, bersagli)))
+
         if stage == "ports":
             quante = int(porte or len(PORTE_RICONOSCIMENTO))
             sonde = bersagli * quante
@@ -1968,6 +2142,27 @@ class NetworkScanner:
         #    host che rispondono al ping, il conteggio "in lavorazione" restava fermo per
         #    ore senza che nessuno di quei candidati venisse toccato. Un compito per ciclo,
         #    come la scoperta: le due frontiere devono avanzare insieme.
+        # 1-ante-0. LA RAFFICA: un processo per nodo, fino a riempire il ciclo.
+        #
+        # E' la seconda fase del motore: la ricognizione dice CHI risponde, la raffica
+        # chiede a ciascuno tutto quello che nmap sa dire -- porte, versioni, sistema
+        # operativo, script -- con un processo dedicato. Il parallelismo sta qui, nei
+        # posti del ciclo: fino a MAX_WORKERS processi insieme, dove nmap non lo
+        # penalizza, invece che dentro un processo solo dove lo penalizza (i numeri
+        # stanno su SCRIPT_RAFFICA).
+        if len(compiti) < limite:
+            in_raffica = [n for n in self.pending_nodes("raffica")
+                          if n["ip"] not in assegnati]
+            # Chi e' comparso su una rete senza fili passa davanti: la sua finestra e'
+            # di minuti, quella di un apparato cablato non finisce.
+            in_raffica = self._in_ordine_di_priorita(in_raffica)
+            for nodo in in_raffica:
+                if len(compiti) >= max(1, limite - RISERVA_ARRICCHIMENTO):
+                    break
+                assegnati.add(nodo["ip"])
+                compiti.append({"stage": "raffica", "target": nodo["ip"],
+                                "hosts": [nodo["ip"]]})
+
         if len(compiti) < limite:
             porte_attesa = [n for n in self.pending_nodes("ports")
                             if n["ip"] not in assegnati]
@@ -1975,19 +2170,44 @@ class NetworkScanner:
             # e' di minuti, quella di un apparato cablato non finisce.
             porte_attesa = self._in_ordine_di_priorita(porte_attesa)
             if porte_attesa:
-                # UN SOLO compito con TUTTI gli host in attesa, non uno per host.
-                # E' il cuore del motore riprogettato: un processo nmap lavora gli
-                # host a gruppi di GRUPPO_HOST, e dentro un gruppo le sonde si
-                # distribuiscono su host diversi. Misurato: 16 host vivi con
-                # l'elenco di riconoscimento in 2,6 s con recall completo, contro
-                # 202 s PER HOST della struttura a un host per compito.
+                # Host a GRUPPI, non tutti in un processo solo.
                 #
-                # Il posto occupato nel ciclo e' uno solo, quindi le altre fasi
-                # restano libere di avanzare in parallelo.
+                # La struttura a un host per compito costava 202 s per host: da qui
+                # l'idea di darne molti a un solo processo, dove nmap li lavora a
+                # gruppi e distribuisce le sonde. Con un gruppo (64 host) e' vero e
+                # misurato: 16 host vivi in 2,6 s con recall completo.
+                #
+                # Con MOLTI gruppi in un processo solo, no. Misurato in esercizio, ed
+                # e' il motivo di questa suddivisione:
+                #   * 256 host in un processo: fase "completed", ZERO record. Nessuna
+                #     porta trovata su nessuno dei 256 -- mentre lo stesso nmap, sullo
+                #     stesso host, con le stesse porte, ne trova in 3,3 secondi;
+                #   * oltre 500 host in un processo: nmap non termina entro le due ore
+                #     del tetto (PROCESS_TIMEOUT_MAX_SECONDS) e la fase scade.
+                # La ragione e' la stessa che aveva fatto scegliere i gruppi: il budget
+                # di pacchetti di nmap e' PER PROCESSO. Molti gruppi nello stesso
+                # processo se lo dividono, la finestra di congestione si stringe su
+                # ogni gruppo, e le porte vere passano per filtrate.
+                #
+                # Un processo = un gruppo = MAX_HOST_PER_PROCESSO_PORTE host. I compiti
+                # che ne risultano girano in parallelo nel pool, quindi il parallelismo
+                # non si perde: si sposta dove nmap non lo penalizza.
                 indirizzi = [n["ip"] for n in porte_attesa]
                 assegnati.update(indirizzi)
-                compiti.append({"stage": "ports", "target": "*",
-                                "hosts": indirizzi})
+                spazio = max(1, limite - len(compiti))
+                for inizio in range(0, len(indirizzi),
+                                    MAX_HOST_PER_PROCESSO_PORTE):
+                    if len([c for c in compiti if c["stage"] == "ports"]) >= spazio:
+                        break
+                    gruppo = indirizzi[inizio:inizio + MAX_HOST_PER_PROCESSO_PORTE]
+                    compiti.append({"stage": "ports", "target": "*",
+                                    "hosts": gruppo})
+                # Gli indirizzi non entrati in questo ciclo tornano disponibili: senza
+                # questo resterebbero "assegnati" senza avere un compito, e nessuna
+                # fase li guarderebbe.
+                assegnati.difference_update(
+                    set(indirizzi) - {ip for c in compiti if c["stage"] == "ports"
+                                      for ip in c["hosts"]})
 
         # 1-ante-2. Un posto riservato al COMPLETAMENTO del profilo: le fasi necessarie
         #    al conferimento (servizi e, dove possibile, sistema operativo) DOPO le
@@ -2611,7 +2831,7 @@ class NetworkScanner:
         # restituisce marcato scaduto: dopo la soglia la fase e' "tentata" e il nodo
         # puo' essere conferito con cio' che ha. Non riguarda 'ports' (li' l'assenza e'
         # gestita dall'ammissione dei candidati) ne' la scoperta.
-        if bersagli and stage not in ("discovery", "ports"):
+        if bersagli and stage not in ("discovery", "ports", "raffica"):
             visti = {p["ip"] for p in
                      letto["nodes"] + letto["candidates"] + letto["discarded"]}
             for ip in bersagli:
@@ -2737,6 +2957,12 @@ class NetworkScanner:
 
         svolte = set((locale or {}).get("stages_done", "").split(",")) - {""}
         svolte.add(stage)
+        if stage == "raffica":
+            # La raffica ha chiesto porte, versioni e sistema operativo in un colpo
+            # solo: dichiarare quelle fasi da fare significherebbe rifarle. Restano
+            # utili alla RI-ispezione di un nodo gia' conferito, dove interessa una
+            # cosa per volta.
+            svolte.update(FASI_COPERTE_DALLA_RAFFICA)
         aperte = [p for p in porte.values() if p["state"] == "open"]
 
         # L'host ha RISPOSTO a questa fase: la sua storia di scadenze e' superata e
@@ -2807,6 +3033,160 @@ class NetworkScanner:
         richieste = set(self._required_stages()) | {"deep"}
         return richieste <= svolte or self._niente_da_profilare(nodo)
 
+    # Quante verifiche singole si fanno in un ciclo, prima di scartare. Il tetto serve
+    # a non far monopolizzare il ciclo dal riesame: chi resta fuori NON viene scartato,
+    # viene verificato al giro dopo -- restare candidato non costa niente, sparire si'.
+    MAX_VERIFICHE_PRIMA_DELLO_SCARTO = 4
+
+    # Tempo massimo del riesame singolo. Misurato: un host di questo tipo si esamina in
+    # 3,3 secondi da solo; trenta secondi sono abbondanti anche su una rete che non
+    # risponde.
+    ATTESA_VERIFICA_SEC = 20
+
+    def _segna_verificato(self, ip: str) -> None:
+        """Annota che il nodo E' STATO guardato da solo, e non va riesaminato.
+
+        Si chiama solo quando la verifica e' AVVENUTA -- non prima di tentarla. La
+        prima versione la segnava prima, e una verifica che non partiva (esecutore
+        saturo, tempo scaduto) bruciava l'unica occasione: il nodo restava muto per
+        sempre senza essere mai stato guardato.
+        """
+        locale = self.store.local_node(ip)
+        try:
+            profilo = json.loads((locale or {}).get("profile_json") or "{}") or {}
+        except (TypeError, ValueError):
+            profilo = {}
+        profilo["verified_alone_at"] = _now_str()
+        self.store.upsert_local_node(
+            ip, profile_json=json.dumps(profilo, ensure_ascii=False))
+
+    def _riesamina_da_solo(self, ip: str) -> str:
+        """Riesamina un host DA SOLO prima di scartarlo.
+
+        Restituisce `"trovato"`, `"muto"` oppure `"non_verificato"`. I tre esiti sono
+        tre cose diverse e vanno tenute distinte: "muto" autorizza lo scarto,
+        "non_verificato" no -- e confonderli e' precisamente l'errore che ha fatto
+        sparire un firewall dall'inventario.
+
+        PERCHE' ESISTE, con la misura che lo ha imposto.
+        In esercizio 10.10.60.1 -- il firewall che fa da gateway a una rete di utenza,
+        con la 53/tcp aperta e servita da Unbound -- e' stato scartato come "nessuna
+        informazione dopo le fasi ports, snmp". Lo stesso nmap, sullo stesso host,
+        dalla stessa sonda, con le stesse trenta porte, lo trova in 3,3 secondi.
+        L'unica differenza era il contesto: quell'host era uno di 256 in un solo
+        processo, su una rete che a quasi tutto non risponde.
+
+        Perdere un apparato vero e' il difetto piu' grave che questo prodotto possa
+        avere. Un dato mancante e' un dato mancante; un firewall che sparisce
+        dall'inventario e' un'AFFERMAZIONE FALSA -- e chi legge non ha modo di
+        accorgersene, perche' non si vede cio' che non c'e'.
+
+        Il riesame costa pochi secondi, si fa solo su chi sta per essere scartato (un
+        numero piccolo) e si fa UNA volta per nodo: se anche da solo non dice nulla, il
+        nodo si scarta e non lo si riesamina piu'.
+        """
+        argomenti = ["-sS" if self.capabilities().get("raw_sockets") else "-sT",
+                     "-Pn", "-T3", "-p", ",".join(str(p) for p in PORTE_RICONOSCIMENTO)]
+        escluse = self.excluded_ports()
+        if escluse:
+            argomenti += ["--exclude-ports", escluse]
+        try:
+            xml = self.runner.run(argomenti, [ip],
+                                  timeout=self.ATTESA_VERIFICA_SEC,
+                                  label="verifica di %s prima dello scarto" % ip)
+        except (NmapTimeout, NmapError) as errore:
+            # Non si e' potuto verificare: NON si scarta e NON si consuma l'occasione.
+            # Costato subito: la prima versione segnava il nodo come "verificato"
+            # prima di verificarlo, quindi una verifica che non partiva (esecutore
+            # saturo, tempo scaduto) bruciava l'unica occasione e il nodo restava muto
+            # per sempre. Misurato su 10.10.60.101.
+            self.store.log("warning",
+                           "Verifica di %s non eseguita (%s): il nodo resta in attesa"
+                           % (ip, type(errore).__name__))
+            return "non_verificato"
+        try:
+            letto = nmap_xml.parse_scan(xml, ports_examined=True)
+        except nmap_xml.NmapXmlError as errore:
+            self.store.log("warning", "Verifica di %s illeggibile (%s): il nodo resta"
+                                      " in attesa" % (ip, errore))
+            return "non_verificato"
+
+        for prove in letto["nodes"] + letto["candidates"] + letto["discarded"]:
+            if prove["ip"] != ip:
+                continue
+            aperte = [p for p in (prove.get("ports") or [])
+                      if p.get("state") == "open"]
+            if not aperte and not prove.get("os") and not prove.get("hostname"):
+                return "muto"
+            # Qualcosa c'era: si fondono le prove come quelle di una fase normale, e il
+            # nodo torna nel giro invece di uscirne.
+            self._merge_profile(ip, "ports", prove)
+            self.store.log("warning",
+                           "Nodo %s stava per essere scartato ma da solo risponde:"
+                           " %d porte aperte (%s). La passata di gruppo non le aveva"
+                           " viste."
+                           % (ip, len(aperte),
+                              ", ".join("%s/%s" % (p.get("protocol"), p.get("port"))
+                                        for p in aperte[:6]) or "nessuna"))
+            return "trovato"
+        # nmap non ha nemmeno elencato l'host: non e' una risposta, e' un'assenza di
+        # risposta. Non conta come verifica.
+        return "non_verificato"
+
+    def _recupera_i_muti(self, quota: int) -> int:
+        """Riesamina da solo chi ha fatto la fase porte senza trovare niente, e non e'
+        mai stato guardato da solo. Restituisce quanti ne ha riesaminati.
+
+        Perche' serve oltre alla verifica che precede lo scarto: quella impedisce di
+        perdere ALTRI apparati, ma quelli gia' persi resterebbero fuori fino al
+        censimento successivo -- giorni. Un firewall mancante dall'inventario per tre
+        giorni e' comunque un'affermazione falsa per tre giorni.
+
+        Vale per QUALUNQUE stato, e la ragione e' un difetto misurato: un nodo scartato
+        che la ricognizione delle presenze rivede torna "candidato", ma con la fase
+        porte gia' segnata e zero porte aperte -- quindi nessuna coda lo riprende, e
+        resta la' per sempre, ne' conferito ne' scartato. Guardare solo gli scartati
+        avrebbe lasciato fuori proprio il caso che ha fatto scoprire il difetto.
+
+        Il riesame vale UNA volta per nodo (`verified_alone_at`): un nodo che anche da
+        solo non dice niente e' muto per davvero, e non si riesamina a ogni ciclo.
+        """
+        if quota <= 0:
+            return 0
+        recuperati = 0
+        for locale in self.store.local_nodes():
+            if recuperati >= quota:
+                break
+            svolte = set((locale.get("stages_done") or "").split(",")) - {""}
+            if "ports" not in svolte or int(locale.get("open_ports") or 0) > 0:
+                continue
+            try:
+                profilo = json.loads(locale.get("profile_json") or "{}")
+            except (TypeError, ValueError):
+                continue
+            if profilo.get("verified_alone_at"):
+                continue
+            # Il perimetro vincola anche il riesame: un indirizzo non piu' dichiarato
+            # non si tocca, nemmeno per recuperarlo.
+            if not within_perimeter(self.perimeter(), locale["ip"]):
+                continue
+            recuperati += 1
+            era_scartato = locale.get("state") == "discarded"
+            esito = self._riesamina_da_solo(locale["ip"])
+            if esito != "non_verificato":
+                self._segna_verificato(locale["ip"])
+            if esito == "trovato":
+                # `_riesamina_da_solo` ha fuso le prove: il nodo torna "confirmed" e il
+                # conferimento del ciclo successivo lo rimette nell'inventario, da cui
+                # era stato rimosso.
+                self.store.upsert_local_node(locale["ip"], state="confirmed")
+                self.store.log(
+                    "warning",
+                    "Nodo %s %s: da solo risponde, la passata di gruppo non lo aveva"
+                    " visto" % (locale["ip"],
+                                "recuperato" if era_scartato else "riportato in giro"))
+        return recuperati
+
     def _drop_without_information(self) -> list:
         """Scarta i nodi che, esaurite tutte le fasi, non portano informazioni.
 
@@ -2815,6 +3195,7 @@ class NetworkScanner:
         applica solo dopo aver verificato di non avere dati propri sul nodo.
         """
         rimozioni = []
+        verifiche = 0
         for locale in self.store.local_nodes("confirmed"):
             svolte = set((locale.get("stages_done") or "").split(",")) - {""}
             if not self._fully_examined(locale):
@@ -2828,6 +3209,26 @@ class NetworkScanner:
             if self.profile_has_information(profilo):
                 continue
 
+            # RIESAME PRIMA DELLO SCARTO. Una passata di gruppo che non ha visto nulla
+            # non e' una prova che non ci sia nulla: vedi `_riesamina_da_solo`, che
+            # esiste per un firewall vero scartato per errore.
+            if not profilo.get("verified_alone_at"):
+                if verifiche >= self.MAX_VERIFICHE_PRIMA_DELLO_SCARTO:
+                    # Fuori quota: NON si scarta. Si riprova al giro dopo -- restare
+                    # candidato non costa niente, sparire si'.
+                    continue
+                verifiche += 1
+                esito = self._riesamina_da_solo(locale["ip"])
+                if esito != "muto":
+                    # "trovato" oppure "non_verificato": in nessuno dei due casi si
+                    # scarta, e l'occasione NON si consuma se la verifica non e'
+                    # avvenuta -- altrimenti un esecutore saturo condannerebbe il nodo
+                    # (misurato su 10.10.60.101).
+                    if esito == "trovato":
+                        self._segna_verificato(locale["ip"])
+                    continue
+                self._segna_verificato(locale["ip"])
+
             adesso = _now_str()
             self.store.upsert_local_node(locale["ip"], state="discarded",
                                          discarded_at=adesso)
@@ -2837,6 +3238,12 @@ class NetworkScanner:
             rimozioni.append({"ip": locale["ip"], "reason": motivo,
                               "stages": sorted(svolte), "decided_at": adesso})
             self.store.log("info", "Nodo %s scartato: %s" % (locale["ip"], motivo))
+
+        # Con la quota che resta si guarda indietro: chi e' passato per la fase porte
+        # senza trovare niente, prima che questa verifica esistesse, non e' mai stato
+        # guardato da solo -- scartato, o rimasto candidato senza piu' una coda che lo
+        # riprendesse.
+        self._recupera_i_muti(self.MAX_VERIFICHE_PRIMA_DELLO_SCARTO - verifiche)
         return rimozioni
 
     def _confer_complete_profiles(self) -> dict:

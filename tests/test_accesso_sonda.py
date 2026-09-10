@@ -25,11 +25,18 @@ DA_LOCALE = {"REMOTE_ADDR": "127.0.0.1"}
 
 
 @pytest.fixture()
-def sonda(tmp_path, monkeypatch):
+def sonda(tmp_path, monkeypatch, database_di_prova):
     """Sonda con archivio temporaneo e SENZA password: e' lo stato di prima apertura."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "probe.sqlite3"))
+    from snapprobe import db as probe_db
+
+    # L'archivio della sonda e' PostgreSQL: ogni prova ha il proprio database, come
+    # quelle del server. Il motore e' unico per processo e va dimenticato fra una
+    # prova e l'altra, altrimenti la seconda scriverebbe nel database della prima --
+    # che intanto e' stato distrutto.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-secret-key")
 
     import snapprobe

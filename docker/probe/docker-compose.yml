@@ -81,7 +81,18 @@ services:
       SNAP_PROBE_BEHIND_PROXY: "1"
       # Il cookie di sessione viaggia solo su HTTPS.
       SNAP_PROBE_COOKIE_SECURE: "1"
-      SNAP_PROBE_STORE: /data/snap_probe.sqlite3
+      # L'ARCHIVIO E' POSTGRESQL, non piu' un file nel volume.
+      #
+      # Due utenze come sul server, e per la stessa ragione (minimo privilegio):
+      # il PROPRIETARIO crea e migra lo schema, l'APPLICATIVO legge e scrive i dati
+      # e non puo' cambiare la struttura. La sonda usa l'applicativo.
+      #
+      # `network_mode: host` in esercizio: il database ascolta sul loopback della
+      # macchina, quindi l'indirizzo e' 127.0.0.1 e la porta e' quella del progetto
+      # (5532, dentro il range 5500-5600). Con il compose per Docker Desktop la rete
+      # e' condivisa col servizio, e vale lo stesso indirizzo.
+      SNAP_PROBE_DATABASE_URL: "postgresql+psycopg://${PROBE_PG_APP_USER:-snap_probe_app}:${PROBE_PG_APP_PASSWORD:?password dell'utente applicativo della sonda mancante: vedi .env}@127.0.0.1:5532/${PROBE_POSTGRES_DB:-snap_probe}"
+      SNAP_PROBE_OWNER_DATABASE_URL: "postgresql+psycopg://${PROBE_POSTGRES_USER:-snap_probe_owner}:${PROBE_POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}@127.0.0.1:5532/${PROBE_POSTGRES_DB:-snap_probe}"
       APP_PORT: "5511"
       # nmap decide se puo' fare scansione SYN e rilevamento del sistema operativo
       # guardando `euid == 0`, NON le capacita' che ha davvero: senza questa variabile

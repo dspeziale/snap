@@ -219,14 +219,18 @@ def test_la_prenotazione_regge_la_corsa_fra_molti_thread(sonda):
 
 
 def test_una_prenotazione_scaduta_viene_liberata(sonda):
-    import sqlite3
+    """Serve al caso in cui un thread termini senza rilasciare: senza la scadenza il
+    bersaglio resterebbe bloccato per sempre."""
+    from datetime import datetime, timedelta, timezone
 
     sonda.claim_keys(["node:192.0.2.7"], "morto", "ports")
-    # Si retrodata la prenotazione, come se il thread fosse morto un'ora prima.
-    connessione = sqlite3.connect(str(sonda.path))
-    connessione.execute("UPDATE scan_claims SET claimed_at = datetime('now', '-2 hours')")
-    connessione.commit()
-    connessione.close()
+    # Si retrodata la prenotazione, come se il thread fosse morto due ore prima.
+    # L'istante si calcola qui e si passa come parametro: `datetime('now')` era di
+    # SQLite, e l'archivio della sonda non e' piu' quello.
+    vecchio = (datetime.now(timezone.utc)
+               - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+    with sonda._connect() as connessione:
+        connessione.execute("UPDATE scan_claims SET claimed_at = ?", (vecchio,))
 
     liberate = sonda.purge_stale_claims(1800)
     assert liberate == 1
@@ -615,3 +619,219 @@ def test_il_completamento_del_profilo_non_affama_l_arricchimento(sonda):
     # esista un ciclo in cui il profilo prende tutto.
     assert len(compiti) == 16, "il ciclo deve essere pieno: i posti non si sprecano"
     assert RISERVA_ARRICCHIMENTO >= 1
+
+
+# --------------------------------------------------------------------------- #
+# Nessun nodo si scarta sulla parola di una sola passata di gruppo
+# --------------------------------------------------------------------------- #
+# IL CASO VERO, misurato in esercizio: 10.10.60.1 e' il firewall che fa da gateway a
+# una rete di utenza, con la 53/tcp aperta servita da Unbound. La fase porte lo ha
+# esaminato dentro un processo da 256 host, su una rete che a quasi tutto non risponde,
+# non ha visto niente, e il nodo e' stato SCARTATO. Lo stesso nmap, sullo stesso host,
+# dalla stessa sonda, con le stesse trenta porte, lo trova in 3,3 secondi.
+#
+# Perdere un apparato vero e' il difetto piu' grave che questo prodotto possa avere: un
+# dato mancante e' un dato mancante, ma un firewall che sparisce dall'inventario e'
+# un'affermazione falsa -- e nessuno se ne accorge, perche' non si vede cio' che non
+# c'e'.
+XML_MUTO = """<?xml version="1.0"?><nmaprun scanner="nmap" args="-sS" start="1"
+ version="7.95" xmloutputversion="1.05"><scaninfo type="syn"/>
+<host><status state="up" reason="echo-reply" reason_ttl="63"/>
+<address addr="10.10.60.1" addrtype="ipv4"/><hostnames></hostnames>
+<ports><port protocol="tcp" portid="53"><state state="filtered"
+ reason="no-response"/></port></ports>
+<times srtt="4000" rttvar="4000" to="100000"/></host>
+<runstats><finished elapsed="3.3" exit="success"/></runstats></nmaprun>"""
+
+XML_PARLANTE = """<?xml version="1.0"?><nmaprun scanner="nmap" args="-sS" start="1"
+ version="7.95" xmloutputversion="1.05"><scaninfo type="syn"/>
+<host><status state="up" reason="echo-reply" reason_ttl="63"/>
+<address addr="10.10.60.1" addrtype="ipv4"/><hostnames></hostnames>
+<ports><port protocol="tcp" portid="53"><state state="open" reason="syn-ack"/>
+<service name="domain" product="Unbound" method="probed" conf="10"/></port></ports>
+<times srtt="4000" rttvar="4000" to="100000"/></host>
+<runstats><finished elapsed="3.3" exit="success"/></runstats></nmaprun>"""
+
+
+def _sonda_con_perimetro(probe_store):
+    probe_store.set_json("scan_subnets", [{"cidr": "10.10.60.0/24", "label": "Ospiti"}])
+    return probe_store
+
+
+def test_prima_di_scartare_un_nodo_lo_si_guarda_da_solo(probe_store):
+    """Il nodo che la passata di gruppo non ha visto risponde da solo: non si scarta,
+    e le porte trovate finiscono nel profilo."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node("10.10.60.1", state="confirmed",
+                                  stages_done="ports,snmp", open_ports=0,
+                                  profile_json='{"ip": "10.10.60.1", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert rimozioni == [], "un nodo che risponde da solo non si scarta"
+    assert esecutore.chiamate, "il riesame deve essere stato eseguito"
+    nodo = probe_store.local_node("10.10.60.1")
+    assert nodo["state"] == "confirmed"
+    assert nodo["open_ports"] == 1, "la porta trovata entra nel profilo"
+
+
+def test_un_nodo_che_non_dice_niente_nemmeno_da_solo_si_scarta(probe_store):
+    """Il contrario, e serve: senza questo il prodotto non scarterebbe piu' nulla e
+    l'inventario si riempirebbe di migliaia di host che rispondono al solo ping."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node("10.10.60.7", state="confirmed",
+                                  stages_done="ports,snmp", open_ports=0,
+                                  profile_json='{"ip": "10.10.60.7", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente(XML_MUTO.replace("10.10.60.1", "10.10.60.7"), durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert [r["ip"] for r in rimozioni] == ["10.10.60.7"]
+    assert probe_store.local_node("10.10.60.7")["state"] == "discarded"
+
+
+def test_il_riesame_si_fa_una_volta_sola(probe_store):
+    """Un nodo che anche da solo non dice niente e' stato scartato per la ragione
+    giusta: riesaminarlo a ogni ciclo sarebbe tempo tolto alle scansioni vere."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node("10.10.60.8", state="confirmed",
+                                  stages_done="ports", open_ports=0,
+                                  profile_json='{"ip": "10.10.60.8", "ports_index": {},'
+                                               ' "verified_alone_at": "2026-09-10 09:00:00"}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert esecutore.chiamate == [], "gia' verificato: non si riesamina"
+    assert [r["ip"] for r in rimozioni] == ["10.10.60.8"]
+
+
+def test_se_il_riesame_non_si_puo_fare_il_nodo_non_si_scarta(probe_store):
+    """Il dubbio va a favore del nodo: e' l'unico modo di non perdere un apparato per
+    un guasto nostro."""
+    from snapprobe.nmap_runner import NmapError
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node("10.10.60.9", state="confirmed",
+                                  stages_done="ports", open_ports=0,
+                                  profile_json='{"ip": "10.10.60.9", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente("", durata=0, errore=NmapError("nmap assente"))
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert rimozioni == []
+    assert probe_store.local_node("10.10.60.9")["state"] == "confirmed"
+
+
+def test_il_riesame_ha_un_tetto_per_ciclo(probe_store):
+    """Il riesame gira nel coordinatore: senza un tetto una rete con centinaia di host
+    muti bloccherebbe il ciclo. Chi resta fuori NON viene scartato -- restare
+    candidato non costa niente, sparire si'."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    for ultimo in range(20):
+        ip = "10.10.60.%d" % (ultimo + 30)
+        probe_store.upsert_local_node(
+            ip, state="confirmed", stages_done="ports", open_ports=0,
+            profile_json='{"ip": "%s", "ports_index": {}}' % ip)
+    esecutore = EsecutoreConcorrente(XML_MUTO, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    rimozioni = scanner._drop_without_information()
+
+    assert len(esecutore.chiamate) <= NetworkScanner.MAX_VERIFICHE_PRIMA_DELLO_SCARTO
+    assert len(rimozioni) <= NetworkScanner.MAX_VERIFICHE_PRIMA_DELLO_SCARTO, (
+        "chi non e' stato verificato non viene scartato")
+
+
+def test_chi_era_gia_stato_scartato_viene_recuperato(probe_store):
+    """Il difetto non si limita a non ripetersi: si ripara. Un firewall mancante
+    dall'inventario per tre giorni -- fino al censimento successivo -- e' comunque
+    un'affermazione falsa per tre giorni."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node(
+        "10.10.60.1", state="discarded", stages_done="ports,snmp", open_ports=0,
+        discarded_at="2026-09-10 12:40:48",
+        profile_json='{"ip": "10.10.60.1", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    scanner._drop_without_information()
+
+    nodo = probe_store.local_node("10.10.60.1")
+    assert nodo["state"] == "confirmed", "torna nell'inventario"
+    assert nodo["open_ports"] == 1
+
+
+def test_un_candidato_muto_senza_coda_viene_riesaminato(probe_store):
+    """IL CASO CHE HA FATTO SCOPRIRE IL DIFETTO NEL DIFETTO.
+
+    Un nodo scartato che la ricognizione delle presenze rivede torna "candidato", ma
+    con la fase porte gia' segnata e zero porte aperte: nessuna coda lo riprende --
+    `pending_nodes("ports")` lo salta perche' quella fase risulta svolta -- e resta
+    la' per sempre, ne' conferito ne' scartato. Guardare solo gli scartati avrebbe
+    lasciato fuori proprio questo.
+    """
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node(
+        "10.10.60.1", state="candidate", stages_done="ports,snmp", open_ports=0,
+        profile_json='{"ip": "10.10.60.1", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    scanner._drop_without_information()
+
+    nodo = probe_store.local_node("10.10.60.1")
+    assert nodo["state"] == "confirmed", "torna nel giro"
+    assert nodo["open_ports"] == 1
+
+
+def test_chi_ha_porte_aperte_non_si_riesamina(probe_store):
+    """Il riesame serve ai muti: su chi ha gia' detto qualcosa sarebbe una scansione
+    in piu' per ogni nodo dell'inventario, a ogni ciclo."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node(
+        "10.10.60.20", state="confirmed", stages_done="ports", open_ports=3,
+        profile_json='{"ip": "10.10.60.20", "ports_index": {"tcp/80": {}}}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    scanner._drop_without_information()
+
+    assert esecutore.chiamate == []
+
+
+def test_il_recupero_rispetta_il_perimetro(probe_store):
+    """Un indirizzo non piu' dichiarato non si tocca, nemmeno per recuperarlo."""
+    from snapprobe.scanner import NetworkScanner
+
+    _sonda_con_perimetro(probe_store)
+    probe_store.upsert_local_node(
+        "192.168.99.9", state="discarded", stages_done="ports", open_ports=0,
+        profile_json='{"ip": "192.168.99.9", "ports_index": {}}')
+    esecutore = EsecutoreConcorrente(XML_PARLANTE, durata=0)
+    scanner = NetworkScanner(probe_store, esecutore)
+
+    scanner._drop_without_information()
+
+    assert esecutore.chiamate == []
+    assert probe_store.local_node("192.168.99.9")["state"] == "discarded"

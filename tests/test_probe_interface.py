@@ -19,11 +19,18 @@ from conftest import prepara_accesso_sonda  # noqa: E402
 
 
 @pytest.fixture()
-def probe_app(tmp_path, monkeypatch):
+def probe_app(tmp_path, monkeypatch, database_di_prova):
     """Applicativo sonda con archivio temporaneo e agente non avviato."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "probe.sqlite3"))
+    from snapprobe import db as probe_db
+
+    # L'archivio della sonda e' PostgreSQL: ogni prova ha il proprio database, come
+    # quelle del server. Il motore e' unico per processo e va dimenticato fra una
+    # prova e l'altra, altrimenti la seconda scriverebbe nel database della prima --
+    # che intanto e' stato distrutto.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-secret-key")
 
     import snapprobe

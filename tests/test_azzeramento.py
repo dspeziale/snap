@@ -58,17 +58,15 @@ def _popola(store) -> None:
 
 
 def _consistenza(store) -> dict:
-    """Quante righe ci sono in ciascuna tabella."""
-    import sqlite3
+    """Quante righe ci sono in ciascuna tabella.
 
-    connessione = sqlite3.connect(str(store.path))
-    connessione.row_factory = sqlite3.Row
-    try:
-        return {t: connessione.execute("SELECT COUNT(*) AS n FROM %s" % t).fetchone()["n"]
-                for t in ("local_nodes", "scan_state", "scan_claims", "spool",
-                          "sync_log", "check_state", "events", "settings")}
-    finally:
-        connessione.close()
+    Si interroga l'archivio dalla sua stessa connessione: non e' piu' un file da
+    aprire di lato.
+    """
+    tabelle = tuple(store.DATA_TABLES) + ("settings",)
+    with store._connect() as connessione:
+        return {t: connessione.execute(
+            "SELECT COUNT(*) AS n FROM %s" % t).fetchone()["n"] for t in tabelle}
 
 
 # --------------------------------------------------------------------------- #
@@ -123,34 +121,49 @@ def test_l_azzeramento_completo_rimuove_anche_la_registrazione(probe_store):
     assert "scan_subnets" not in impostazioni
 
 
-def test_l_azzeramento_restituisce_lo_spazio_al_sistema(probe_store):
-    """Un archivio azzerato che pesa come prima e' una contraddizione visibile."""
+def test_l_azzeramento_svuota_le_tabelle_e_dichiara_cosa_recupera(probe_store):
+    """CAMBIATA LA PROMESSA, perche' la precedente non era piu' vera.
+
+    Con SQLite l'azzeramento riduceva il FILE: si misurava l'ingombro e doveva
+    dimezzarsi. Su PostgreSQL un `VACUUM` ordinario non restituisce spazio al sistema
+    operativo -- rende riutilizzabile quello delle righe morte dentro il database --
+    quindi la dimensione misurata spesso non cala. Pretenderlo qui vorrebbe dire
+    scrivere un test che passa solo se il prodotto promette una cosa falsa.
+
+    Cio' che deve valere e' che i DATI non ci siano piu': quello si verifica, ed e'
+    la sostanza dell'azzeramento.
+    """
     for indice in range(400):
         probe_store.upsert_local_node("10.0.%d.%d" % (indice // 250, indice % 250 + 1),
                                       state="confirmed",
                                       profile_json=json.dumps({"riempimento": "x" * 400}))
-    # Si misura l'ingombro COMPLESSIVO: in modalita' WAL i dati appena scritti
-    # stanno nel giornale, e il solo file principale cresce durante il riversamento.
-    prima = probe_store.footprint()
+
     probe_store.reset(keep_enrollment=False)
-    dopo = probe_store.footprint()
-    assert dopo < prima / 2, (
-        "l'archivio non e' stato compattato (%d -> %d byte)" % (prima, dopo))
+
+    residuo = _consistenza(probe_store)
+    for tabella in probe_store.DATA_TABLES:
+        if tabella == "events":
+            # L'azzeramento scrive la propria riga di diario DOPO aver svuotato: e'
+            # voluto -- un archivio che si azzera senza lasciare traccia dell'azzeramento
+            # e' un archivio che non si puo' ricostruire. Deve restare solo quella.
+            assert residuo[tabella] == 1, "resta la sola riga dell'azzeramento"
+            continue
+        assert residuo[tabella] == 0, "%s: %d righe sopravvissute" % (
+            tabella, residuo[tabella])
+    # E l'ingombro si sa dire: e' un numero, non una promessa di riduzione.
+    assert probe_store.footprint() > 0
 
 
 def test_una_tabella_nuova_deve_essere_dichiarata_esplicitamente(probe_store):
     """L'elenco delle tabelle da svuotare e' esplicito per scelta: una tabella
     aggiunta in futuro non deve trovarsi cancellata per effetto collaterale, ne'
     sopravvivere in silenzio a un azzeramento."""
-    import sqlite3
-
-    connessione = sqlite3.connect(str(probe_store.path))
-    try:
-        presenti = {r[0] for r in connessione.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-            " AND name NOT LIKE 'sqlite_%'")}
-    finally:
-        connessione.close()
+    # Il catalogo si interroga con `information_schema`, che e' lo standard: era
+    # `sqlite_master`, e l'archivio della sonda non e' piu' quello.
+    with probe_store._connect() as connessione:
+        presenti = {r["table_name"] for r in connessione.execute(
+            "SELECT table_name FROM information_schema.tables"
+            " WHERE table_schema = current_schema()").fetchall()}
 
     dichiarate = set(probe_store.DATA_TABLES) | {"settings"}
     assert presenti == dichiarate, (
@@ -226,11 +239,18 @@ def test_lo_scanner_dimentica_le_cache_in_memoria(probe_store):
 # Interfaccia
 # --------------------------------------------------------------------------- #
 @pytest.fixture()
-def sonda_web(tmp_path, monkeypatch):
+def sonda_web(tmp_path, monkeypatch, database_di_prova):
     """Interfaccia locale della sonda, con archivio popolato."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "probe.sqlite3"))
+    from snapprobe import db as probe_db
+
+    # L'archivio della sonda e' PostgreSQL: ogni prova ha il proprio database, come
+    # quelle del server. Il motore e' unico per processo e va dimenticato fra una
+    # prova e l'altra, altrimenti la seconda scriverebbe nel database della prima --
+    # che intanto e' stato distrutto.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-secret-key")
 
     import snapprobe

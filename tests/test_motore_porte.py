@@ -134,17 +134,31 @@ def test_le_porte_di_riconoscimento_dicono_che_cosa_e_un_apparato(scanner):
 # --------------------------------------------------------------------------- #
 # Un solo compito con tutti gli host
 # --------------------------------------------------------------------------- #
-def test_un_solo_compito_porta_tutti_gli_host_in_attesa(scanner, probe_store):
-    """E' il cuore del motore: un processo lavora l'insieme a gruppi, invece di un
-    processo per host (202 s CIASCUNO, misurato) o di pochi host per processo con un
-    tetto per host (che scadono tutti)."""
+def test_un_candidato_si_profila_con_un_processo_dedicato(scanner, probe_store):
+    """LA STRUTTURA DEL MOTORE, dopo tre misure che l'hanno corretta.
+
+    Prima: un processo per host, 202 s ciascuno -- troppo lento.
+    Poi: un processo con TUTTI gli host, a gruppi -- veloce ma cieco. Misurato in
+    esercizio: 256 host in un processo hanno dato ZERO porte su 256, e oltre 500 il
+    processo non finiva entro le due ore del tetto. Il budget di pacchetti di nmap e'
+    per PROCESSO, e dividerlo fra molti host stringe la finestra di congestione su
+    ognuno: su una rete che filtra, le porte vere passano per filtrate.
+    Ora: un processo per host (la RAFFICA), fino a MAX_WORKERS in parallelo. Il
+    parallelismo sta nel pool, dove nmap non lo penalizza, e ogni host ha il budget
+    tutto per se': 3,3 s per le porte, ~24 s con `-A`.
+    """
     for n in range(1, 40):
         probe_store.upsert_local_node("192.0.2.%d" % n, state="candidate")
 
-    porte = [c for c in scanner.plan_tasks(limit=8) if c["stage"] == "ports"]
+    compiti = scanner.plan_tasks(limit=8)
+    raffiche = [c for c in compiti if c["stage"] == "raffica"]
 
-    assert len(porte) == 1, "un solo compito per le porte, non uno per host"
-    assert len(porte[0]["hosts"]) == 39, "il compito deve portare tutti gli host"
+    assert raffiche, "i candidati si profilano con la raffica"
+    for compito in raffiche:
+        assert len(compito["hosts"]) == 1, "un host per processo"
+    assert len(raffiche) > 1, "e piu' processi insieme: il parallelismo e' nel pool"
+    visti = [ip for c in raffiche for ip in c["hosts"]]
+    assert len(visti) == len(set(visti)), "nessun host in due compiti dello stesso ciclo"
 
 
 def test_i_bersagli_della_fase_non_vengono_troncati(scanner, probe_store):
@@ -263,3 +277,160 @@ def test_la_gestione_fuori_banda_dei_pc_e_guardata(scanner):
 
     assert 16992 in PORTE_PROFONDITA and 16993 in PORTE_PROFONDITA
     assert 623 in PORTE_PROFONDITA, "IPMI"
+
+
+def test_la_fase_porte_non_mette_tutti_gli_host_in_un_processo(probe_store):
+    """Il tetto vale anche per la fase porte, che resta per i nodi che la raffica non
+    ha ancora preso: 256 host in un processo hanno dato zero porte su 256, oltre 500
+    il processo non finisce in due ore."""
+    from snapprobe.scanner import MAX_HOST_PER_PROCESSO_PORTE, NetworkScanner
+
+    probe_store.set_json("scan_subnets", [{"cidr": "10.9.0.0/16", "label": "Grande"}])
+    for ultimo in range(200):
+        probe_store.upsert_local_node("10.9.%d.%d" % (ultimo // 250, ultimo % 250),
+                                      state="confirmed", stages_done="raffica",
+                                      open_ports=1)
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    for compito in [c for c in scanner.plan_tasks(limit=32) if c["stage"] == "ports"]:
+        assert len(compito["hosts"]) <= MAX_HOST_PER_PROCESSO_PORTE, (
+            "un processo con %d host: e' la struttura che non trovava niente"
+            % len(compito["hosts"]))
+
+
+def test_il_tempo_massimo_di_un_processo_porte_resta_nei_minuti(probe_store):
+    """Il tetto delle due ore era una rete di sicurezza che veniva RAGGIUNTA: con
+    processi piccoli il tempo calcolato torna nell'ordine dei minuti, che e' cio' che
+    rende la fase ripetibile."""
+    from snapprobe.scanner import (MAX_HOST_PER_PROCESSO_PORTE, NetworkScanner,
+                                   PROCESS_TIMEOUT_MAX_SECONDS)
+
+    scanner = NetworkScanner(probe_store, _EsecutoreMuto(), "prova")
+
+    attesa = scanner._process_timeout("ports", MAX_HOST_PER_PROCESSO_PORTE,
+                                      scanner.effort_profile(), porte=30)
+
+    assert attesa < PROCESS_TIMEOUT_MAX_SECONDS, "non deve toccare il tetto"
+    assert attesa <= 900, "un processo da 64 host sta in un quarto d'ora: %d s" % attesa
+
+
+class _EsecutoreMuto:
+    """Esecutore che non viene invocato: queste prove guardano la PIANIFICAZIONE."""
+
+    def detect_capabilities(self, force: bool = False) -> dict:
+        return {"available": True, "executable": "nmap-finto", "nmap_version": "7.95",
+                "raw_sockets": True, "os_detection": True, "detail": "prova"}
+
+    def running_count(self) -> int:
+        return 0
+
+    def run(self, arguments, targets, timeout=None, label=None) -> str:
+        raise AssertionError("la pianificazione non deve eseguire nmap")
+
+
+
+# --------------------------------------------------------------------------- #
+# La raffica: -A piu' NSE curato, e il confine di sicurezza
+# --------------------------------------------------------------------------- #
+def test_la_raffica_chiede_tutto_su_un_nodo_solo(scanner, probe_store):
+    """`-A` e' versione, sistema operativo, script default e traceroute. Piu' il
+    catalogo curato, con le porte di riconoscimento E di profondita': su un host per
+    processo il budget di pacchetti e' tutto suo, quindi si chiede tutto subito."""
+    from snapprobe.scanner import (ARGOMENTI_SCRIPT_RAFFICA, PORTE_PROFONDITA,
+                                   PORTE_RICONOSCIMENTO, SCRIPT_RAFFICA)
+
+    argomenti = scanner._arguments_for("raffica", {"raw_sockets": True},
+                                       scanner.effort_profile(), ["10.0.0.1"])
+
+    assert "-A" in argomenti
+    assert "-Pn" in argomenti
+    assert "-sS" in argomenti
+    elenco = argomenti[argomenti.index("-p") + 1]
+    porte = {int(p) for p in elenco.split(",")}
+    assert porte == set(PORTE_RICONOSCIMENTO) | set(PORTE_PROFONDITA)
+    script = argomenti[argomenti.index("--script") + 1]
+    # "default" davanti: `--script` da solo SOSTITUIREBBE il set che `-A` porta con se'.
+    assert script.startswith("default,"), script
+    for nome in SCRIPT_RAFFICA:
+        assert nome in script, nome
+    assert argomenti[argomenti.index("--script-args") + 1] == ARGOMENTI_SCRIPT_RAFFICA
+    assert "--host-timeout" in argomenti, "un apparato lento non deve appendere nmap"
+
+
+def test_la_raffica_forza_gli_script_sulle_porte_non_standard(scanner):
+    """Il prefisso `+` non e' decorativo: questo prodotto trova interfacce web sulla
+    7070 e sulla 8443 e agenti su porte spostate. Senza `+`, nmap non esegue lo script
+    dove non ha riconosciuto il servizio atteso -- cioe' proprio dove serve."""
+    from snapprobe.scanner import SCRIPT_RAFFICA
+
+    forzati = [s for s in SCRIPT_RAFFICA if s.startswith("+")]
+
+    assert len(forzati) >= 20, "il catalogo si regge sul forzare gli script"
+    for nome in ("+ssl-cert", "+http-title", "+smb-os-discovery"):
+        assert nome in SCRIPT_RAFFICA
+
+
+def test_nessuno_script_di_categoria_vietata_finisce_negli_argomenti(scanner):
+    """IL CONFINE DI SICUREZZA, scritto nel codice e non nelle intenzioni.
+
+    Su una rete di produzione della PA le categorie NSE non sono equivalenti:
+    `brute` blocca gli account e riempie i log, `dos` interrompe i servizi,
+    `exploit` e `fuzzer` li corrompono. Un incidente causato da uno strumento di
+    inventario e' inaccettabile, ed e' anche una violazione dell'autorizzazione con
+    cui si scansiona. Questo test vale per TUTTE le fasi, non solo per la raffica.
+    """
+    from snapprobe.scanner import SCRIPT_NSE_VIETATI, STAGES
+
+    for fase in STAGES:
+        try:
+            argomenti = scanner._arguments_for(fase, {"raw_sockets": True},
+                                               scanner.effort_profile(), ["10.0.0.1"])
+        except Exception:
+            continue
+        testo = " ".join(argomenti)
+        for vietato in SCRIPT_NSE_VIETATI:
+            assert vietato not in testo, "%s: script vietato %s" % (fase, vietato)
+        for categoria in ("brute", "dos", "exploit", "fuzzer", "intrusive"):
+            assert "--script %s" % categoria not in testo
+            assert ("," + categoria) not in testo.replace("--script-args", "")
+
+
+def test_il_catalogo_non_contiene_script_vietati():
+    """Il catalogo e l'elenco dei vietati non devono contraddirsi: se qualcuno
+    aggiunge uno script che e' anche vietato, e' un errore da fermare qui."""
+    from snapprobe.scanner import SCRIPT_NSE_VIETATI, SCRIPT_RAFFICA
+
+    nomi = {s.lstrip("+") for s in SCRIPT_RAFFICA}
+
+    assert nomi.isdisjoint(set(SCRIPT_NSE_VIETATI))
+
+
+def test_gli_script_esterni_sono_vietati():
+    """Interrogano servizi fuori dalla rete del cliente: su una rete senza uscita non
+    funzionano, e dove funzionassero manderebbero FUORI l'inventario dei servizi.
+    E' una fuga di informazioni, non un arricchimento."""
+    from snapprobe.scanner import SCRIPT_NSE_VIETATI
+
+    for nome in ("vulners", "whois-ip", "shodan-api", "http-virustotal"):
+        assert nome in SCRIPT_NSE_VIETATI
+
+
+def test_la_raffica_soddisfa_le_fasi_del_profilo(scanner, probe_store):
+    """Una raffica riuscita ha chiesto porte, versioni e sistema operativo in un colpo
+    solo: dichiarare quelle fasi da fare significherebbe rifarle."""
+    from snapprobe.scanner import FASI_COPERTE_DALLA_RAFFICA
+
+    prove = {"ip": "192.0.2.77", "reachable": True, "ttl": 64,
+             "ports": [{"protocol": "tcp", "port": 53, "state": "open",
+                        "service_name": "domain", "product": "Unbound"}],
+             "os": {"name": "Linux 4.X", "family": "Linux", "accuracy": 89},
+             "scripts": {}, "hostname": None, "mac": None}
+    probe_store.upsert_local_node("192.0.2.77", state="candidate")
+
+    scanner._merge_profile("192.0.2.77", "raffica", prove)
+
+    svolte = set(probe_store.local_node("192.0.2.77")["stages_done"].split(","))
+    assert "raffica" in svolte
+    for fase in FASI_COPERTE_DALLA_RAFFICA:
+        assert fase in svolte, fase
+    assert probe_store.local_node("192.0.2.77")["open_ports"] == 1

@@ -202,10 +202,14 @@ def test_la_console_mostra_lo_stato_e_il_suo_istante(server_app, logged_client):
                   "presence": {"subnets_wifi": ["10.10.60.0/24"], "interval_sec": 120,
                                "seen": 256, "new": 0, "priority_queue": 0,
                                "at": "2026-09-10 11:59:00"}},
+        # Le chiavi sono quelle vere di scanner.status(): un preparatore che ne
+        # inventa di proprie proverebbe un template che nessuna sonda alimenta.
         "scan": {"effort": "max", "effort_label": "massimo", "workers": 32,
-                 "max_workers": 32, "nodes_total": 616, "subnets_total": 380,
+                 "max_workers": 32, "nodes_confirmed": 600, "nodes_candidate": 16,
+                 "perimeter_count": 380, "capabilities": {"nmap_version": "7.95",
+                                                          "raw_sockets": True},
                  "scanning_allowed": True, "host_timeout": "120s",
-                 "discovery_days": 3.0, "nmap_version": "7.95", "raw_sockets": True,
+                 "discovery_days": 3.0,
                  "states_recent": [], "phases_in_flight": ["ports"]},
         "diary": [{"at": "2026-09-10 11:58:00", "level": "warning",
                    "message": "una riga del diario locale"}],
@@ -217,7 +221,9 @@ def test_la_console_mostra_lo_stato_e_il_suo_istante(server_app, logged_client):
     assert "una riga del diario locale" in testo, (
         "il diario locale e' la parte che finora si leggeva SOLO in sede")
     assert "10.10.60.0/24" in testo
-    assert "616" in testo
+    assert "616" in testo, "600 confermati + 16 candidati"
+    assert "380" in testo, "il perimetro ricevuto"
+    assert "7.95" in testo, "la versione di nmap sulla sonda"
     assert "10/09/2026" in testo, "l'istante dell'istantanea si dichiara"
 
 

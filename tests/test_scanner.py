@@ -250,7 +250,7 @@ def test_scoperta_e_profili_avanzano_insieme(sonda):
     compiti = scanner.plan_tasks()
     fasi = [c["stage"] for c in compiti]
     assert "discovery" in fasi, "la scoperta deve avere un posto garantito"
-    assert any(f in ("ports", "services", "os") for f in fasi), (
+    assert any(f in ("raffica", "ports", "services", "os") for f in fasi), (
         "i profili devono avanzare nello stesso ciclo"
     )
 
@@ -473,8 +473,11 @@ def test_ogni_genere_accodato_ha_un_tipo_di_record_corrispondente():
     assert record_type_of("vuln") == "vuln"
     assert set(RECORD_TYPES) >= {"events", "nodes", "ports", "os", "scripts", "snmp",
                                  "smb", "vuln", "monitor", "scan_runs", "web"}
-    assert set(STAGES) == {"discovery", "ports", "services", "os", "deep", "monitor",
-                           "snmp", "smb", "vuln", "web"}
+    assert set(STAGES) == {"discovery", "raffica", "ports", "services", "os", "deep",
+                           "monitor", "snmp", "smb", "vuln", "web"}
+    # La raffica NON e' un genere di record: e' la fase che li produce tutti insieme
+    # (porte, sistema operativo, script). Il conferimento non deve conoscerla.
+    assert "raffica" not in RECORD_TYPES
 
 
 def test_i_generi_prodotti_dallo_scanner_sono_tutti_traducibili(sonda):
@@ -702,10 +705,25 @@ def test_un_host_senza_porte_ma_con_un_nome_si_conferisce_subito(sonda):
 
 def test_un_host_senza_porte_e_senza_informazioni_si_scarta_subito(sonda):
     """Senza porte, senza nome, senza MAC: non e' inventario. Si scarta dopo 'ports',
-    invece di sprecare tre fasi e poi scartarlo comunque."""
+    invece di sprecare tre fasi e poi scartarlo comunque.
+
+    Da quando esiste il riesame prima dello scarto (`_riesamina_da_solo`), lo scarto
+    richiede che l'host sia stato guardato DA SOLO e sia risultato muto anche la': una
+    passata di gruppo che non vede nulla non e' una prova che non ci sia nulla, ed e'
+    costata la perdita di un firewall vero dall'inventario. Qui l'host e' muto in
+    entrambe le occasioni, quindi si scarta -- che e' cio' che questa prova verifica.
+    """
     import json as _json
 
-    scanner = NetworkScanner(sonda, EsecutoreFinto(leggi("nmap_scoperta.xml")))
+    muto = """<?xml version="1.0"?><nmaprun scanner="nmap" args="-sS" start="1"
+     version="7.95" xmloutputversion="1.05"><scaninfo type="syn"/>
+    <host><status state="up" reason="echo-reply" reason_ttl="63"/>
+    <address addr="192.0.2.97" addrtype="ipv4"/><hostnames></hostnames>
+    <ports><port protocol="tcp" portid="80"><state state="filtered"
+     reason="no-response"/></port></ports></host>
+    <runstats><finished elapsed="3.3" exit="success"/></runstats></nmaprun>"""
+
+    scanner = NetworkScanner(sonda, EsecutoreFinto(muto))
     sonda.upsert_local_node("192.0.2.97", state="confirmed", stages_done="ports",
                             open_ports=0, profile_json=_json.dumps(
                                 {"ip": "192.0.2.97", "reachable": True}))
@@ -739,7 +757,10 @@ def test_i_servizi_interrogano_le_porte_gia_trovate(sonda):
     scanner = NetworkScanner(sonda, esecutore)
 
     scanner.run_stage("services", "*")
-    argomenti = esecutore.chiamate[-1]["arguments"]
+    # La chiamata DELLA FASE: porta `-sV`. Il riesame di un nodo muto
+    # (`_riesamina_da_solo`) non lo porta, e non va confuso con questa.
+    argomenti = [c["arguments"] for c in esecutore.chiamate
+                 if "-sV" in c["arguments"]][-1]
     assert "-p" in argomenti, "la fase doveva interrogare le porte note: %s" % argomenti
     elenco = argomenti[argomenti.index("-p") + 1]
     # Questo host ha gia' la 161 aperta: la fase interroga le porte TCP note piu'
@@ -764,7 +785,11 @@ def test_senza_porte_note_si_usa_l_elenco_curato(sonda):
     scanner = NetworkScanner(sonda, esecutore)
 
     scanner.run_stage("services", "192.0.2.31")
-    argomenti = esecutore.chiamate[-1]["arguments"]
+    # La chiamata DELLA FASE, non l'ultima in assoluto: dopo il conferimento la sonda
+    # puo' riesaminare da solo un nodo che sta per essere scartato (vedi
+    # `_riesamina_da_solo`), e quella e' un'altra invocazione con altre porte.
+    chiamata = next(c for c in esecutore.chiamate if "-sV" in c["arguments"])
+    argomenti = chiamata["arguments"]
     elenco = argomenti[argomenti.index("-p") + 1]
     # Solo TCP: in UDP quelle porte non esistono, e sondarle e' tempo speso ad
     # attendere un timeout.
@@ -892,7 +917,10 @@ def test_gli_script_snmp_si_aggiungono_solo_se_la_porta_ha_risposto(sonda):
     from snapprobe.scanner import ENRICHMENT_SCRIPTS
 
     scanner.run_stage("services", "192.0.2.50")
-    script = esecutore.chiamate[-1]["arguments"]
+    # L'ULTIMA chiamata che porta `--script`: e' quella della fase. Il riesame di un
+    # nodo muto (`_riesamina_da_solo`) non porta script, quindi non viene scelto.
+    script = [c["arguments"] for c in esecutore.chiamate
+              if "--script" in c["arguments"]][-1]
     valore = script[script.index("--script") + 1]
     # La fase dei servizi porta il banner e il set curato di arricchimento (auto-limitato
     # per porta da nmap): senza SNMP aperto non si aggiungono gli script SNMP.
@@ -912,7 +940,10 @@ def test_gli_script_snmp_si_aggiungono_solo_se_la_porta_ha_risposto(sonda):
     # detto che sia questo. Cio' che il controllo verifica e' la regola sugli
     # script, non quale host la pianificazione peschi.
     scanner.run_stage("services", "192.0.2.50")
-    script = esecutore.chiamate[-1]["arguments"]
+    # L'ULTIMA chiamata che porta `--script`: e' quella della fase. Il riesame di un
+    # nodo muto (`_riesamina_da_solo`) non porta script, quindi non viene scelto.
+    script = [c["arguments"] for c in esecutore.chiamate
+              if "--script" in c["arguments"]][-1]
     valore = script[script.index("--script") + 1]
     assert valore.startswith("banner,")
     assert "snmp-sysdescr" in valore and "snmp-interfaces" in valore

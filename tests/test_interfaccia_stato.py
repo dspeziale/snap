@@ -32,10 +32,15 @@ from conftest import prepara_accesso_sonda
 # --------------------------------------------------------------------------- #
 @pytest.fixture()
 def sonda_client(probe_store, monkeypatch, tmp_path):
-    """Interfaccia locale della sonda su archivio temporaneo."""
+    """Interfaccia locale della sonda sull'archivio del preparatore comune."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(probe_store.path))
+    from snapprobe import db as probe_db
+
+    # L'applicativo deve aprire LO STESSO archivio del preparatore `probe_store`:
+    # l'indirizzo e' quello, e il motore va dimenticato perche' `create_app` lo
+    # riapra su questo database.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", probe_db.dsn())
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-probe")
 
     import snapprobe
@@ -44,7 +49,6 @@ def sonda_client(probe_store, monkeypatch, tmp_path):
     importlib.reload(impostazioni)
     importlib.reload(snapprobe)
     applicazione = snapprobe.create_app(impostazioni.TestConfig)
-    applicazione.config["STORE_PATH"] = str(probe_store.path)
     # L'interfaccia richiede l'accesso: vedi prepara_accesso_sonda in conftest.py.
     return prepara_accesso_sonda(applicazione).test_client()
 

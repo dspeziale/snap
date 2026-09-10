@@ -309,10 +309,12 @@ def test_il_pianificatore_esamina_prima_i_prioritari(probe_store):
     probe_store.set_json(CHIAVE_PRIORITA, ["192.0.2.29"])
 
     compiti = scanner.plan_tasks(limit=8)
-    porte = [c for c in compiti if c["stage"] == "ports"]
+    # La fase che profila un candidato e' la RAFFICA (un processo per nodo); la fase
+    # porte resta per i nodi che la raffica non ha ancora preso.
+    profilanti = [c for c in compiti if c["stage"] in ("raffica", "ports")]
 
-    assert porte, "il pianificatore riserva un compito alle porte dei candidati"
-    assert porte[0]["hosts"][0] == "192.0.2.29"
+    assert profilanti, "il pianificatore riserva posti al profilo dei candidati"
+    assert profilanti[0]["hosts"][0] == "192.0.2.29"
 
 
 def test_senza_coda_prioritaria_l_ordine_non_cambia(probe_store):

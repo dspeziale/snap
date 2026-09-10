@@ -24,11 +24,18 @@ DA_PROXY = {"REMOTE_ADDR": "172.20.0.2"}   # l'indirizzo del container nginx
 DA_RETE = {"REMOTE_ADDR": "10.20.10.9"}
 
 
-def _sonda(tmp_path, monkeypatch, dietro_proxy: bool):
+def _sonda(tmp_path, monkeypatch, dietro_proxy: bool, database_di_prova: str):
     """Sonda con archivio temporaneo e SENZA password: lo stato di prima apertura."""
     import importlib
 
-    monkeypatch.setenv("SNAP_PROBE_STORE", str(tmp_path / "probe.sqlite3"))
+    from snapprobe import db as probe_db
+
+    # L'archivio della sonda e' PostgreSQL: ogni prova ha il proprio database, come
+    # quelle del server. Il motore e' unico per processo e va dimenticato fra una
+    # prova e l'altra, altrimenti la seconda scriverebbe nel database della prima --
+    # che intanto e' stato distrutto.
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    probe_db.azzera_motore()
     monkeypatch.setenv("SNAP_PROBE_SECRET_KEY", "test-secret-key")
 
     import snapprobe
@@ -43,9 +50,9 @@ def _sonda(tmp_path, monkeypatch, dietro_proxy: bool):
     return snapprobe.create_app(Configurazione, start_agent=False)
 
 
-def test_senza_proxy_l_intestazione_non_vale(tmp_path, monkeypatch):
+def test_senza_proxy_l_intestazione_non_vale(tmp_path, monkeypatch, database_di_prova):
     """Predefinito prudente: chi arriva dalla rete non diventa "locale" dichiarandolo."""
-    app = _sonda(tmp_path, monkeypatch, dietro_proxy=False)
+    app = _sonda(tmp_path, monkeypatch, False, database_di_prova)
     risposta = app.test_client().get(
         "/primo-accesso",
         headers={"X-Forwarded-For": "127.0.0.1"},
@@ -55,10 +62,10 @@ def test_senza_proxy_l_intestazione_non_vale(tmp_path, monkeypatch):
         " la prima password a chi la dichiara")
 
 
-def test_dietro_proxy_vale_l_indirizzo_scritto_dal_proxy(tmp_path, monkeypatch):
+def test_dietro_proxy_vale_l_indirizzo_scritto_dal_proxy(tmp_path, monkeypatch, database_di_prova):
     """Con il proxy davanti, l'indirizzo del client e' quello che il proxy dichiara:
     e' l'unico modo per far funzionare la prima apertura in container."""
-    app = _sonda(tmp_path, monkeypatch, dietro_proxy=True)
+    app = _sonda(tmp_path, monkeypatch, True, database_di_prova)
     cliente = app.test_client()
 
     dalla_postazione = cliente.get(

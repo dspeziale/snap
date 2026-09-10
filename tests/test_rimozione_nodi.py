@@ -51,7 +51,26 @@ class EsecutoreFinto:
         # `label` descrive la fase in corso per l'indicatore: qui non serve,
         # ma la firma deve corrispondere a quella del runner vero.
         self.chiamate.append({"arguments": list(arguments), "targets": list(targets)})
-        return self.xml
+        if self.xml:
+            return self.xml
+        # SENZA UN XML DICHIARATO SI RISPONDE "MUTO", non il vuoto.
+        #
+        # Da quando lo scarto richiede che il nodo sia stato guardato DA SOLO (vedi
+        # `_riesamina_da_solo`), un esito illeggibile significa "non si e' potuto
+        # verificare" e il nodo NON si scarta -- e' voluto, ed e' cio' che ha smesso
+        # di far sparire un firewall vero dall'inventario. Queste prove riguardano lo
+        # scarto di host che davvero non dicono niente: l'esecutore finto deve
+        # rispondere come nmap risponde su un host muto.
+        host = "".join(
+            '<host><status state="up" reason="echo-reply" reason_ttl="64"/>'
+            '<address addr="%s" addrtype="ipv4"/><hostnames></hostnames>'
+            '<ports><port protocol="tcp" portid="80">'
+            '<state state="filtered" reason="no-response"/></port></ports></host>'
+            % ip for ip in targets if ip and "/" not in ip)
+        return ('<?xml version="1.0"?><nmaprun scanner="nmap" args="-sS" start="1"'
+                ' version="7.95" xmloutputversion="1.05"><scaninfo type="syn"/>'
+                + host +
+                '<runstats><finished elapsed="1" exit="success"/></runstats></nmaprun>')
 
 
 @pytest.fixture()
@@ -240,16 +259,18 @@ def test_il_periodo_di_attesa_e_dichiarato_ed_esteso():
 
 
 def test_scaduto_il_periodo_di_attesa_il_nodo_puo_tornare(sonda):
-    import sqlite3
+    from datetime import datetime, timedelta, timezone
 
     scanner = NetworkScanner(sonda, EsecutoreFinto())
     nodo_locale(sonda, "192.0.2.50", PROFILO_VUOTO, STAGES_BEFORE_REMOVAL)
     scanner._drop_without_information()
 
-    connessione = sqlite3.connect(str(sonda.path))
-    connessione.execute("UPDATE local_nodes SET discarded_at = datetime('now', '-30 days')")
-    connessione.commit()
-    connessione.close()
+    # Si retrodata lo scarto di un mese. L'istante si calcola qui e si passa come
+    # parametro: `datetime('now')` era di SQLite.
+    vecchio = (datetime.now(timezone.utc)
+               - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
+    with sonda._connect() as connessione:
+        connessione.execute("UPDATE local_nodes SET discarded_at = ?", (vecchio,))
 
     assert scanner._still_in_cooldown(sonda.local_node("192.0.2.50")) is False
 

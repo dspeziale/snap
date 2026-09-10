@@ -27,6 +27,19 @@ from snapprobe.settings import Config  # noqa: E402
 PORT_RANGE = (5500, 5600)
 
 
+def _archivio_mostrabile() -> str:
+    """L'indirizzo dell'archivio senza la credenziale.
+
+    La stringa di connessione contiene la password: si mostra cio' che serve a
+    riconoscere l'archivio -- host, porta, nome -- e nient'altro. Lo stesso
+    accorgimento del server (`maintenance.database_target`).
+    """
+    indirizzo = (getattr(Config, "DATABASE_URL", "") or "").strip()
+    if not indirizzo:
+        return "(non configurato: manca SNAP_PROBE_DATABASE_URL)"
+    return indirizzo.rsplit("@", 1)[-1] or "(non indicato)"
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Avvio della sonda snap")
     parser.add_argument("--host", default=Config.HOST, help="indirizzo di ascolto dell'interfaccia")
@@ -49,10 +62,12 @@ def parse_arguments() -> argparse.Namespace:
 def command_status() -> int:
     from snapprobe.store import ProbeStore
 
-    store = ProbeStore(Config.STORE_PATH)
+    store = ProbeStore()
     settings = store.all_settings()
     print("snap probe %s" % Config.APP_VERSION)
-    print("Archivio locale:     %s" % Config.STORE_PATH)
+    # L'indirizzo dell'archivio contiene la password: si mostra solo host, porta e
+    # nome del database, come fa il server.
+    print("Archivio:            %s" % _archivio_mostrabile())
     print("Registrata:          %s" % ("si" if store.is_enrolled() else "no"))
     print("Server:              %s" % settings.get("server_url", "-"))
     print("Codice sonda:        %s" % settings.get("probe_code", "-"))
@@ -69,7 +84,7 @@ def command_enroll(bundle: str) -> int:
     from snapprobe.crypto import CryptoError
     from snapprobe.store import ProbeStore
 
-    store = ProbeStore(Config.STORE_PATH)
+    store = ProbeStore()
     if store.is_enrolled():
         print("La sonda risulta gia' registrata: azzerare prima la registrazione.", file=sys.stderr)
         return 1
@@ -99,7 +114,7 @@ def command_headless() -> int:
     from snapprobe.agent import ProbeAgent
     from snapprobe.store import ProbeStore
 
-    store = ProbeStore(Config.STORE_PATH)
+    store = ProbeStore()
     if not store.get_setting("scan_interval_sec"):
         store.set_setting("scan_interval_sec", Config.DEFAULT_SCAN_INTERVAL)
     agent = ProbeAgent(store, Config.APP_VERSION, Config.AGENT_TICK_SECONDS)
@@ -137,7 +152,7 @@ def main() -> int:
     application = create_app()
     print("snap probe %s" % application.config["APP_VERSION"])
     print("Interfaccia locale:  http://%s:%d/" % (arguments.host, arguments.port))
-    print("Archivio locale:     %s" % application.config["STORE_PATH"])
+    print("Archivio:            %s" % _archivio_mostrabile())
     print(
         "Stato registrazione: %s"
         % ("registrata" if application.extensions["snap_store"].is_enrolled() else "non registrata")

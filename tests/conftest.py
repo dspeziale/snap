@@ -144,11 +144,24 @@ def logged_client(server_app):
 
 
 @pytest.fixture()
-def probe_store(tmp_path):
-    """Archivio locale della sonda su file temporaneo."""
+def probe_store(monkeypatch, database_di_prova):
+    """Archivio della sonda su un database PostgreSQL proprio del test.
+
+    Era un file SQLite temporaneo. Da quando la sonda scrive su PostgreSQL, un
+    preparatore su file proverebbe un archivio che non esiste piu': ogni prova ha un
+    database vuoto, come quelle del server, e lo stesso preparatore lo distrugge.
+    """
+    from snapprobe import db as probe_db
     from snapprobe.store import ProbeStore
 
-    return ProbeStore(str(tmp_path / "probe.sqlite3"))
+    monkeypatch.setenv("SNAP_PROBE_DATABASE_URL", database_di_prova)
+    # Il motore e' unico per processo: fra un test e l'altro va dimenticato, altrimenti
+    # il secondo scriverebbe nel database del primo -- che intanto e' stato distrutto.
+    probe_db.azzera_motore()
+    try:
+        yield ProbeStore()
+    finally:
+        probe_db.azzera_motore()
 
 # --------------------------------------------------------------------------- #
 # Accesso all'interfaccia della sonda
