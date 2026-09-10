@@ -13,6 +13,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Accesso - {{ app_name }}</title>
+  {# Icona dell'applicazione. Tre formati per tre esigenze: l'SVG resta nitido a
+     qualunque dimensione (e' quello che i browser recenti preferiscono), il PNG
+     serve a chi non legge SVG, l'ICO a chi lo cerca ancora alla radice del sito.
+     Il PNG grande e' l'icona che iOS e Android usano per la scorciatoia sulla
+     schermata iniziale. #}
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+  <link rel="alternate icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon-180.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/snap-fonts.css') }}">

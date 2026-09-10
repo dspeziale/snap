@@ -84,9 +84,9 @@ def _minuti(dal: str, al: str) -> int:
 # --------------------------------------------------------------------------- #
 def inventory(tenant_id: int) -> dict:
     riga = query(
-        "SELECT COUNT(*) AS nodi, COALESCE(SUM(status = 'up'), 0) AS su,"
-        " COALESCE(SUM(status = 'down'), 0) AS giu,"
-        " COALESCE(SUM(device_type IS NULL OR device_type = ''), 0) AS senza_tipo,"
+        "SELECT COUNT(*) AS nodi, COALESCE(SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END), 0) AS su,"
+        " COALESCE(SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END), 0) AS giu,"
+        " COALESCE(SUM(CASE WHEN device_type IS NULL OR device_type = '' THEN 1 ELSE 0 END), 0) AS senza_tipo,"
         " MIN(first_seen_at) AS primo"
         " FROM nodes WHERE tenant_id = ?", (tenant_id,), one=True)
     subnet = query(
@@ -162,13 +162,18 @@ def open_issues(tenant_id: int, zona) -> list:
         })
 
     mai_riusciti = query(
+        # Il filtro sta FUORI: `esiti` e `riusciti` sono alias, che PostgreSQL non
+        # accetta in HAVING, e ripetere l'espressione di `riusciti` duplicherebbe
+        # il segnaposto `?` cambiando il numero di parametri.
+        "SELECT * FROM ("
         "SELECT c.id, c.name, t.address, COUNT(r.id) AS esiti,"
-        " COALESCE(SUM(r.status = ?), 0) AS riusciti,"
-        " ROUND(AVG(r.latency_ms), 0) AS latenza, MAX(r.detail) AS dettaglio"
+        " COALESCE(SUM(CASE WHEN r.status = ? THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " ROUND(AVG(r.latency_ms)::numeric, 0) AS latenza, MAX(r.detail) AS dettaglio"
         " FROM checks c JOIN check_targets t ON t.id = c.target_id"
         " LEFT JOIN check_results r ON r.check_id = c.id"
         " WHERE c.tenant_id = ? AND c.is_enabled = 1"
-        " GROUP BY c.id HAVING esiti >= ? AND riusciti = 0",
+        " GROUP BY c.id, t.address"
+        ") AS q WHERE esiti >= ? AND riusciti = 0",
         (STATUS_OK, tenant_id, NEVER_OK_MIN_RESULTS))
     for riga in mai_riusciti:
         questioni.append({
@@ -235,14 +240,21 @@ def availability(tenant_id: int, inizio: str, fine: str) -> dict:
     verifica: il resoconto lo dichiara invece di annunciare "disponibilita' 0%".
     """
     righe = query(
+        # L'ordinamento sta FUORI, in un involucro: usa `riusciti` ed `esiti`, che
+        # sono alias di aggregati. PostgreSQL li accetta come nome semplice ma non
+        # dentro un'espressione (li' cerca una colonna delle tabelle), e ripetere
+        # gli aggregati duplicherebbe il segnaposto `?` cambiando il numero di
+        # parametri. Cosi' l'interrogazione interna resta com'era.
+        "SELECT * FROM ("
         "SELECT c.id, c.name, c.kind, t.address, COUNT(r.id) AS esiti,"
-        " COALESCE(SUM(r.status = ?), 0) AS riusciti,"
-        " ROUND(AVG(r.latency_ms), 1) AS latenza_media,"
-        " ROUND(MAX(r.latency_ms), 0) AS latenza_massima"
+        " COALESCE(SUM(CASE WHEN r.status = ? THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " ROUND(AVG(r.latency_ms)::numeric, 1) AS latenza_media,"
+        " ROUND(MAX(r.latency_ms)::numeric, 0) AS latenza_massima"
         " FROM check_results r JOIN checks c ON c.id = r.check_id"
         " JOIN check_targets t ON t.id = c.target_id"
         " WHERE r.tenant_id = ? AND r.executed_at >= ? AND r.executed_at < ?"
-        " GROUP BY c.id ORDER BY (1.0 * riusciti / esiti), t.address",
+        " GROUP BY c.id, t.address"
+        ") AS q ORDER BY (1.0 * riusciti / esiti), address",
         (STATUS_OK, tenant_id, inizio, fine))
 
     voci = []
@@ -367,7 +379,11 @@ def changes(tenant_id: int, inizio: str, fine: str, nodi_totali: int) -> dict:
     generi = query(
         "SELECT kind, severity, COUNT(*) AS n, COUNT(DISTINCT node_id) AS nodi"
         " FROM node_changes WHERE tenant_id = ? AND created_at >= ? AND created_at < ?"
-        " GROUP BY kind ORDER BY n DESC", (tenant_id, inizio, fine))
+        # La gravita' sta nel GROUP BY: chi registra una variazione la ricava dal
+        # genere, quindi entro un genere e' costante e le righe non cambiano. Lasciarla
+        # fuori significava farne scegliere una a caso al motore -- comodo su SQLite,
+        # rifiutato da PostgreSQL, e in nessuno dei due casi una scelta dichiarata.
+        " GROUP BY kind, severity ORDER BY n DESC", (tenant_id, inizio, fine))
 
     soglia = max(1, int(AGGREGATE_RATIO * max(1, nodi_totali)))
     voci = []
@@ -407,7 +423,7 @@ def collection(tenant_id: int, inizio: str, fine: str, zona) -> dict:
     lotti = query(
         "SELECT COUNT(*) AS lotti, COALESCE(SUM(record_count), 0) AS record,"
         " COALESCE(SUM(payload_bytes), 0) AS byte,"
-        " COALESCE(SUM(status <> 'accepted'), 0) AS rifiutati"
+        " COALESCE(SUM(CASE WHEN status <> 'accepted' THEN 1 ELSE 0 END), 0) AS rifiutati"
         " FROM ingest_batches WHERE tenant_id = ? AND received_at >= ? AND received_at < ?",
         (tenant_id, inizio, fine), one=True)
     sonde = query(
@@ -505,6 +521,31 @@ def hygiene(tenant_id: int) -> dict:
 # --------------------------------------------------------------------------- #
 # Insieme completo per il resoconto e per il report NOC
 # --------------------------------------------------------------------------- #
+def _certificati_scadenza(tenant_id: int, giorni_avviso: int = 30) -> dict:
+    """Sintesi dei certificati TLS scaduti o in scadenza, per il resoconto quotidiano.
+
+    E' un dato che nessun'altra sezione porta e che ha una scadenza (letteralmente): un
+    certificato scaduto rompe il servizio, e uno che scade fra pochi giorni va rinnovato
+    prima. Si riusa la stessa fonte della pagina dei certificati, cosi' il numero nel
+    resoconto e quello a schermo coincidono.
+    """
+    from ..inventory_queries import web_certificates
+
+    tutti = web_certificates(tenant_id)
+    scaduti = [v for v in tutti if v["scaduto"]]
+    in_scadenza = [v for v in tutti
+                   if v["giorni"] is not None and 0 <= v["giorni"] <= giorni_avviso]
+    return {
+        "totale": len(tutti),
+        "n_scaduti": len(scaduti),
+        "n_in_scadenza": len(in_scadenza),
+        # Un elenco breve nel resoconto: il grosso si guarda a schermo, filtrabile.
+        "scaduti": scaduti[:15],
+        "in_scadenza": in_scadenza[:15],
+        "giorni_avviso": giorni_avviso,
+    }
+
+
 def daily(tenant: dict, giorno, zona, giorni_tendenza: int = 7) -> dict:
     """Tutte le sezioni per un giorno. E' l'unica funzione che i renderer chiamano."""
     from .windows import days_bounds, describe
@@ -531,6 +572,7 @@ def daily(tenant: dict, giorno, zona, giorni_tendenza: int = 7) -> dict:
         "raccolta": collection(tenant_id, inizio, fine, zona),
         "tendenze": trends(tenant_id, zona, inizio_tendenza, fine_tendenza),
         "igiene": hygiene(tenant_id),
+        "certificati": _certificati_scadenza(tenant_id),
         "generato_utc": utc_str(utc_now()),
     }
     # Un resoconto senza nulla da segnalare si spedisce comunque, in forma breve

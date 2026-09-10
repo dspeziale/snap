@@ -78,13 +78,17 @@
           <tr><th>CAMPO DEL MODULO</th><th>VALORE DA INSERIRE</th></tr>
         </thead>
         <tbody>
+          {# Le date si COPIANO nel portale: vanno nel fuso dichiarato, come ogni
+             altra data mostrata. Un istante UTC incollato in un modulo che chiede
+             l'ora locale sposta l'incidente di due ore.
+
+             Il commento sta QUI e non dentro l'elenco: dentro un'espressione un
+             commento Jinja non e' un commento, e' un errore di sintassi -- questa
+             pagina non compilava affatto. #}
           {% set campi = [
             ('Soggetto notificante', tenant.nome),
             ('Riferimento interno', '#' ~ incidente.id),
             ('Stadio', stadio.nome),
-            {# Questi valori si COPIANO nel portale: vanno nel fuso dichiarato,
-               come ogni altra data mostrata. Un istante UTC incollato in un modulo che
-               chiede l'ora locale sposta l'incidente di due ore. #}
             ('Conoscenza dell\'incidente', comunicazione.known_at|dtz),
             ('Apertura dell\'incidente', incidente.opened_at|dtz),
             ('Presa in carico', incidente.acknowledged_at|dtz

@@ -380,12 +380,50 @@ def test_la_priorita_si_spegne_quando_non_restano_nodi_da_leggere(sonda):
     assert not scanner.smb_boost_active()
 
 
-def test_il_comando_all_attiva_la_priorita_senza_bloccare():
-    """Il bersaglio '@all' non esegue una passata bloccante: attiva la priorita'."""
-    import inspect
+def test_il_comando_all_attiva_la_priorita_senza_bloccare(probe_store):
+    """Il bersaglio '@all' non esegue una passata bloccante: attiva la priorita'.
 
-    from snapprobe.agent import ProbeAgent
+    Il controllo guardava il SORGENTE di `_run_command` con `inspect.getsource`.
+    Fragile per costruzione: legge il file dal disco usando i numeri di riga
+    registrati all'import, quindi basta che qualcuno modifichi `agent.py` mentre la
+    suite gira perche' fallisca senza che nulla sia rotto (accaduto). E soprattutto
+    verificava la PRESENZA DI UN TESTO, non il comportamento: una riscrittura
+    corretta che usasse un nome diverso lo avrebbe fatto fallire, e una sbagliata che
+    conservasse le parole lo avrebbe superato.
 
-    sorgente = inspect.getsource(ProbeAgent._run_command)
-    assert '"@all"' in sorgente or "'@all'" in sorgente
-    assert "enable_smb_boost" in sorgente
+    Ora si verifica cio' che conta: il comando attiva la priorita' e NON esegue la
+    passata.
+    """
+    import snapprobe.agent as modulo
+    from snapprobe.scanner import NetworkScanner
+
+    agente = modulo.ProbeAgent.__new__(modulo.ProbeAgent)
+    agente.store = probe_store
+    agente.scanner = NetworkScanner(probe_store, None, "1.0.0-test")
+
+    eseguite = []
+    agente.scanner.run_stage = lambda fase, bersaglio: eseguite.append(
+        (fase, bersaglio)) or {}
+
+    messaggio = agente._run_command("scan", {"stage": "smb", "target": "@all"})
+
+    assert not eseguite, "'@all' non deve eseguire una passata: bloccherebbe la sonda"
+    assert agente.scanner.smb_boost_active(), "la priorita' deve restare attiva"
+    assert "ogni ciclo" in messaggio, (
+        "il messaggio deve dire che procede a ogni ciclo, non che ha finito")
+
+
+def test_il_comando_all_vale_solo_per_smb(probe_store):
+    """"Su tutti i nodi" ha senso per l'enumerazione SMB, non per una fase che
+    scandisce porte: la si rifiuta invece di eseguire qualcosa di inatteso."""
+    import pytest as _pytest
+
+    import snapprobe.agent as modulo
+    from snapprobe.scanner import NetworkScanner
+
+    agente = modulo.ProbeAgent.__new__(modulo.ProbeAgent)
+    agente.store = probe_store
+    agente.scanner = NetworkScanner(probe_store, None, "1.0.0-test")
+
+    with _pytest.raises(ValueError):
+        agente._run_command("scan", {"stage": "ports", "target": "@all"})

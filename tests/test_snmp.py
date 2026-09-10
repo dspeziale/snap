@@ -125,8 +125,18 @@ def test_un_nodo_mai_letto_ha_la_precedenza_sulla_cadenza(sonda):
     _nodo_snmp(sonda, "192.0.2.52")
     compiti = [c for c in scanner.plan_tasks(limit=10) if c["stage"] == "snmp"]
     assert compiti, "un nodo mai letto non attende la cadenza"
-    assert compiti[0]["hosts"] == ["192.0.2.52"], (
-        "si legge il nodo mancante, non si rilegge quello gia' fatto")
+
+    # Cio' che conta e' che i nodi MAI LETTI siano programmati, non quale venga per
+    # primo. Da quando ogni compito porta un host (vedi EFFORT_PROFILES) i nodi mai
+    # letti prendono un compito ciascuno e vengono letti nello STESSO ciclo, invece
+    # di uno per volta: e' proprio cio' che il difetto originale impediva ("su
+    # duecento apparati servivano giorni per leggerli la prima volta").
+    programmati = {ip for c in compiti for ip in c["hosts"]}
+    assert "192.0.2.52" in programmati, "il nodo aggiunto e mai letto va programmato"
+    mai_letti = {n["ip"] for n in scanner._snmp_pending()}
+    assert programmati <= mai_letti, (
+        "si leggono i nodi mai letti, non si rileggono quelli gia' fatti:"
+        " programmati %s, mai letti %s" % (sorted(programmati), sorted(mai_letti)))
 
 
 def test_gli_argomenti_della_fase_snmp_sono_di_sola_lettura(sonda):

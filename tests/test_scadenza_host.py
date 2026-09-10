@@ -105,14 +105,23 @@ def test_lo_scarto_resta_annunciato_nel_diario(scanner, probe_store):
 
 
 def test_la_scadenza_si_annuncia_nel_diario(scanner, probe_store):
-    """Chi legge il diario deve capire che il tentativo non e' andato perduto."""
+    """Chi legge il diario deve capire che l'host non e' stato perduto.
+
+    La formulazione e' cambiata quando e' arrivata l'attesa progressiva: prima
+    diceva "il tentativo non conta", ora dice che l'host resta candidato -- ignoto,
+    non assente -- e quando verra' riprovato. Il fatto da comunicare e' lo stesso e
+    il controllo verifica quello, non le parole di allora.
+    """
     probe_store.upsert_local_node("10.10.5.42", state="candidate")
 
     scanner._handle_unconfirmed({"ip": "10.10.5.42", "timed_out": True})
 
     diario = " ".join(r["message"] for r in probe_store.recent_events(50))
     assert "abbandonato" in diario
-    assert "non conta" in diario
+    assert "resta candidato" in diario.lower()
+    assert "ignoto, non assente" in diario
+    # E il nodo e' davvero ancora la', non scartato: e' cio' che la riga promette.
+    assert _locale(probe_store, "10.10.5.42").get("state") == "candidate"
 
 
 # --------------------------------------------------------------------------- #
@@ -174,14 +183,128 @@ def test_il_minimo_delle_fasi_lente_resta_valido(scanner):
 
 
 def test_gli_argomenti_di_nmap_portano_il_tempo_maggiorato(scanner, probe_store):
+    """Il raddoppio "seconda occasione" per un host gia' scaduto vale nelle fasi che
+    un tetto per host lo ricevono ancora.
+
+    La fase delle porte non ne riceve piu' (motore riprogettato: gli host di un
+    gruppo si dividono il budget di pacchetti del processo, quindi un tetto per host
+    li fa scadere tutti). Il controllo usa `deep`, dove il tetto esiste, protegge da
+    uno script appeso su un singolo apparato e il raddoppio si applica -- servizi e
+    sistema operativo ne sono esclusi di proposito (STAGES_PROFILE_COMPLETION: si
+    arrendono dopo una scadenza e conferiscono il nodo con cio' che ha).
+    """
+    from snapprobe.scanner import MAX_HOST_TIMEOUT_RETRY
+
     probe_store.upsert_local_node(
         "10.10.5.42", state="candidate",
         profile_json=json.dumps({"ip": "10.10.5.42", "timeout_count": 1}))
     profilo = dict(scanner.effort_profile())
-    profilo["host_timeout"] = "60s"
+    profilo["host_timeout"] = "120s"
 
-    argomenti = scanner._arguments_for("ports", {"raw_sockets": True}, profilo,
+    argomenti = scanner._arguments_for("deep", {"raw_sockets": True}, profilo,
                                        hosts=["10.10.5.42"])
 
     assert "--host-timeout" in argomenti
-    assert argomenti[argomenti.index("--host-timeout") + 1] == "120s"
+    maggiorato = int(argomenti[argomenti.index("--host-timeout") + 1].rstrip("s"))
+    assert maggiorato > 120, "un host gia' scaduto va riesaminato con piu' tempo"
+    assert maggiorato <= MAX_HOST_TIMEOUT_RETRY
+
+    # E la fase delle porte non lo riceve affatto.
+    porte = scanner._arguments_for("ports", {"raw_sockets": True}, profilo,
+                                   hosts=["10.10.5.42"])
+    assert "--host-timeout" not in porte
+
+
+# --------------------------------------------------------------------------- #
+# L'attesa progressiva: un host non esaminabile non blocca gli altri
+# --------------------------------------------------------------------------- #
+# Difetto misurato sul campo, e costoso: la scansione di una /24 non finiva MAI.
+# Il diario riportava "nmap ha abbandonato l'esame per scadenza (66 volta/e)" sugli
+# stessi 24 indirizzi, con ondate da 257 s che restituivano zero host. Non scartare
+# un host abbandonato e' giusto (non e' stato esaminato: e' ignoto, non assente), ma
+# senza una contropartita gli stessi indirizzi rientravano in ogni ciclo e la coda
+# non si svuotava.
+def _candidato_scaduto(store, ip: str, quante: int, quando: str) -> None:
+    store.upsert_local_node(
+        ip, state="candidate",
+        profile_json=json.dumps({"ip": ip, "timeout_count": quante,
+                                 "timed_out_at": quando}))
+
+
+def _istante(secondi_fa: int) -> str:
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(seconds=secondi_fa)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+
+
+def test_un_host_appena_abbandonato_non_rientra_subito_in_coda(scanner, probe_store):
+    """E' la correzione del ciclo infinito: riprovarlo adesso, con gli stessi mezzi,
+    darebbe lo stesso esito e occuperebbe il posto di un host esaminabile."""
+    _candidato_scaduto(probe_store, "10.10.5.42", quante=1, quando=_istante(60))
+
+    in_attesa = [n["ip"] for n in scanner.pending_nodes("ports")]
+
+    assert "10.10.5.42" not in in_attesa
+
+
+def test_passata_l_attesa_l_host_torna_in_coda(scanner, probe_store):
+    """Deprioritizzare non e' rinunciare: l'host resta candidato e torna."""
+    probe_store.set_json("scan_subnets", [{"cidr": "10.10.5.0/24", "hosts": 254}])
+    _candidato_scaduto(probe_store, "10.10.5.42", quante=1, quando=_istante(3 * 3600))
+
+    in_attesa = [n["ip"] for n in scanner.pending_nodes("ports")]
+
+    assert "10.10.5.42" in in_attesa
+
+
+def test_l_attesa_raddoppia_a_ogni_abbandono(scanner, probe_store):
+    """Un host che scade sempre si guarda sempre piu' di rado, fino al tetto: e'
+    cio' che libera la coda senza buttare via un indirizzo ignoto."""
+    from snapprobe.scanner import (
+        ATTESA_RITENTATIVO_BASE_SEC,
+        ATTESA_RITENTATIVO_TETTO_SEC,
+    )
+
+    # Due abbandoni: l'attesa e' il doppio della base. A un'ora e mezza e' passata,
+    # a mezz'ora no.
+    _candidato_scaduto(probe_store, "10.10.5.42", quante=2,
+                       quando=_istante(ATTESA_RITENTATIVO_BASE_SEC * 2 - 60))
+    assert scanner._scadenza_troppo_recente(dict(probe_store.local_node("10.10.5.42")))
+
+    _candidato_scaduto(probe_store, "10.10.5.42", quante=2,
+                       quando=_istante(ATTESA_RITENTATIVO_BASE_SEC * 2 + 60))
+    assert not scanner._scadenza_troppo_recente(
+        dict(probe_store.local_node("10.10.5.42")))
+
+    # Sessantasei abbandoni -- il caso reale -- non danno un'attesa infinita: il
+    # tetto la ferma, altrimenti l'host sparirebbe di fatto dall'inventario.
+    _candidato_scaduto(probe_store, "10.10.5.42", quante=66,
+                       quando=_istante(ATTESA_RITENTATIVO_TETTO_SEC + 60))
+    assert not scanner._scadenza_troppo_recente(
+        dict(probe_store.local_node("10.10.5.42")))
+
+
+def test_un_nodo_confermato_non_viene_deprioritizzato(scanner, probe_store):
+    """L'attesa riguarda i soli CANDIDATI. Un nodo confermato ha gia' risposto: il
+    suo conteggio viene dalla fase di candidato ed e' superato."""
+    probe_store.upsert_local_node(
+        "10.10.5.50", state="confirmed",
+        profile_json=json.dumps({"ip": "10.10.5.50", "timeout_count": 9,
+                                 "timed_out_at": _istante(10)}))
+
+    assert not scanner._scadenza_troppo_recente(
+        dict(probe_store.local_node("10.10.5.50")))
+
+
+def test_il_diario_dice_fra_quanto_riprovera(scanner, probe_store):
+    """"Riprovato fra sei ore" e "rinunciato" non sono la stessa cosa: chi legge il
+    diario deve poterle distinguere."""
+    probe_store.upsert_local_node("10.10.5.42", state="candidate")
+    scanner._annota_scadenza("10.10.5.42", dict(probe_store.local_node("10.10.5.42")))
+
+    righe = [r["message"] for r in probe_store.recent_events(20)]
+    scadenza = [r for r in righe if "abbandonato l'esame per scadenza" in r]
+    assert scadenza, "l'abbandono va annunciato"
+    assert "riprovato fra" in scadenza[0]
+    assert "ignoto, non assente" in scadenza[0]

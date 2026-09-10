@@ -21,6 +21,245 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.1",
+        "date": "2026-09-10",
+        "abstract": "Gli apparati che non dicono niente di se' si identificano da come"
+                    " RISPONDONO: l'icona che servono e l'insieme delle intestazioni"
+                    " HTTP diventano impronte, e un apparato muto prende in prestito il"
+                    " verdetto dei nodi identici a lui. La scheda del dispositivo elenca"
+                    " gli apparati identici, con il collegamento a ognuno.",
+        "changes": [
+            "Riconoscimento per somiglianza: due apparati che servono la STESSA icona"
+            " sono lo stesso prodotto (l'icona sta nel firmware, non la sceglie chi"
+            " installa), e due che rispondono con lo stesso insieme di intestazioni HTTP"
+            " hanno dentro lo stesso programma. Un nodo che non dichiara nulla ricava da"
+            " qui la propria classificazione.",
+            "Il prestito e' prudente per costruzione: il gruppo di apparati identici"
+            " deve essere concorde almeno all'80%, marca e modello si riportano solo se"
+            " unanimi, e un apparato puo' fare da riferimento solo se il suo tipo lo ha"
+            " detto una persona o se lo ha guadagnato con prove proprie. La somiglianza"
+            " da sola non produce mai un verdetto confidente: serve una seconda famiglia"
+            " di prove.",
+            "Nella scheda del dispositivo, sopra le letture web: \"7 altri nodi servono"
+            " la stessa icona: e' lo stesso prodotto\", con il collegamento a ognuno. Se"
+            " questo apparato va aggiornato, vanno aggiornati anche quelli; e se lo si e'"
+            " identificato a mano, quel lavoro vale anche per loro.",
+            "Le impronte stanno in colonna nella banca dati (icona e intestazioni):"
+            " si possono cercare e confrontare, non solo leggere nel dettaglio di un"
+            " nodo. Dell'icona si conserva l'impronta, non l'immagine; delle"
+            " intestazioni i nomi, non i valori -- i valori possono contenere dati"
+            " dell'apparato.",
+            "25 nuove firme di applicazione riconosciute dalle pagine web (NetBox, MyQ,"
+            " One Identity Safeguard, WildFly, GlassFish, Oracle XML DB, WebLogic,"
+            " JBoss, Jetty, Outlook Web App, SharePoint, RD Web, Nextcloud, Moodle,"
+            " Zimbra, Roundcube, UniFi, Veeam, Kibana, Splunk, FreePBX, Proxmox,"
+            " Synology, QNAP): su una pagina web conta piu' l'applicazione esposta che"
+            " il nome del server web.",
+            "Corretto un riconoscimento sbagliato: un GlassFish veniva classificato"
+            " stampante Kyocera perche' \"ecosys\" corrispondeva dentro la parola"
+            " \"ecosystem\". Tutte le firme sono state riviste per la stessa classe di"
+            " errore, e un test la sorveglia.",
+        ],
+    },
+    {
+        "version": "1.3.0",
+        "date": "2026-09-10",
+        "abstract": "Il motore di scansione e' riprogettato: una /24 completa e"
+                    " accurata passa da MAI a circa sette minuti. Arrivano gli indirizzi"
+                    " MAC e la porta fisica dagli apparati di rete, la copia"
+                    " dell'archivio dalla console torna disponibile su PostgreSQL, e le"
+                    " porte scandite sono scelte per famiglia di apparato invece che per"
+                    " frequenza statistica.",
+        "changes": [
+            "Indirizzi MAC dalle tabelle ARP degli apparati di rete (SNMP). Su una rete"
+            " reale, di 7.309 nodi solo 39 avevano il MAC -- tutti nella subnet della"
+            " sonda, perche' ARP non attraversa un router. La sonda ora interroga gli"
+            " apparati e ne legge le corrispondenze indirizzo-MAC per interi segmenti."
+            " La provenienza si dichiara: \"osservato\" se l'ha visto la sonda,"
+            " \"da <apparato>\" se gliel'ha riferito uno switch o un router.",
+            "Punto di attacco fisico: dove la catena di tabelle dell'apparato e'"
+            " completa, l'inventario dice su quale PORTA di quale switch un nodo e'"
+            " attaccato (per esempio Gi1/0/14 su core-sw). Compare nell'elenco dei nodi,"
+            " nella scheda del dispositivo e nella sua scheda in PDF. Se la catena si"
+            " interrompe la porta non si indovina: resta non nota.",
+            "Scoperta automatica degli apparati da interrogare: si provano i gateway"
+            " probabili di ogni subnet e i nodi con la 161/UDP osservata aperta, e entra"
+            " nell'elenco solo chi risponde con la community configurata E ha una"
+            " tabella ARP. Un apparato che risponde con la community di fabbrica"
+            " (public/private) NON viene aggiunto ma segnalato nel diario: e'"
+            " un'esposizione da chiudere.",
+            "Il costruttore della scheda di rete si ricava dal prefisso del MAC anche"
+            " per i MAC riferiti da un apparato, con lo stesso catalogo che usa nmap:"
+            " su un apparato muto e' spesso l'unico indizio su che cosa sia.",
+            "Nuovo filtro \"Indirizzo fisico\" nell'elenco dei nodi: MAC osservato dalla"
+            " sonda, MAC riferito da un apparato, senza MAC, con porta di attacco nota."
+            " Risponde a \"quali subnet sono coperte davvero?\".",
+            "Le ricerche libere non distinguono piu' maiuscole e minuscole: cercare"
+            " \"cisco\" trova \"Cisco Systems\". Valeva per la ricerca globale, l'elenco"
+            " dei nodi, il registro eventi, il SIEM e il catalogo CVE.",
+            "Esportazione CSV delle interrogazioni pronte: consegnava una riga di"
+            " intestazioni al posto dei dati, e alcune interrogazioni restituivano meno"
+            " colonne di quelle dichiarate. Corretto.",
+            "La pagina di dettaglio di una comunicazione ACN non si apriva (errore"
+            " interno): il modello non era valido. Corretto, e ora tutti i modelli di"
+            " pagina vengono verificati dai test.",
+            "Copia e ripristino dell'archivio dalla console tornano disponibili con"
+            " PostgreSQL. La copia e' un archivio pg_dump verificato appena prodotto"
+            " (se la verifica non passa il file viene eliminato: una copia che sembra"
+            " riuscita e non e' ripristinabile e' peggio di nessuna copia); il"
+            " ripristino salva prima lo stato corrente e riversa l'archivio in una"
+            " sola transazione, senza fermare il servizio.",
+            "Le due versioni di PostgreSQL vengono confrontate prima di ogni copia e"
+            " di ogni ripristino, e l'operazione si rifiuta se non sono compatibili"
+            " dicendo quale client serve. Il ripristino richiede la stessa versione"
+            " major del server: con una diversa pg_restore imposta parametri di"
+            " sessione che il server non riconosce e si interrompe -- un problema che"
+            " altrimenti si scopre il giorno in cui la copia serve.",
+            "Compattazione dell'archivio: non promette piu' spazio restituito al"
+            " disco. Su PostgreSQL VACUUM rende riutilizzabile lo spazio delle righe"
+            " eliminate ma non lo restituisce al sistema operativo (servirebbe VACUUM"
+            " FULL, che fermerebbe l'applicazione): il messaggio dichiara quante"
+            " righe sono state recuperate, che e' cio' che l'operazione fa davvero.",
+            "Motore di scansione riprogettato: una /24 completa e accurata passa da"
+            " MAI a circa sette minuti. Il difetto non era un parametro mal tarato ma"
+            " un'assunzione sbagliata -- che gli host di un gruppo si scansionino in"
+            " parallelo senza costo. Il ritmo di invio di nmap e' PER PROCESSO, quindi"
+            " ventiquattro host costano ventiquattro volte uno, e con un tetto di tempo"
+            " per host venivano abbandonati TUTTI: sul campo 66 abbandoni di fila sugli"
+            " stessi indirizzi, ondate da 257 secondi che restituivano zero host.",
+            "La fase delle porte non usa piu' un tetto di tempo per host: in quella"
+            " struttura non proteggeva da nulla e causava il difetto. Al suo posto un"
+            " tetto sul PROCESSO, calcolato dal lavoro richiesto (sonde da inviare"
+            " diviso il ritmo misurato). Il tetto per host resta dove serve davvero:"
+            " nelle fasi che eseguono script su un singolo servizio.",
+            "Due livelli di esame delle porte. Ogni ciclo, ventotto porte che dicono"
+            " CHE COS'E' un apparato, su tutti gli host: e' la passata che si completa"
+            " in minuti. A cadenza lunga, le prime mille porte sui soli host che hanno"
+            " gia' mostrato un segnale -- sulla rete di prova 142 indirizzi su 256 non"
+            " hanno alcuna porta aperta, e chiederne mille a tutti costa oltre quattro"
+            " ore per non imparare nulla.",
+            "Scartate due strade piu' rapide perche' PERDONO porte aperte, e un"
+            " inventario incompleto e' peggio di uno lento: forzare il ritmo di nmap"
+            " (0-4 porte note su 13, esiti irriproducibili) e dividere le porte fra"
+            " piu' processi (piu' lento E meno accurato di un processo solo).",
+            "Cancellazione di una sonda: il messaggio che spiega \"archivio occupato,"
+            " nulla e' stato cancellato\" non poteva comparire, perche' il codice"
+            " intercettava l'errore di SQLite. Su PostgreSQL l'operatore vedeva una"
+            " pagina di errore. Corretto.",
+            "Le porte della passata di approfondimento scendono da mille a 232,"
+            " scelte per FAMIGLIA DI APPARATO -- postazioni Windows, Linux, apparati di"
+            " rete, stampanti, telefoni, telecamere, banche dati, impianti, gestione"
+            " fuori banda -- piu' tutte quelle effettivamente trovate aperte sulla rete."
+            " Le prime mille di nmap sono ordinate per frequenza su Internet: meta' sono"
+            " servizi che in un ufficio non esistono, e mancano porte di gestione che"
+            " qui contano (per esempio Intel AMT su una postazione). La passata di"
+            " approfondimento passa da ~28 minuti a ~6,5.",
+            "Se la scansione trova un apparato SNMP, viene interrogato da se': non"
+            " serve piu' premere \"Scopri e popola l'elenco\". Si interrogano tutti gli"
+            " host vivi con una richiesta SNMP diretta -- otto secondi per una /24 --"
+            " invece di sondare la porta 161 in UDP, che non sa distinguere \"aperta\""
+            " da \"nessuna risposta\" e darebbe ogni indirizzo per buono.",
+            "Un apparato entra fra quelli interrogati solo se SUPERA LA PROVA: risponde"
+            " alla community configurata e ha una tabella ARP non vuota. Chi risponde"
+            " con la community di fabbrica (public/private) non viene aggiunto ma"
+            " segnalato nel diario: chiunque sulla rete puo' leggerne la"
+            " configurazione, ed e' un'esposizione da chiudere.",
+            "La scansione continua a non toccare l'intervallo dei server X"
+            " (6000-6009), che apriva sui PC degli operatori la finestra \"consenti"
+            " accesso al server X?\". Verificato che l'esclusione prevale anche ora che"
+            " le porte si chiedono con un elenco esplicito, e la garanzia e' fissata da"
+            " un test.",
+        ],
+    },
+    {
+        "version": "1.2.9",
+        "date": "2026-09-09",
+        "abstract": "Cancellare una sonda non fallisce piu' con l'archivio occupato;"
+                    " console e sonda si distribuiscono in container con TLS e base dati"
+                    " dedicata; il motore di scansione non scarta piu' un apparato per"
+                    " un limite di tempo nostro.",
+        "changes": [
+            "Cancellazione di una sonda: non risponde piu' \"archivio occupato\"."
+            " Le colonne di vincolo delle tabelle che crescono (nodi, esecuzioni, esiti"
+            " dei controlli, misure, esposizioni, diario) sono ora indicizzate: senza"
+            " indice ogni cancellazione scandiva le tabelle per intero -- una sola sonda"
+            " comportava l'aggiornamento di circa 118.000 righe. L'attesa sul blocco e'"
+            " diventata una scelta dichiarata (trenta secondi) invece del valore"
+            " predefinito della libreria (cinque).",
+            "Se l'archivio risulta occupato, l'operazione lo DICE e dichiara che nulla"
+            " e' stato cancellato, invece di mostrare una pagina di errore.",
+            "Distribuzione in container per console e sonda: TLS sulle interfacce,"
+            " Gunicorn, utente non privilegiato, base dati PostgreSQL predisposta con"
+            " utenze separate (proprietario e applicativo) e script di avvio e arresto"
+            " per Windows e Linux.",
+            "Sonda in container: la scansione SYN e il rilevamento del sistema operativo"
+            " funzionano senza privilegi di amministratore, tramite le capacita' del"
+            " kernel concesse al solo nmap.",
+            "La sonda verifica il certificato del server e si puo' indicare di quale"
+            " certificato fidarsi (CA interna o certificato proprio del server): serve"
+            " quando la console e' passata a HTTPS con un certificato non pubblico.",
+            "Motore di scansione: un apparato che nmap abbandona per scadenza non viene"
+            " piu' scartato dall'inventario. Non essendo stato esaminato e' IGNOTO, non"
+            " assente, e scartarlo lo faceva sparire per un limite di tempo nostro.",
+            "Motore di scansione: il tempo minimo per host delle fasi di rilevazione"
+            " torna al valore misurato come funzionante. Era stato abbassato per drenare"
+            " piu' in fretta la coda, ma sotto quella soglia la fase gira senza produrre"
+            " nulla.",
+            "Il tempo massimo di una scansione si calcola sulle ondate che nmap esegue"
+            " davvero, non sul numero di bersagli: un compito non puo' piu' restare"
+            " appeso per ore bloccando il ciclo.",
+        ],
+    },
+    {
+        "version": "1.2.8",
+        "date": "2026-09-04",
+        "abstract": "I certificati TLS dei web server si cercano per scadenza e finiscono"
+                    " nel resoconto quotidiano; le subnet di ogni tenant si esportano in"
+                    " un file di testo; all'avvio i componenti sono raggiungibili dalla"
+                    " rete oltre che in locale.",
+        "changes": [
+            "Nuova pagina \"Certificati TLS\" (Rete): elenca i web server con il loro"
+            " certificato e permette di cercare quelli SCADUTI o IN SCADENZA, con i giorni"
+            " che mancano. La raccolta del certificato per intero (soggetto, emittente,"
+            " validita', numero di serie, impronte, nomi alternativi) era gia' attiva.",
+            "Il resoconto quotidiano riporta una sezione \"Certificati TLS\" con i"
+            " certificati scaduti e quelli in scadenza entro trenta giorni.",
+            "Da Amministrazione > Impostazioni Sistema si esportano le subnet di ciascun"
+            " tenant in un file .txt, un CIDR per riga e in ordine numerico -- pronto da"
+            " rileggere o reimportare.",
+            "All'avvio i componenti ascoltano di default anche sull'indirizzo della"
+            " macchina, oltre che su 127.0.0.1: sono raggiungibili dalla rete senza"
+            " doverlo indicare a ogni avvio (per il solo locale si passa"
+            " -ServerHost 127.0.0.1).",
+        ],
+    },
+    {
+        "version": "1.2.7",
+        "date": "2026-09-04",
+        "abstract": "Il report tecnico di inventario diventa molto piu' compatto: nodi e"
+                    " servizi in un'unica vista a badge per indirizzo, con l'icona del"
+                    " tipo, e le spiegazioni ripetute ridotte a una sola. Arriva il"
+                    " profilo Operatore SIEM, con un menu su misura.",
+        "changes": [
+            "Report \"Inventario e valutazione tecnica\" molto piu' compatto: le sezioni"
+            " Nodi e Servizi rilevati sono fuse in un'unica vista a \"badge\" per"
+            " indirizzo -- indirizzo, tipo e sistema operativo a parole, icona del tipo"
+            " di dispositivo, e le porte proprie con prodotto e versione. Su una rete di"
+            " circa 7.000 nodi il documento passa da ~1.680 a ~880 pagine (da 7,8 a"
+            " 4,3 MB).",
+            "Le porte \"iniettate\" dalla rete (aperte su quasi tutta la rete, la"
+            " risposta di un apparato e non del nodo) non si ripetono piu': la spiegazione"
+            " compare una sola volta e nel badge se ne conta solo il numero"
+            " (\"+N iniett.\"), invece della stessa frase ripetuta su migliaia di righe.",
+            "Icona vettoriale del tipo di dispositivo nel badge del report: server,"
+            " stampante, firewall, router, switch, telefono, telecamera, UPS, Wi-Fi,"
+            " postazione, archiviazione.",
+            "Nuovo profilo \"Operatore SIEM\": opera il SIEM e gli incidenti come un"
+            " analista, ma con un menu su misura (SIEM, Incidenti, dashboard, report,"
+            " guida) e senza l'amministrazione del tenant.",
+        ],
+    },
+    {
         "version": "1.2.6",
         "date": "2026-09-03",
         "abstract": "La sonda torna a conferire i nodi senza restare bloccata sulla rete"

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from functools import wraps
+from ipaddress import ip_address
 
 from flask import (
     Blueprint,
@@ -125,13 +126,32 @@ def imposta_password(chiaro: str) -> None:
 # Provenienza della richiesta
 # --------------------------------------------------------------------------- #
 def richiesta_locale() -> bool:
-    """La richiesta arriva dalla postazione su cui gira la sonda?
+    """La richiesta arriva da una postazione ammessa alla prima configurazione?
 
     Si guarda l'indirizzo del chiamante e non un'intestazione: `X-Forwarded-For` la
     scrive chi chiama, e una decisione di sicurezza non si prende su un dato che
     l'interlocutore controlla.
+
+    Oltre al loopback si ammettono gli indirizzi dichiarati in
+    `SNAP_PROBE_FIRST_ACCESS_FROM`: serve a chi configura la sonda puntando l'IP
+    della macchina invece di 127.0.0.1. L'elenco e' vuoto se non lo si compila,
+    quindi il comportamento predefinito resta "solo dalla postazione della sonda".
     """
-    return (request.remote_addr or "") in INDIRIZZI_LOCALI
+    indirizzo = request.remote_addr or ""
+    if indirizzo in INDIRIZZI_LOCALI:
+        return True
+
+    ammesse = current_app.config.get("FIRST_ACCESS_FROM") or ()
+    if not ammesse:
+        return False
+    try:
+        chiamante = ip_address(indirizzo)
+    except ValueError:
+        # Senza un indirizzo leggibile non si concede nulla: la barriera esiste
+        # proprio per i casi che non si sanno spiegare.
+        return False
+    return any(chiamante in rete for rete in ammesse
+               if chiamante.version == rete.version)
 
 
 # --------------------------------------------------------------------------- #

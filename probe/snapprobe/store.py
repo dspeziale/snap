@@ -120,6 +120,39 @@ CREATE TABLE IF NOT EXISTS sync_log (
     created_at TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_sync_created ON sync_log(created_at);
+
+-- Corrispondenze IP -> MAC lette dagli apparati di rete in SNMP.
+--
+-- Perche' una tabella a se' e non una colonna sui nodi: queste voci riguardano
+-- INDIRIZZI, non nodi -- arrivano per interi segmenti e comprendono indirizzi che
+-- l'inventario non ha ancora visto (o non vedra' mai). Tenerle separate permette di
+-- raccoglierle indipendentemente dalla scansione e di usarle quando un nodo compare.
+--
+-- `fonte` e' l'apparato che l'ha riferita: un MAC senza la fonte non e'
+-- verificabile, e in caso di conflitto non si saprebbe a chi credere.
+CREATE TABLE IF NOT EXISTS snmp_arp (
+    ip       TEXT PRIMARY KEY,
+    mac      TEXT NOT NULL,
+    fonte    TEXT NOT NULL,
+    letto_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_snmp_arp_letto ON snmp_arp(letto_at);
+
+-- MAC -> porta fisica dello switch, dalla tabella di forwarding.
+--
+-- Chiave il MAC e non l'indirizzo IP: la tabella di forwarding di uno switch parla
+-- di MAC, non sa nulla di indirizzi IP. Il collegamento all'inventario passa quindi
+-- dal MAC, che a sua volta arriva dalla tabella ARP (o dalla scansione).
+--
+-- `porta` e' il NOME dell'interfaccia ("Gi1/0/12"), non il numero interno del MIB:
+-- un numero di porta bridge in inventario non permetterebbe a nessuno di trovarla.
+CREATE TABLE IF NOT EXISTS snmp_porta (
+    mac      TEXT PRIMARY KEY,
+    porta    TEXT NOT NULL,
+    fonte    TEXT NOT NULL,
+    letto_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_snmp_porta_letto ON snmp_porta(letto_at);
 """
 
 
@@ -156,6 +189,76 @@ class ProbeStore:
         # altri non venivano mai riverificati.
         ("local_nodes", "monitored_at", "TEXT"),
     )
+
+    # -- corrispondenze IP -> MAC dagli apparati (SNMP) ---------------------
+    def salva_arp_snmp(self, coppie: dict, fonte: str) -> int:
+        """Registra le coppie IP->MAC lette da un apparato.
+
+        Si sovrascrive per indirizzo: la lettura piu' recente vince, ed e' quello
+        che serve -- una tabella ARP e' una fotografia, non uno storico.
+        """
+        if not coppie:
+            return 0
+        adesso = utc_now_str()
+        with self._connect() as connection:
+            connection.executemany(
+                "INSERT INTO snmp_arp (ip, mac, fonte, letto_at) VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(ip) DO UPDATE SET mac = excluded.mac,"
+                " fonte = excluded.fonte, letto_at = excluded.letto_at",
+                [(ip, mac, fonte, adesso) for ip, mac in coppie.items()])
+        return len(coppie)
+
+    def salva_porte_snmp(self, coppie: dict, fonte: str) -> int:
+        """Registra le coppie MAC->porta lette da uno switch."""
+        if not coppie:
+            return 0
+        adesso = utc_now_str()
+        with self._connect() as connection:
+            connection.executemany(
+                "INSERT INTO snmp_porta (mac, porta, fonte, letto_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(mac) DO UPDATE SET porta = excluded.porta,"
+                " fonte = excluded.fonte, letto_at = excluded.letto_at",
+                [(mac, porta, fonte, adesso) for mac, porta in coppie.items()])
+        return len(coppie)
+
+    def porta_da_snmp(self, mac: str, entro_giorni: int = 7) -> dict | None:
+        """La porta fisica di un MAC, se la lettura non e' troppo vecchia.
+
+        Un apparato si sposta di porta: una lettura di settimane fa direbbe dove
+        ERA, non dove e', e in inventario sarebbe indistinguibile da un dato buono.
+        """
+        if not mac:
+            return None
+        with self._connect() as connection:
+            riga = connection.execute(
+                "SELECT mac, porta, fonte, letto_at FROM snmp_porta"
+                " WHERE mac = ? AND letto_at >= ?",
+                (mac.lower(), days_ago_str(entro_giorni))).fetchone()
+        return dict(riga) if riga else None
+
+    def conteggio_porte_snmp(self) -> int:
+        with self._connect() as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM snmp_porta").fetchone()[0])
+
+    def mac_da_snmp(self, ip: str, entro_giorni: int = 7) -> dict | None:
+        """La corrispondenza per un indirizzo, se non e' troppo vecchia.
+
+        Una voce ARP scaduta da giorni non e' un dato: gli indirizzi si riassegnano.
+        Oltre la finestra si preferisce NESSUN MAC a un MAC probabilmente sbagliato.
+        """
+        with self._connect() as connection:
+            riga = connection.execute(
+                "SELECT ip, mac, fonte, letto_at FROM snmp_arp"
+                " WHERE ip = ? AND letto_at >= ?",
+                (ip, days_ago_str(entro_giorni))).fetchone()
+        return dict(riga) if riga else None
+
+    def conteggio_arp_snmp(self) -> int:
+        with self._connect() as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM snmp_arp").fetchone()[0])
 
     def _migrate(self, connection) -> None:
         for tabella, colonna, tipo in self.MIGRATIONS:
@@ -573,8 +676,14 @@ class ProbeStore:
     # Tabelle dei dati raccolti, nell'ordine in cui si svuotano. L'elenco e'
     # esplicito e non ricavato da sqlite_master: una tabella nuova deve comparire
     # qui per scelta, non trovarsi cancellata per effetto collaterale.
+    # Tutte le tabelle di DATI, cioe' quelle che l'azzeramento deve svuotare. Le
+    # letture SNMP ci stanno per un motivo preciso: `snmp_arp` e `snmp_porta`
+    # contengono le corrispondenze indirizzo-MAC e le porte fisiche lette dagli
+    # apparati di RETE DEL CLIENTE. Un archivio azzerato che le conservasse
+    # riporterebbe in inventario i MAC dell'installazione precedente -- su una sonda
+    # spostata da un cliente a un altro sarebbe una fuga di dati fra due reti.
     DATA_TABLES = ("scan_claims", "scan_state", "local_nodes", "check_state",
-                   "spool", "sync_log", "events")
+                   "spool", "sync_log", "events", "snmp_arp", "snmp_porta")
 
     def reset(self, keep_enrollment: bool = False) -> dict:
         """Azzera l'archivio. Restituisce quante righe sono state rimosse.

@@ -11,7 +11,9 @@ license: MIT
 
 from __future__ import annotations
 
+import os
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -25,13 +27,79 @@ for directory in (SERVER_DIR, PROBE_DIR):
         sys.path.insert(0, str(directory))
 
 
+# --------------------------------------------------------------------------- #
+# Base dati dei test
+# --------------------------------------------------------------------------- #
+# Da quando SQLite e' stato eliminato la suite ha bisogno di un PostgreSQL vero. Si
+# usa quello effimero di `docker/test/docker-compose.yml`, che tiene i dati in RAM:
+#
+#   docker compose -f docker/test/docker-compose.yml up -d
+#
+# Ogni test riceve un DATABASE PROPRIO, creato e distrutto nel giro: e' cio' che
+# sostituisce il file temporaneo di prima e mantiene i test indipendenti fra loro.
+# L'indirizzo si puo' sovrascrivere (CI, altra porta) con SNAP_TEST_DATABASE_URL.
+DSN_AMMINISTRATIVO = os.environ.get(
+    "SNAP_TEST_DATABASE_URL",
+    "postgresql+psycopg://snap_test:snap_test@127.0.0.1:5533/snap_test")
+
+
+def _senza_database(dsn: str) -> str:
+    """Lo stesso indirizzo, puntato al database amministrativo `postgres`."""
+    return dsn.rsplit("/", 1)[0] + "/postgres"
+
+
 @pytest.fixture()
-def server_app(tmp_path, monkeypatch):
-    """Applicazione server con database temporaneo e schema inizializzato."""
+def database_di_prova():
+    """Un database vuoto per il test, distrutto alla fine.
+
+    Se PostgreSQL non risponde il test viene SALTATO con un messaggio che dice cosa
+    fare: senza, la suite fallirebbe in massa per un contenitore non avviato e la
+    causa vera resterebbe da indovinare.
+    """
+    import sqlalchemy as sa
+
+    nome = "prova_%s" % uuid.uuid4().hex[:12]
+    amministrativo = sa.create_engine(_senza_database(DSN_AMMINISTRATIVO),
+                                      isolation_level="AUTOCOMMIT")
+    try:
+        with amministrativo.connect() as connessione:
+            connessione.exec_driver_sql('CREATE DATABASE "%s"' % nome)
+    except sa.exc.OperationalError as errore:
+        pytest.skip("PostgreSQL dei test non raggiungibile (%s). Avviarlo con:"
+                    " docker compose -f docker/test/docker-compose.yml up -d"
+                    % str(errore).splitlines()[0][:80])
+
+    dsn = DSN_AMMINISTRATIVO.rsplit("/", 1)[0] + "/" + nome
+    try:
+        yield dsn
+    finally:
+        with amministrativo.connect() as connessione:
+            # Le connessioni del test possono essere ancora aperte: si chiudono,
+            # altrimenti DROP DATABASE resta in attesa e il test successivo eredita
+            # un database di troppo.
+            connessione.exec_driver_sql(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity"
+                " WHERE datname = '%s' AND pid <> pg_backend_pid()" % nome)
+            connessione.exec_driver_sql('DROP DATABASE IF EXISTS "%s"' % nome)
+        amministrativo.dispose()
+
+
+@pytest.fixture()
+def server_app(tmp_path, monkeypatch, database_di_prova):
+    """Applicazione server con database PostgreSQL proprio e schema inizializzato."""
     import importlib
 
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "server.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
+    # In esercizio sono due utenze distinte (applicativa e proprietaria); qui il
+    # database del test lo crea e lo possiede la stessa, quindi l'indirizzo e' lo
+    # stesso. Serve dichiararlo perche' la copia e il ripristino dell'archivio
+    # richiedono il proprietario, e senza questa variabile si rifiuterebbero.
+    monkeypatch.setenv("SNAP_SERVER_OWNER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_REPORT_DIR", str(tmp_path / "reports"))
+    # Le copie dell'archivio nella cartella del test, non in quella predefinita:
+    # quella e' una per installazione, e i test se la passerebbero l'uno all'altro --
+    # oltre a lasciare copie vere dentro il repository.
+    monkeypatch.setenv("SNAP_SERVER_BACKUP_DIR", str(tmp_path / "backups"))
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "test-secret-key")
 
     import snapserver
@@ -41,7 +109,7 @@ def server_app(tmp_path, monkeypatch):
     importlib.reload(snapserver)
 
     application = snapserver.create_app(server_settings.TestConfig)
-    application.config["DATABASE"] = str(tmp_path / "server.sqlite3")
+    application.config["DATABASE_URL"] = database_di_prova
     application.config["REPORT_DIR"] = str(tmp_path / "reports")
 
     with application.app_context():

@@ -68,15 +68,15 @@ def _categoria_di(porta: int) -> tuple:
 def kpi(tenant_id: int, inizio: str, fine: str) -> dict:
     """Indicatori del periodo. `None` dove non e' stato misurato nulla (RP-05)."""
     esiti = query(
-        "SELECT COUNT(*) AS esiti, COALESCE(SUM(status = ?), 0) AS riusciti,"
-        " ROUND(AVG(latency_ms), 1) AS latenza"
+        "SELECT COUNT(*) AS esiti, COALESCE(SUM(CASE WHEN status = ? THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " ROUND(AVG(latency_ms)::numeric, 1) AS latenza"
         " FROM check_results WHERE tenant_id = ? AND executed_at >= ?"
         " AND executed_at < ?", (STATUS_OK, tenant_id, inizio, fine), one=True)
     incidenti = query(
         "SELECT COUNT(*) AS aperti FROM check_incidents WHERE tenant_id = ?"
         " AND opened_at >= ? AND opened_at < ?", (tenant_id, inizio, fine), one=True)
     risolti = query(
-        "SELECT COUNT(*) AS risolti, opened_at, resolved_at FROM check_incidents"
+        "SELECT COUNT(*) AS risolti FROM check_incidents"
         " WHERE tenant_id = ? AND resolved_at >= ? AND resolved_at < ?",
         (tenant_id, inizio, fine), one=True)
     durate = [
@@ -323,7 +323,10 @@ def audit_digest(tenant_id: int, inizio: str, fine: str) -> dict:
     conteggi = query(
         "SELECT event_type, severity, COUNT(*) AS n FROM audit_events"
         " WHERE tenant_id = ? AND created_at >= ? AND created_at < ?"
-        " GROUP BY event_type ORDER BY n DESC LIMIT ?",
+        # La gravita' nel GROUP BY: lo stesso tipo di evento puo' essere registrato
+        # con gravita' diverse, e distinguerne le righe e' piu' fedele che farne
+        # scegliere una a caso al motore. Il totale resta la somma dei conteggi.
+        " GROUP BY event_type, severity ORDER BY n DESC LIMIT ?",
         (tenant_id, inizio, fine, MAX_AUDIT))
     notevoli = query(
         "SELECT a.event_type, a.severity, a.actor, a.description, a.source_ip,"
@@ -335,8 +338,8 @@ def audit_digest(tenant_id: int, inizio: str, fine: str) -> dict:
         % ",".join("?" * len(NOTEVOLI)),
         (tenant_id, inizio, fine) + NOTEVOLI + (MAX_AUDIT,))
     accessi = query(
-        "SELECT COALESCE(SUM(event_type = 'auth.login'), 0) AS riusciti,"
-        " COALESCE(SUM(event_type = 'auth.login.failed'), 0) AS falliti"
+        "SELECT COALESCE(SUM(CASE WHEN event_type = 'auth.login' THEN 1 ELSE 0 END), 0) AS riusciti,"
+        " COALESCE(SUM(CASE WHEN event_type = 'auth.login.failed' THEN 1 ELSE 0 END), 0) AS falliti"
         " FROM audit_events WHERE tenant_id = ? AND created_at >= ? AND created_at < ?",
         (tenant_id, inizio, fine), one=True)
     return {
@@ -355,22 +358,39 @@ def perimeter(tenant_id: int) -> list:
     """Perimetro dichiarato contro perimetro osservato, subnet per subnet."""
     return [dict(r) for r in query(
         "SELECT s.cidr, s.label, s.is_enabled, s.host_count,"
-        " COUNT(n.id) AS nodi, COALESCE(SUM(n.status = 'up'), 0) AS su,"
-        " COALESCE(SUM(n.device_type IS NULL OR n.device_type = ''), 0) AS senza_tipo,"
+        " COUNT(n.id) AS nodi, COALESCE(SUM(CASE WHEN n.status = 'up' THEN 1 ELSE 0 END), 0) AS su,"
+        " COALESCE(SUM(CASE WHEN n.device_type IS NULL OR n.device_type = '' THEN 1 ELSE 0 END), 0) AS senza_tipo,"
         " s.imported_at"
         " FROM subnets s LEFT JOIN nodes n ON n.subnet_id = s.id"
         " WHERE s.tenant_id = ? GROUP BY s.id ORDER BY s.cidr", (tenant_id,))]
 
 
 def nodes_detail(tenant_id: int, limite: int = MAX_NODI) -> list:
-    return [dict(r) for r in query(
-        "SELECT n.ip, n.hostname, n.mac, n.mac_vendor, n.status, n.os_name, n.os_family,"
-        " n.device_type, n.device_label, n.device_confidence, n.latency_ms,"
+    nodi = [dict(r) for r in query(
+        "SELECT n.id, n.ip, n.hostname, n.mac, n.mac_vendor, n.status, n.os_name,"
+        " n.os_family, n.device_type, n.device_label, n.device_confidence, n.latency_ms,"
         " n.first_seen_at, n.last_seen_at, s.cidr,"
         " (SELECT COUNT(*) FROM node_ports p WHERE p.node_id = n.id"
         "  AND p.state = 'open') AS porte"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE n.tenant_id = ? ORDER BY inet(n.ip)", (tenant_id,))]
+
+    # Elenco delle porte aperte per nodo, per la vista a badge del report. Il
+    # raggruppamento si fa in Python e non con group_concat/string_agg: i due dialetti
+    # (SQLite in sviluppo, PostgreSQL in produzione) li scrivono in modo diverso, e
+    # l'ordinamento dentro l'aggregazione non e' portabile. Una sola query, poi si
+    # attacca a ciascun nodo la sua lista.
+    per_nodo: dict = {}
+    for r in query(
+            "SELECT node_id, protocol, port, is_suspect FROM node_ports"
+            " WHERE tenant_id = ? AND state = 'open' ORDER BY port, protocol",
+            (tenant_id,)):
+        per_nodo.setdefault(int(r["node_id"]), []).append(
+            {"porta": int(r["port"]), "protocollo": r["protocol"],
+             "sospetta": int(r["is_suspect"] or 0)})
+    for n in nodi:
+        n["porte_elenco"] = per_nodo.get(int(n["id"]), [])
+    return nodi
 
 
 def services_detail(tenant_id: int, limite: int = MAX_SERVIZI) -> list:
@@ -416,7 +436,8 @@ def frequent_ports(tenant_id: int, minimo_quota: float = 0.20) -> list:
                 "SELECT protocol, port, COUNT(DISTINCT node_id) AS nodi,"
                 " MAX(service_name) AS servizio FROM node_ports"
                 " WHERE tenant_id = ? AND state = 'open' GROUP BY protocol, port"
-                " HAVING nodi >= ? ORDER BY nodi DESC", (tenant_id, soglia))]
+                # `nodi` e' un alias: in HAVING PostgreSQL vuole l'espressione.
+                " HAVING COUNT(DISTINCT node_id) >= ? ORDER BY nodi DESC", (tenant_id, soglia))]
 
 
 # --------------------------------------------------------------------------- #

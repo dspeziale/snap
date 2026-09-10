@@ -17,6 +17,7 @@ license: MIT
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -49,15 +50,28 @@ class FlaskTransport:
     class RequestException(RuntimeError):
         pass
 
+    class SSLError(RequestException):
+        pass
+
     def __init__(self, flask_client):
         self.client = flask_client
         self.available = True
         self.calls = []
+        # Il client della sonda distingue il rifiuto del certificato dagli altri
+        # errori di rete: l'adattatore deve esporre lo stesso punto d'appoggio del
+        # modulo che sostituisce, altrimenti collauderebbe un'interfaccia diversa
+        # da quella reale.
+        self.exceptions = SimpleNamespace(SSLError=self.SSLError)
 
     def _path(self, url: str) -> str:
         return url[len(SERVER_BASE):] if url.startswith(SERVER_BASE) else url
 
-    def post(self, url, json=None, timeout=None, headers=None):
+    def _controlla_verifica(self, verify):
+        """La verifica del certificato non deve mai risultare disattivata."""
+        assert verify is not False, "la sonda non deve chiedere di non verificare"
+
+    def post(self, url, json=None, timeout=None, headers=None, verify=None):
+        self._controlla_verifica(verify)
         if not self.available:
             raise self.RequestException("server non disponibile (simulato)")
         path = self._path(url)
@@ -65,7 +79,8 @@ class FlaskTransport:
         response = self.client.post(path, json=json, headers=headers or {})
         return _Response(response.status_code, response.get_json(silent=True))
 
-    def get(self, url, timeout=None, headers=None):
+    def get(self, url, timeout=None, headers=None, verify=None):
+        self._controlla_verifica(verify)
         if not self.available:
             raise self.RequestException("server non disponibile (simulato)")
         path = self._path(url)
@@ -332,3 +347,60 @@ def test_probe_without_enrollment_still_collects(probe_store):
     assert outcome["collected"] is not None
     assert probe_store.queue_size() > 0
     assert agent.flush_queue()["records"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Verifica del certificato del server
+# --------------------------------------------------------------------------- #
+# Il canale porta le chiavi della registrazione e l'inventario della rete: se la
+# sonda accettasse qualunque certificato, chi si mettesse in mezzo potrebbe
+# presentarsi come il server. Un server interno pero' ha di norma un certificato
+# proprio, che nessun archivio pubblico conosce: si dichiara di chi fidarsi.
+def test_di_default_il_certificato_del_server_viene_verificato(probe_store):
+    client = ServerClient(probe_store, "1.0.0-test")
+    assert client._verifica() is True
+
+
+def test_l_ancora_di_fiducia_dichiarata_viene_usata(probe_store, tmp_path):
+    pem = tmp_path / "server-ca.crt"
+    pem.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    client = ServerClient(probe_store, "1.0.0-test", ca_bundle=str(pem))
+    assert client._verifica() == str(pem)
+
+
+def test_la_verifica_non_si_puo_disattivare(probe_store):
+    """Nessun valore di configurazione deve poter produrre `verify=False`."""
+    for valore in ("", "0", "no", "false", "None"):
+        client = ServerClient(probe_store, "1.0.0-test", ca_bundle=valore)
+        assert client._verifica() is not False
+        assert client._verifica() is True or client._verifica() == valore
+
+
+def test_un_certificato_non_verificabile_spiega_cosa_fare(probe_store, monkeypatch):
+    """Il messaggio della libreria non dice cosa fare: quello della sonda si'."""
+    import requests
+
+    from snapprobe.client import TransportError
+
+    def _rifiuta(*argomenti, **parametri):
+        raise requests.exceptions.SSLError("certificate verify failed: self-signed")
+
+    monkeypatch.setattr(requests, "get", _rifiuta)
+    probe_store.set_setting("server_url", "https://server.test:5500")
+
+    with pytest.raises(TransportError) as errore:
+        ServerClient(probe_store, "1.0.0-test").ping()
+
+    assert "SNAP_PROBE_SERVER_CA" in str(errore.value)
+
+
+def test_un_percorso_inesistente_non_disattiva_la_verifica(monkeypatch):
+    """Sbagliare il percorso deve far fallire la verifica, non saltarla."""
+    import importlib
+
+    import snapprobe.settings as impostazioni
+
+    monkeypatch.setenv("SNAP_PROBE_SERVER_CA", "/percorso/che/non/esiste.crt")
+    importlib.reload(impostazioni)
+
+    assert impostazioni.Config.SERVER_CA == ""

@@ -27,12 +27,17 @@ STATO_ERRORE = "error"
 
 
 def base_dir() -> Path:
-    """Cartella radice dei report, accanto al database."""
+    """Cartella radice dei report.
+
+    Non si ricava piu' dal percorso del database: l'archivio sta su PostgreSQL e un
+    percorso non esiste. Si usa quella configurata (`SNAP_SERVER_REPORT_DIR`) e, in
+    mancanza, `server/data/reports` accanto al codice.
+    """
     configurata = current_app.config.get("REPORTS_DIR")
     if configurata:
         radice = Path(configurata)
     else:
-        radice = Path(current_app.config["DATABASE"]).resolve().parent / "reports"
+        radice = Path(current_app.root_path).parent / "data" / "reports"
     radice.mkdir(parents=True, exist_ok=True)
     return radice
 

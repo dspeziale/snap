@@ -61,15 +61,46 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.2.6"
+    APP_VERSION = "1.3.1"
     APP_SUBTITLE = "Secure Network Assessment Platform"
+    # Quale dei due componenti si sta guardando. Compare sotto il marchio e nel piede
+    # di pagina: con console e sonda aperte in due schede e' l'informazione che
+    # distingue le due interfacce, ormai identiche per struttura. Un solo valore
+    # alimenta entrambi i punti, cosi' non possono raccontare cose diverse.
+    APP_COMPONENT = "server"
 
     SECRET_KEY = load_secret_key()
-    DATABASE = os.environ.get("SNAP_SERVER_DATABASE", str(DATA_DIR / "snap_server.sqlite3"))
-    # Archivio degli eventi SIEM: un file separato dal database della console, cosi'
-    # un flusso di migliaia di log al minuto non contende le pagine. Vuoto significa
-    # "accanto al database principale" (snap_siem.sqlite3), che e' il caso di sviluppo.
-    SIEM_DATABASE = os.environ.get("SNAP_SERVER_SIEM_DATABASE", "")
+    # Archivio su PostgreSQL. La stringa di connessione arriva dall'ambiente e non ha
+    # un valore predefinito con credenziali: un segreto non sta nel codice, e un
+    # default funzionante sarebbe la via piu' rapida per metterlo in esercizio senza
+    # accorgersene. Senza questa variabile l'applicazione si rifiuta di partire.
+    #
+    #   postgresql+psycopg://utente:password@host:5432/nome_database
+    DATABASE_URL = os.environ.get("SNAP_SERVER_DATABASE_URL", "")
+    # Credenziali del PROPRIETARIO della base dati. L'applicazione non le usa per
+    # lavorare -- gira con l'utenza applicativa, che ha i soli privilegi di lettura e
+    # scrittura -- ma la copia e il ripristino dell'archivio le richiedono: leggere
+    # ogni oggetto e, nel ripristino, ricrearli. Se manca, le due operazioni si
+    # rifiutano dichiarando il motivo, invece di produrre una copia incompleta.
+    OWNER_DATABASE_URL = os.environ.get("SNAP_SERVER_OWNER_DATABASE_URL", "")
+    # Quanto una scrittura attende un lock, prima di rinunciare. Trenta secondi coprono
+    # le operazioni lunghe (cancellazione di una sonda, ingestione di un lotto) mentre
+    # i servizi di fondo scrivono; oltre, e' meglio un errore che una richiesta appesa.
+    # Su PostgreSQL diventa `lock_timeout` (vedi db.py).
+    DB_LOCK_TIMEOUT_MS = _int("SNAP_SERVER_DB_LOCK_TIMEOUT_MS", 30000)
+    # Riciclo delle connessioni del pool: il contenitore della base dati puo'
+    # riavviarsi, e una connessione tenuta aperta per ore diventa inutilizzabile
+    # senza dirlo. `pool_pre_ping` la verifica prima di usarla.
+    DB_POOL_RECYCLE_SEC = _int("SNAP_SERVER_DB_POOL_RECYCLE_SEC", 1800)
+    # Allineare lo schema all'avvio dell'applicazione. In sviluppo si': chi lancia il
+    # server e' anche proprietario della base dati. In esercizio NO: lo fa l'avvio del
+    # contenitore con le credenziali del proprietario, e l'applicazione si collega con
+    # un'utenza che non puo' modificare lo schema (vedi docker/server/entrypoint.sh).
+    INIT_DB_ON_START = _bool("SNAP_SERVER_INIT_DB", True)
+    # Gli eventi SIEM NON hanno piu' un archivio proprio: stanno nel database della
+    # console, nella stessa transazione e con lo stesso vincolo di tenant. L'archivio
+    # separato esisteva per la contesa in scrittura di SQLite, che su PostgreSQL non
+    # c'e' (i lettori non bloccano gli scrittori).
     # Giorni di conservazione degli eventi SIEM. I log contengono utenze e indirizzi:
     # tenerli per sempre e' una violazione (GDPR art. 5). La purga gira col motore.
     SIEM_RETENTION_DAYS = _int("SNAP_SERVER_SIEM_RETENTION_DAYS", 90)
@@ -92,6 +123,12 @@ class Config:
     HOST = os.environ.get("SNAP_SERVER_HOST", "127.0.0.1")
     PORT = _int("SNAP_SERVER_PORT", 5500)
     DEBUG = _bool("SNAP_SERVER_DEBUG", False)
+
+    # Dietro un reverse proxy che termina il TLS (esercizio in container). Quando e'
+    # attivo si fida delle intestazioni X-Forwarded-* di UN solo salto: senza,
+    # l'applicazione crederebbe di essere in chiaro (redirezioni verso http://) e
+    # vedrebbe come indirizzo del client quello del proxy, non quello reale.
+    BEHIND_PROXY = _bool("SNAP_SERVER_BEHIND_PROXY", False)
 
     # Sessione
     PERMANENT_SESSION_LIFETIME = timedelta(minutes=_int("SNAP_SERVER_SESSION_MINUTES", 120))

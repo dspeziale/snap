@@ -257,11 +257,14 @@ def import_subnets(tenant_id: int, text: str, source_file: str, user_id: int | N
 def active_subnets(tenant_id: int) -> list[dict]:
     """Perimetro attivo, nella forma consegnata alla sonda."""
     righe = query(
-        "SELECT cidr, label, host_count FROM subnets"
+        "SELECT cidr, label, host_count, COALESCE(is_wifi, 0) AS is_wifi FROM subnets"
         " WHERE tenant_id = ? AND is_enabled = 1 ORDER BY cidr",
         (tenant_id,),
     )
-    return [{"cidr": r["cidr"], "label": r["label"], "hosts": int(r["host_count"])}
+    # `wifi` viaggia nel perimetro e non in una configurazione a parte: e' una
+    # proprieta' della rete, e la sonda deve poterla leggere dove legge la rete.
+    return [{"cidr": r["cidr"], "label": r["label"], "hosts": int(r["host_count"]),
+             "wifi": bool(r["is_wifi"])}
             for r in righe]
 
 

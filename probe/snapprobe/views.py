@@ -251,12 +251,22 @@ def enroll_reset():
 # --------------------------------------------------------------------------- #
 @bp.get("/configuration")
 def configuration():
+    from . import snmp_raccolta
+
     store = _store()
     return render_template(
         "configuration.html",
         status=_agent().status(),
         options=store.get_json("server_options", {}) or {},
         queue=store.queue_preview(40),
+        # SNMP: si passa l'elenco degli apparati e SE una community e' impostata,
+        # non la community. Un segreto non torna alla pagina che lo ha ricevuto.
+        snmp_devices=store.get_setting(snmp_raccolta.CHIAVE_APPARATI, "") or "",
+        snmp_enabled=str(store.get_setting(snmp_raccolta.CHIAVE_ATTIVA, "0")) == "1",
+        snmp_community_impostata=bool(
+            (store.get_setting(snmp_raccolta.CHIAVE_COMMUNITY, "") or "").strip()),
+        snmp_corrispondenze=store.conteggio_arp_snmp(),
+        snmp_ultima=store.get_setting("last_snmp_at", "") or "",
     )
 
 
@@ -286,6 +296,126 @@ def save_configuration():
     )
     store.log("info", "Configurazione locale aggiornata (intervallo %d s)" % interval)
     flash("Configurazione locale salvata.", "success")
+    return redirect(url_for("probe.configuration"))
+
+
+@bp.post("/snmp")
+def save_snmp():
+    """Apparati di rete da interrogare in SNMP, e community di sola lettura.
+
+    Il MAC di un nodo si ottiene con ARP, che non attraversa un router: per le
+    subnet instradate l'unico modo di averlo e' chiederlo a un apparato di quel
+    segmento. Qui si dichiara a quali apparati chiederlo.
+
+    La community e' un SEGRETO e viene trattata come tale:
+      * si salva solo se l'operatore ne scrive una nuova (il campo arriva vuoto se
+        non la si vuole cambiare): cosi' salvare le altre impostazioni non la
+        cancella per distrazione;
+      * non viene MAI rimandata alla pagina, ne' scritta nel diario o in un
+        messaggio -- il diario locale si legge dall'interfaccia, e un segreto che
+        finisce in un diario e' un segreto perduto.
+    """
+    from . import snmp_raccolta
+
+    store = _store()
+    apparati = (request.form.get("snmp_devices") or "").strip()
+    community = request.form.get("snmp_community") or ""
+    attiva = bool(request.form.get("snmp_enabled"))
+
+    valori = {
+        snmp_raccolta.CHIAVE_APPARATI: apparati,
+        snmp_raccolta.CHIAVE_ATTIVA: "1" if attiva else "0",
+    }
+    # Campo vuoto = "lascia quella che c'e'". Per togliere la community si svuota
+    # l'elenco degli apparati o si disattiva la raccolta.
+    if community.strip():
+        valori[snmp_raccolta.CHIAVE_COMMUNITY] = community.strip()
+    store.set_settings(valori)
+
+    dichiarati = snmp_raccolta.apparati_dichiarati(store)
+    if attiva and not (store.get_setting(snmp_raccolta.CHIAVE_COMMUNITY, "") or "").strip():
+        flash("Raccolta SNMP attivata ma manca la community di sola lettura:"
+              " nessun apparato verra' interrogato.", "warning")
+    elif attiva and not dichiarati:
+        flash("Raccolta SNMP attivata ma nessun apparato dichiarato.", "warning")
+    else:
+        store.log("info", "Raccolta SNMP %s: %d apparati dichiarati"
+                          % ("attivata" if attiva else "disattivata", len(dichiarati)))
+        flash("Impostazioni SNMP salvate: %d apparati dichiarati."
+              % len(dichiarati), "success")
+    return redirect(url_for("probe.configuration"))
+
+
+@bp.post("/snmp/discover")
+def discover_snmp():
+    """Scopre gli apparati interrogabili e popola l'elenco.
+
+    Si aggiunge SOLO cio' che ha superato la prova: risponde in SNMP con la community
+    configurata e ha una tabella ARP con almeno una voce. Un apparato che "sembra" un
+    router ma non risponde non serve, e uno senza tabella ARP non aggiunge dati.
+    """
+    from . import snmp_scoperta
+
+    store = _store()
+    esito = snmp_scoperta.scopri(_agent().scanner)
+
+    if not esito["community_configurata"]:
+        flash("Serve prima la community di sola lettura: senza, nessun apparato puo'"
+              " essere provato. Sono stati comunque cercati apparati con la community"
+              " di fabbrica (vedi sotto e il diario).", "warning")
+
+    if esito["aggiunti"]:
+        dettaglio = "; ".join("%s (%s, %d voci ARP)"
+                              % (a["etichetta"], a["indirizzo"], a["voci_arp"])
+                              for a in esito["aggiunti"][:6])
+        flash("Apparati aggiunti all'elenco: %d su %d candidati provati. %s"
+              % (len(esito["aggiunti"]), esito["candidati"], dettaglio), "success")
+    elif esito["candidati"]:
+        flash("Provati %d candidati, nessuno ha risposto con la community"
+              " configurata." % esito["candidati"], "warning")
+    else:
+        flash("Nessun candidato: serve un perimetro configurato oppure almeno una"
+              " scansione svolta.", "warning")
+
+    if esito["di_fabbrica"]:
+        elenco = ", ".join("%s (%s)" % (v["indirizzo"], v["community"])
+                           for v in esito["di_fabbrica"][:6])
+        flash("ATTENZIONE: %d apparati rispondono con la community di FABBRICA: %s."
+              " E' un'esposizione da chiudere. Non sono stati aggiunti all'elenco."
+              % (len(esito["di_fabbrica"]), elenco), "danger")
+
+    if esito["senza_arp"]:
+        flash("%d apparati rispondono ma non hanno tabella ARP: non aggiungono dati"
+              " e non sono stati aggiunti." % len(esito["senza_arp"]), "info")
+
+    return redirect(url_for("probe.configuration"))
+
+
+@bp.post("/snmp/test")
+def test_snmp():
+    """Interroga subito gli apparati e riporta l'esito, apparato per apparato.
+
+    Serve a scoprire ORA se la community e' quella giusta, invece di aspettare la
+    cadenza e poi cercare nel diario perche' i MAC non arrivano.
+    """
+    from . import snmp_raccolta
+
+    store = _store()
+    if not snmp_raccolta.attiva(store):
+        flash("La raccolta SNMP non e' attiva, oppure manca la community.", "warning")
+        return redirect(url_for("probe.configuration"))
+
+    esito = snmp_raccolta.raccogli(store)
+    store.set_setting("last_snmp_at", utc_now_str())
+    if not esito["apparati"]:
+        flash("Nessun apparato dichiarato.", "warning")
+    elif not esito["interrogati"]:
+        motivi = "; ".join("%s: %s" % (d["apparato"], d.get("motivo", ""))
+                           for d in esito["dettagli"])
+        flash("Nessun apparato ha risposto. %s" % motivi, "danger")
+    else:
+        flash("Interrogati %d apparati su %d: %d corrispondenze IP-MAC."
+              % (esito["interrogati"], esito["apparati"], esito["coppie"]), "success")
     return redirect(url_for("probe.configuration"))
 
 

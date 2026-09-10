@@ -50,6 +50,54 @@ FATTI_WEB_GIA_MOSTRATI = frozenset((
 ))
 
 
+# --------------------------------------------------------------------------- #
+# L'indirizzo con cui aprire l'interfaccia di un apparato
+# --------------------------------------------------------------------------- #
+# Chi guarda la scheda di un nodo e vede la 80 o la 443 aperta vuole aprirla: e'
+# il gesto successivo naturale, e senza un collegamento si ricopia l'indirizzo a
+# mano. Le porte e lo schema sono gli stessi che usa la sonda per leggere le
+# pagine di gestione (`web_probe.PORTE_HTTPS`), cosi' console e sonda non
+# divergono su cosa sia "web".
+PORTE_HTTPS = frozenset({443, 8443, 4443, 9443, 10443, 8834, 7443, 5986})
+PORTE_HTTP = frozenset({80, 81, 88, 591, 3000, 5000, 7080, 8000, 8001, 8008,
+                        8080, 8081, 8082, 8083, 8088, 8090, 8180, 8181, 8280,
+                        8888, 9080, 9090, 10000})
+# Nomi di servizio che dichiarano un'interfaccia web anche su una porta inattesa:
+# un apparato puo' esporre la propria pagina di gestione dove vuole.
+SERVIZI_WEB = ("http", "https", "http-alt", "https-alt", "http-proxy", "ssl/http",
+               "http-mgmt", "caldav", "wsdapi")
+
+
+def indirizzo_web(ip: str, porta: dict) -> str | None:
+    """L'indirizzo con cui aprire questa porta nel browser, o None se non e' web.
+
+    Restituisce None quando la porta non e' un'interfaccia web: un collegamento
+    che apre una pagina di errore e' peggio di nessun collegamento.
+    """
+    if not ip or (porta.get("state") or "") != "open":
+        return None
+    if (porta.get("protocol") or "").lower() != "tcp":
+        return None
+    try:
+        numero = int(porta.get("port"))
+    except (TypeError, ValueError):
+        return None
+
+    servizio = (porta.get("service_name") or "").strip().lower()
+    cifrata = numero in PORTE_HTTPS or "https" in servizio or servizio.startswith("ssl")
+    e_web = (numero in PORTE_HTTPS or numero in PORTE_HTTP
+             or servizio in SERVIZI_WEB or servizio.startswith("http"))
+    if not e_web:
+        return None
+
+    schema = "https" if cifrata else "http"
+    # La porta predefinita non si scrive: l'indirizzo resta quello che l'operatore
+    # avrebbe digitato.
+    if (schema == "https" and numero == 443) or (schema == "http" and numero == 80):
+        return "%s://%s/" % (schema, ip)
+    return "%s://%s:%d/" % (schema, ip, numero)
+
+
 def fatti_aggiuntivi(facts_json: str | None) -> list[dict]:
     """I fatti dichiarati dall'apparato che non hanno gia' un campo dedicato.
 

@@ -52,6 +52,15 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_object(config_object)
 
+    # Dietro il reverse proxy che termina il TLS: UN solo salto di fiducia. Vale anche
+    # per la regola "la prima password si scegle solo dall'indirizzo locale": con
+    # x_for=1 l'indirizzo del client e' quello che il proxy ha scritto, e il proxy lo
+    # scrive con $remote_addr (non lo accoda), quindi non e' falsificabile dal client.
+    if app.config.get("BEHIND_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
     logging.basicConfig(
         level=logging.DEBUG if app.config.get("DEBUG") else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -121,11 +130,15 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
     @app.context_processor
     def _inject_globals() -> dict:
         from .auth import autenticato, password_impostata
+        from .changelog import voci as changelog_voci
 
         return {
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            "app_component": app.config["APP_COMPONENT"],
+            # Il badge della versione apre queste note, come nella console.
+            "changelog": changelog_voci(),
             "settings": store.all_settings(),
             "agent_status": agent.status(),
             "accesso_aperto": autenticato(),

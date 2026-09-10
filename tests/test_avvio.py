@@ -42,13 +42,14 @@ def radice_pulita():
 # Il diario su file, in aggiunta a quello a schermo
 # --------------------------------------------------------------------------- #
 def test_il_server_scrive_il_diario_sul_file_indicato(tmp_path, monkeypatch,
-                                                      radice_pulita):
+                                                      radice_pulita,
+                                                      database_di_prova):
     """Serve all'avvio assistito: la finestra mostra cosa accade, il file lo
     conserva per la diagnosi del giorno dopo."""
     import snapserver
 
     percorso = tmp_path / "diari" / "server.log"
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "prova.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "prova")
     monkeypatch.setenv("SNAP_SERVER_LOG_FILE", str(percorso))
 
@@ -77,14 +78,15 @@ def test_il_server_scrive_il_diario_sul_file_indicato(tmp_path, monkeypatch,
 
 
 def test_senza_indicazione_non_si_crea_nessun_file(tmp_path, monkeypatch,
-                                                   radice_pulita):
+                                                   radice_pulita,
+                                                   database_di_prova):
     """L'avvio manuale e i test non devono lasciare file in giro."""
     import importlib
 
     import snapserver
     import snapserver.settings as impostazioni
 
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "prova.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "prova")
     monkeypatch.delenv("SNAP_SERVER_LOG_FILE", raising=False)
 
@@ -100,7 +102,8 @@ def test_senza_indicazione_non_si_crea_nessun_file(tmp_path, monkeypatch,
 
 
 def test_un_diario_non_apribile_non_impedisce_l_avvio(tmp_path, monkeypatch,
-                                                      radice_pulita, caplog):
+                                                      radice_pulita, caplog,
+                                                      database_di_prova):
     """Il diario e' un aiuto, non un requisito: se il percorso non e' scrivibile il
     servizio parte comunque, ma la cosa viene dichiarata -- un diario che si crede
     attivo e non lo e' e' peggio della sua assenza."""
@@ -113,7 +116,7 @@ def test_un_diario_non_apribile_non_impedisce_l_avvio(tmp_path, monkeypatch,
     ostacolo = tmp_path / "ostacolo"
     ostacolo.write_text("non sono una cartella", encoding="utf-8")
 
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "prova.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "prova")
     monkeypatch.setenv("SNAP_SERVER_LOG_FILE", str(ostacolo / "server.log"))
 
@@ -126,7 +129,8 @@ def test_un_diario_non_apribile_non_impedisce_l_avvio(tmp_path, monkeypatch,
         "il problema va dichiarato, non ingoiato"
 
 
-def test_il_diario_non_si_apre_due_volte(tmp_path, monkeypatch, radice_pulita):
+def test_il_diario_non_si_apre_due_volte(tmp_path, monkeypatch, radice_pulita,
+                                         database_di_prova):
     """Con il ricaricatore automatico create_app viene chiamata due volte: due
     gestori sullo stesso file scriverebbero ogni riga in doppio."""
     import importlib
@@ -135,7 +139,7 @@ def test_il_diario_non_si_apre_due_volte(tmp_path, monkeypatch, radice_pulita):
     import snapserver.settings as impostazioni
 
     percorso = tmp_path / "server.log"
-    monkeypatch.setenv("SNAP_SERVER_DATABASE", str(tmp_path / "prova.sqlite3"))
+    monkeypatch.setenv("SNAP_SERVER_DATABASE_URL", database_di_prova)
     monkeypatch.setenv("SNAP_SERVER_SECRET_KEY", "prova")
     monkeypatch.setenv("SNAP_SERVER_LOG_FILE", str(percorso))
 

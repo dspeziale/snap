@@ -238,6 +238,14 @@ class ProbeAgent:
         if self._collection_due():
             outcome["collected"] = self.collector.collect()
 
+        # Raccolta SNMP dagli apparati di rete: cadenza propria, molto piu' lenta
+        # della scansione. Una tabella ARP cambia in minuti, non in secondi, e
+        # interrogare un router a ogni ciclo sarebbe traffico di gestione inutile.
+        # Sta PRIMA della scansione perche' la scansione la usa: e' il MAC che il
+        # profilo di un nodo su subnet instradata non potrebbe avere altrimenti.
+        if self._snmp_due():
+            outcome["snmp"] = self._raccogli_snmp()
+
         if not self.store.is_enrolled():
             # Senza registrazione non c'e' con chi parlare: si raccoglie e si
             # scansiona in autonomia, che e' il comportamento previsto.
@@ -303,6 +311,92 @@ class ProbeAgent:
             self.store.log("warning", "Scansione non eseguita: %s" % errore)
             self._last_error = str(errore)
             return None
+
+    # -- raccolta dagli apparati di rete (SNMP) -----------------------------
+    # Ogni quanto interrogare gli apparati. Trenta minuti: una tabella ARP ha una
+    # vita di minuti-decine di minuti, e piu' spesso di cosi' si aggiungerebbe
+    # traffico di gestione senza guadagnare dato.
+    SNMP_INTERVALLO_SEC = 1800
+
+    def _snmp_due(self) -> bool:
+        """Vero se e' ora di reinterrogare gli apparati (e se la raccolta e' attiva)."""
+        from datetime import datetime, timezone
+
+        from . import snmp_raccolta
+        from .store import UTC_FORMAT
+
+        if not snmp_raccolta.attiva(self.store):
+            return False
+        ultimo = self.store.get_setting("last_snmp_at")
+        if not ultimo:
+            return True
+        try:
+            momento = datetime.strptime(ultimo, UTC_FORMAT).replace(tzinfo=timezone.utc)
+        except ValueError:
+            # Una data illeggibile non deve bloccare la raccolta per sempre.
+            return True
+        intervallo = int(self.store.get_setting("snmp_interval_sec",
+                                                self.SNMP_INTERVALLO_SEC)
+                         or self.SNMP_INTERVALLO_SEC)
+        return (datetime.now(timezone.utc) - momento).total_seconds() >= intervallo
+
+    def _raccogli_snmp(self) -> dict:
+        """Interroga gli apparati. Un errore NON deve fermare il ciclo dell'agente.
+
+        La raccolta e' un arricchimento: se gli apparati non rispondono, la sonda
+        continua a scansionare e a conferire come prima -- semplicemente senza i MAC
+        delle subnet instradate.
+
+        Prima di interrogare si guarda se la scansione ha trovato SNMP aperto su
+        nodi che non sono ancora nell'elenco: se si', si provano e si aggiungono.
+        Senza questo passo un apparato SNMP scoperto dalla scansione restava
+        invisibile alla raccolta finche' qualcuno non premeva il pulsante
+        "Scopri e popola l'elenco" -- e i MAC delle sue subnet non arrivavano.
+        """
+        from . import snmp_raccolta
+
+        scoperti = self._scopri_apparati_snmp()
+        try:
+            esito = snmp_raccolta.raccogli(self.store)
+        except Exception as errore:  # noqa: BLE001 - vedi la docstring
+            self.store.log("error", "Raccolta SNMP non riuscita: %s" % errore)
+            return {"errore": str(errore)}
+        self.store.set_setting("last_snmp_at", utc_now_str())
+        if scoperti:
+            esito["scoperti"] = scoperti
+        return esito
+
+    def _scopri_apparati_snmp(self) -> list:
+        """Aggiunge all'elenco gli apparati con SNMP aperto trovati dalla scansione.
+
+        Si interrogano TUTTI gli host vivi, non solo quelli con la 161 vista aperta.
+        Il motivo e' misurato: la 161 e' UDP, e un port scan UDP non distingue
+        "aperta" da "nessuna risposta" (nmap risponde `open|filtered` su 32 indirizzi
+        su 32), quindi come indizio non vale nulla. Una GET di sysDescr invece
+        risponde o non risponde, ed e' la domanda vera -- l'apparato e'
+        INTERROGABILE? Costa 8 secondi per una /24 con 64 fili, cioe' nulla rispetto
+        a una passata di porte: chiedere a tutti e' piu' semplice E piu' affidabile
+        che indovinare a chi chiedere.
+
+        Un candidato viene aggiunto solo se SUPERA LA PROVA -- risponde con la
+        community configurata e ha una tabella ARP con almeno una voce -- perche'
+        rispondere non basta: un apparato senza tabella ARP non ha MAC da riferire.
+
+        Un errore qui non ferma la raccolta: e' un arricchimento dell'arricchimento.
+        """
+        from . import snmp_raccolta, snmp_scoperta
+
+        try:
+            if not (self.store.get_setting(snmp_raccolta.CHIAVE_COMMUNITY, "") or "").strip():
+                # Senza community non si puo' provare nulla: la prova E' il criterio.
+                return []
+            esito = snmp_scoperta.scopri(self.scanner)
+            return [v["indirizzo"] for v in esito.get("aggiunti", [])]
+        except Exception as errore:  # noqa: BLE001 - vedi la docstring
+            self.store.log("warning",
+                           "Scoperta automatica degli apparati SNMP non riuscita: %s"
+                           % errore)
+            return []
 
     def _collection_due(self) -> bool:
         """Vero se e' trascorso l'intervallo di raccolta configurato."""

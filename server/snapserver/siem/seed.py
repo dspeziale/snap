@@ -111,16 +111,18 @@ def semina_regole(connection, adesso: str) -> int:
     resto dell'applicazione. Idempotente e adatta all'evoluzione del catalogo: un
     aggiornamento porta le regole nuove anche ai tenant gia' esistenti.
     """
-    tenant = [r[0] for r in connection.execute("SELECT id FROM tenants").fetchall()]
+    from ..db import esegui
+
+    tenant = [r[0] for r in esegui(connection, "SELECT id FROM tenants")]
     if not tenant:
         return 0
     aggiunte = 0
     for tenant_id in tenant:
-        presenti = {r[0] for r in connection.execute(
-            "SELECT code FROM siem_rules WHERE tenant_id = ?", (tenant_id,)).fetchall()}
+        presenti = {r[0] for r in esegui(
+            connection, "SELECT code FROM siem_rules WHERE tenant_id = ?", (tenant_id,))}
         for regola in REGOLE:
             if regola[0] in presenti:
                 continue
-            connection.execute(_INSERISCI, _valori(tenant_id, regola, adesso))
+            esegui(connection, _INSERISCI, _valori(tenant_id, regola, adesso))
             aggiunte += 1
     return aggiunte

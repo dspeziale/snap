@@ -398,6 +398,10 @@ TAG_XML = {
     "productname": "modello", "devicemodel": "modello", "printermodel": "modello",
     "modelnumber": "modello",
     "devicename": "nome_dispositivo", "hostname": "nome_host",
+    # UPnP: `friendlyName` e' il nome che l'apparato mostra di se' in rete, e nella
+    # descrizione UPnP compare prima di tutto il resto. E' la descrizione che si legge
+    # SENZA credenziali per costruzione, quindi su un apparato muto e' spesso l'unica.
+    "friendlyname": "nome_dispositivo",
     "devicehostname": "nome_host", "systemname": "nome_dispositivo",
     "serialnumber": "seriale", "serialnum": "seriale", "productserialnumber": "seriale",
     "firmwareversion": "firmware", "fwversion": "firmware", "version": "firmware",

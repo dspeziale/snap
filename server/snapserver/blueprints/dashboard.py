@@ -54,7 +54,7 @@ def index():
     orari = results_hourly(tenant_id)
     giornalieri = incidents_daily(tenant_id)
     consegne = query(
-        "SELECT strftime('%Y-%m-%d %H:00:00', received_at) AS ora,"
+        "SELECT to_char(received_at::timestamp, 'YYYY-MM-DD HH24:00:00') AS ora,"
         " COALESCE(SUM(record_count), 0) AS record FROM ingest_batches"
         " WHERE tenant_id = ? AND received_at >= ?"
         " GROUP BY ora ORDER BY ora", (tenant_id, hours_ago_str(24)))

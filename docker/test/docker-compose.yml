@@ -1,0 +1,56 @@
+# -----------------------------------------------------------------
+# docker-compose.yml — PostgreSQL per i TEST (non per l'esercizio)
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-09
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+# Perche' esiste: da quando SQLite e' stato eliminato, la suite non puo' piu' girare
+# su un file temporaneo -- serve un PostgreSQL. Quello di esercizio NON pubblica la
+# propria porta (per disegno: la base dati parla solo con l'applicazione), quindi non
+# e' raggiungibile da chi esegue i test sulla propria macchina.
+#
+# Questo servizio e' l'opposto di quello di esercizio, e va usato SOLO per i test:
+#   * i dati stanno in RAM (tmpfs): la suite crea e distrugge database a ogni giro,
+#     e nessuno vuole conservarli. E' anche molto piu' veloce.
+#   * le credenziali sono FISSE e scritte qui. Non sono un segreto: non proteggono
+#     nulla, servono a un database vuoto che vive quanto la suite. Ascolta solo su
+#     127.0.0.1, quindi non e' raggiungibile dalla rete.
+#   * la porta e' la 5533, dentro il range del progetto (vedi PORTS.md).
+#
+# Avvio:   docker compose -f docker/test/docker-compose.yml up -d
+# Arresto: docker compose -f docker/test/docker-compose.yml down
+
+name: snap-test
+
+services:
+  postgres-test:
+    image: postgres:16.4-alpine
+    container_name: snap-postgres-test
+    restart: unless-stopped
+    # Solo loopback: un database di prova non deve rispondere dalla rete.
+    ports:
+      - "127.0.0.1:5533:5432"
+    environment:
+      POSTGRES_DB: snap_test
+      POSTGRES_USER: snap_test
+      POSTGRES_PASSWORD: snap_test
+    # Dati in RAM: veloci e senza residui fra un'esecuzione e l'altra.
+    tmpfs:
+      - /var/lib/postgresql/data
+    # `fsync=off` si puo' fare SOLO qui: un guasto durante i test non deve costare
+    # niente, e la scrittura sincrona e' il costo principale di una suite che crea
+    # migliaia di righe. In esercizio sarebbe una perdita di dati annunciata.
+    command:
+      - postgres
+      - -c
+      - fsync=off
+      - -c
+      - full_page_writes=off
+      - -c
+      - synchronous_commit=off
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U snap_test -d snap_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

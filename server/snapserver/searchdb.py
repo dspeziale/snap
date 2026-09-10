@@ -13,9 +13,14 @@ un biglietto in mano e non sa da che parte cominciare.
 scritte una volta e disponibili con un clic, esportabili in CSV.
 
 Nessun SQL scritto dall'utente arriva alla banca dati: le interrogazioni sono
-dichiarate qui, con parametri legati, e la ricerca libera usa `LIKE` su colonne
+dichiarate qui, con parametri legati, e la ricerca libera usa `ILIKE` su colonne
 dichiarate. Un campo di ricerca che accettasse SQL sarebbe una porta aperta sul
 database di tutti i tenant (OWASP A03), e nessuna comodita' la vale.
+
+`ILIKE` e non `LIKE`: su PostgreSQL `LIKE` distingue le maiuscole, e chi cerca
+scrive "cisco" per trovare "Cisco Systems". Vale solo per i termini digitati da una
+persona -- i confronti su valori interni (per esempio la provenienza di un MAC)
+restano con `LIKE`, dove la distinzione fra maiuscole e minuscole e' voluta.
 
 remarks: Autore: Daniele Speziale - Data: 2026-08-29
 copyright: (c) 2024-26 DS Consulting
@@ -72,11 +77,11 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
         " (SELECT w.model FROM node_web w WHERE w.node_id = n.id"
         "   AND COALESCE(w.model, '') <> '' ORDER BY w.port LIMIT 1) AS web_model"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
-        " WHERE n.tenant_id = ? AND (n.ip LIKE ? OR n.hostname LIKE ?"
-        "   OR n.mac LIKE ? OR n.mac_vendor LIKE ? OR n.os_name LIKE ?"
-        "   OR n.device_label LIKE ?"
+        " WHERE n.tenant_id = ? AND (n.ip ILIKE ? OR n.hostname ILIKE ?"
+        "   OR n.mac ILIKE ? OR n.mac_vendor ILIKE ? OR n.os_name ILIKE ?"
+        "   OR n.device_label ILIKE ?"
         "   OR EXISTS (SELECT 1 FROM node_web w WHERE w.node_id = n.id"
-        "     AND (COALESCE(w.brand, '') LIKE ? OR COALESCE(w.model, '') LIKE ?)))"
+        "     AND (COALESCE(w.brand, '') ILIKE ? OR COALESCE(w.model, '') ILIKE ?)))"
         " ORDER BY n.ip LIMIT ?",
         (tenant_id, modello, modello, modello, modello, modello, modello,
          modello, modello, limit))]
@@ -88,8 +93,8 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
         " p.banner, p.cpe, n.id AS node_id, n.ip, n.hostname"
         " FROM node_ports p JOIN nodes n ON n.id = p.node_id"
         " WHERE p.tenant_id = ? AND p.state = 'open'"
-        " AND (p.service_name LIKE ? OR p.product LIKE ? OR p.version LIKE ?"
-        "      OR p.banner LIKE ? OR p.cpe LIKE ?)"
+        " AND (p.service_name ILIKE ? OR p.product ILIKE ? OR p.version ILIKE ?"
+        "      OR p.banner ILIKE ? OR p.cpe ILIKE ?)"
         " ORDER BY n.ip, p.port LIMIT ?",
         (tenant_id, modello, modello, modello, modello, modello, limit))]
     generi.append({"chiave": "servizi", "titolo": "Servizi e porte",
@@ -99,8 +104,8 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
         "SELECT f.id, f.kind, f.severity, f.title, f.cve_id, f.product, f.version,"
         " f.status, n.id AS node_id, n.ip"
         " FROM ti_findings f JOIN nodes n ON n.id = f.node_id"
-        " WHERE f.tenant_id = ? AND (f.title LIKE ? OR f.cve_id LIKE ?"
-        "   OR f.product LIKE ? OR f.evidence LIKE ?)"
+        " WHERE f.tenant_id = ? AND (f.title ILIKE ? OR f.cve_id ILIKE ?"
+        "   OR f.product ILIKE ? OR f.evidence ILIKE ?)"
         " ORDER BY f.severity, n.ip LIMIT ?",
         (tenant_id, modello, modello, modello, modello, limit))]
     generi.append({"chiave": "riscontri", "titolo": "Vulnerabilita' ed esposizioni",
@@ -110,7 +115,7 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
         "SELECT s.script_id, substr(s.output, 1, 200) AS estratto, s.collected_at,"
         " n.id AS node_id, n.ip, n.device_label"
         " FROM node_snmp s JOIN nodes n ON n.id = s.node_id"
-        " WHERE s.tenant_id = ? AND s.output LIKE ? ORDER BY n.ip LIMIT ?",
+        " WHERE s.tenant_id = ? AND s.output ILIKE ? ORDER BY n.ip LIMIT ?",
         (tenant_id, modello, limit))]
     generi.append({"chiave": "snmp", "titolo": "Letture SNMP", "icona": "bi-broadcast",
                    "righe": letture})
@@ -118,8 +123,8 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
     controlli = [dict(r) for r in query(
         "SELECT c.id, c.name, c.kind, c.is_enabled, t.address, t.name AS target_name"
         " FROM checks c JOIN check_targets t ON t.id = c.target_id"
-        " WHERE c.tenant_id = ? AND (c.name LIKE ? OR t.address LIKE ?"
-        "   OR t.name LIKE ?) ORDER BY c.name LIMIT ?",
+        " WHERE c.tenant_id = ? AND (c.name ILIKE ? OR t.address ILIKE ?"
+        "   OR t.name ILIKE ?) ORDER BY c.name LIMIT ?",
         (tenant_id, modello, modello, modello, limit))]
     generi.append({"chiave": "controlli", "titolo": "Controlli e bersagli",
                    "icona": "bi-clipboard-check", "righe": controlli})
@@ -127,7 +132,7 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
     subnet = [dict(r) for r in query(
         "SELECT s.id, s.cidr, s.label, s.host_count, s.is_enabled,"
         " (SELECT COUNT(*) FROM nodes n WHERE n.subnet_id = s.id) AS nodi"
-        " FROM subnets s WHERE s.tenant_id = ? AND (s.cidr LIKE ? OR s.label LIKE ?)"
+        " FROM subnets s WHERE s.tenant_id = ? AND (s.cidr ILIKE ? OR s.label ILIKE ?)"
         " ORDER BY s.cidr LIMIT ?", (tenant_id, modello, modello, limit))]
     generi.append({"chiave": "subnet", "titolo": "Perimetro",
                    "icona": "bi-bounding-box", "righe": subnet})
@@ -135,7 +140,7 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
     eventi = [dict(r) for r in query(
         "SELECT id, created_at, event_type, severity, description, actor, entity"
         " FROM audit_events WHERE tenant_id = ?"
-        " AND (description LIKE ? OR event_type LIKE ? OR actor LIKE ?)"
+        " AND (description ILIKE ? OR event_type ILIKE ? OR actor ILIKE ?)"
         " ORDER BY created_at DESC LIMIT ?",
         (tenant_id, modello, modello, modello, limit))]
     generi.append({"chiave": "eventi", "titolo": "Registro eventi",
@@ -144,7 +149,7 @@ def global_search(tenant_id: int, testo: str, limit: int = MAX_PER_GENERE) -> di
     cve = [dict(r) for r in query(
         "SELECT cve_id, severity, cvss_score, kev, substr(description, 1, 160)"
         "   AS descrizione FROM ti_cve"
-        " WHERE cve_id LIKE ? OR description LIKE ? ORDER BY cvss_score DESC LIMIT ?",
+        " WHERE cve_id ILIKE ? OR description ILIKE ? ORDER BY cvss_score DESC LIMIT ?",
         (modello, modello, limit))]
     generi.append({"chiave": "cve", "titolo": "Catalogo CVE (comune a tutti i tenant)",
                    "icona": "bi-database", "righe": cve})
@@ -225,7 +230,12 @@ SAVED_QUERIES = [
        " FROM nodes n WHERE n.tenant_id = ?"
        " AND (n.device_type IS NULL OR n.device_type = 'unknown'"
        "      OR COALESCE(n.device_confidence, 0) < 60)"
-       " AND porte > 0 ORDER BY porte DESC, n.ip"),
+       # "porte > 0" nella WHERE usava l'alias di una colonna calcolata: SQLite lo
+       # consentiva, PostgreSQL no (l'alias non esiste ancora quando la WHERE si
+       # valuta). EXISTS dice la stessa cosa e non conta cio' che non serve contare.
+       " AND EXISTS (SELECT 1 FROM node_ports p WHERE p.node_id = n.id"
+       "   AND p.state = 'open' AND COALESCE(p.is_suspect, 0) = 0)"
+       " ORDER BY porte DESC, n.ip"),
 
     _q("comparsi", "Comparsi negli ultimi sette giorni",
        "Un indirizzo nuovo e' sempre una domanda: chi lo ha collegato, e perche'.",
@@ -250,7 +260,7 @@ SAVED_QUERIES = [
        "Che cosa risponde su piu' dispositivi: dice come e' fatta la rete meglio di"
        " qualunque elenco.",
        ["porta", "servizio", "dispositivi", "prodotti distinti"],
-       "SELECT p.protocol || '/' || p.port, COALESCE(p.service_name, ''),"
+       "SELECT p.protocol || '/' || p.port, MAX(COALESCE(p.service_name, '')),"
        " COUNT(DISTINCT p.node_id) AS nodi, COUNT(DISTINCT p.product) AS prodotti"
        " FROM node_ports p WHERE p.tenant_id = ? AND p.state = 'open'"
        " AND COALESCE(p.is_suspect, 0) = 0"
@@ -295,18 +305,22 @@ SAVED_QUERIES = [
        " FROM check_results r JOIN checks c ON c.id = r.check_id"
        " JOIN check_targets t ON t.id = c.target_id"
        " WHERE r.tenant_id = ? AND r.executed_at >= ?"
-       " GROUP BY c.id HAVING falliti > 0 ORDER BY falliti DESC",
+       # `falliti` e' un alias: in HAVING si ripete l'espressione.
+       " GROUP BY c.id, t.address"
+       " HAVING SUM(CASE WHEN r.status <> 'ok' THEN 1 ELSE 0 END) > 0"
+       " ORDER BY falliti DESC",
        parametri=lambda t: (t, days_ago_str(7))),
 
     _q("latenza", "Bersagli piu' lenti",
        "La lentezza precede spesso il guasto: sette giorni di misure.",
        ["controllo", "bersaglio", "misure", "latenza media (ms)", "massima (ms)"],
        "SELECT c.name, t.address, COUNT(*) AS misure,"
-       " ROUND(AVG(r.latency_ms), 1), MAX(r.latency_ms)"
+       " ROUND(AVG(r.latency_ms)::numeric, 1), MAX(r.latency_ms)"
        " FROM check_results r JOIN checks c ON c.id = r.check_id"
        " JOIN check_targets t ON t.id = c.target_id"
        " WHERE r.tenant_id = ? AND r.executed_at >= ? AND r.latency_ms IS NOT NULL"
-       " GROUP BY c.id HAVING misure >= 3 ORDER BY AVG(r.latency_ms) DESC",
+       " GROUP BY c.id, t.address HAVING COUNT(*) >= 3"
+       " ORDER BY AVG(r.latency_ms) DESC",
        parametri=lambda t: (t, days_ago_str(7))),
 
     _q("copertura", "Copertura del perimetro dichiarato",
@@ -350,7 +364,13 @@ def run_saved(tenant_id: int, chiave: str, limit: int = MAX_RIGHE) -> dict:
     if voce is None:
         return {}
     parametri = tuple(voce["parametri"](tenant_id)) + (int(limit),)
-    righe = [list(r) for r in query(voce["sql"] + " LIMIT ?", parametri)]
+    # `celle()` e non `list(r)`: una riga di risultato e' un Mapping, e scorrerla
+    # da' i NOMI delle colonne -- l'esportazione CSV consegnava una riga di
+    # intestazioni al posto dei dati. E nemmeno `values()`: queste interrogazioni
+    # hanno piu' espressioni senza alias, che finiscono con lo stesso nome e in un
+    # dizionario si sovrascrivono. `celle()` da' le colonne del SELECT, tutte.
+    righe = [list(r.celle())
+             for r in query(voce["sql"] + " LIMIT ?", parametri)]
 
     # Quando la prima colonna e' un indirizzo di nodo, si porta accanto a ogni riga
     # l'identificativo del nodo, cosi' la pagina puo' rendere l'indirizzo cliccabile

@@ -9,3 +9,18 @@ tzdata>=2024.1
 # Generazione dei report in PDF (licenza BSD, puro Python, nessuna libreria nativa).
 # Concordata: vedi docs/08_REPORT.md, decisione D1.
 reportlab>=4.0,<6.0
+# Server WSGI di esercizio: lo prescrive lo stack del progetto ("in produzione l'app
+# gira dietro Gunicorn, mai il dev server Flask"). Serve SOLO nei container Linux; in
+# sviluppo su Windows si continua con il dev server avviato da start.ps1, perche'
+# Gunicorn non gira su Windows (alternativa valutata per quel caso: waitress).
+gunicorn>=22.0,<24.0
+# Strato dati: PostgreSQL tramite SQLAlchemy Core (nessun SQL in dialetto sparso nel
+# codice) e migrazioni versionate con Alembic. Sostituiscono l'accesso diretto a
+# sqlite3: vedi docs e il changelog 1.2.9.
+# Alternative valutate: solo psycopg (piu' rapido da adottare ma lascia l'SQL legato a
+# un dialetto, contro la regola del progetto sull'accesso ai dati) e SQLAlchemy ORM
+# (conforme alla lettera, ma i punti di accesso diventano modelli e sessioni: la
+# superficie di regressione e' l'intera applicazione).
+SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
+psycopg[binary]>=3.1,<4.0

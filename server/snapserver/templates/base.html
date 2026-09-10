@@ -15,6 +15,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}{{ app_name }}{% endblock %} &middot; {{ app_name }}</title>
+  {# Icona dell'applicazione. Tre formati per tre esigenze: l'SVG resta nitido a
+     qualunque dimensione (e' quello che i browser recenti preferiscono), il PNG
+     serve a chi non legge SVG, l'ICO a chi lo cerca ancora alla radice del sito.
+     Il PNG grande e' l'icona che iOS e Android usano per la scorciatoia sulla
+     schermata iniziale. #}
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/favicon.svg') }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='img/favicon-32.png') }}">
+  <link rel="alternate icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='img/favicon-180.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap/bootstrap.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/bootstrap-icons/bootstrap-icons.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='vendor/adminlte/adminlte.min.css') }}">
@@ -55,15 +64,18 @@
     </div>
   </main>
 
+  {# A destra la versione e il COMPONENTE: server e sonda hanno lo stesso piede, e
+     l'unica differenza e' quale dei due si sta guardando -- che e' esattamente cio'
+     che serve sapere quando si ha una console e una sonda aperte in due schede.
+     Il fuso orario del tenant sta nel selettore in alto, dove si cambia: qui era
+     un'informazione ripetuta. #}
   <footer class="app-footer">
     <div class="float-end d-none d-sm-inline">
-      {{ app_subtitle }}
-      {% if current_tenant %}
-        &middot; fuso orario <strong>{{ current_tenant['timezone'] }}</strong>
-      {% endif %}
+      {{ app_subtitle }} &middot;
+      <strong>v{{ app_version }}</strong> &mdash; {{ app_component|capitalize }}
     </div>
-    <strong>{{ app_name }}</strong> v{{ app_version }} &mdash;
-    &copy; 2024-26 DS Consulting &middot; licenza MIT
+    <strong>{{ app_name }}</strong> &mdash;
+    &copy; 2024-26 DS Consulting
   </footer>
 </div>
 

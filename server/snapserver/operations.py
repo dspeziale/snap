@@ -183,11 +183,11 @@ def worst_latency(tenant_id: int, limit: int = MAX_RIGHE) -> list[dict]:
     """Bersagli piu' lenti nelle 24 ore: la lentezza precede spesso il guasto."""
     return [dict(r) for r in query(
         "SELECT c.name AS check_name, t.address, COUNT(*) AS esiti,"
-        " ROUND(AVG(r.latency_ms), 1) AS media, MAX(r.latency_ms) AS massimo"
+        " ROUND(AVG(r.latency_ms)::numeric, 1) AS media, MAX(r.latency_ms) AS massimo"
         " FROM check_results r JOIN checks c ON c.id = r.check_id"
         " JOIN check_targets t ON t.id = c.target_id"
         " WHERE r.tenant_id = ? AND r.executed_at >= ? AND r.latency_ms IS NOT NULL"
-        " GROUP BY c.id HAVING COUNT(*) >= 3"
+        " GROUP BY c.id, t.address HAVING COUNT(*) >= 3"
         " ORDER BY media DESC LIMIT ?", (tenant_id, days_ago_str(1), int(limit)))]
 
 
@@ -385,14 +385,21 @@ def attack_coverage(tenant_id: int, limit: int = 12) -> list:
         " COUNT(*) AS riscontri, COUNT(DISTINCT f.node_id) AS nodi"
         " FROM ti_findings f LEFT JOIN ti_technique t ON t.technique_id = f.technique_id"
         " WHERE f.tenant_id = ? AND f.status = 'open' AND f.technique_id IS NOT NULL"
-        " AND f.technique_id <> '' GROUP BY f.technique_id"
+        # Le colonne della tecnica stanno nel GROUP BY: PostgreSQL esige che ogni
+        # colonna selezionata sia aggregata o raggruppata. SQLite lo consentiva e
+        # restituiva un valore ARBITRARIO fra quelli del gruppo -- comodo finche'
+        # i valori coincidono, silenziosamente sbagliato quando non coincidono.
+        # Qui coincidono per costruzione (una riga per tecnica), quindi il
+        # risultato non cambia: cambia il fatto che ora e' dichiarato.
+        " AND f.technique_id <> ''"
+        " GROUP BY f.technique_id, t.name, t.tactics, t.url"
         " ORDER BY nodi DESC LIMIT ?", (tenant_id, int(limit)))]
 
 
 def ports_opened(tenant_id: int, giorni: int = 7, limit: int = 12) -> list:
     """Quali servizi sono stati aperti di piu' nella finestra."""
     return [dict(r) for r in query(
-        "SELECT p.protocol, p.port, COALESCE(p.service_name, '') AS servizio,"
+        "SELECT p.protocol, p.port, MAX(COALESCE(p.service_name, '')) AS servizio,"
         " COUNT(*) AS quante, COUNT(DISTINCT p.node_id) AS nodi"
         " FROM node_ports p WHERE p.tenant_id = ? AND p.state = 'open'"
         " AND COALESCE(p.is_suspect, 0) = 0 AND p.first_seen_at >= ?"

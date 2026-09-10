@@ -269,19 +269,29 @@
 
 
   // ------------------------------------------------------------------ //
-  // Collegamento "Skip to navigation"
+  // Collegamenti di salto inseriti da AdminLTE
   //
-  // AdminLTE inserisce da se' due collegamenti di salto a inizio pagina. Quello al
-  // contenuto principale resta -- e' cio' che la WCAG 2.4.1 chiede, saltare i blocchi
-  // ripetuti -- mentre quello alla navigazione porta al menu, che sulla tastiera e'
-  // gia' il primo elemento raggiungibile: e' un passaggio in piu' che non porta
-  // dove non si arriverebbe comunque.
+  // AdminLTE aggiunge da se', a inizio pagina, "Skip to main content" e "Skip to
+  // navigation". Vengono rimossi entrambi su richiesta.
+  //
+  // COSA SI PERDE, scritto perche' non si scopra a un collaudo di accessibilita':
+  // il salto al contenuto e' il meccanismo che la WCAG 2.4.1 (Bypass Blocks,
+  // livello A) chiede per non far attraversare a ogni pagina, con la tastiera o
+  // con un lettore di schermo, l'intero menu laterale. Per un prodotto destinato
+  // alla PA italiana e' un requisito di legge (EN 301 549 / linee guida AgID), non
+  // una raffinatezza.
+  //
+  // Nota: i due collegamenti NON erano visibili con il mouse -- AdminLTE li tiene
+  // fuori schermo (`.skip-link { top: -40px }`) e li mostra solo quando ricevono
+  // il fuoco da tastiera.
+  //
+  // Per ripristinarli basta togliere questo blocco.
   // ------------------------------------------------------------------ //
-  (function togliSaltoAllaNavigazione() {
+  (function togliCollegamentiDiSalto() {
     function rimuovi() {
-      var collegamento = document.querySelector('.skip-links a[href="#navigation"]');
-      if (collegamento) {
-        collegamento.remove();
+      var contenitore = document.querySelector(".skip-links");
+      if (contenitore) {
+        contenitore.remove();
       }
     }
     rimuovi();

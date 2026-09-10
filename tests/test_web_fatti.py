@@ -619,3 +619,193 @@ def test_la_codifica_dichiarata_viene_rispettata():
 
     assert "PIÙ" in _decodifica(corpo, "text/html; charset=windows-1252")
     assert _decodifica(b"", "text/html") == ""
+
+
+# --------------------------------------------------------------------------- #
+# L'apparato muto: percorsi identificanti generici
+# --------------------------------------------------------------------------- #
+# Misurato su questa rete: `pagine_lette` restava a 1 su tutti i nodi esaminati. Non
+# era il lettore a sbagliare -- era che la radice di un apparato incorporato e' un 401
+# nudo, o una pagina di accesso senza un solo collegamento da seguire. Il lettore non
+# aveva dove andare, e l'apparato restava anonimo pur avendo una pagina che lo dichiara
+# per intero. Questi test coprono la via d'uscita e i suoi limiti.
+DESCRIZIONE_UPNP = (
+    '<?xml version="1.0"?><root xmlns="urn:schemas-upnp-org:device-1-0">'
+    "<device><deviceType>urn:schemas-upnp-org:device:Printer:1</deviceType>"
+    "<friendlyName>STAMPANTE-SEGRETERIA</friendlyName>"
+    "<manufacturer>Brother Industries, Ltd.</manufacturer>"
+    "<modelName>HL-L3270CDW series</modelName>"
+    "<serialNumber>E7A123456</serialNumber>"
+    "</device></root>")
+
+
+def _rete_muta(monkeypatch, pagine, stato_radice=401):
+    """Un apparato che alla radice non dice niente e risponde solo su un percorso."""
+    import snapprobe.web_probe as lettore
+
+    chieste = []
+
+    def falso_scarica(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        percorso = urlsplit(indirizzo).path
+        chieste.append(percorso)
+        if percorso == "/":
+            return RispostaFinta(stato_radice, ""), b"", None
+        corpo = pagine.get(percorso)
+        if corpo is None:
+            return RispostaFinta(404, "non trovato"), b"", None
+        tipo = ("text/xml" if corpo.lstrip().startswith("<?xml") else "text/html")
+        risposta = RispostaFinta(200, corpo, {"Content-Type": tipo})
+        return risposta, corpo.encode("utf-8"), None
+
+    monkeypatch.setattr(lettore, "_scarica", falso_scarica)
+    return chieste
+
+
+def test_un_apparato_muto_si_identifica_dalla_descrizione_upnp(monkeypatch):
+    """La descrizione UPnP e' leggibile senza credenziali per costruzione, e dichiara
+    costruttore, modello, numero di serie e nome: su un apparato muto e' tutto."""
+    from snapprobe.web_probe import leggi_pagina
+
+    chieste = _rete_muta(monkeypatch, {"/description.xml": DESCRIZIONE_UPNP})
+
+    esito = leggi_pagina("10.0.0.9", 80, False)
+
+    assert "/description.xml" in chieste
+    assert esito["fatti"]["nome_dispositivo"] == "STAMPANTE-SEGRETERIA"
+    assert esito["fatti"]["seriale"] == "E7A123456"
+    assert esito["marca"] == "Brother"
+    assert "HL-L3270CDW" in esito["modello"]
+    assert esito["pagine_lette"] > 1
+
+
+def test_i_percorsi_generici_si_provano_solo_se_manca_tutto(monkeypatch):
+    """Un apparato che si e' gia' presentato non va interrogato ancora: sarebbero
+    richieste tolte agli altri nodi della passata."""
+    from snapprobe.web_probe import leggi_pagina
+
+    chieste = _rete_muta(monkeypatch, {}, stato_radice=200)
+    import snapprobe.web_probe as lettore
+
+    def parlante(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        chieste.append(urlsplit(indirizzo).path)
+        corpo = ("<title>HP LaserJet MFP M428</title>"
+                 "<table><tr><td>Nome host:</td><td>hp-m428</td></tr>"
+                 "<tr><td>Numero di serie:</td><td>CNB1234</td></tr>"
+                 "<tr><td>Posizione:</td><td>UFFICIO 3</td></tr></table>")
+        return RispostaFinta(200, corpo), corpo.encode("utf-8"), None
+
+    monkeypatch.setattr(lettore, "_scarica", parlante)
+
+    leggi_pagina("10.0.0.10", 80, False)
+
+    assert not any(p == "/description.xml" for p in chieste)
+
+
+def test_la_stessa_pagina_servita_per_ogni_percorso_non_si_riesamina(monkeypatch):
+    """Molti apparati servono la propria pagina di accesso per QUALUNQUE indirizzo: si
+    otterrebbero cinque copie della stessa pagina, e un conto di pagine lette che
+    promette un approfondimento mai avvenuto."""
+    import snapprobe.web_probe as lettore
+    from snapprobe.web_probe import leggi_pagina
+
+    accesso = '<html><body><form><input type="password"></form></body></html>'
+    chieste = []
+
+    def sempre_accesso(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        chieste.append(urlsplit(indirizzo).path)
+        return RispostaFinta(200, accesso), accesso.encode("utf-8"), None
+
+    monkeypatch.setattr(lettore, "_scarica", sempre_accesso)
+
+    esito = leggi_pagina("10.0.0.11", 80, False)
+    letti = [p for p in esito["pagine"] if p["origine"] == "percorso generico"]
+
+    assert len(chieste) > 1, "i percorsi generici si provano: la radice non dice nulla"
+    assert esito["modulo_accesso"] is True
+    assert len(letti) <= len(chieste), "ogni tentativo resta nel diario"
+    assert "fatti" not in esito, "una copia della pagina di accesso non e' un fatto"
+
+
+def test_i_percorsi_generici_sono_di_sola_lettura():
+    """Nessun percorso del catalogo deve contenere un verbo d'azione: la fase web fa
+    solo GET informative, e un indirizzo con "reset" o "reboot" nel nome sarebbe un
+    comando anche se richiesto in GET."""
+    from snapprobe.web_facts import VERBI_CON_EFFETTO, VERBI_DISTRUTTIVI
+    from snapprobe.web_probe import PERCORSI_GENERICI
+
+    for percorso in PERCORSI_GENERICI:
+        assert percorso.startswith("/"), percorso
+        assert "?" not in percorso, "%s: nessun parametro" % percorso
+        assert not VERBI_DISTRUTTIVI.search(percorso), percorso
+        assert not VERBI_CON_EFFETTO.search(percorso), percorso
+
+
+def test_il_tetto_delle_pagine_vale_anche_con_i_percorsi_generici(monkeypatch):
+    """Il budget e' quello che rende la fase eseguibile su centinaia di indirizzi: i
+    tentativi in piu' non devono poterlo sfondare."""
+    from snapprobe.web_probe import (MAX_PAGINE_EXTRA, MAX_PAGINE_PER_PORTA,
+                                     leggi_pagina)
+
+    _rete_muta(monkeypatch, {"/status.html": "<title>Stato</title>",
+                             "/info.html": "<title>Informazioni</title>",
+                             "/system.html": "<title>Sistema</title>"})
+
+    esito = leggi_pagina("10.0.0.12", 80, False)
+
+    assert esito["pagine_lette"] <= MAX_PAGINE_PER_PORTA + MAX_PAGINE_EXTRA
+
+
+def test_ogni_percorso_generico_si_arriva_a_provarlo():
+    """Un percorso che il tetto per passata non raggiunge mai non e' un percorso: e'
+    una riga che sembra fare qualcosa. Chi aggiunge un indirizzo al catalogo deve
+    alzare il tetto, e questo test glielo dice."""
+    from snapprobe.web_probe import (MAX_PAGINE_EXTRA, MAX_PERCORSI_GENERICI,
+                                     PERCORSI_GENERICI)
+
+    assert MAX_PERCORSI_GENERICI >= len(PERCORSI_GENERICI)
+    assert MAX_PAGINE_EXTRA >= len(PERCORSI_GENERICI) + 2, (
+        "il diario deve poter contenere anche i due percorsi della famiglia nota")
+
+
+def test_un_indirizzo_assente_non_interrompe_la_ricerca(monkeypatch):
+    """Un 404 e' una buona notizia: l'apparato distingue gli indirizzi, quindi il
+    tentativo successivo ha senso. E' il contrario del catch-all."""
+    from snapprobe.web_probe import PERCORSI_GENERICI, leggi_pagina
+
+    ultimo = PERCORSI_GENERICI[-1]
+    chieste = _rete_muta(monkeypatch, {
+        ultimo: "<title>Info</title><table>"
+                "<tr><td>Model:</td><td>ECOSYS M3145idn</td></tr>"
+                "<tr><td>Host name:</td><td>kyo-piano2</td></tr></table>"})
+
+    esito = leggi_pagina("10.0.0.13", 80, False)
+
+    assert ultimo in chieste, "i 404 precedenti non hanno fermato la ricerca"
+    assert esito["fatti"]["nome_host"] == "kyo-piano2"
+
+
+def test_un_apparato_che_incanala_tutto_non_si_interroga_a_vuoto(monkeypatch):
+    """Chi rimanda altrove qualunque indirizzo senza mai servire una pagina darebbe la
+    stessa risposta a tutti i tentativi: sono richieste tolte agli altri nodi."""
+    import snapprobe.web_probe as lettore
+
+    chieste = []
+
+    def sempre_redirezione(indirizzo, ip):
+        from urllib.parse import urlsplit
+
+        chieste.append(urlsplit(indirizzo).path)
+        risposta = RispostaFinta(302, "", {"Location": "/", "Content-Type": "text/html"})
+        return risposta, b"", None
+
+    monkeypatch.setattr(lettore, "_scarica", sempre_redirezione)
+
+    lettore.leggi_pagina("10.0.0.14", 80, False)
+
+    assert not any(p in lettore.PERCORSI_GENERICI for p in chieste)

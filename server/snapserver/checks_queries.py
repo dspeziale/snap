@@ -350,7 +350,11 @@ def metrics_latest(tenant_id: int, check_id: int, selection=None) -> list[dict]:
         " AVG(CASE WHEN m.measured_at >= ? THEN m.value END) AS avg_24h,"
         " COUNT(DISTINCT m.text_value) AS distinct_texts"
         " FROM check_metrics m WHERE m.tenant_id = ? AND m.check_id = ?"
-        " GROUP BY m.name ORDER BY m.name",
+        # `m.check_id` sta nel GROUP BY perche' le sottoquery correlate qui sopra lo
+        # leggono: PostgreSQL vuole raggruppata ogni colonna esterna citata, anche
+        # dentro una sottoquery. Non cambia il risultato -- la WHERE fissa un solo
+        # check_id, quindi il raggruppamento resta per nome di misura.
+        " GROUP BY m.name, m.check_id ORDER BY m.name",
         (days_ago_str(1), days_ago_str(1), days_ago_str(1), tenant_id, check_id))
     return _filtra([dict(r) for r in righe], selection)
 
@@ -490,7 +494,7 @@ def results_hourly(tenant_id: int, hours: int = 24) -> list[dict]:
     eseguito nulla farebbe leggere un crollo dove c'e' solo assenza di dati.
     """
     righe = query(
-        "SELECT strftime('%Y-%m-%d %H:00:00', executed_at) AS ora,"
+        "SELECT to_char(executed_at::timestamp, 'YYYY-MM-DD HH24:00:00') AS ora,"
         " COUNT(*) AS totali,"
         " SUM(CASE WHEN status = ? THEN 0 ELSE 1 END) AS falliti"
         " FROM check_results WHERE tenant_id = ? AND executed_at >= ?"

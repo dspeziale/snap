@@ -247,8 +247,11 @@ def rebuild_cwe_links() -> int:
                       " AND cwe_ids <> ''", ()):
         for debolezza in (riga["cwe_ids"] or "").replace(" ", "").split(","):
             if debolezza.startswith("CWE-"):
-                execute("INSERT OR IGNORE INTO ti_cve_cwe (cve_id, cwe_id)"
-                        " VALUES (?, ?)", (riga["cve_id"], debolezza))
+                # Il legame puo' esistere gia': si dichiara il conflitto invece di
+                # farlo sollevare (era `INSERT OR IGNORE` su SQLite).
+                execute("INSERT INTO ti_cve_cwe (cve_id, cwe_id)"
+                        " VALUES (?, ?) ON CONFLICT DO NOTHING",
+                        (riga["cve_id"], debolezza))
                 scritti += 1
     return scritti
 
@@ -395,8 +398,8 @@ def store_cve(cve: dict, source: str = "nvd") -> bool:
     # interrogabile di `cwe_ids`, e una CVE aggiornata puo' cambiarne l'elenco.
     execute("DELETE FROM ti_cve_cwe WHERE cve_id = ?", (identificativo,))
     for debolezza in cwe:
-        execute("INSERT OR IGNORE INTO ti_cve_cwe (cve_id, cwe_id) VALUES (?, ?)",
-                (identificativo, debolezza))
+        execute("INSERT INTO ti_cve_cwe (cve_id, cwe_id) VALUES (?, ?)"
+                " ON CONFLICT DO NOTHING", (identificativo, debolezza))
 
     # L'applicabilita' si riscrive: una CVE aggiornata puo' cambiare gli intervalli, e
     # tenere le righe vecchie produrrebbe corrispondenze su versioni non piu' incluse.

@@ -30,6 +30,8 @@ from flask import (
     url_for,
 )
 
+from sqlalchemy.exc import OperationalError
+
 from ..audit import log_event
 from ..crypto import (
     derive_enrollment_key,
@@ -440,7 +442,26 @@ def revoke(probe_id: int):
 def delete(probe_id: int):
     tenant_id = current_tenant_id()
     probe = _load_probe(probe_id, tenant_id)
-    execute("DELETE FROM probes WHERE id = ? AND tenant_id = ?", (probe_id, tenant_id))
+    # Cancellare una sonda tocca tutta la sua storia (nodi, esecuzioni, esiti dei
+    # controlli): su un inventario grande e' un'operazione lunga, e se un'altra
+    # scrittura la precede l'attesa puo' scadere. In quel caso l'operatore deve
+    # leggere cosa e' successo e che nulla e' stato cancellato -- non una pagina di
+    # errore, che gli lascerebbe il dubbio di una cancellazione a meta'.
+    #
+    # L'eccezione e' quella di SQLAlchemy, non quella di un driver: PostgreSQL segnala
+    # la scadenza dell'attesa sul blocco (SQLSTATE 55P03) come errore operativo. Qui
+    # si intercettava `sqlite3.OperationalError`, che su PostgreSQL non arriva mai --
+    # il messaggio non poteva scattare e l'operatore vedeva una pagina di errore.
+    try:
+        execute("DELETE FROM probes WHERE id = ? AND tenant_id = ?", (probe_id, tenant_id))
+    except OperationalError as errore:
+        current_app.logger.warning(
+            "Cancellazione della sonda %s non riuscita: %s", probe_id, errore)
+        flash("Cancellazione non riuscita: l'archivio era occupato da un'altra"
+              " operazione. La sonda NON e' stata cancellata: riprovare fra"
+              " qualche istante.", "danger")
+        return redirect(url_for("probes.detail", probe_id=probe_id))
+
     log_event(
         "probe.deleted",
         "Sonda %s eliminata" % probe["code"],

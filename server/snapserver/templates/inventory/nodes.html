@@ -148,7 +148,7 @@
               {% endfor %}
             </select>
           </div>
-          <div>
+          <div class="mb-2">
             <label class="form-label small mb-1" for="filtro-zona">Zona di rete</label>
             <select name="zona" id="filtro-zona" class="form-select form-select-sm">
               <option value="">qualunque</option>
@@ -156,6 +156,18 @@
               <option value="{{ z.chiave }}" {% if filters.zona == z.chiave %}selected{% endif %}>{{ z.nome }}</option>
               {% endfor %}
               <option value="senza" {% if filters.zona == 'senza' %}selected{% endif %}>non dichiarata</option>
+            </select>
+          </div>
+          <div>
+            {# La posizione fisica: il MAC dice con quale scheda si parla, la porta
+               su quale presa e' attaccata. Chi deve staccare un nodo cerca questo. #}
+            <label class="form-label small mb-1" for="filtro-mac">Indirizzo fisico</label>
+            <select name="mac" id="filtro-mac" class="form-select form-select-sm">
+              <option value="">indifferente</option>
+              <option value="osservato" {% if filters.mac == 'osservato' %}selected{% endif %}>MAC osservato dalla sonda</option>
+              <option value="riferito" {% if filters.mac == 'riferito' %}selected{% endif %}>MAC riferito da un apparato</option>
+              <option value="senza" {% if filters.mac == 'senza' %}selected{% endif %}>senza MAC</option>
+              <option value="porta" {% if filters.mac == 'porta' %}selected{% endif %}>con porta di attacco nota</option>
             </select>
           </div>
         </div>
@@ -375,7 +387,18 @@
             </td>
             <td class="small">{{ n.os_name or '-' }}</td>
             <td class="small">{{ n.open_ports }}</td>
-            <td class="small">{{ n.subnet_cidr or '-' }}</td>
+            <td class="small">
+              {{ n.subnet_cidr or '-' }}
+              {# La subnet dice dove il nodo sta logicamente, la porta dove sta
+                 fisicamente: la seconda viene dalla tabella di inoltro di un
+                 apparato, non dalla scansione, quindi si dichiara la fonte. #}
+              {% if n.switch_port %}
+              <div class="text-body-secondary"
+                   title="Porta fisica letta dalla tabella di inoltro di {{ n.switch_device or 'un apparato di rete' }}">
+                <i class="bi bi-ethernet me-1"></i>{{ n.switch_port }}
+              </div>
+              {% endif %}
+            </td>
             <td class="small">{{ n.last_seen_at|dt }}<div class="text-body-secondary">{{ n.last_seen_at|ago }}</div></td>
             <td class="text-end">
               <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="btn btn-sm btn-outline-secondary">

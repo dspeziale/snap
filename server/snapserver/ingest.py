@@ -69,12 +69,29 @@ MAX_STORED_RECORDS_BYTES = 256 * 1024
 #
 # Il criterio distintivo non e' la sola diffusione -- in una flotta omogenea
 # porte come 445 sono legittimamente presenti quasi ovunque -- ma la diffusione
-# unita all'ETEROGENEITA' dei sistemi operativi: una porta aperta quasi su tutto,
-# su famiglie diverse, non e' un servizio dei nodi. Una porta per cui nmap ha
-# riconosciuto un prodotto almeno una volta e' invece un servizio reale.
+# unita a una CORROBORAZIONE. Una porta per cui nmap ha riconosciuto un prodotto
+# almeno una volta e' invece un servizio reale.
+#
+# LA DIFFUSIONE SI MISURA PER SUBNET, non sull'intero tenant. Un apparato
+# intermedio inietta sul SEGMENTO che serve, non su tutto il patrimonio: misurato
+# sul campo, la tcp/5060 risultava aperta sul 98% dei nodi di 10.2.1.0/24 e sul 3%
+# di 10.20.10.0/24. Calcolata sul tenant la diffusione scendeva al 79%, sotto la
+# soglia, e la rilevazione NON scattava: 98 nodi su 145 venivano classificati
+# "Telefono VoIP" sulla base di quella sola porta.
+#
+# Due corroborazioni, e basta UNA delle due:
+#
+#  a) ETEROGENEITA' dei sistemi operativi: una porta aperta quasi su tutto, su
+#     famiglie diverse, non e' un servizio dei nodi;
+#  b) RISPOSTA DA UN INDIRIZZO IMPOSSIBILE: se la porta risulta aperta
+#     sull'indirizzo di rete o di broadcast della subnet, la' non puo' esserci un
+#     host -- risponde per forza qualcun altro. E' la prova piu' forte che esista,
+#     e non richiede che la fase del sistema operativo sia passata (che e' il
+#     motivo per cui la sola eterogeneita' non bastava: sui nodi appena scoperti
+#     la famiglia OS non e' ancora nota).
 #
 # Limite dichiarato: un servizio genuinamente presente su quasi tutti i nodi di
-# una flotta eterogenea, e mai identificato per prodotto, viene marcato come
+# una subnet eterogenea, e mai identificato per prodotto, viene marcato come
 # iniettato. La marcatura resta visibile nella console con la propria
 # motivazione proprio perche' l'operatore possa accorgersene.
 SUSPECT_MIN_NODES = 8
@@ -169,6 +186,14 @@ def _apply_node(ctx, record: dict) -> None:
     stato = "up" if raggiungibile else "down"
     hostname = _clean(record.get("hostname"), maximum=190) or None
     mac = _clean(record.get("mac"), maximum=32) or None
+    # Provenienza del MAC. Allowlist: "arp" oppure "snmp:<apparato>" -- e'
+    # un valore che finisce in una pagina e in un report, e arriva dalla rete.
+    fonte_mac = _clean(record.get("mac_source"), maximum=80) or None
+    if fonte_mac and not (fonte_mac == "arp" or fonte_mac.startswith("snmp:")):
+        fonte_mac = None
+    # Punto di attacco fisico: apparato e nome della porta, come li ha letti la sonda.
+    apparato = _clean(record.get("switch_device"), maximum=80) or None
+    porta_fisica = _clean(record.get("switch_port"), maximum=60) or None
     vendor = _clean(record.get("mac_vendor"), maximum=190) or None
     latenza = _real(record.get("latency_ms"))
     ttl = _intero(record.get("ttl"))
@@ -177,11 +202,13 @@ def _apply_node(ctx, record: dict) -> None:
     esistente = _node_by_ip(ctx["tenant_id"], ip)
     if esistente is None:
         node_id = execute(
-            "INSERT INTO nodes (tenant_id, subnet_id, probe_id, ip, mac, mac_vendor, hostname,"
+            "INSERT INTO nodes (tenant_id, subnet_id, probe_id, ip, mac, mac_source,"
+            " switch_device, switch_port, mac_vendor, hostname,"
             " status, latency_ms, ttl, first_seen_at, last_seen_at, last_scan_at,"
             " created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (ctx["tenant_id"], subnet_id, ctx["probe_id"], ip, mac, vendor, hostname,
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ctx["tenant_id"], subnet_id, ctx["probe_id"], ip, mac, fonte_mac,
+             apparato, porta_fisica, vendor, hostname,
              stato, latenza, ttl, visto, visto, visto, ctx["now"], ctx["now"]),
         )
         _record_change(ctx, node_id, "node.appeared", subject=ip, after=stato,
@@ -207,12 +234,16 @@ def _apply_node(ctx, record: dict) -> None:
 
     execute(
         "UPDATE nodes SET subnet_id = COALESCE(?, subnet_id), probe_id = ?,"
-        " mac = COALESCE(?, mac), mac_vendor = COALESCE(?, mac_vendor),"
+        " mac = COALESCE(?, mac), mac_source = COALESCE(?, mac_source),"
+        " switch_device = COALESCE(?, switch_device),"
+        " switch_port = COALESCE(?, switch_port),"
+        " mac_vendor = COALESCE(?, mac_vendor),"
         " hostname = COALESCE(?, hostname), status = ?, latency_ms = COALESCE(?, latency_ms),"
         " ttl = COALESCE(?, ttl),"
-        " last_seen_at = MAX(last_seen_at, ?), last_scan_at = ?, updated_at = ?"
+        " last_seen_at = GREATEST(last_seen_at, ?), last_scan_at = ?, updated_at = ?"
         " WHERE id = ? AND tenant_id = ?",
-        (subnet_id, ctx["probe_id"], mac, vendor, hostname, stato, latenza, ttl,
+        (subnet_id, ctx["probe_id"], mac, fonte_mac, apparato, porta_fisica,
+         vendor, hostname, stato, latenza, ttl,
          visto, visto, ctx["now"], node_id, ctx["tenant_id"]),
     )
 
@@ -395,7 +426,7 @@ def _apply_monitor(ctx, record: dict) -> None:
                        severity="info" if raggiungibile else "warning")
     execute(
         "UPDATE nodes SET status = ?, latency_ms = COALESCE(?, latency_ms),"
-        " last_seen_at = CASE WHEN ? = 1 THEN MAX(last_seen_at, ?) ELSE last_seen_at END,"
+        " last_seen_at = CASE WHEN ? = 1 THEN GREATEST(last_seen_at, ?) ELSE last_seen_at END,"
         " updated_at = ? WHERE id = ? AND tenant_id = ?",
         (stato, latenza, 1 if raggiungibile else 0, quando, ctx["now"], node_id,
          ctx["tenant_id"]),
@@ -763,10 +794,11 @@ def _apply_web(ctx, record: dict) -> None:
             " device_type, signature, cert_subject, cert_issuer, cert_expires,"
             " cert_selfsigned, tls_version, login_form, device_name, location,"
             " host_name, serial, firmware, contact, pages_read, facts_locked,"
-            " facts_json, cert_json, body_hash, body_bytes, error, details_json,"
+            " facts_json, cert_json, body_hash, body_bytes, favicon_hash, favicon_bytes,"
+            " favicon_path, headers_hash, headers_names, error, details_json,"
             " collected_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(tenant_id, node_id, port) DO UPDATE SET"
             " scheme = excluded.scheme, status_code = excluded.status_code,"
             " title = excluded.title, server_header = excluded.server_header,"
@@ -784,6 +816,11 @@ def _apply_web(ctx, record: dict) -> None:
             " pages_read = excluded.pages_read, facts_locked = excluded.facts_locked,"
             " facts_json = excluded.facts_json, cert_json = excluded.cert_json,"
             " body_hash = excluded.body_hash, body_bytes = excluded.body_bytes,"
+            " favicon_hash = excluded.favicon_hash,"
+            " favicon_bytes = excluded.favicon_bytes,"
+            " favicon_path = excluded.favicon_path,"
+            " headers_hash = excluded.headers_hash,"
+            " headers_names = excluded.headers_names,"
             " error = excluded.error, details_json = excluded.details_json,"
             " collected_at = excluded.collected_at",
             (ctx["tenant_id"], node_id, porta,
@@ -825,6 +862,14 @@ def _apply_web(ctx, record: dict) -> None:
              _certificato_json(pagina),
              _clean(pagina.get("corpo_impronta"), maximum=64),
              _intero(pagina.get("corpo_byte")),
+             # Impronte di somiglianza: stanno in colonna, non solo nel dettaglio,
+             # perche' il loro valore e' il CONFRONTO fra nodi diversi e un confronto
+             # si fa con una interrogazione, non leggendo un JSON riga per riga.
+             _clean(pagina.get("favicon_impronta"), maximum=64),
+             _intero(pagina.get("favicon_byte")),
+             _clean(pagina.get("favicon_percorso"), maximum=200),
+             _clean(pagina.get("intestazioni_impronta"), maximum=64),
+             _clean(pagina.get("intestazioni_nomi"), maximum=400),
              _clean(pagina.get("errore"), maximum=120),
              json.dumps(pagina, ensure_ascii=False)[:MAX_WEB_DETAILS],
              ctx["now"]))
@@ -938,68 +983,106 @@ def _mark_disappeared(ctx) -> None:
 
 
 def refresh_suspect_ports(tenant_id: int) -> dict:
-    """Marca (o smarca) le porte iniettate dalla rete.
+    """Marca (o smarca) le porte iniettate dalla rete, SUBNET PER SUBNET.
 
     Non cancella nulla: la porta resta visibile nella console con la propria
     motivazione, e viene soltanto esclusa dalle prove del fingerprinting. Se il
     quadro cambia -- per esempio perche' l'apparato intermedio viene rimosso --
     la marcatura si annulla da se' al conferimento successivo.
+
+    La marcatura e' per (subnet, protocollo, porta) e non globale: un apparato
+    intermedio serve un SEGMENTO, e la stessa porta su un'altra subnet puo' essere
+    un servizio genuino. Misurato: la tcp/5060 era iniettata sul 98% di
+    10.2.1.0/24 e presente sul 3% di 10.20.10.0/24 -- marcarla globalmente avrebbe
+    soppresso l'unico telefono forse vero.
     """
-    totale = query(
-        "SELECT COUNT(*) AS n FROM nodes WHERE tenant_id = ?", (tenant_id,), one=True)
-    nodi = int(totale["n"]) if totale else 0
+    per_subnet = query(
+        "SELECT subnet_id, COUNT(*) AS n FROM nodes WHERE tenant_id = ?"
+        " GROUP BY subnet_id", (tenant_id,))
+    quanti = {r["subnet_id"]: int(r["n"]) for r in per_subnet}
+    nodi = sum(quanti.values())
     if nodi < SUSPECT_MIN_NODES:
         return {"marked": 0, "cleared": 0, "nodes": nodi}
 
+    # `host(network(...))` e `host(broadcast(...))` danno l'indirizzo di rete e
+    # quello di broadcast della subnet come testo: se un nodo con quell'indirizzo
+    # esiste ed espone la porta, la' non puo' esserci un host -- risponde per forza
+    # un apparato intermedio. E' la prova piu' forte, e non richiede che la fase del
+    # sistema operativo sia passata.
     diffuse = query(
-        "SELECT p.protocol, p.port, COUNT(DISTINCT p.node_id) AS nodi,"
+        "SELECT n.subnet_id, p.protocol, p.port,"
+        " COUNT(DISTINCT p.node_id) AS nodi,"
         " COUNT(DISTINCT n.os_family) AS famiglie,"
-        " SUM(CASE WHEN COALESCE(p.product, '') <> '' THEN 1 ELSE 0 END) AS con_prodotto"
+        " SUM(CASE WHEN COALESCE(p.product, '') <> '' THEN 1 ELSE 0 END) AS con_prodotto,"
+        " SUM(CASE WHEN s.cidr IS NOT NULL"
+        "          AND (n.ip = host(network(s.cidr::cidr))"
+        "               OR n.ip = host(broadcast(s.cidr::cidr)))"
+        "     THEN 1 ELSE 0 END) AS impossibili"
         " FROM node_ports p JOIN nodes n ON n.id = p.node_id"
+        " LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE p.tenant_id = ? AND p.state = 'open'"
-        " GROUP BY p.protocol, p.port", (tenant_id,))
+        " GROUP BY n.subnet_id, p.protocol, p.port", (tenant_id,))
 
     sospette = set()
+    motivi = {}
     for riga in diffuse:
-        prevalenza = int(riga["nodi"]) / float(nodi)
+        subnet = riga["subnet_id"]
+        totale_subnet = quanti.get(subnet) or 0
+        if totale_subnet < SUSPECT_MIN_NODES:
+            # Su una subnet con pochi nodi la diffusione non significa nulla.
+            continue
         if int(riga["con_prodotto"] or 0) > 0:
             # nmap ha riconosciuto un prodotto su quella porta almeno una volta:
             # e' un servizio reale, non la risposta di un apparato intermedio.
             continue
-        if (prevalenza >= SUSPECT_MIN_PREVALENCE
-                and int(riga["famiglie"] or 0) >= SUSPECT_MIN_OS_FAMILIES):
-            sospette.add((riga["protocol"], int(riga["port"])))
+        prevalenza = int(riga["nodi"]) / float(totale_subnet)
+        if prevalenza < SUSPECT_MIN_PREVALENCE:
+            continue
+        impossibili = int(riga["impossibili"] or 0)
+        famiglie = int(riga["famiglie"] or 0)
+        if impossibili:
+            spiegazione = (
+                "aperta sul %d%% dei nodi della subnet E sull'indirizzo di rete o di"
+                " broadcast, dove non puo' esistere un host: risponde un apparato"
+                " intermedio, non il nodo" % int(prevalenza * 100))
+        elif famiglie >= SUSPECT_MIN_OS_FAMILIES:
+            spiegazione = (
+                "aperta sul %d%% dei nodi della subnet e su %d famiglie di sistema"
+                " operativo diverse: porta iniettata dalla rete, non del nodo"
+                % (int(prevalenza * 100), famiglie))
+        else:
+            continue
+        chiave = (subnet, riga["protocol"], int(riga["port"]))
+        sospette.add(chiave)
+        motivi[chiave] = spiegazione
 
     marcate = liberate = 0
-    for riga in query("SELECT id, protocol, port, is_suspect FROM node_ports"
-                      " WHERE tenant_id = ?", (tenant_id,)):
-        chiave = (riga["protocol"], int(riga["port"]))
+    for riga in query("SELECT p.id, p.protocol, p.port, p.is_suspect, n.subnet_id"
+                      " FROM node_ports p JOIN nodes n ON n.id = p.node_id"
+                      " WHERE p.tenant_id = ?", (tenant_id,)):
+        chiave = (riga["subnet_id"], riga["protocol"], int(riga["port"]))
         deve_essere = 1 if chiave in sospette else 0
         if int(riga["is_suspect"] or 0) == deve_essere:
             continue
-        motivo = None
-        if deve_essere:
-            motivo = ("aperta su almeno il %d%% dei nodi e su famiglie di sistema operativo"
-                      " diverse: porta iniettata dalla rete, non del nodo"
-                      % int(SUSPECT_MIN_PREVALENCE * 100))
         execute("UPDATE node_ports SET is_suspect = ?, suspect_reason = ? WHERE id = ?",
-                (deve_essere, motivo, int(riga["id"])))
+                (deve_essere, motivi.get(chiave), int(riga["id"])))
         if deve_essere:
             marcate += 1
         else:
             liberate += 1
 
+    etichette = sorted({"%s/%d" % (p, n) for _s, p, n in sospette})
     if marcate:
         log_event(
             "inventory.ports.suspect",
             "Riconosciute %d porte iniettate dalla rete (%s): escluse dalle prove"
-            % (marcate, ", ".join("%s/%d" % s for s in sorted(sospette))),
+            " del riconoscimento" % (marcate, ", ".join(etichette)),
             tenant_id=tenant_id,
             severity="warning",
             entity="node",
         )
     return {"marked": marcate, "cleared": liberate, "nodes": nodi,
-            "ports": sorted("%s/%d" % s for s in sospette)}
+            "ports": etichette}
 
 
 # Quanto testo SNMP entra fra le prove del riconoscimento. Il testo intero resta in
@@ -1050,7 +1133,8 @@ def _web_evidence(tenant_id: int, node_id: int) -> list:
         "SELECT port, scheme, status_code, title, server_header, generator, realm,"
         " brand, model, product, version, device_type, signature, cert_subject,"
         " cert_issuer, login_form, device_name, location, host_name, serial, firmware,"
-        " contact, pages_read, facts_locked"
+        " contact, pages_read, facts_locked, favicon_hash, favicon_bytes, headers_hash,"
+        " headers_names"
         " FROM node_web WHERE tenant_id = ? AND node_id = ?"
         " ORDER BY port", (tenant_id, node_id))
     return [{
@@ -1069,7 +1153,128 @@ def _web_evidence(tenant_id: int, node_id: int) -> list:
         "host_name": riga["host_name"], "serial": riga["serial"],
         "firmware": riga["firmware"], "contact": riga["contact"],
         "pages_read": riga["pages_read"], "facts_locked": bool(riga["facts_locked"]),
+        # Le impronte di somiglianza. Da sole non dicono che cosa sia l'apparato: lo
+        # dicono confrontate con quelle degli altri nodi (vedi `web_twins`).
+        "favicon_hash": riga["favicon_hash"], "favicon_bytes": riga["favicon_bytes"],
+        "headers_hash": riga["headers_hash"], "headers_names": riga["headers_names"],
     } for riga in righe]
+
+
+# RICONOSCIMENTO PER SOMIGLIANZA: quanti gemelli si esaminano e quanto devono
+# essere d'accordo.
+#
+# Un gruppo di somiglianza numeroso ma DISCORDE non e' un indizio: l'insieme delle
+# intestazioni HTTP di nginx e' lo stesso su una telecamera e su un server, e da
+# quel gruppo non si puo' concludere niente. Un gruppo CONCORDE si': se tutti i
+# nodi che servono quell'icona sono stampanti, il nodo muto che la serve e' una
+# stampante. La soglia e' alta perche' un errore qui si moltiplica su tutto il
+# gruppo, che e' esattamente il modo in cui si producono 98 telefoni VoIP
+# inesistenti.
+MAX_GEMELLI_ESAMINATI = 200
+ACCORDO_MINIMO_GEMELLI = 0.80
+# Un gemello puo' fare da donatore solo se il suo tipo e' stato dichiarato da una
+# persona o se lo ha guadagnato con prove PROPRIE. La soglia impedisce la
+# circolarita': la somiglianza da sola vale al massimo 45 di confidenza (un genere
+# solo, vedi CONFIDENZA_MASSIMA_UN_GENERE), quindi un nodo riconosciuto per
+# somiglianza non puo' diventare donatore di un altro e propagare un'ipotesi come
+# se fosse un'osservazione.
+CONFIDENZA_MINIMA_DONATORE = 70
+
+
+def _web_twins_evidence(tenant_id: int, node_id: int) -> list:
+    """I nodi che rispondono in rete come questo, e cosa sono risultati essere.
+
+    PERCHE' ESISTE
+    La maggior parte degli apparati incorporati non dichiara nulla: un 401 nudo, una
+    pagina di accesso senza titolo, nessun `Server`. Il testo non basta, ma la FORMA
+    della risposta si': l'icona che l'apparato serve e' un file messo nel firmware dal
+    costruttore -- identica su tutti gli esemplari di quel modello -- e l'insieme dei
+    nomi delle intestazioni e' l'impronta del programma che risponde.
+
+    Non e' una prova su questo nodo, e' una prova PRESA IN PRESTITO da un altro: per
+    questo si dichiara da chi arriva, quanti sono d'accordo, e su quale impronta. Chi
+    legge il verdetto deve poter vedere che quella riga dice "somiglia a", non "e'".
+    """
+    proprie = query(
+        "SELECT favicon_hash, headers_hash FROM node_web"
+        " WHERE tenant_id = ? AND node_id = ?", (tenant_id, node_id))
+    impronte = []
+    for riga in proprie:
+        if riga["favicon_hash"]:
+            impronte.append(("favicon", riga["favicon_hash"]))
+        if riga["headers_hash"]:
+            impronte.append(("headers", riga["headers_hash"]))
+
+    gruppi = []
+    for genere, impronta in dict.fromkeys(impronte):
+        # Il nome della colonna viene da queste due righe di codice, non dall'esterno;
+        # i valori restano parametri (nessuna concatenazione di dati in SQL).
+        colonna = "favicon_hash" if genere == "favicon" else "headers_hash"
+        gemelli = query(
+            "SELECT w.brand, w.model, w.product, n.device_type, n.device_label,"
+            " n.device_confidence, COALESCE(n.device_type_source, 'auto') AS fonte"
+            " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+            " WHERE w.tenant_id = ? AND w." + colonna + " = ?"
+            " AND w.node_id <> ? LIMIT ?",
+            (tenant_id, impronta, node_id, MAX_GEMELLI_ESAMINATI))
+        gruppo = _accordo_dei_gemelli(genere, impronta, gemelli)
+        if gruppo:
+            gruppi.append(gruppo)
+    return gruppi
+
+
+def _accordo_dei_gemelli(genere: str, impronta: str, gemelli) -> dict | None:
+    """Il tipo su cui i gemelli sono d'accordo, o niente se non lo sono.
+
+    Si contano i voti dei soli gemelli AMMESSI come donatori, e si accetta il tipo
+    solo se ne raccoglie almeno `ACCORDO_MINIMO_GEMELLI`. Marca e modello si
+    riportano solo se UNANIMI: due modelli diversi nello stesso gruppo vogliono dire
+    che l'impronta e' del programma, non dell'apparato, e un modello sbagliato in una
+    scheda e' peggio di un modello assente.
+    """
+    voti: dict[str, int] = {}
+    etichette: dict[str, str] = {}
+    marche: set[str] = set()
+    modelli: set[str] = set()
+    prodotti: set[str] = set()
+    dichiarati = 0
+    for riga in gemelli:
+        tipo = (riga["device_type"] or "").strip()
+        ammesso = riga["fonte"] == "manual" or (
+            (riga["device_confidence"] or 0) >= CONFIDENZA_MINIMA_DONATORE)
+        if not tipo or tipo == "unknown" or not ammesso:
+            continue
+        voti[tipo] = voti.get(tipo, 0) + 1
+        etichette.setdefault(tipo, riga["device_label"] or tipo)
+        if riga["fonte"] == "manual":
+            dichiarati += 1
+        if riga["brand"]:
+            marche.add(riga["brand"].strip())
+        if riga["model"]:
+            modelli.add(riga["model"].strip())
+        if riga["product"]:
+            prodotti.add(riga["product"].strip())
+
+    totale = sum(voti.values())
+    if not totale:
+        return None
+    tipo, quanti = max(voti.items(), key=lambda voce: voce[1])
+    accordo = quanti / float(totale)
+    if accordo < ACCORDO_MINIMO_GEMELLI:
+        return None
+    return {
+        "kind": genere,
+        "hash": impronta,
+        "device_type": tipo,
+        "device_label": etichette.get(tipo, tipo),
+        "nodes": totale,
+        "agreement": round(accordo, 3),
+        "declared": dichiarati,
+        # Solo se unanimi: vedi la docstring.
+        "brand": next(iter(marche)) if len(marche) == 1 else None,
+        "model": next(iter(modelli)) if len(modelli) == 1 else None,
+        "product": next(iter(prodotti)) if len(prodotti) == 1 else None,
+    }
 
 
 def _scripts_evidence(tenant_id: int, node_id: int, conservato: dict) -> dict:
@@ -1103,6 +1308,37 @@ def _scripts_evidence(tenant_id: int, node_id: int, conservato: dict) -> dict:
     return esiti
 
 
+# Quanti campioni di raggiungibilita' si guardano per misurare la VARIABILITA' della
+# latenza. Cinquanta bastano a distinguere un andamento stabile da uno a scatti, e
+# tengono la ricostruzione delle prove rapida anche su un inventario grande.
+MAX_CAMPIONI_LATENZA = 50
+
+
+def _latenza_evidence(tenant_id: int, node_id: int, ultima) -> dict:
+    """Latenza osservata: ultimo valore, minimo, massimo e scarto.
+
+    Lo SCARTO e' il segnale che conta. Una latenza alta puo' venire da una rete
+    carica; una latenza che oscilla fra pochi millisecondi e centinaia e' invece la
+    firma di una radio in risparmio energetico -- cioe' di un apparato a batteria,
+    telefono o tablet. Un apparato cablato ha un andamento stabile.
+    """
+    righe = query(
+        "SELECT latency_ms FROM monitor_samples"
+        " WHERE tenant_id = ? AND node_id = ? AND latency_ms IS NOT NULL"
+        " ORDER BY id DESC LIMIT ?", (tenant_id, node_id, MAX_CAMPIONI_LATENZA))
+    valori = [float(r["latency_ms"]) for r in righe if r["latency_ms"] is not None]
+    if ultima is not None:
+        try:
+            valori.append(float(ultima))
+        except (TypeError, ValueError):
+            pass
+    if not valori:
+        return {}
+    return {"ultima": float(ultima) if ultima is not None else None,
+            "minima": min(valori), "massima": max(valori),
+            "media": sum(valori) / len(valori), "campioni": len(valori)}
+
+
 def build_evidence(tenant_id: int, node_id: int) -> dict:
     """Compone le prove di un nodo cosi' come sono conservate in banca dati.
 
@@ -1126,6 +1362,14 @@ def build_evidence(tenant_id: int, node_id: int) -> dict:
         "mac_vendor": nodo["mac_vendor"],
         "hostname": nodo["hostname"],
         "ttl": nodo["ttl"],
+        # Il tempo di risposta e la sua VARIABILITA'. Non sono un dettaglio di
+        # prestazione: su una rete locale distinguono un apparato cablato da uno
+        # radio in risparmio energetico, che spegne la radio fra i beacon. Misurato
+        # su questa installazione: stampanti 2,3 ms di media, postazioni e server
+        # 16 ms, non identificati 216 ms con una coda a 2 secondi. Un PC cablato non
+        # arriva mai a quei valori.
+        "latency_ms": nodo["latency_ms"],
+        "latenza": _latenza_evidence(tenant_id, node_id, nodo["latency_ms"]),
         "ports": [
             {"protocol": p["protocol"], "port": int(p["port"]), "state": p["state"],
              "service_name": p["service_name"], "product": p["product"],
@@ -1141,6 +1385,9 @@ def build_evidence(tenant_id: int, node_id: int) -> dict:
         "snmp": _snmp_evidence(tenant_id, node_id),
         "smb": _smb_evidence(tenant_id, node_id),
         "web": _web_evidence(tenant_id, node_id),
+        # Prove prese in prestito dai nodi che rispondono come questo: l'unico indizio
+        # su un apparato che non dichiara nulla di se' (vedi _web_twins_evidence).
+        "web_twins": _web_twins_evidence(tenant_id, node_id),
         "scripts": _scripts_evidence(tenant_id, node_id, conservato),
     }
 

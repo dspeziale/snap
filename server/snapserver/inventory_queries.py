@@ -123,7 +123,8 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
                status: str = None, service: str = None, port: str = None,
                text: str = None, snmp: str = None, smb: str = None,
                risk: str = None, identified: str = None, seen: str = None,
-               zone: str = None, limit: int = 1000) -> list[dict]:
+               zone: str = None, mac: str = None,
+               limit: int = 1000) -> list[dict]:
     """Elenco dei nodi con il conteggio delle porte aperte."""
     condizioni = ["n.tenant_id = ?"]
     parametri = [tenant_id]
@@ -167,7 +168,7 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
     if cercato:
         campi = ("n.ip", "n.hostname", "n.mac", "n.mac_vendor", "n.os_name",
                  "n.device_label")
-        condizioni.append("(%s)" % " OR ".join("%s LIKE ?" % c for c in campi))
+        condizioni.append("(%s)" % " OR ".join("%s ILIKE ?" % c for c in campi))
         parametri.extend(["%%%s%%" % cercato] * len(campi))
 
     if snmp == "letto":
@@ -208,6 +209,20 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
     elif identified == "certo":
         condizioni.append("COALESCE(n.device_confidence, 0) >= 60"
                           " AND n.device_type IS NOT NULL AND n.device_type <> 'unknown'")
+
+    # Da dove viene il MAC, e se si sa a quale porta il nodo e' attaccato. Le due
+    # cose hanno fonti diverse: la sonda vede in ARP solo il proprio segmento, il
+    # resto lo riferisce un apparato interrogato in SNMP. Distinguerle e' il modo
+    # di sapere quali subnet sono coperte davvero e quali restano senza MAC.
+    if mac == "osservato":
+        condizioni.append("n.mac_source = 'arp'")
+    elif mac == "riferito":
+        condizioni.append("n.mac_source LIKE ?")
+        parametri.append("snmp:%")
+    elif mac == "senza":
+        condizioni.append("COALESCE(n.mac, '') = ''")
+    elif mac == "porta":
+        condizioni.append("COALESCE(n.switch_port, '') <> ''")
 
     # Zona della subnet: "che cosa espone la rete di gestione?" e' una domanda che
     # si fa spesso, e senza questo filtro si risponde a mano.
@@ -591,7 +606,7 @@ def monitor_overview(tenant_id: int) -> list[dict]:
         "    AND m.checked_at >= ?) AS samples_24h,"
         " (SELECT COUNT(*) FROM monitor_samples m WHERE m.node_id = n.id"
         "    AND m.checked_at >= ? AND m.reachable = 1) AS ok_24h,"
-        " (SELECT ROUND(AVG(m.latency_ms), 1) FROM monitor_samples m"
+        " (SELECT ROUND(AVG(m.latency_ms)::numeric, 1) FROM monitor_samples m"
         "    WHERE m.node_id = n.id AND m.checked_at >= ? AND m.reachable = 1) AS avg_latency"
         " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
         " WHERE n.tenant_id = ? ORDER BY n.status = 'up', n.ip",
@@ -700,3 +715,54 @@ def inventory_indicators(tenant_id: int) -> list[dict]:
             "tone": "warning" if sintesi["uncertain"] else "success",
         },
     ]
+
+
+def web_certificates(tenant_id: int, stato: str = None,
+                     entro_giorni: int = None) -> list[dict]:
+    """I certificati TLS raccolti dai web server, con i giorni alla scadenza calcolati
+    ADESSO.
+
+    `cert_expires` e' una data 'YYYY-MM-DD': il conto dei giorni si fa in Python, non in
+    SQL, cosi' resta portabile fra SQLite (sviluppo) e PostgreSQL (produzione), dove la
+    sottrazione fra date si scrive in modo diverso. `stato` filtra l'elenco: 'scaduti',
+    'in_scadenza' (entro `entro_giorni`, 30 per difetto) o None per tutti; l'ordine porta
+    davanti cio' che scade prima, cosi' la coda del lavoro e' gia' in cima.
+    """
+    from datetime import date as _date
+
+    righe = query(
+        "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
+        " w.port, w.cert_subject, w.cert_issuer, w.cert_expires, w.cert_selfsigned,"
+        " w.tls_version"
+        " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+        " WHERE w.tenant_id = ? AND w.scheme = 'https'"
+        " AND w.cert_expires IS NOT NULL AND w.cert_expires != ''",
+        (tenant_id,))
+    oggi = _date.today()
+    voci = []
+    for r in righe:
+        voce = dict(r)
+        try:
+            scadenza = _date.fromisoformat(str(r["cert_expires"])[:10])
+            voce["giorni"] = (scadenza - oggi).days
+            voce["scaduto"] = voce["giorni"] < 0
+        except (ValueError, TypeError):
+            # Una data illeggibile non si perde: si mostra senza conteggio.
+            voce["giorni"] = None
+            voce["scaduto"] = False
+        voce["autofirmato"] = bool(r["cert_selfsigned"])
+        voci.append(voce)
+
+    soglia = 30 if entro_giorni is None else int(entro_giorni)
+    if stato == "scaduti":
+        voci = [v for v in voci if v["scaduto"]]
+    elif stato == "in_scadenza":
+        voci = [v for v in voci
+                if v["giorni"] is not None and 0 <= v["giorni"] <= soglia]
+    elif stato == "validi":
+        voci = [v for v in voci if v["giorni"] is not None and v["giorni"] > soglia]
+
+    # I senza conteggio in fondo; per il resto, prima cio' che scade prima.
+    voci.sort(key=lambda v: (v["giorni"] is None,
+                             v["giorni"] if v["giorni"] is not None else 0))
+    return voci

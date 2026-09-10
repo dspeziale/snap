@@ -1,0 +1,173 @@
+# -----------------------------------------------------------------
+# docker-compose.yml — esercizio del SERVER snap (console + API + SIEM) con PostgreSQL
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-09
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+# Tre servizi:
+#   proxy      nginx: termina il TLS ed espone la console in HTTPS sulla 5500
+#   snap-server  l'applicazione dietro Gunicorn, mai pubblicata direttamente
+#   postgres   base dati di esercizio, NON pubblicata sull'host
+#
+# Avvio:
+#   1. cp .env.example .env  e compilare i segreti (chiave di sessione, password DB)
+#   2. mettere certificato e chiave in ./certs/server.crt e ./certs/server.key
+#   3. docker compose up -d --build
+#
+# NOTA SULLO STATO DEL PORTING: PostgreSQL e' provisionato e pronto (volume, utente a
+# privilegi minimi, copie), ma l'applicazione oggi scrive ancora su SQLite nel volume
+# /data: il livello dati usa sqlite3 diretto. Il passaggio a PostgreSQL e' un lavoro a
+# parte (vedi docker/README.md).
+
+name: snap-server
+
+services:
+  proxy:
+    # Immagine "unprivileged": gira non-root di suo, senza dover riscrivere i permessi.
+    # Versione bloccata: aggiornarla e' una decisione, non l'effetto di un pull.
+    image: nginxinc/nginx-unprivileged:1.27-alpine
+    container_name: snap-proxy
+    restart: unless-stopped
+    depends_on:
+      snap-server:
+        condition: service_started
+    ports:
+      # La console in HTTPS. La 5501 esiste solo per rimandare da http a https.
+      - "${SNAP_HTTPS_PORT:-5500}:5500"
+      - "${SNAP_HTTP_REDIRECT_PORT:-5501}:5501"
+    environment:
+      # La porta PUBBLICA della console. Serve a nginx per due cose che non puo'
+      # indovinare dall'interno del contenitore, dove ascolta sulla 5500: la
+      # redirezione da http e l'intestazione X-Forwarded-Port, con cui
+      # l'applicazione costruisce i propri indirizzi.
+      SNAP_HTTPS_PORT: "${SNAP_HTTPS_PORT:-5500}"
+    volumes:
+      # Come TEMPLATE, non come configurazione finita: l'immagine sostituisce le
+      # variabili d'ambiente all'avvio (envsubst). Cosi' la porta pubblica sta in
+      # configurazione e non scritta a mano nel file, come prescrive il progetto.
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      # Il certificato NON sta nell'immagine: si monta, in sola lettura.
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - snap
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  snap-server:
+    build:
+      # Il contesto e' la radice del repository: l'immagine deve poter copiare server/.
+      context: ../..
+      dockerfile: docker/server/Dockerfile
+    image: snap-server:${SNAP_VERSION:-1.2.8}
+    container_name: snap-server
+    restart: unless-stopped
+    # Non pubblica la 5500: ci arriva solo il proxy, sulla rete interna.
+    expose:
+      - "5500"
+    ports:
+      # Syslog del SIEM. Dentro il container il processo e' non-root e NON puo' legare
+      # la 514 (porta privilegiata): il container ascolta sulla 5514 e la 514 dell'host
+      # viene mappata su quella. Chi ha apparati che spediscono solo alla 514 standard
+      # continua a funzionare, senza far girare l'applicazione da root.
+      - "${SNAP_SYSLOG_PORT:-514}:5514/udp"
+      - "${SNAP_SYSLOG_PORT:-514}:5514/tcp"
+      - "5514:5514/udp"
+      - "5514:5514/tcp"
+    environment:
+      # --- Segreti: solo da .env, mai nell'immagine ne' in questo file -------------
+      # Obbligatoria: se manca, l'applicazione se ne genererebbe una dentro
+      # l'immagine e ogni ricreazione del container invaliderebbe tutte le sessioni.
+      SNAP_SERVER_SECRET_KEY: "${SNAP_SERVER_SECRET_KEY:?chiave di sessione mancante: vedi .env}"
+      # --- Dietro il proxy ---------------------------------------------------------
+      SNAP_SERVER_BEHIND_PROXY: "1"
+      # Il cookie di sessione viaggia solo su HTTPS: ora che il TLS c'e', si accende.
+      SNAP_SERVER_COOKIE_SECURE: "1"
+      # --- SIEM: ascolto syslog integrato ------------------------------------------
+      SNAP_SERVER_SIEM_LISTENER: "${SNAP_SERVER_SIEM_LISTENER:-1}"
+      SNAP_SERVER_SIEM_LISTENER_PORT: "5514"
+      # --- PostgreSQL: e' l'archivio dell'applicazione -----------------------------
+      # DUE utenze, ed e' il punto della faccenda:
+      #
+      #   SNAP_SERVER_DATABASE_URL       l'utente APPLICATIVO. Legge e scrive i dati e
+      #                                  NIENTE altro: non puo' creare ne' modificare
+      #                                  tabelle. E' cio' che impedisce a un difetto
+      #                                  dell'applicazione di riscrivere lo schema.
+      #   SNAP_SERVER_OWNER_DATABASE_URL il PROPRIETARIO. Serve all'avvio del contenitore
+      #                                  per allineare lo schema e creare i dati
+      #                                  iniziali (vedi entrypoint.sh), e serve alla
+      #                                  COPIA e al RIPRISTINO dell'archivio chiesti
+      #                                  dalla console: pg_dump deve leggere ogni
+      #                                  oggetto e pg_restore deve poterli ricreare.
+      #                                  Gunicorn non la usa per servire le richieste.
+      #
+      # Il trade-off, dichiarato: le credenziali del proprietario passano nell'ambiente
+      # di questo contenitore, perche' le migrazioni le esegue il suo avvio e perche' la
+      # copia dell'archivio si chiede da qui. Cio' che lo limita: le due operazioni sono
+      # riservate all'amministratore di sistema, sono tracciate nel registro, e le
+      # richieste normali continuano a girare con l'utenza applicativa, che non puo'
+      # toccare lo schema. L'alternativa -- un contenitore separato per le migrazioni --
+      # si fara' quando le migrazioni saranno versionate con Alembic; la copia resterebbe
+      # comunque qui, perche' e' da qui che la si chiede.
+      SNAP_SERVER_DATABASE_URL: "postgresql+psycopg://${SNAP_PG_APP_USER:-snap_app}:${SNAP_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
+      SNAP_SERVER_OWNER_DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-snap_owner}:${POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}@postgres:5432/${POSTGRES_DB:-snap}"
+      # Lo schema NON lo allinea l'applicazione: lo fa l'avvio, col proprietario.
+      SNAP_SERVER_INIT_DB: "0"
+    volumes:
+      # Archivio, report e copie: fuori dall'immagine, cosi' l'aggiornamento non se li
+      # porta via.
+      - server-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - snap
+
+  postgres:
+    # Versione bloccata alla minore (requisito di progetto): l'aggiornamento di una
+    # base dati e' una decisione, non un effetto collaterale.
+    image: postgres:16.4-alpine
+    container_name: snap-postgres
+    restart: unless-stopped
+    # NESSUNA porta pubblicata: la base dati parla solo con l'applicazione, sulla rete
+    # interna. Per un accesso di manutenzione si usa `docker compose exec`.
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-snap}"
+      # Utente proprietario, usato SOLO per creare e migrare: non e' quello con cui
+      # l'applicazione si collega.
+      POSTGRES_USER: "${POSTGRES_USER:-snap_owner}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?password del proprietario mancante: vedi .env}"
+      # Passate allo script di inizializzazione per creare l'utente applicativo.
+      SNAP_PG_APP_USER: "${SNAP_PG_APP_USER:-snap_app}"
+      SNAP_PG_APP_PASSWORD: "${SNAP_PG_APP_PASSWORD:?password dell'utente applicativo mancante: vedi .env}"
+      # Checksum sulle pagine: un guasto del disco si scopre leggendo, non a distanza
+      # di mesi quando il dato serve.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Eseguito una sola volta, alla prima inizializzazione del volume.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+      # Destinazione delle copie con pg_dump (vedi backup-postgres.sh).
+      - postgres-backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-snap_owner} -d ${POSTGRES_DB:-snap}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - snap
+
+networks:
+  snap:
+    driver: bridge
+
+volumes:
+  server-data:
+  postgres-data:
+  postgres-backups:

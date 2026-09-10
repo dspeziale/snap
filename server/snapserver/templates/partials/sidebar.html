@@ -20,7 +20,7 @@
 {# Appartenenza della pagina in corso a ciascun gruppo: decide quale si apre. #}
 {% set in_rete = endpoint in ('inventory.nodes', 'inventory.node', 'inventory.network_map',
                               'inventory.network_map_graphic', 'inventory.network_map_zones',
-                              'monitor.status',
+                              'monitor.status', 'inventory.certificates',
                               'monitor.changes', 'inventory.subnets',
                               'inventory.zone_index',
                               'inventory.deliveries', 'inventory.delivery') %}
@@ -56,7 +56,14 @@
   <div class="sidebar-brand">
     <a href="{{ url_for('dashboard.index') }}" class="brand-link">
       <i class="bi bi-diagram-3 brand-image text-primary fs-3 ms-2 me-2"></i>
-      <span class="brand-text fw-bold">{{ app_name }}</span>
+      {# Il componente sotto il nome, come nella sonda: le due interfacce hanno la
+         stessa struttura e questo e' cio' che le distingue a colpo d'occhio.
+         `lh-1` toglie l'interlinea, che altrimenti staccherebbe la seconda riga. #}
+      <span class="brand-text fw-bold d-inline-flex flex-column lh-1">
+        <span>{{ app_name }}</span>
+        <span class="fw-normal text-body-secondary" style="font-size:.7em"
+              >{{ app_component }}</span>
+      </span>
     </a>
     {# Il badge della versione apre il changelog: che cosa e' arrivato di nuovo con
        questa versione, con un clic. #}
@@ -193,6 +200,12 @@
               <a href="{{ url_for('monitor.changes') }}"
                  class="nav-link {% if endpoint == 'monitor.changes' %}active{% endif %}">
                 <i class="nav-icon bi bi-clock-history"></i><p>Cambiamenti</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.certificates') }}"
+                 class="nav-link {% if endpoint == 'inventory.certificates' %}active{% endif %}">
+                <i class="nav-icon bi bi-shield-lock"></i><p>Certificati TLS</p>
               </a>
             </li>
             <li class="nav-item">

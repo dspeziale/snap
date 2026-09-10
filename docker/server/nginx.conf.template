@@ -1,0 +1,87 @@
+# -----------------------------------------------------------------
+# nginx.conf — terminazione TLS davanti al server snap
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-09
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+# Il TLS si termina qui, non nell'applicazione: Gunicorn resta in chiaro sulla rete
+# interna del compose (mai pubblicata) e il certificato vive in un volume montato in
+# sola lettura, non nell'immagine.
+
+# HTTP: esiste solo per rimandare a HTTPS. Chi digita http:// non deve trovare un
+# errore di protocollo, deve trovare il sito.
+# Suffisso della porta negli indirizzi generati: vuoto quando la porta pubblica e'
+# la 443, perche' e' quella predefinita di https e scriverla sarebbe rumore
+# ("https://host:443/..." nella barra dell'indirizzo). Una sola fonte -- la variabile
+# SNAP_HTTPS_PORT -- e nessun caso da tenere allineato a mano.
+map "${SNAP_HTTPS_PORT}" $suffisso_porta {
+    "443"   "";
+    default ":${SNAP_HTTPS_PORT}";
+}
+
+server {
+    listen 5501;
+    server_name _;
+    # 308 conserva il metodo: un POST rimandato con 301 diventerebbe un GET e
+    # l'operazione andrebbe persa.
+    # La porta e' quella PUBBLICA, che non e' detto sia quella interna: arriva
+    # dall'ambiente (SNAP_HTTPS_PORT) e viene sostituita all'avvio del contenitore
+    # dallo script envsubst dell'immagine nginx. Scriverla qui a mano significava
+    # rimandare a una porta che, cambiata la pubblicazione, non risponde piu'.
+    return 308 https://$host$suffisso_porta$request_uri;
+}
+
+server {
+    listen 5500 ssl;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/server.crt;
+    ssl_certificate_key /etc/nginx/certs/server.key;
+
+    # Solo protocolli attuali (requisito di progetto: TLS >= 1.2, preferire 1.3).
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1h;
+    ssl_session_tickets off;
+
+    # I report PDF e i log incollati non sono piccoli: un limite troppo stretto qui si
+    # manifesterebbe come un errore inspiegabile nella console.
+    client_max_body_size 32m;
+
+    # Intestazioni di sicurezza. La Content-Security-Policy NON si imposta qui: la
+    # dichiara l'applicazione, che sa quali risorse serve, e sovrascriverla dal proxy
+    # significherebbe romperla al primo cambio di pagina.
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    location / {
+        proxy_pass http://snap-server:5500;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        # SI SCRIVE, non si accoda: `$proxy_add_x_forwarded_for` conserverebbe un
+        # X-Forwarded-For inviato dal client, che potrebbe cosi' dichiarare l'indirizzo
+        # che vuole. L'IP del client lo decide il proxy, non il client.
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host  $host;
+        # Porta PUBBLICA: e' quella con cui l'applicazione costruisce i propri
+        # indirizzi (ProxyFix, x_port=1). Con la 443 Werkzeug la omette dagli URL,
+        # perche' e' la porta predefinita di https.
+        proxy_set_header X-Forwarded-Port  ${SNAP_HTTPS_PORT};
+        proxy_set_header X-Real-IP         $remote_addr;
+
+        # La generazione di un report su una rete di migliaia di nodi dura minuti: un
+        # timeout breve la interromperebbe a meta'.
+        proxy_connect_timeout 15s;
+        proxy_send_timeout    300s;
+        proxy_read_timeout    300s;
+        proxy_buffering       off;
+    }
+}

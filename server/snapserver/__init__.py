@@ -56,7 +56,17 @@ def create_app(config_object=Config) -> Flask:
     app = Flask(__name__, instance_relative_config=False)
     app.config.from_object(config_object)
 
-    Path(app.config["DATABASE"]).parent.mkdir(parents=True, exist_ok=True)
+    # Dietro il reverse proxy che termina il TLS: si fida delle X-Forwarded-* di UN
+    # solo salto (il proprio proxy). Il numero conta: con un valore piu' alto un
+    # client potrebbe aggiungere intestazioni proprie e farsi passare per un altro
+    # indirizzo o per una connessione cifrata che non c'e'.
+    if app.config.get("BEHIND_PROXY"):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+    # Nessuna cartella da preparare per l'archivio: sta su PostgreSQL. La cartella
+    # dei documenti prodotti la crea il modulo dei report, quando serve.
 
     logging.basicConfig(
         level=logging.DEBUG if app.config.get("DEBUG") else logging.INFO,
@@ -70,8 +80,17 @@ def create_app(config_object=Config) -> Flask:
     db_module.init_app(app)
     register_template_filters(app)
 
-    with app.app_context():
-        db_module.init_db()
+    # Allineamento dello schema all'avvio: comodo in sviluppo, dove chi lancia
+    # l'applicazione e' anche proprietario della base dati.
+    #
+    # In esercizio si SPEGNE (SNAP_SERVER_INIT_DB=0) e lo fa l'avvio del contenitore
+    # con le credenziali del PROPRIETARIO, perche' l'applicazione si collega con
+    # un'utenza che puo' solo leggere e scrivere i dati: creare o modificare tabelle
+    # non e' un privilegio che le serve, e non averlo e' cio' che impedisce a un
+    # difetto dell'applicazione di riscrivere lo schema.
+    if app.config.get("INIT_DB_ON_START", True):
+        with app.app_context():
+            db_module.init_db()
 
     _register_blueprints(app)
 
@@ -87,6 +106,7 @@ def create_app(config_object=Config) -> Flask:
     if not app.config.get("TESTING") and servizio_effettivo:
         from .acn_watch import start_watcher
         from .notifications import start_dispatcher
+        from .probe_scan_watch import start_watcher as start_probe_scan_watcher
         from .reports.daily import start_scheduler
         from .rules import start_evaluator
         from .siem.detect import start_detector
@@ -100,6 +120,9 @@ def create_app(config_object=Config) -> Flask:
         # I termini dell'art. 23 NIS2 cadono di notte e di sabato: la sorveglianza
         # vive nel processo del server e non richiede che qualcuno sia collegato.
         start_watcher(app)
+        # Una sonda con le scansioni bloccate smette di raccogliere in silenzio: la
+        # sorveglianza vive nel processo del server e avvisa (una volta per episodio).
+        start_probe_scan_watcher(app)
         # La rilevazione SIEM analizza gli eventi raccolti dai log e apre gli allarmi:
         # e' compito del server, come le regole, e vale la stessa regola dell'uno per
         # processo (altrimenti due thread aprirebbero lo stesso allarme due volte).
@@ -320,6 +343,7 @@ def _register_context(app: Flask) -> None:
             "app_name": app.config["APP_NAME"],
             "app_version": app.config["APP_VERSION"],
             "app_subtitle": app.config["APP_SUBTITLE"],
+            "app_component": app.config["APP_COMPONENT"],
             "changelog": changelog_voci(),
             "current_user": getattr(g, "user", None),
             "current_tenant": getattr(g, "tenant", None),

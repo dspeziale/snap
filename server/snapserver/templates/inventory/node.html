@@ -147,6 +147,22 @@
           <dd class="col-7">
             {% if node.mac %}
             {{ node.mac }}
+            {# La PROVENIENZA del MAC non e' un dettaglio: "arp" significa che la sonda
+               lo ha VISTO sul proprio segmento, "snmp:<apparato>" che gliel'ha
+               RIFERITO un apparato di rete -- l'unico modo di averlo per una subnet
+               instradata, ma un dato che puo' essere scaduto. Senza la fonte non e'
+               verificabile. #}
+            {% if node.mac_source == 'arp' %}
+            <span class="badge text-bg-success-subtle text-success-emphasis ms-1"
+                  title="Osservato dalla sonda: risposta ARP sul proprio segmento di rete">
+              osservato
+            </span>
+            {% elif node.mac_source and node.mac_source.startswith('snmp:') %}
+            <span class="badge text-bg-info-subtle text-info-emphasis ms-1"
+                  title="Riferito dalla tabella ARP di un apparato di rete: ARP non attraversa un router, quindi per questa subnet e' l'unica fonte possibile">
+              da {{ node.mac_source[5:] }}
+            </span>
+            {% endif %}
             {% elif mac_snmp %}
             {# Su un'altra rete l'ARP non arriva: se l'agente SNMP dichiara il MAC delle
                proprie interfacce, e' l'unico modo di conoscerlo. #}
@@ -159,6 +175,19 @@
             non disponibile
             {% endif %}
           </dd>
+          {% if node.switch_port %}
+          <dt class="col-5">Punto di attacco</dt>
+          <dd class="col-7">
+            <span class="snap-code">{{ node.switch_port }}</span>
+            {% if node.switch_device %}
+            <div class="text-body-secondary">su {{ node.switch_device }}</div>
+            {% endif %}
+            <div class="text-body-secondary small">
+              Porta letta dalla tabella di forwarding dell'apparato: e' dove il MAC di
+              questo nodo e' stato visto passare.
+            </div>
+          </dd>
+          {% endif %}
           <dt class="col-5">Produttore</dt>
           <dd class="col-7">
             {% if produttore.nome %}
@@ -404,6 +433,16 @@
               {% if p.is_suspect %}
               <span class="badge text-bg-warning" title="{{ p.suspect_reason }}">iniettata</span>
               {% endif %}
+              {# Dove risponde un'interfaccia web si apre. `noopener noreferrer`:
+                 la pagina di un apparato non deve poter agire su questa finestra
+                 ne' sapere da dove si arriva. #}
+              {% if p.web_url %}
+              <a href="{{ p.web_url }}" target="_blank" rel="noopener noreferrer"
+                 class="ms-1 text-decoration-none"
+                 title="Apri {{ p.web_url }} in una nuova finestra">
+                <i class="bi bi-box-arrow-up-right"></i>
+              </a>
+              {% endif %}
             </td>
             <td class="small">{{ p.service_name or '-' }}</td>
             <td class="small">{{ p.product or '-' }}</td>
@@ -570,6 +609,51 @@
         chiavi.
       </p>
 
+      {# APPARATI IDENTICI. L'icona che un apparato serve e' un file messo nel
+         firmware dal costruttore: chi la serve identica e' lo stesso prodotto. Le
+         intestazioni HTTP dicono meno -- lo stesso programma, non lo stesso apparato
+         -- e si presentano come tali. E' l'informazione che identifica gli apparati
+         muti, e insieme una lista operativa: cio' che si e' scoperto qui vale anche
+         per loro. #}
+      {% if identici %}
+      <div class="alert alert-light border mb-3 py-2">
+        {% for gruppo in identici %}
+        <div class="{{ 'mb-2' if not loop.last }}">
+          <div class="small mb-1">
+            {% if gruppo.kind == 'favicon' %}
+            <i class="bi bi-images me-1"></i>
+            <strong>{{ gruppo.count }}</strong>
+            altr{{ 'o nodo serve' if gruppo.count == 1 else 'i nodi servono' }}
+            la <strong>stessa icona</strong>: e' lo stesso prodotto.
+            {% else %}
+            <i class="bi bi-diagram-3 me-1"></i>
+            <strong>{{ gruppo.count }}</strong>
+            altr{{ 'o nodo risponde' if gruppo.count == 1 else 'i nodi rispondono' }}
+            con lo <strong>stesso insieme di intestazioni</strong>: stesso programma,
+            non necessariamente lo stesso apparato.
+            {% endif %}
+            <span class="text-body-secondary font-monospace">{{ gruppo.hash }}</span>
+          </div>
+          <div class="d-flex flex-wrap gap-1">
+            {% for simile in gruppo.nodes %}
+            <a class="badge text-bg-light text-dark border text-decoration-none"
+               href="{{ url_for('inventory.node', node_id=simile.id) }}"
+               title="{{ simile.device_label }}{% if simile.hostname %} - {{ simile.hostname }}{% endif %}">
+              <span class="font-monospace">{{ simile.ip }}</span>
+              <span class="text-body-secondary">{{ simile.device_label }}</span>
+            </a>
+            {% endfor %}
+            {% if gruppo.count > gruppo.nodes|length %}
+            <span class="badge text-bg-light text-dark border">
+              e altri {{ gruppo.count - gruppo.nodes|length }}
+            </span>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
       {# Cio' che l'apparato dichiara di se': e' la parte che vale di piu', quindi
          sta sopra la tabella tecnica e non dentro una colonna. La posizione fisica in
          particolare non si ricava da nessun'altra fase: non sta in rete, sta scritta
@@ -726,7 +810,15 @@
             {% for pagina in web %}
             <tr>
               <td>
-                <span class="font-monospace">{{ pagina.scheme }}/{{ pagina.port }}</span>
+                {# Qui lo schema e' quello con cui la sonda ha letto davvero la
+                   pagina: l'indirizzo si compone da quello, senza indovinarlo. #}
+                <a href="{{ pagina.scheme }}://{{ node.ip }}:{{ pagina.port }}/"
+                   target="_blank" rel="noopener noreferrer"
+                   class="font-monospace text-decoration-none"
+                   title="Apri {{ pagina.scheme }}://{{ node.ip }}:{{ pagina.port }}/ in una nuova finestra">
+                  {{ pagina.scheme }}/{{ pagina.port }}
+                  <i class="bi bi-box-arrow-up-right ms-1"></i>
+                </a>
                 {% if pagina.login_form %}
                 <span class="badge text-bg-light text-dark border ms-1"
                       title="La pagina chiede credenziali">accesso</span>

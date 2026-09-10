@@ -188,3 +188,27 @@ def test_un_filtro_resta_nella_scheda_della_propria_tabella(pagine):
         scheda = testo[inizio:successivo if successivo > inizio else len(testo)]
         assert "Filtr" in scheda, (
             "%s: il filtro non sta nella scheda della propria tabella" % percorso)
+
+
+# --------------------------------------------------------------------------- #
+# Compilazione dei modelli
+# --------------------------------------------------------------------------- #
+def test_ogni_modello_del_server_compila(server_app):
+    """Un modello con un errore di sintassi non si nota finche' qualcuno non apre
+    QUELLA pagina, e allora e' un Internal Server Error.
+
+    Ha trovato un difetto presente dalla prima pubblicazione: `acn/dettaglio.html`
+    aveva un commento Jinja dentro un'espressione `{% set %}` -- dentro
+    un'espressione un commento non e' un commento -- e la pagina della notifica ACN
+    non compilava affatto.
+    """
+    ambiente = server_app.jinja_env
+    guasti = []
+    nomi = [n for n in ambiente.list_templates() if n.endswith(".html")]
+    assert nomi, "nessun modello trovato: il controllo non starebbe verificando nulla"
+    for nome in nomi:
+        try:
+            ambiente.get_template(nome)
+        except Exception as errore:  # noqa: BLE001 - si raccolgono tutti, non il primo
+            guasti.append("%s: %s" % (nome, errore))
+    assert not guasti, "modelli che non compilano: %s" % "; ".join(guasti)

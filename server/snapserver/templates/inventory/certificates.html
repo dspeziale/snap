@@ -1,0 +1,101 @@
+{#
+  snap server - Certificati TLS dei web server: scadenza e giorni residui.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-04
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Certificati TLS{% endblock %}
+{% block page_icon %}bi-shield-lock{% endblock %}
+{% block page_title %}Certificati TLS{% endblock %}
+{% block page_subtitle %}
+  I certificati dei web server raccolti dalle sonde, con la scadenza e i giorni che
+  mancano: si cerca cio' che e' scaduto o sta per scadere, per rinnovarlo in tempo.
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <form method="get" action="{{ url_for('inventory.certificates') }}"
+          class="row g-2 align-items-end">
+      <div class="col-12 col-md-auto">
+        <label class="form-label small mb-1 d-block">Stato</label>
+        <div class="btn-group btn-group-sm" role="group">
+          <a href="{{ url_for('inventory.certificates', entro=filtri.entro) }}"
+             class="btn btn-outline-secondary {{ 'active' if not filtri.stato }}">
+            Tutti <span class="badge text-bg-secondary">{{ conteggi.tutti }}</span></a>
+          <a href="{{ url_for('inventory.certificates', stato='scaduti', entro=filtri.entro) }}"
+             class="btn btn-outline-danger {{ 'active' if filtri.stato == 'scaduti' }}">
+            Scaduti <span class="badge text-bg-danger">{{ conteggi.scaduti }}</span></a>
+          <a href="{{ url_for('inventory.certificates', stato='in_scadenza', entro=filtri.entro) }}"
+             class="btn btn-outline-warning {{ 'active' if filtri.stato == 'in_scadenza' }}">
+            In scadenza <span class="badge text-bg-warning">{{ conteggi.in_scadenza }}</span></a>
+          <a href="{{ url_for('inventory.certificates', stato='validi', entro=filtri.entro) }}"
+             class="btn btn-outline-success {{ 'active' if filtri.stato == 'validi' }}">Validi</a>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <label class="form-label small mb-1" for="entro">Soglia «in scadenza» (giorni)</label>
+        <div class="input-group input-group-sm">
+          <input type="hidden" name="stato" value="{{ filtri.stato }}">
+          <input type="number" min="1" max="3650" class="form-control" id="entro"
+                 name="entro" value="{{ filtri.entro }}">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-funnel"></i></button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <div class="card-body p-0"><div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+           data-page-size="50" data-no-sort="NODO">
+      <thead><tr>
+        <th>NODO</th><th>PORTA</th><th>SOGGETTO</th><th>EMITTENTE</th><th>TLS</th>
+        <th>SCADENZA</th><th class="text-end">GIORNI</th><th>NOTE</th>
+      </tr></thead>
+      <tbody>
+        {% for c in certificati %}
+        <tr>
+          <td class="small">
+            <a href="{{ url_for('inventory.node', node_id=c.node_id) }}">
+              <span class="font-monospace">{{ c.ip }}</span></a>
+            {% if c.hostname %}<div class="text-body-secondary">{{ c.hostname }}</div>{% endif %}
+          </td>
+          <td class="small font-monospace">{{ c.port }}</td>
+          <td class="small text-truncate" style="max-width:260px"
+              title="{{ c.cert_subject }}">{{ c.cert_subject or '-' }}</td>
+          <td class="small text-truncate" style="max-width:240px"
+              title="{{ c.cert_issuer }}">{{ c.cert_issuer or '-' }}</td>
+          <td class="small">{{ c.tls_version or '-' }}</td>
+          <td class="small text-nowrap">{{ c.cert_expires or '-' }}</td>
+          <td class="text-end" data-order="{{ c.giorni if c.giorni is not none else 999999 }}">
+            {% if c.giorni is none %}
+            <span class="text-body-secondary small">-</span>
+            {% elif c.scaduto %}
+            <span class="badge text-bg-danger">scaduto da {{ -c.giorni }} g</span>
+            {% elif c.giorni <= filtri.entro %}
+            <span class="badge text-bg-warning">{{ c.giorni }} g</span>
+            {% else %}
+            <span class="badge text-bg-success">{{ c.giorni }} g</span>
+            {% endif %}
+          </td>
+          <td class="small">
+            {% if c.autofirmato %}
+            <span class="badge text-bg-secondary" title="soggetto ed emittente coincidono">
+              autofirmato</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div></div>
+  {% if not certificati %}
+  <p class="p-3 mb-0 text-body-secondary small">
+    Nessun certificato per questo filtro. I certificati compaiono quando la sonda legge
+    un web server in HTTPS: se l'elenco e' vuoto, la fase «web» non ha ancora raggiunto
+    questi nodi, oppure non ci sono server HTTPS nel perimetro.</p>
+  {% endif %}
+</div>
+{% endblock %}

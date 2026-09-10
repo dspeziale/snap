@@ -49,6 +49,7 @@ from ..inventory_queries import (
     SERVICE_FAMILIES,
     scan_runs_list,
     subnets_list,
+    web_certificates,
 )
 from ..snmp_tables import parse_all
 from ..smb_tables import parse_all as smb_parse_all
@@ -56,6 +57,7 @@ from ..web_presentation import (
     certificato_leggibile,
     diagnosi_web,
     fatti_aggiuntivi,
+    indirizzo_web,
 )
 from .. import map_graphic
 from .. import zones
@@ -103,6 +105,7 @@ def nodes():
             identified=request.args.get("identificazione") or None,
             seen=request.args.get("visto") or None,
             zone=request.args.get("zona") or None,
+            mac=request.args.get("mac") or None,
         ),
         summary=inventory_summary(tenant_id),
         distribution=device_type_distribution(tenant_id),
@@ -120,7 +123,8 @@ def nodes():
                  "rischio": request.args.get("rischio") or "",
                  "identificazione": request.args.get("identificazione") or "",
                  "visto": request.args.get("visto") or "",
-                 "zona": request.args.get("zona") or ""},
+                 "zona": request.args.get("zona") or "",
+                 "mac": request.args.get("mac") or ""},
         # Le zone del TENANT, non il seme del prodotto: quelle create
         # dall'operatore devono comparire nel filtro come le predefinite.
         zones=zones.catalogo(tenant_id),
@@ -147,6 +151,9 @@ _FILTER_VALUE_LABELS = {
                 "confermati": "con vulnerabilita' confermate",
                 "kev": "sfruttate attivamente (KEV)"},
     "identificazione": {"incerto": "da verificare", "certo": "riconosciuto"},
+    "mac": {"osservato": "MAC osservato dalla sonda",
+            "riferito": "MAC riferito da un apparato",
+            "senza": "senza MAC", "porta": "con porta di attacco nota"},
 }
 # Come si chiama, per una persona, ciascun filtro.
 _FILTER_TITLES = {
@@ -154,10 +161,11 @@ _FILTER_TITLES = {
     "servizio": "Servizio", "porta": "Porta", "zona": "Zona", "snmp": "Lettura SNMP",
     "smb": "Enumerazione SMB", "rischio": "Sicurezza",
     "identificazione": "Identificazione", "cerca": "Cerca",
+    "mac": "Indirizzo fisico",
 }
 # L'ordine in cui le pastiglie compaiono: lo stesso ordine di lettura dei gruppi.
-_FILTER_ORDER = ("subnet", "zona", "type", "identificazione", "status", "visto",
-                 "servizio", "porta", "snmp", "smb", "rischio", "cerca")
+_FILTER_ORDER = ("subnet", "zona", "mac", "type", "identificazione", "status",
+                 "visto", "servizio", "porta", "snmp", "smb", "rischio", "cerca")
 
 
 def _active_filters(tenant_id: int) -> list[dict]:
@@ -206,6 +214,52 @@ def _active_filters(tenant_id: int) -> list[dict]:
     return attivi
 
 
+# Quanti apparati identici si elencano nella scheda: oltre una dozzina la lista non
+# si legge piu', e il numero totale dice comunque quanti sono.
+MAX_APPARATI_IDENTICI = 12
+
+
+def _apparati_identici(tenant_id: int, node_id: int) -> list:
+    """Gli altri nodi che rispondono in rete ESATTAMENTE come questo.
+
+    Due apparati che servono la stessa icona -- un file che il costruttore mette nel
+    firmware -- sono lo stesso prodotto; due che rispondono con lo stesso insieme di
+    intestazioni HTTP hanno lo stesso programma dentro. Per chi deve governare la rete
+    e' un'informazione operativa prima che di riconoscimento: se questo apparato va
+    aggiornato, vanno aggiornati anche quelli, e se questo e' stato identificato a mano
+    quel lavoro vale anche per loro.
+    """
+    proprie = query(
+        "SELECT DISTINCT favicon_hash, headers_hash FROM node_web"
+        " WHERE tenant_id = ? AND node_id = ?", (tenant_id, node_id))
+    gruppi = []
+    visti = set()
+    for riga in proprie:
+        for genere, impronta in (("favicon", riga["favicon_hash"]),
+                                 ("headers", riga["headers_hash"])):
+            if not impronta or (genere, impronta) in visti:
+                continue
+            visti.add((genere, impronta))
+            colonna = "favicon_hash" if genere == "favicon" else "headers_hash"
+            # Il nome della colonna viene da questa riga, non dall'esterno; i valori
+            # restano parametri.
+            simili = query(
+                "SELECT DISTINCT n.id, n.ip, n.hostname, n.device_label,"
+                " n.device_confidence"
+                " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+                " WHERE w.tenant_id = ? AND w." + colonna + " = ? AND w.node_id <> ?"
+                " ORDER BY n.ip", (tenant_id, impronta, node_id))
+            if not simili:
+                continue
+            gruppi.append({
+                "kind": genere,
+                "hash": impronta,
+                "count": len(simili),
+                "nodes": [dict(r) for r in simili[:MAX_APPARATI_IDENTICI]],
+            })
+    return gruppi
+
+
 def _produttore(nodo, pagine_web) -> dict:
     """Chi ha fatto questo apparato, e da dove lo sappiamo.
 
@@ -251,6 +305,35 @@ def _produttore(nodo, pagine_web) -> dict:
 
     return {"nome": nome, "fonte": fonte, "modello": modello,
             "scheda_di_rete": secondo}
+
+
+@bp.get("/certificates")
+@login_required
+def certificates():
+    """I certificati TLS dei web server, con la scadenza e i giorni che mancano.
+
+    Si filtra per stato -- scaduti, in scadenza entro N giorni, validi -- perche' la
+    domanda operativa e' \"quali devo rinnovare, e con che urgenza\"."""
+    tenant_id = current_tenant_id()
+    stato = (request.args.get("stato") or "").strip() or None
+    try:
+        entro = int(request.args.get("entro") or 30)
+    except ValueError:
+        entro = 30
+    entro = max(1, min(entro, 3650))
+    elenco = web_certificates(tenant_id, stato=stato, entro_giorni=entro)
+    # Conteggi per le pastiglie dei filtri: si contano su tutti, non sul filtrato.
+    tutti = web_certificates(tenant_id)
+    conteggi = {
+        "tutti": len(tutti),
+        "scaduti": sum(1 for v in tutti if v["scaduto"]),
+        "in_scadenza": sum(1 for v in tutti
+                           if v["giorni"] is not None and 0 <= v["giorni"] <= entro),
+    }
+    return render_template(
+        "inventory/certificates.html",
+        certificati=elenco, conteggi=conteggi,
+        filtri={"stato": stato or "", "entro": entro})
 
 
 @bp.get("/map")
@@ -407,7 +490,12 @@ def node(node_id: int):
         current_app.logger.warning("fingerprint_json non valido per il nodo %s", node_id)
         conservato = {}
 
-    porte = node_ports(tenant_id, node_id)
+    porte = [dict(p) for p in node_ports(tenant_id, node_id)]
+    # Chi vede la 80 o la 443 aperta vuole aprirla: e' il gesto successivo naturale.
+    # L'indirizzo si calcola qui e non nel modello, perche' decidere se una porta e'
+    # un'interfaccia web e con quale schema e' una regola, non una presentazione.
+    for voce in porte:
+        voce["web_url"] = indirizzo_web(riga["ip"], voce)
     aperte = [p for p in porte
               if (p["state"] or "") == "open" and not int(p["is_suspect"] or 0)]
     # Un nodo puo' essere gia' fra i bersagli, per indirizzo o per nome host: dirlo
@@ -432,6 +520,7 @@ def node(node_id: int):
         " cert_issuer, cert_expires, cert_selfsigned, tls_version, login_form,"
         " device_name, location, host_name, serial, firmware, contact,"
         " pages_read, facts_locked, facts_json, cert_json,"
+        " favicon_hash, favicon_bytes, favicon_path, headers_hash, headers_names,"
         " body_bytes, error, collected_at FROM node_web"
         " WHERE tenant_id = ? AND node_id = ? ORDER BY port", (tenant_id, node_id))]
     # I fatti che l'apparato dichiara e che non hanno una colonna propria (l'interno e i
@@ -480,6 +569,9 @@ def node(node_id: int):
         node=riga,
         web=pagine_web,
         produttore=_produttore(riga, pagine_web),
+        # Gli apparati che rispondono in rete come questo: sono lo stesso prodotto, e
+        # cio' che si e' scoperto qui vale anche per loro.
+        identici=_apparati_identici(tenant_id, node_id),
         # MAC dichiarati dall'agente SNMP (dalle interfacce): sono l'unico modo di
         # conoscere il MAC di un apparato su un'altra rete, dove l'ARP non arriva.
         mac_snmp=_mac_da_snmp(snmp_tabelle),

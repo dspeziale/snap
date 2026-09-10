@@ -19,7 +19,7 @@ import socket
 
 import requests
 
-from . import crypto
+from . import crypto, settings
 from .store import ProbeStore, utc_now_str
 
 BUNDLE_PREFIX = "SNAP1-"
@@ -59,10 +59,14 @@ def parse_bundle(text: str) -> dict:
 class ServerClient:
     """Trasporto SNAP-SEC/1 lato sonda."""
 
-    def __init__(self, store: ProbeStore, agent_version: str, timeout: int = 15):
+    def __init__(self, store: ProbeStore, agent_version: str, timeout: int = 15,
+                 ca_bundle: str | None = None):
         self.store = store
         self.agent_version = agent_version
         self.timeout = timeout
+        # Ancora di fiducia per il TLS: se non e' indicata qui la si prende dalla
+        # configurazione (SNAP_PROBE_SERVER_CA). Vedi `_verifica`.
+        self.ca_bundle = ca_bundle
 
     # -- utilita' ------------------------------------------------------------
     def _url(self, path: str) -> str:
@@ -71,6 +75,20 @@ class ServerClient:
             raise ProtocolError("URL del server non configurato")
         return base + path
 
+    def _verifica(self):
+        """Cosa fidarsi del certificato del server.
+
+        Un percorso: si accetta SOLO quel certificato (o quella CA) -- e' il caso
+        del server interno con certificato proprio, e vincola piu' della fiducia in
+        una CA pubblica. `True`: verifica con gli archivi di sistema.
+
+        Non c'e' un ramo che restituisce `False`: su questo canale passano le chiavi
+        della registrazione e i dati dell'inventario, e non verificare vorrebbe dire
+        consegnarli a chiunque si metta in mezzo.
+        """
+        ca = self.ca_bundle if self.ca_bundle is not None else settings.Config.SERVER_CA
+        return ca or True
+
     def _post(self, path: str, body: dict) -> dict:
         try:
             response = requests.post(
@@ -78,7 +96,16 @@ class ServerClient:
                 json=body,
                 timeout=self.timeout,
                 headers=self._headers(),
+                verify=self._verifica(),
             )
+        except requests.exceptions.SSLError as exc:
+            # Il messaggio di libreria ("certificate verify failed") non dice cosa
+            # fare: chi installa la sonda deve sapere che manca l'ancora di fiducia,
+            # non che c'e' un errore di SSL.
+            raise TransportError(
+                "certificato del server non verificabile. Se il server usa un"
+                " certificato proprio (interno o autofirmato), indicarne il file"
+                " nella sonda con SNAP_PROBE_SERVER_CA. Dettaglio: %s" % exc) from exc
         except requests.RequestException as exc:
             raise TransportError("server non raggiungibile: %s" % exc) from exc
 
@@ -104,9 +131,15 @@ class ServerClient:
     # -- verifica di raggiungibilita' ---------------------------------------
     def ping(self) -> dict:
         try:
-            response = requests.get(self._url("/api/v1/ping"), timeout=self.timeout)
+            response = requests.get(self._url("/api/v1/ping"), timeout=self.timeout,
+                                    verify=self._verifica())
             response.raise_for_status()
             return response.json()
+        except requests.exceptions.SSLError as exc:
+            raise TransportError(
+                "certificato del server non verificabile. Se il server usa un"
+                " certificato proprio (interno o autofirmato), indicarne il file"
+                " nella sonda con SNAP_PROBE_SERVER_CA. Dettaglio: %s" % exc) from exc
         except (requests.RequestException, ValueError) as exc:
             raise TransportError("verifica del server non riuscita: %s" % exc) from exc
 
@@ -192,11 +225,18 @@ class ServerClient:
         return answer
 
     def heartbeat(self) -> dict:
+        # `scan_paused` riporta al server se le scansioni sono sospese SULLA sonda, per
+        # una pausa locale del tecnico: e' vera sia con la pausa dell'agente ("paused")
+        # sia con quella specifica delle scansioni ("scan_paused"). L'interruttore del
+        # server ("scan_enabled") lo conosce gia' il server, e non serve rimandarlo.
+        scan_paused = (self.store.get_setting("paused", "0") == "1"
+                       or self.store.get_setting("scan_paused", "0") == "1")
         return self._sealed_exchange(
             "/api/v1/heartbeat",
             {
                 "queue_size": self.store.queue_size(),
                 "paused": self.store.get_setting("paused", "0") == "1",
+                "scan_paused": scan_paused,
                 "hostname": socket.gethostname(),
             },
         )
