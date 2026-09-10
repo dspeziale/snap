@@ -21,6 +21,47 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.1",
+        "date": "2026-09-10",
+        "abstract": "Gli apparati che non dicono niente di se' si identificano da come"
+                    " RISPONDONO: l'icona che servono e l'insieme delle intestazioni"
+                    " HTTP diventano impronte, e un apparato muto prende in prestito il"
+                    " verdetto dei nodi identici a lui. La scheda del dispositivo elenca"
+                    " gli apparati identici, con il collegamento a ognuno.",
+        "changes": [
+            "Riconoscimento per somiglianza: due apparati che servono la STESSA icona"
+            " sono lo stesso prodotto (l'icona sta nel firmware, non la sceglie chi"
+            " installa), e due che rispondono con lo stesso insieme di intestazioni HTTP"
+            " hanno dentro lo stesso programma. Un nodo che non dichiara nulla ricava da"
+            " qui la propria classificazione.",
+            "Il prestito e' prudente per costruzione: il gruppo di apparati identici"
+            " deve essere concorde almeno all'80%, marca e modello si riportano solo se"
+            " unanimi, e un apparato puo' fare da riferimento solo se il suo tipo lo ha"
+            " detto una persona o se lo ha guadagnato con prove proprie. La somiglianza"
+            " da sola non produce mai un verdetto confidente: serve una seconda famiglia"
+            " di prove.",
+            "Nella scheda del dispositivo, sopra le letture web: \"7 altri nodi servono"
+            " la stessa icona: e' lo stesso prodotto\", con il collegamento a ognuno. Se"
+            " questo apparato va aggiornato, vanno aggiornati anche quelli; e se lo si e'"
+            " identificato a mano, quel lavoro vale anche per loro.",
+            "Le impronte stanno in colonna nella banca dati (icona e intestazioni):"
+            " si possono cercare e confrontare, non solo leggere nel dettaglio di un"
+            " nodo. Dell'icona si conserva l'impronta, non l'immagine; delle"
+            " intestazioni i nomi, non i valori -- i valori possono contenere dati"
+            " dell'apparato.",
+            "25 nuove firme di applicazione riconosciute dalle pagine web (NetBox, MyQ,"
+            " One Identity Safeguard, WildFly, GlassFish, Oracle XML DB, WebLogic,"
+            " JBoss, Jetty, Outlook Web App, SharePoint, RD Web, Nextcloud, Moodle,"
+            " Zimbra, Roundcube, UniFi, Veeam, Kibana, Splunk, FreePBX, Proxmox,"
+            " Synology, QNAP): su una pagina web conta piu' l'applicazione esposta che"
+            " il nome del server web.",
+            "Corretto un riconoscimento sbagliato: un GlassFish veniva classificato"
+            " stampante Kyocera perche' \"ecosys\" corrispondeva dentro la parola"
+            " \"ecosystem\". Tutte le firme sono state riviste per la stessa classe di"
+            " errore, e un test la sorveglia.",
+        ],
+    },
+    {
         "version": "1.3.0",
         "date": "2026-09-10",
         "abstract": "Il motore di scansione e' riprogettato: una /24 completa e"

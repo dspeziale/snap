@@ -27,6 +27,37 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.1",
+        "date": "2026-09-10",
+        "abstract": "La lettura delle pagine web arriva anche dove non c'e'"
+                    " niente da seguire: un 401 nudo o una pagina di accesso senza"
+                    " collegamenti. E di ogni interfaccia si ricava un'impronta, che"
+                    " serve alla console per riconoscere gli apparati identici.",
+        "changes": [
+            "Percorsi identificanti generici: se l'apparato non ha detto niente di"
+            " se' e nessuna firma ha corrisposto, si prova la descrizione UPnP (che"
+            " per costruzione si legge senza credenziali e dichiara costruttore,"
+            " modello e numero di serie) e alcuni indirizzi informativi documentati."
+            " Misurato prima: su 25 nodi letti, tutti si fermavano alla prima"
+            " pagina.",
+            "Nessuno spreco su chi non risponde in modo utile: non si prova nulla se"
+            " l'apparato e' gia' identificato anche solo dal titolo, e si smette al"
+            " primo segno che serve la stessa pagina per qualunque indirizzo. Un 404,"
+            " al contrario, e' una buona notizia: l'apparato distingue gli"
+            " indirizzi.",
+            "Impronta dell'icona e impronta dell'insieme delle intestazioni HTTP,"
+            " conferite alla console: sono cio' che identifica un apparato quando il"
+            " testo non dice nulla. Si conferisce l'impronta dell'icona, non"
+            " l'immagine, e dei nomi delle intestazioni, non dei valori.",
+            "Il nome che un apparato mostra di se' in rete (friendlyName UPnP) entra"
+            " fra i fatti dichiarati.",
+            "Alcuni prodotti si annunciano nel NOME di un'intestazione e in nessun altro"
+            " posto: un server che ha nascosto `Server` manda ancora"
+            " `X-AspNet-Version`, SharePoint manda `MicrosoftSharePointTeamServices`,"
+            " Jenkins manda `X-Jenkins`. Ora si riconoscono anche cosi'.",
+        ],
+    },
+    {
         "version": "1.3.0",
         "date": "2026-09-10",
         "abstract": "Il motore di scansione e' riprogettato: una /24 completa passa da"

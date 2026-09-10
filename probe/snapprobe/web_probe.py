@@ -75,6 +75,11 @@ MAX_REDIREZIONI = 4
 # spesso non contiene niente e cio' che serve sta due o tre passi dentro. Il tetto
 # esiste perche' una passata riguarda centinaia di indirizzi.
 MAX_PAGINE_PER_PORTA = 5
+# Pagine consentite OLTRE il percorso guidato: sono i tentativi sugli indirizzi
+# informativi (della famiglia riconosciuta e generici). Si contano a parte perche' non
+# seguono i collegamenti dell'apparato, e senza un tetto proprio il primo tentativo a
+# vuoto consumerebbe il posto di quello che avrebbe risposto.
+MAX_PAGINE_EXTRA = 9
 # Tempo massimo speso su una porta, in secondi. E' il vincolo che conta davvero: cinque
 # pagine su un apparato lento costerebbero quindici secondi, e moltiplicati per
 # duemila dispositivi la passata non chiuderebbe piu'.
@@ -108,9 +113,15 @@ FIRME = [
      # numero di serie, senza credenziali.
      "percorsi": ("/DevMgmt/ProductConfigDyn.xml",
                   "/hp/device/DeviceStatus/Index")},
-    {"chiave": "kyocera", "dove": ("titolo", "corpo"), "espressione": r"(?i)kyocera|taskalfa|ecosys",
+    # I CONFINI DI PAROLA NON SONO UN DETTAGLIO. Senza, "ecosys" corrisponde dentro
+    # "ecosystem": sulla rete reale un application server Oracle GlassFish, la cui
+    # pagina di benvenuto parla dell'ecosistema Java, veniva classificato come
+    # stampante Kyocera. Una firma che scatta su una parola comune non identifica
+    # nulla, e il verdetto sbagliato e' peggio di nessun verdetto.
+    {"chiave": "kyocera", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:kyocera|taskalfa|ecosys)\b",
      "marca": "Kyocera", "tipo": "printer", "prodotto": "Kyocera",
-     "modello": r"(?i)((?:taskalfa|ecosys)[\w\s\-]{0,20})"},
+     "modello": r"(?i)(\b(?:taskalfa|ecosys)[\w\s\-]{0,20})"},
     # --- generi riconoscibili anche senza marca ---
     # Sulla rete reale una ventina di apparati si presenta come "IP Phone" e
     # nient'altro: la pagina di stato chiede le credenziali, che non abbiamo. La marca
@@ -333,6 +344,109 @@ FIRME = [
      "versione": r"(?i)tomcat[\s/v]*([0-9]+\.[0-9]+(?:\.[0-9]+)?)"},
 
     # --- server generici: ultimi, perche' dicono meno di tutto il resto ---
+    # --- applicazioni e servizi riconosciuti dalla pagina ---
+    #
+    # Riconoscere "nginx" non identifica un nodo; riconoscere NetBox si'. Queste
+    # firme guardano CHE COSA GIRA, non con quale server web: e' l'informazione
+    # che arricchisce l'inventario e che un operatore usa. Stanno prima delle
+    # firme dei server web generici, che altrimenti vincerebbero per prime.
+    #
+    # Il `tipo` resta "server" -- che NON e' una classe del riconoscimento -- di
+    # proposito: un'applicazione dice cosa fa il nodo, non su quale sistema gira.
+    # Dedurre la classe da un'applicazione sola sarebbe l'errore della porta 5060.
+    # Trovate sulla rete del committente.
+    {"chiave": "netbox", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:netbox)\b",
+     "tipo": "server", "prodotto": "NetBox (documentazione dell'infrastruttura)"},
+    {"chiave": "myq", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:myq)\b",
+     "tipo": "server", "prodotto": "MyQ (gestione delle stampe)"},
+    {"chiave": "safeguard", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:safeguard for privileged passwords|one identity safeguard)\b",
+     "tipo": "server", "prodotto": "One Identity Safeguard (credenziali privilegiate)", "marca": "One Identity"},
+    {"chiave": "wildfly", "dove": ("titolo", "server", "corpo"),
+     "espressione": r"(?i)\b(?:wildfly)\b",
+     "tipo": "server", "prodotto": "WildFly (application server)", "marca": "Red Hat",
+     "versione": r"(?i)([0-9]+\.[0-9][0-9a-z\.]{0,10})"},
+    {"chiave": "glassfish", "dove": ("titolo", "server", "corpo"),
+     "espressione": r"(?i)\b(?:glassfish)\b",
+     "tipo": "server", "prodotto": "GlassFish (application server)", "marca": "Oracle",
+     "versione": r"(?i)([0-9]+\.[0-9][0-9a-z\.]{0,10})"},
+    {"chiave": "oracle-db", "dove": ("server", "titolo", "realm"),
+     "espressione": r"(?i)\b(?:oracle xml db|oracle database|oracle-application-server)\b",
+     "tipo": "server", "prodotto": "Oracle Database (interfaccia XML DB)", "marca": "Oracle"},
+    {"chiave": "ms-httpapi", "dove": ("server",),
+     "espressione": r"(?i)\b(?:microsoft-httpapi)\b",
+     "tipo": "server", "prodotto": "servizio Windows con interfaccia HTTP (HTTP.sys)", "marca": "Microsoft"},
+    {"chiave": "weblogic", "dove": ("titolo", "server", "corpo"),
+     "espressione": r"(?i)\b(?:weblogic)\b",
+     "tipo": "server", "prodotto": "Oracle WebLogic (application server)", "marca": "Oracle"},
+    {"chiave": "jboss", "dove": ("titolo", "server", "corpo"),
+     "espressione": r"(?i)\b(?:jboss|eap [0-9])\b",
+     "tipo": "server", "prodotto": "JBoss EAP (application server)", "marca": "Red Hat"},
+    {"chiave": "jetty", "dove": ("server",),
+     "espressione": r"(?i)\b(?:jetty)\b",
+     "tipo": "server", "prodotto": "Eclipse Jetty (application server)",
+     "versione": r"(?i)([0-9]+\.[0-9][0-9a-z\.]{0,10})"},
+    {"chiave": "owa", "dove": ("titolo", "corpo", "impronte"),
+     "espressione": r"(?i)\b(?:outlook web app|outlook web access|owa/auth)\b",
+     "tipo": "server", "prodotto": "Microsoft Exchange (posta via web)", "marca": "Microsoft",
+     "percorsi": ("/owa/auth/logon.aspx")},
+    {"chiave": "sharepoint", "dove": ("titolo", "corpo", "intestazioni", "impronte"),
+     "espressione": r"(?i)\b(?:sharepoint|microsoftsharepointteamservices)\b",
+     "tipo": "server", "prodotto": "Microsoft SharePoint", "marca": "Microsoft"},
+    {"chiave": "rdweb", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:rd web access|remoteapp)\b",
+     "tipo": "server", "prodotto": "Servizi Desktop remoto via web", "marca": "Microsoft"},
+    {"chiave": "nextcloud", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:nextcloud|owncloud)\b",
+     "tipo": "server", "prodotto": "Nextcloud / ownCloud (archiviazione)"},
+    {"chiave": "moodle", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:moodle)\b",
+     "tipo": "server", "prodotto": "Moodle (piattaforma didattica)"},
+    {"chiave": "zimbra", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:zimbra)\b",
+     "tipo": "server", "prodotto": "Zimbra (posta e collaborazione)"},
+    {"chiave": "roundcube", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:roundcube)\b",
+     "tipo": "server", "prodotto": "Roundcube (posta via web)"},
+    {"chiave": "unifi", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:unifi)\b",
+     "tipo": "server", "prodotto": "Ubiquiti UniFi (controller di rete)", "marca": "Ubiquiti"},
+    {"chiave": "veeam", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:veeam)\b",
+     "tipo": "server", "prodotto": "Veeam (copie di sicurezza)", "marca": "Veeam"},
+    {"chiave": "kibana", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:kibana|elasticsearch)\b",
+     "tipo": "server", "prodotto": "Elastic (Kibana / Elasticsearch)", "marca": "Elastic"},
+    {"chiave": "splunk", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:splunk)\b",
+     "tipo": "server", "prodotto": "Splunk (analisi dei registri)", "marca": "Splunk"},
+    # Una centrale telefonica software dichiara il GENERE del nodo:
+    # qui il tipo si puo' dedurre, ed e' la classe del riconoscimento.
+    {"chiave": "freepbx", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:freepbx|asterisk|3cx)\b",
+     "tipo": "pbx", "prodotto": "Centrale telefonica software"},
+    {"chiave": "proxmox", "dove": ("titolo", "corpo"),
+     "espressione": r"(?i)\b(?:proxmox)\b",
+     "tipo": "hypervisor", "prodotto": "Proxmox VE (virtualizzazione)", "marca": "Proxmox"},
+    {"chiave": "synology", "dove": ("titolo", "corpo", "realm"),
+     "espressione": r"(?i)\b(?:synology|diskstation|rackstation)\b",
+     "tipo": "nas", "prodotto": "Synology DSM", "marca": "Synology"},
+    {"chiave": "qnap", "dove": ("titolo", "corpo", "realm"),
+     "espressione": r"(?i)\b(?:qnap|qts)\b",
+     "tipo": "nas", "prodotto": "QNAP QTS", "marca": "QNAP"},
+    # Prodotti che si annunciano nel NOME di un'intestazione e in nessun altro posto:
+    # un server che ha nascosto `Server` manda ancora `X-AspNet-Version`, e un Jenkins
+    # manda `X-Jenkins` anche dietro un accesso. Dei nomi si conserva l'elenco (i valori
+    # no), quindi e' l'impronta delle intestazioni a vederli.
+    {"chiave": "aspnet", "dove": ("impronte",),
+     "espressione": r"(?i)\bx-aspnet(?:mvc)?-version\b",
+     "tipo": "server", "prodotto": "Applicazione ASP.NET (server Windows)",
+     "marca": "Microsoft"},
+    {"chiave": "jenkins", "dove": ("titolo", "corpo", "impronte"),
+     "espressione": r"(?i)\b(?:jenkins|x-jenkins)\b",
+     "tipo": "server", "prodotto": "Jenkins (integrazione continua)"},
     {"chiave": "iis", "dove": ("server",), "espressione": r"(?i)microsoft-iis",
      "tipo": "server", "prodotto": "Microsoft IIS",
      "versione": r"(?i)microsoft-iis/([0-9]+\.[0-9]+)"},
@@ -659,6 +773,26 @@ def _sufficiente(fatti_noti: dict) -> bool:
     return bool(identita and contesto)
 
 
+def _identificato(esito: dict, fatti_noti: dict) -> bool:
+    """Vero quando l'apparato e' identificato, anche solo dal titolo.
+
+    Serve a decidere se valga la pena provare gli indirizzi informativi, ed e' una
+    domanda diversa da `_sufficiente`: la' si chiede se l'apparato abbia dichiarato
+    abbastanza NELLE PROPRIE PAGINE, qui basta sapere di che apparato si tratta. Un
+    titolo "HP LaserJet MFP M428" identifica il modello quanto una tabella di fatti,
+    e su una passata di centinaia di indirizzi cinque richieste inutili per nodo sono
+    l'intera differenza fra una fase che sta nel tempo e una che non ci sta.
+    """
+    if _sufficiente(fatti_noti):
+        return True
+    from . import web_facts
+
+    dichiarato = web_facts.marca_e_modello(fatti_noti, esito.get("titolo"),
+                                           esito.get("server"))
+    contesto = any(fatti_noti.get(c) for c in ("posizione", "nome_host", "seriale"))
+    return bool(dichiarato.get("modello") and contesto)
+
+
 def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
     """Legge l'interfaccia web di una porta e ne ricava cio' che dichiara di se'.
 
@@ -784,35 +918,46 @@ def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
                          "priorita": bersaglio.get("priorita", 2),
                          "profondita": passo["profondita"] + 1})
 
-    # Ultima carta: la firma ha riconosciuto la famiglia ma l'apparato non ha ancora
-    # detto niente di se'. Le famiglie che si conoscono hanno un indirizzo informativo
-    # documentato: si prova quello, non si cerca a tentoni.
-    if not _sufficiente(fatti_noti) and time.monotonic() < scadenza:
-        verdetto = riconosci(esito, "\n".join(materiale)[:MAX_BYTE_CORPO])
-        percorsi = _percorsi_noti(verdetto.get("firma"))
-        for percorso in percorsi[:2]:
-            if time.monotonic() > scadenza or len(visitati) >= MAX_PAGINE_PER_PORTA + 2:
-                break
-            candidato = "%s://%s:%d%s" % (schema, ip, port, percorso)
-            if any(v["percorso"] == percorso for v in visitati):
-                continue
-            risposta, corpo, errore = _scarica(candidato, ip)
-            visitati.append({"percorso": percorso, "origine": "percorso noto",
-                             "stato": (int(risposta.status_code)
-                                       if risposta is not None else None),
-                             "errore": errore})
-            if errore or risposta is None or risposta.status_code >= 400:
-                continue
-            testo = _decodifica(corpo, risposta.headers.get("Content-Type") or "")
-            if not testo:
-                continue
-            materiale.append(testo)
-            for chiave, valore in web_facts.fatti(testo).items():
-                fatti_noti.setdefault(chiave, valore)
-            if _sufficiente(fatti_noti):
-                break
+    # LA FAVICON COME IMPRONTA.
+    #
+    # E' il segnale che funziona quando il testo non dice nulla -- una pagina di
+    # accesso senza titolo, un 401 nudo, un'interfaccia tutta in JavaScript -- ed e'
+    # il caso di gran parte degli apparati incorporati. Due apparati dello stesso
+    # modello e firmware servono la STESSA icona, byte per byte: l'impronta li
+    # raggruppa anche quando nessuna firma di testo corrisponde, e un'icona
+    # riconosciuta identifica il prodotto.
+    #
+    # Si conserva l'IMPRONTA, non l'immagine: non serve il contenuto, serve poterlo
+    # confrontare. Costa una GET piccola per porta, e si fa solo se il tempo resta.
+    if time.monotonic() < scadenza:
+        _leggi_favicon(esito, schema, ip, port, "\n".join(materiale))
 
-    esito["pagine"] = visitati[:MAX_PAGINE_PER_PORTA + 2]
+    # ULTIMA CARTA: l'apparato non ha ancora detto niente di se'.
+    #
+    # Prima gli indirizzi informativi della famiglia riconosciuta: sono documentati,
+    # quindi non si cerca a tentoni. Poi -- se non e' bastato, o se NESSUNA firma ha
+    # corrisposto -- i percorsi generici, che e' il caso della maggior parte degli
+    # apparati incorporati: alla radice servono un 401 nudo o una pagina di accesso
+    # senza un solo collegamento, e il lettore non ha dove andare pur esistendo una
+    # pagina che li dichiara per intero.
+
+    # Un apparato che ha rimandato altrove OGNI indirizzo senza mai servire una
+    # pagina incanala tutto verso un solo punto: provargli altri indirizzi e' tempo
+    # buttato, e su centinaia di nodi non e' poco. Il 401 nudo, invece, e' proprio il
+    # caso da provare -- lo stesso "niente" per una ragione opposta.
+    incanala_tutto = bool(esito.get("redirezioni")) and not materiale
+    if not _identificato(esito, fatti_noti) and time.monotonic() < scadenza:
+        verdetto = riconosci(esito, "\n".join(materiale)[:MAX_BYTE_CORPO])
+        _prova_percorsi(_percorsi_noti(verdetto.get("firma")), "percorso noto",
+                        esito, ip, port, scadenza, visitati, materiale, fatti_noti,
+                        massimo=2)
+    if (not incanala_tutto and not _identificato(esito, fatti_noti)
+            and time.monotonic() < scadenza):
+        _prova_percorsi(PERCORSI_GENERICI, "percorso generico", esito, ip, port,
+                        scadenza, visitati, materiale, fatti_noti,
+                        massimo=MAX_PERCORSI_GENERICI)
+
+    esito["pagine"] = visitati[:MAX_PAGINE_PER_PORTA + MAX_PAGINE_EXTRA]
     esito["pagine_lette"] = len(visitati)
     if not fatti_noti and any(v["stato"] == 401 for v in visitati):
         # Detto esplicitamente: la pagina che contiene i dati esiste ma chiede le
@@ -884,6 +1029,109 @@ def _percorsi_noti(chiave_firma: str) -> tuple:
     return ()
 
 
+# PERCORSI IDENTIFICANTI GENERICI: si provano quando l'apparato, alla radice, non ha
+# detto NIENTE di se' e nessuna firma ha corrisposto.
+#
+# Perche' servono: misurato su questa rete, `pagine_lette` restava a 1 su tutti i nodi
+# esaminati. Non era un difetto del lettore -- era che la radice di un apparato
+# incorporato e' un 401 nudo, o una pagina di accesso senza titolo e senza un solo
+# collegamento da seguire. Il lettore non aveva dove andare, e l'apparato restava
+# anonimo pur avendo una pagina che lo dichiara per intero.
+#
+# I primi sono i piu' redditizi: la descrizione UPnP e' pensata per essere letta SENZA
+# credenziali (chi cerca il servizio deve poterla leggere) e dichiara costruttore,
+# modello, numero di serie e nome amichevole -- esattamente i campi che si cercano.
+# Poi gli endpoint informativi documentati dei costruttori piu' diffusi in una rete di
+# PA, e infine i tre nomi convenzionali di pagina informativa.
+#
+# Sono tutte GET di sola lettura, senza parametri e senza verbi d'azione: valgono gli
+# stessi vincoli del resto della fase (vedi web_facts.VERBI_PERICOLOSI).
+PERCORSI_GENERICI = (
+    "/description.xml",
+    "/rootDesc.xml",
+    "/DeviceDescription.xml",
+    # HP: configurazione dell'apparato in XML, leggibile senza credenziali sulle
+    # multifunzioni di rete.
+    "/DevMgmt/ProductConfigDyn.xml",
+    # Brother: la pagina "General / Status" del pannello.
+    "/general/status.html",
+    # Nomi convenzionali: molte interfacce incorporate dichiarano qui il proprio
+    # modello anche quando la radice e' muta.
+    "/status.html",
+    "/info.html",
+)
+# Il tetto per passata. Deve coprire TUTTO il catalogo: un percorso che non si arriva
+# mai a provare non e' un percorso, e' una riga che sembra fare qualcosa (vedi il test
+# che lo verifica). Cio' che limita davvero la spesa e' il budget di tempo della porta,
+# piu' l'uscita immediata appena si capisce che l'apparato non distingue gli indirizzi.
+MAX_PERCORSI_GENERICI = 7
+
+
+def _prova_percorsi(percorsi, origine: str, esito: dict, ip: str, port: int,
+                    scadenza: float, visitati: list, materiale: list,
+                    fatti_noti: dict, massimo: int) -> None:
+    """Prova alcuni indirizzi informativi e raccoglie cio' che dichiarano.
+
+    Modifica `esito`, `visitati`, `materiale` e `fatti_noti` sul posto: sono lo stato della
+    lettura in corso, e questa e' l'ultima parte di quella lettura, non una lettura
+    nuova. Si ferma appena i fatti bastano, o quando il tempo o il numero di pagine
+    sono esauriti.
+
+    Una pagina IDENTICA a una gia' letta non si riesamina: un apparato che serve la
+    propria pagina di accesso per qualunque percorso ne restituirebbe cinque copie,
+    gonfiando il conto delle pagine lette senza aggiungere un solo fatto.
+    """
+    from . import web_facts
+
+    schema = esito.get("scheme") or "http"
+    gia_viste = {hashlib.sha256(t.encode("utf-8", "replace")).hexdigest()
+                 for t in materiale}
+    provati = 0
+    for percorso in percorsi:
+        if provati >= massimo or time.monotonic() > scadenza:
+            return
+        if len(visitati) >= MAX_PAGINE_PER_PORTA + MAX_PAGINE_EXTRA:
+            return
+        if any(v["percorso"] == percorso for v in visitati):
+            continue
+        provati += 1
+        candidato = "%s://%s:%d%s" % (schema, ip, port, percorso)
+        risposta, corpo, errore = _scarica(candidato, ip)
+        visitati.append({"percorso": percorso, "origine": origine,
+                         "stato": (int(risposta.status_code)
+                                   if risposta is not None else None),
+                         "errore": errore})
+        if errore or risposta is None:
+            continue
+        if risposta.status_code >= 400:
+            # Un 404 e' una buona notizia: l'apparato DISTINGUE gli indirizzi, quindi
+            # vale la pena provare il successivo.
+            continue
+        if risposta.is_redirect:
+            # Rimanda altrove anche questo: non distingue gli indirizzi, e i tentativi
+            # rimasti darebbero tutti la stessa risposta.
+            return
+        testo = _decodifica(corpo, risposta.headers.get("Content-Type") or "")
+        if not testo:
+            continue
+        impronta = hashlib.sha256(testo.encode("utf-8", "replace")).hexdigest()
+        if impronta in gia_viste:
+            # La STESSA pagina servita per un indirizzo diverso: e' un apparato che
+            # risponde con il proprio accesso a qualunque cosa. Gli altri tentativi
+            # darebbero altre copie, e un conto di pagine lette che promette un
+            # approfondimento mai avvenuto.
+            return
+        gia_viste.add(impronta)
+        materiale.append(testo)
+        titolo = RE_TITOLO.search(testo)
+        if titolo:
+            _annota_titolo(esito, _testo(titolo.group(1), 200))
+        for chiave, valore in web_facts.fatti(testo).items():
+            fatti_noti.setdefault(chiave, valore)
+        if _sufficiente(fatti_noti):
+            return
+
+
 def _percorso(indirizzo: str) -> str:
     """Solo il percorso: l'indirizzo e la porta si sanno gia', e ripeterli in ogni
     riga del diario renderebbe illeggibile il percorso seguito."""
@@ -905,6 +1153,52 @@ def _annota_titolo(esito: dict, titolo: str) -> None:
         esito.setdefault("titoli", []).append(titolo)
 
 
+# L'icona dichiarata nella pagina, se c'e': un apparato puo' servirla da un percorso
+# proprio invece che da /favicon.ico.
+RE_ICONA = re.compile(
+    r"""(?is)<link[^>]+rel\s*=\s*["']?[^"'>]*icon[^"'>]*["']?[^>]*>""")
+RE_ICONA_HREF = re.compile(r"""(?is)href\s*=\s*["']([^"'>\s]+)""")
+# Un'icona piu' grande di questo non e' un'icona: si smette di leggere.
+MAX_BYTE_ICONA = 65536
+
+
+def _leggi_favicon(esito: dict, schema: str, ip: str, port: int, testo: str) -> None:
+    """Impronta dell'icona del sito. Non solleva: e' un arricchimento.
+
+    Si prova prima il percorso dichiarato nella pagina, poi `/favicon.ico`, che e'
+    la convenzione. Un'assenza non e' un errore -- molti apparati non hanno icona.
+    """
+    candidati = []
+    trovato = RE_ICONA.search(testo or "")
+    if trovato:
+        href = RE_ICONA_HREF.search(trovato.group(0))
+        if href:
+            valore = href.group(1).strip()
+            if valore.startswith("/"):
+                candidati.append(valore)
+            elif not valore.startswith(("http://", "https://", "data:")):
+                candidati.append("/" + valore)
+    candidati.append("/favicon.ico")
+
+    for percorso_icona in candidati[:2]:
+        indirizzo = "%s://%s:%d%s" % (schema, ip, port, percorso_icona)
+        risposta, corpo, errore = _scarica(indirizzo, ip)
+        if errore or risposta is None or risposta.status_code >= 400 or not corpo:
+            continue
+        tipo = (risposta.headers.get("Content-Type") or "").lower()
+        # Un apparato che risponde alla pagina di accesso per QUALUNQUE percorso
+        # servirebbe HTML anche qui: quella non e' un'icona, e la sua impronta
+        # raggrupperebbe apparati diversi.
+        if "html" in tipo or "xml" in tipo:
+            continue
+        if len(corpo) > MAX_BYTE_ICONA:
+            continue
+        esito["favicon_impronta"] = hashlib.sha256(corpo).hexdigest()[:16]
+        esito["favicon_byte"] = len(corpo)
+        esito["favicon_percorso"] = percorso_icona
+        return
+
+
 def _registra_prima_pagina(esito: dict, risposta, corpo: bytes, indirizzo: str) -> None:
     """Stato, intestazioni e impronta della PRIMA pagina: e' quella che descrive il
     servizio esposto sulla porta. Le successive servono ai fatti, non all'esposizione."""
@@ -919,6 +1213,20 @@ def _registra_prima_pagina(esito: dict, risposta, corpo: bytes, indirizzo: str) 
                 for c in risposta.headers.get("Set-Cookie", "").split(",") if "=" in c]
     if biscotti:
         esito["cookie"] = [b[:40] for b in biscotti[:6]]
+
+    # L'INSIEME DELLE INTESTAZIONI, come impronta.
+    #
+    # Due apparati dello stesso modello e firmware rispondono con le stesse
+    # intestazioni, nello stesso ordine: il loro server web e' lo stesso programma.
+    # Serve quando il testo non identifica nulla -- una pagina di accesso senza
+    # titolo, un 401 nudo -- ed e' il caso di una buona parte degli apparati
+    # incorporati. Si conservano i NOMI, non i valori: i valori possono contenere
+    # dati dell'apparato, i nomi no.
+    nomi = [k.lower() for k in risposta.headers.keys()]
+    if nomi:
+        esito["intestazioni_nomi"] = ",".join(nomi[:24])
+        esito["intestazioni_impronta"] = hashlib.sha256(
+            ",".join(nomi).encode("utf-8", "replace")).hexdigest()[:16]
 
     esito["corpo_byte"] = len(corpo)
     if corpo:
@@ -986,6 +1294,14 @@ def riconosci(esito: dict, corpo: str = "") -> dict:
         "intestazioni": " ".join("%s: %s" % (k, v) for k, v in esito.items()
                                  if k in ("server", "x_powered_by", "x_generator",
                                           "www_authenticate")),
+        # Le due impronte: l'insieme dei NOMI delle intestazioni e quella
+        # dell'icona. Servono a una firma che voglia riconoscere un apparato che non
+        # dichiara nulla a parole -- e' il caso di molti apparati incorporati.
+        "impronte": " ".join(filter(None, [
+            esito.get("intestazioni_nomi") or "",
+            "favicon:" + esito["favicon_impronta"] if esito.get("favicon_impronta")
+            else "",
+        ])),
         # Il corpo si usa per il riconoscimento ma NON si conserva.
         "corpo": corpo[:MAX_BYTE_CORPO],
     }

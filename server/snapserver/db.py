@@ -396,6 +396,14 @@ MIGRATIONS = [
     # Tutti i dati del certificato TLS, anche quelli senza colonna (serie, versione,
     # algoritmo di firma, chiave, impronte, SAN, usi): dove c'e' HTTPS si registra tutto.
     ("node_web", "cert_json", "TEXT"),
+    # Impronte di somiglianza fra apparati: l'icona servita dal firmware e l'insieme
+    # dei nomi delle intestazioni HTTP. Servono a riconoscere che due nodi sono lo
+    # stesso modello quando la pagina non dichiara nulla (vedi _web_twins_evidence).
+    ("node_web", "favicon_hash", "TEXT"),
+    ("node_web", "favicon_bytes", "INTEGER"),
+    ("node_web", "favicon_path", "TEXT"),
+    ("node_web", "headers_hash", "TEXT"),
+    ("node_web", "headers_names", "TEXT"),
     # Avvisi sui termini di comunicazione ad ACN (vedi acn_watch).
     # Incidenti registrati a mano (vedi acn.registra_incidente).
     ("check_incidents", "origin", "TEXT NOT NULL DEFAULT 'check'"),
@@ -415,6 +423,9 @@ MIGRATIONS = [
     ("notifications", "body_html", "TEXT"),
     ("notifications", "attachment_path", "TEXT"),
     ("subnets", "zone", "TEXT NOT NULL DEFAULT ''"),
+    # Rete senza fili: decide se la sonda le dedica la ricognizione breve e frequente
+    # delle presenze (vedi presence.py nella sonda).
+    ("subnets", "is_wifi", "INTEGER NOT NULL DEFAULT 0"),
     # Origine di un riscontro di sicurezza (vedi threat._apply_vuln).
     ("ti_findings", "source", "TEXT NOT NULL DEFAULT 'correlation'"),
     # TTL osservato: indizio della famiglia OS (vedi fingerprint).
@@ -598,11 +609,21 @@ def init_db() -> None:
     """
     schema = Path(__file__).with_name("schema.sql").read_text(encoding="utf-8")
     connection = get_db()
+    # LE COLONNE PRIMA DELLO SCHEMA. L'ordine e' stato invertito per una ragione
+    # precisa: lo schema dichiara anche gli INDICI, e un indice su una colonna
+    # introdotta da una migrazione non si poteva dichiarare la'. Su un database nuovo
+    # funzionava (la tabella nasce completa), su uno esistente no -- `CREATE TABLE IF
+    # NOT EXISTS` non tocca la tabella che c'e' gia', quindi la colonna arrivava dopo
+    # l'indice che la usa, e l'avvio si fermava con "column ... does not exist".
+    #
+    # Su un database nuovo le migrazioni non hanno nulla da fare (le tabelle non
+    # esistono ancora e vengono saltate), quindi anticiparle non cambia niente; su uno
+    # esistente rende dichiarabile nello schema qualunque indice.
+    aggiunte = _apply_migrations(connection)
     # Tutto il file in una sola istruzione: contiene un blocco `DO $$ ... $$` con
     # punti e virgola al proprio interno, e spezzarlo su ';' lo romperebbe. Senza
     # parametri, il driver accetta piu' istruzioni in un solo invio.
     connection.exec_driver_sql(schema)
-    aggiunte = _apply_migrations(connection)
     ricostruite = _apply_structural_migrations(connection, schema)
     riempiti = _fill_cwe_links(connection)
     seminate = _semina_zone(connection)

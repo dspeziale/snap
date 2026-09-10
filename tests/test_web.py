@@ -1044,3 +1044,101 @@ def test_il_pdf_di_un_nodo_di_un_altro_tenant_non_si_scarica(logged_client, serv
     risposta = logged_client.get("/inventory/nodes/%d/web.pdf" % node_id)
 
     assert risposta.status_code in (403, 404)
+
+
+# --------------------------------------------------------------------------- #
+# Le firme non devono scattare dentro parole comuni
+# --------------------------------------------------------------------------- #
+# Difetto trovato in esercizio: la firma Kyocera cercava "ecosys" senza confini di
+# parola, e un application server Oracle GlassFish -- la cui pagina di benvenuto
+# parla dell'ecosistema Java -- veniva classificato come stampante Kyocera.
+#
+# Un verdetto sbagliato e' peggio di nessun verdetto: chi legge l'inventario non ha
+# modo di sospettare che quella riga sia falsa. Questo controllo sorveglia la CLASSE
+# di errore, non il singolo caso, cosi' una firma nuova non lo reintroduce.
+PAROLE_COMUNI = (
+    "ecosystem systems system service services microsoft windows license"
+    " management manager network networking security software solutions"
+    " application applications server servers client clients device devices"
+    " printer printing document documents information technology enterprise"
+    " platform product products support portal console access administrator"
+    " configuration monitor monitoring database dashboard interface internet"
+    " processing production professional performance connection container"
+).split()
+
+
+def _alternative_letterali(espressione: str) -> list:
+    """Le alternative letterali di un'espressione: i pezzi senza metacaratteri.
+
+    Non e' un analizzatore di espressioni regolari e non pretende di esserlo: serve
+    a trovare i token semplici, che sono quelli su cui l'errore si commette.
+    """
+    import re
+
+    pezzi = re.split(r"\||\(|\)|\?i:|\(\?i\)|\[|\]", espressione)
+    return [p.strip() for p in pezzi
+            if p.strip() and not re.search(r"[\{}+*^$.?]", p.strip())]
+
+
+def test_nessuna_firma_scatta_dentro_una_parola_comune():
+    """Un token corto senza confini di parola e' una trappola: prima o poi
+    corrisponde dentro una parola che non c'entra nulla."""
+    from snapprobe.web_probe import FIRME
+
+    trappole = []
+    for firma in FIRME:
+        espressione = firma.get("espressione") or ""
+        ha_confini = r"\b" in espressione
+        for token in _alternative_letterali(espressione):
+            if len(token) < 4 or ha_confini:
+                continue
+            dentro = [p for p in PAROLE_COMUNI
+                      if token.lower() in p and token.lower() != p]
+            if dentro:
+                trappole.append("%s: '%s' corrisponde dentro %s"
+                                % (firma["chiave"], token, ", ".join(dentro[:3])))
+    assert not trappole, (
+        "firme che possono scattare dentro una parola comune (servono i confini"
+        " di parola \b): " + "; ".join(trappole))
+
+
+def test_la_firma_kyocera_non_scatta_su_ecosystem():
+    """Il caso reale che ha rivelato il difetto."""
+    import re
+
+    from snapprobe.web_probe import FIRME
+
+    kyocera = next(f for f in FIRME if f["chiave"] == "kyocera")
+    assert not re.search(kyocera["espressione"], "the Java EE ecosystem is large")
+    assert not re.search(kyocera["espressione"], "our ecosystems team")
+    # E continua a riconoscere gli apparati veri, con il modello.
+    assert re.search(kyocera["espressione"], "KYOCERA ECOSYS M2040dn")
+    assert re.search(kyocera["espressione"], "TASKalfa 3252ci")
+    trovato = re.search(kyocera["modello"], "KYOCERA ECOSYS M2040dn")
+    assert trovato and trovato.group(1).strip() == "ECOSYS M2040dn"
+
+
+# --------------------------------------------------------------------------- #
+# Le impronte come materiale per le firme
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("nomi,firma_attesa", [
+    ("date,x-aspnet-version,content-length", "aspnet"),
+    ("date,x-aspnetmvc-version,content-length", "aspnet"),
+    ("date,x-jenkins,x-content-type-options", "jenkins"),
+    ("microsoftsharepointteamservices,date", "sharepoint"),
+])
+def test_un_prodotto_si_riconosce_dal_nome_di_un_intestazione(nomi, firma_attesa):
+    """Alcuni prodotti si annunciano nel NOME di un'intestazione e in nessun altro
+    posto: un server che ha nascosto `Server` manda ancora `X-AspNet-Version`. Dei
+    nomi si conserva l'elenco e dei valori no, quindi e' l'impronta a vederli."""
+    from snapprobe.web_probe import riconosci
+
+    assert riconosci({"intestazioni_nomi": nomi}).get("firma") == firma_attesa
+
+
+def test_intestazioni_ordinarie_non_riconoscono_niente():
+    """Il contrario del test precedente: `server, date, content-type` sono di tutti, e
+    una firma che scattasse su quelle classificherebbe mezza rete."""
+    from snapprobe.web_probe import riconosci
+
+    assert riconosci({"intestazioni_nomi": "server,date,content-type,connection"}) == {}

@@ -341,6 +341,13 @@ MARGINE_TEMPO_PORTE = 2
 PORTE_RICONOSCIMENTO = (
     21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 515, 631,
     1025, 1433, 1521, 3306, 3389, 5060, 5357, 5432, 5900, 7070, 8080, 8443, 9100,
+    # Le due porte che identificano un TELEFONO, e le sole che un telefono offra:
+    # 62078 e' il servizio di sincronizzazione di iOS (lockdownd, aperto su ogni
+    # iPhone e iPad), 5555 il ponte di debug Android quando e' abilitato. Senza
+    # queste due, un dispositivo mobile non ha alcun segnale di porta e resta
+    # riconoscibile solo dal produttore della scheda di rete -- che sulle subnet
+    # instradate non si ha.
+    5555, 62078,
 )
 
 # Porte del livello di PROFONDITA'.
@@ -416,6 +423,11 @@ PORTE_PROFONDITA_PER_FAMIGLIA = {
     # per questo che si guardano -- trovarli E' il riscontro.
     "storici": (7, 9, 13, 17, 19, 37, 70, 113, 119, 194, 540, 543, 544, 2323, 6667,
                 6668),
+    # Dispositivi d'uso personale: sono le sole porte che un telefono o un tablet
+    # offra. 62078 e' la sincronizzazione di iOS (aperta su ogni iPhone e iPad),
+    # 5555 il ponte di debug Android -- che aperto in rete e' anche un'esposizione,
+    # perche' consente di installare applicazioni senza autenticazione.
+    "mobili": (5555, 62078),
     "varie": (5040, 7680, 9999),
 }
 

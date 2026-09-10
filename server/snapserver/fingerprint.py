@@ -42,6 +42,11 @@ CERTAINTY_SCORE = 14.0
 # sistema operativo, prodotto, produttore, nome host, script) oltre i quali le
 # prove si considerano varie.
 CERTAINTY_GENRES = 4
+# Confidenza massima concessa a un verdetto sostenuto da UNA SOLA famiglia di prove.
+# Sotto la soglia di "riconosciuto" (60) di proposito: con un solo genere il verdetto
+# e' un'ipotesi, e va presentata fra i nodi da verificare invece di sembrare
+# un'attribuzione. Vedi `_confidence` per il difetto che l'ha resa necessaria.
+CONFIDENZA_MASSIMA_UN_GENERE = 45
 # La certezza piena e' riservata alle regole decisive: il percorso a punteggio si
 # ferma prima, perche' un punteggio alto resta un'inferenza.
 MAX_SCORED_CONFIDENCE = 95
@@ -675,6 +680,39 @@ def _decisive_rules(evidence, aperte, servizi, prodotti):
     if ("tcp", 37777) in aperte or "onvif" in servizi:
         return ("ip_camera", 93, "protocollo di videosorveglianza attivo")
 
+    # UN TELEFONO SI DICHIARA DA SE'.
+    #
+    # 62078 e' il servizio di sincronizzazione di iOS (lockdownd): risponde su ogni
+    # iPhone e iPad e su nient'altro. E' una dichiarazione, non un indizio.
+    if ("tcp", 62078) in aperte or "iphone-sync" in servizi:
+        return ("mobile", 96,
+                "la porta 62078 risponde: e' il servizio di sincronizzazione di iOS,"
+                " presente su iPhone e iPad e su nessun altro apparato")
+
+    # 5555 e' il ponte di debug Android. Aperto in rete e' anche un'ESPOSIZIONE --
+    # consente di installare applicazioni senza autenticazione -- e va detto qui,
+    # perche' e' l'unico posto dove qualcuno lo leggera'.
+    if ("tcp", 5555) in aperte and not (aperte & {("tcp", 445), ("tcp", 3389)}):
+        return ("mobile", 93,
+                "la porta 5555 risponde: e' il ponte di debug Android, e aperto in"
+                " rete consente di installare applicazioni senza autenticazione")
+
+    # Il produttore della scheda di rete di un costruttore di telefoni, su un
+    # apparato che non offre servizi e risponde come una radio: le tre cose insieme
+    # sono una dichiarazione. Nessuna delle tre da sola lo sarebbe -- un Mac ha una
+    # scheda Apple, un server puo' essere lento -- ed e' il motivo per cui la regola
+    # pretende tutte e tre.
+    costruttore = (evidence.get("mac_vendor") or "")
+    if re.search(MAC_COSTRUTTORI_MOBILI, costruttore):
+        latenza = evidence.get("latenza") or {}
+        massima = latenza.get("massima")
+        radio = massima is not None and massima >= LATENZA_RADIO_MS
+        if radio and len(aperte) <= 1 and not (aperte & PORTE_DA_CALCOLATORE):
+            return ("mobile", 92,
+                    "scheda di rete %s, nessun servizio offerto e tempo di risposta"
+                    " fino a %.0f ms: e' un apparato d'uso personale in rete radio"
+                    % (costruttore.strip()[:40], massima))
+
     # RDP (ms-wbt-server, tcp/3389) e' un servizio esclusivo di Windows: dove risponde,
     # l'apparato e' Windows anche se non ha aperto nient'altro. E' il caso di una
     # postazione con il firewall che lascia passare solo il desktop remoto e blocca SMB.
@@ -712,6 +750,166 @@ TTL_HINTS = {
           "classi": (("router_gateway", 1.5), ("switch_managed", 1.0),
                      ("firewall", 0.8))},
 }
+
+
+# --------------------------------------------------------------------------- #
+# Il tempo di risposta come prova: cablato o radio
+# --------------------------------------------------------------------------- #
+# Su una rete locale il tempo di risposta separa i generi di apparato, e non per
+# prestazione: separa CHI STA SEMPRE SVEGLIO da chi spegne la radio.
+#
+# Misurato su questa installazione (201 nodi con latenza nota):
+#
+#     stampanti                 2,3 ms di media
+#     router / gateway         15,6 ms
+#     postazioni Windows       16,4 ms
+#     server Windows           16,8 ms
+#     server Linux             77,3 ms
+#     telefoni VoIP           124,1 ms
+#     non identificati        215,9 ms   (fino a 2045 ms)
+#
+# Latenze da centinaia di millisecondi a due secondi su una LAN sono la firma del
+# risparmio energetico 802.11: l'apparato dorme fra i beacon e risponde al risveglio.
+# Lo fanno telefoni, tablet e sensori a batteria. Un PC cablato non ci arriva mai.
+#
+# LO SCARTO CONTA PIU' DEL VALORE. Una latenza alta e STABILE puo' venire da una rete
+# carica o da un apparato lento; una latenza che oscilla fra pochi millisecondi e
+# centinaia viene da una radio che si spegne. Per questo si guardano minimo e massimo,
+# non solo l'ultimo campione.
+#
+# Restano indizi DEBOLI di proposito: da soli non superano la soglia minima, e servono
+# a corroborare o a contraddire, non a decidere.
+# Costruttori di apparati d'uso personale. Non basta il produttore -- un Mac ha una
+# scheda Apple e un server Samsung esiste -- ma insieme all'assenza di servizi e a un
+# tempo di risposta da radio diventa una dichiarazione.
+MAC_COSTRUTTORI_MOBILI = (
+    r"(?i)apple|samsung electro|xiaomi|huawei|honor device|oneplus|oppo|vivo mobile"
+    r"|realme|motorola mobility|google, inc|guangdong|transsion|tecno|infinix"
+    r"|sony mobile|nokia mobile|hmd global|zte corporation|lenovo mobile"
+)
+
+# Porte che un apparato d'uso personale non offre: se una di queste risponde, non e'
+# un telefono anche se il produttore della scheda dice Apple o Samsung.
+PORTE_DA_CALCOLATORE = frozenset({
+    ("tcp", 445), ("tcp", 139), ("tcp", 3389), ("tcp", 22), ("tcp", 5900),
+    ("tcp", 9100), ("tcp", 515), ("tcp", 1433), ("tcp", 3306), ("tcp", 5432),
+})
+
+LATENZA_CABLATA_MS = 5.0
+LATENZA_RADIO_MS = 150.0
+LATENZA_SCARTO_RADIO_MS = 100.0
+
+# Classi che, per costruzione, stanno collegate e sempre sveglie: una latenza da
+# risparmio energetico e' una prova CONTRARIA.
+CLASSI_CABLATE = ("printer", "switch_managed", "router_gateway", "firewall",
+                  "server_windows", "server_unix", "hypervisor", "nas", "pbx")
+
+
+def prove_dalla_latenza(latenza: dict, quante_porte: int) -> list:
+    """Prove ricavate dal tempo di risposta e dalla forma del profilo di porte.
+
+    Restituisce una lista di (classe, peso, motivo). Vuota se non c'e' latenza: un
+    apparato mai raggiunto non produce indizi, e inventarne sarebbe peggio.
+    """
+    if not latenza:
+        return []
+    prove = []
+    ultima = latenza.get("ultima")
+    minima = latenza.get("minima")
+    massima = latenza.get("massima")
+    if massima is None:
+        return []
+
+    scarto = (massima - minima) if (minima is not None) else 0.0
+    radio = (massima >= LATENZA_RADIO_MS or scarto >= LATENZA_SCARTO_RADIO_MS)
+
+    if radio:
+        motivo = ("tempo di risposta fino a %.0f ms (scarto %.0f ms): compatibile con"
+                  " una radio in risparmio energetico, non con un apparato cablato"
+                  % (massima, scarto))
+        prove.append(("mobile", 2.5, motivo))
+        prove.append(("ip_camera", 0.5, motivo))
+        for classe in CLASSI_CABLATE:
+            prove.append((classe, -1.0, motivo))
+    elif ultima is not None and ultima <= LATENZA_CABLATA_MS:
+        motivo = ("tempo di risposta %.1f ms, stabile: apparato collegato e sempre"
+                  " sveglio" % ultima)
+        prove.append(("mobile", -2.0, motivo))
+        for classe in ("printer", "switch_managed", "server_windows", "server_unix"):
+            prove.append((classe, 0.5, motivo))
+
+    # LA FORMA DEL PROFILO DI PORTE. Quante porte sono aperte e' una prova a se': un
+    # telefono non offre servizi (zero o una porta), un server ne offre molti. Vale
+    # solo insieme alla latenza -- un host di cui non si e' ancora esaminate le porte
+    # ne ha zero per ignoranza, non per natura.
+    if radio and quante_porte <= 1:
+        motivo = ("nessun servizio offerto (%d porte aperte) e tempo di risposta da"
+                  " apparato radio: profilo di un dispositivo d'uso personale"
+                  % quante_porte)
+        prove.append(("mobile", 2.0, motivo))
+    if quante_porte >= 8:
+        prove.append(("mobile", -3.0,
+                      "%d porte aperte: un dispositivo mobile non offre servizi"
+                      % quante_porte))
+    return prove
+
+
+# SOMIGLIANZA FRA APPARATI: quanto vale una prova presa in prestito.
+#
+# L'icona pesa il doppio dell'insieme delle intestazioni perche' e' un file scelto dal
+# COSTRUTTORE e messo nel firmware: due apparati che servono la stessa icona sono lo
+# stesso prodotto. I nomi delle intestazioni identificano il programma che risponde --
+# lo stesso nginx sta su una telecamera e su un server -- quindi valgono meno, e
+# contano solo perche' il gruppo deve comunque risultare concorde.
+#
+# Il tetto e' scelto perche' la somiglianza NON possa decidere da sola: con 5.0 e un
+# genere solo la confidenza risulta 48,6, che la regola del genere unico riporta a 45
+# -- sotto la soglia di 70 richiesta a un donatore. Un nodo riconosciuto per
+# somiglianza non puo' quindi propagare la propria ipotesi a un terzo nodo.
+PESO_GEMELLI_FAVICON = 4.0
+PESO_GEMELLI_INTESTAZIONI = 2.0
+PESO_GEMELLI_DICHIARATO = 1.0
+PESO_GEMELLI_MASSIMO = 5.0
+
+
+def prove_dai_gemelli(gemelli: list) -> list:
+    """Prove ricavate dai nodi che rispondono in rete come questo.
+
+    Restituisce una lista di (classe, peso, motivo). I gruppi discordi sono gia' stati
+    scartati da chi ha composto le prove: qui arrivano solo gruppi che hanno un tipo
+    su cui sono d'accordo, e resta da pesarli.
+    """
+    if not gemelli:
+        return []
+    prove = []
+    for gruppo in gemelli:
+        if not isinstance(gruppo, dict):
+            continue
+        chiave = (gruppo.get("device_type") or "").strip()
+        if chiave not in CLASSES_BY_KEY:
+            continue  # un tipo che il catalogo non conosce piu' non e' una prova
+        quanti = int(gruppo.get("nodes") or 0)
+        if quanti < 1:
+            continue
+        peso = (PESO_GEMELLI_FAVICON if gruppo.get("kind") == "favicon"
+                else PESO_GEMELLI_INTESTAZIONI)
+        # Un gruppo d'accordo al 100% vale piu' di uno d'accordo all'80%.
+        peso *= float(gruppo.get("agreement") or 1.0)
+        if int(gruppo.get("declared") or 0) > 0:
+            # Almeno un gemello ha il tipo dichiarato da una persona: e' la prova piu'
+            # attendibile che il prodotto abbia, e vale di piu' di un verdetto automatico.
+            peso += PESO_GEMELLI_DICHIARATO
+        peso = min(peso, PESO_GEMELLI_MASSIMO)
+        che_cosa = ("l'icona servita dall'apparato" if gruppo.get("kind") == "favicon"
+                    else "l'insieme delle intestazioni HTTP")
+        motivo = ("%s e' la stessa di %d altri nodi, concordi al %d%% su '%s'"
+                  % (che_cosa, quanti, round(100 * float(gruppo.get("agreement") or 0)),
+                     gruppo.get("device_label") or chiave))
+        modello = gruppo.get("model") or gruppo.get("product")
+        if modello:
+            motivo += " (tutti %s)" % modello
+        prove.append((chiave, peso, motivo))
+    return prove
 
 
 def os_family_from_ttl(ttl) -> dict | None:
@@ -782,6 +980,22 @@ def _score(evidence, aperte, servizi, prodotti):
             for chiave, peso in ipotesi["classi"]:
                 aggiungi(chiave, peso, motivo, "TTL")
 
+    # Tempo di risposta e forma del profilo di porte: vedi `prove_dalla_latenza`.
+    # Sono indizi deboli e per questo entrano come tutti gli altri, con il proprio
+    # genere: se convergono con una porta o un produttore fanno la differenza fra
+    # "non identificato" e un verdetto, senza poter decidere da soli.
+    for chiave, peso, motivo in prove_dalla_latenza(evidence.get("latenza") or {},
+                                                    len(aperte)):
+        aggiungi(chiave, peso, motivo, "latenza" if peso > 0 else "contraria")
+
+    # Prove PRESE IN PRESTITO dai nodi che rispondono come questo. Genere proprio, e
+    # deve restarlo: e' una famiglia di prove indipendente dalle porte e dai banner,
+    # ed e' quello che fa passare un apparato muto da "non identificato" a un'ipotesi
+    # motivata. Vedi `prove_dai_gemelli` per il tetto che le impedisce di decidere
+    # da sole.
+    for chiave, peso, motivo in prove_dai_gemelli(evidence.get("web_twins") or []):
+        aggiungi(chiave, peso, motivo, "somiglianza")
+
     banner = _banner_text(evidence)
 
     # Stadio a espressioni: normalmente solo sulle classi rimaste candidate.
@@ -850,7 +1064,22 @@ def _confidence(migliore: float, seconda: float, generi: int) -> int:
     varieta = min(1.0, generi / float(CERTAINTY_GENRES))
     margine = max(0.0, (migliore - max(seconda, 0.0)) / migliore)
     valore = 100 * (0.45 * abbondanza + 0.30 * varieta + 0.25 * margine)
-    return min(MAX_SCORED_CONFIDENCE, int(round(valore)))
+    valore = min(MAX_SCORED_CONFIDENCE, valore)
+
+    # UNA SOLA FAMIGLIA DI PROVE NON PRODUCE UN VERDETTO CONFIDENTE, mai.
+    #
+    # Costato caro: una porta tcp/5060 iniettata da un apparato intermedio veniva
+    # letta su 98 nodi su 145 e li classificava tutti "Telefono VoIP". Il peso
+    # bastava, la varieta' no -- ma la formula la pesava per il 30%, quindi il
+    # verdetto usciva comunque con confidenza 33-48 e SEMBRAVA un'attribuzione.
+    #
+    # Con un solo genere il verdetto resta un'IPOTESI e si presenta come tale: sotto
+    # la soglia di 60 la console lo mostra fra i nodi "da verificare", che e' dove
+    # deve stare. Serve una seconda famiglia indipendente -- una porta e un
+    # produttore, una latenza e un nome host -- per superarla.
+    if generi <= 1:
+        valore = min(valore, CONFIDENZA_MASSIMA_UN_GENERE)
+    return int(round(valore))
 
 
 def identify(evidence: dict) -> dict:

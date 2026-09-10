@@ -660,3 +660,181 @@ def test_il_ttl_da_solo_non_classifica():
     riscrivono), e resta sotto la soglia minima."""
     esito = fp.identify(prove(ttl=120))
     assert esito["device_type"] == fp.UNKNOWN["key"]
+
+
+# --------------------------------------------------------------------------- #
+# Robustezza: una sola famiglia di prove non decide
+# --------------------------------------------------------------------------- #
+# Difetto costato caro, e misurato in esercizio: una tcp/5060 iniettata da un
+# apparato intermedio veniva letta su 98 nodi su 145 e li classificava tutti
+# "Telefono VoIP" con confidenza 33-48. Il peso bastava, la varieta' delle prove no
+# -- ma la formula pesava la varieta' per il 30%, quindi il verdetto usciva comunque
+# e SEMBRAVA un'attribuzione.
+def test_una_sola_porta_non_produce_un_verdetto_confidente():
+    """Con un solo genere di prova il verdetto resta un'IPOTESI: sotto la soglia di
+    riconoscimento, cosi' la console lo mostra fra i nodi da verificare."""
+    from snapserver.fingerprint import CONFIDENZA_MASSIMA_UN_GENERE, identify
+
+    esito = identify({
+        "ip": "10.0.0.9",
+        "ports": [{"protocol": "tcp", "port": 5060, "state": "open"}],
+    })
+
+    assert esito["confidence"] <= CONFIDENZA_MASSIMA_UN_GENERE
+    assert esito["confidence"] < 60, "non deve apparire come riconosciuto"
+
+
+def test_due_famiglie_indipendenti_superano_la_soglia():
+    """Serve una seconda famiglia indipendente -- qui una porta e un produttore --
+    perche' il verdetto diventi un'attribuzione."""
+    from snapserver.fingerprint import CONFIDENZA_MASSIMA_UN_GENERE, identify
+
+    esito = identify({
+        "ip": "10.0.0.10",
+        "mac_vendor": "Kyocera Document Solutions",
+        "ports": [{"protocol": "tcp", "port": 9100, "state": "open",
+                   "service_name": "jetdirect"}],
+    })
+
+    assert esito["device_type"] == "printer"
+    assert esito["confidence"] > CONFIDENZA_MASSIMA_UN_GENERE
+
+
+# --------------------------------------------------------------------------- #
+# Il tempo di risposta come prova: cablato o radio
+# --------------------------------------------------------------------------- #
+def test_una_latenza_da_radio_su_un_nodo_muto_suggerisce_un_dispositivo_mobile():
+    """Misurato su una rete reale: stampanti 2,3 ms, postazioni 16 ms, non
+    identificati 216 ms con coda a 2 secondi. Centinaia di millisecondi su una LAN
+    sono la firma del risparmio energetico 802.11 -- telefoni e tablet."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({
+        "ip": "10.0.0.11",
+        "ports": [],
+        "latency_ms": 480.0,
+        "latenza": {"ultima": 480.0, "minima": 12.0, "massima": 980.0,
+                    "media": 400.0, "campioni": 9},
+    })
+
+    assert esito["device_type"] == "mobile"
+    prove = " ".join(p["prova"] for p in esito["evidence"])
+    assert "radio" in prove or "risparmio" in prove
+
+
+def test_una_latenza_stabile_e_bassa_contraddice_il_dispositivo_mobile():
+    """Un apparato cablato e sempre sveglio non e' un telefono: la prova contraria
+    e' parte del progetto."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({
+        "ip": "10.0.0.12",
+        "ports": [{"protocol": "tcp", "port": 9100, "state": "open",
+                   "service_name": "jetdirect"}],
+        "latency_ms": 2.1,
+        "latenza": {"ultima": 2.1, "minima": 1.9, "massima": 2.4, "media": 2.1,
+                    "campioni": 20},
+    })
+
+    assert esito["device_type"] == "printer"
+
+
+def test_molte_porte_aperte_escludono_un_dispositivo_mobile():
+    """Un telefono non offre servizi: se ne offre otto, non e' un telefono
+    qualunque sia la sua latenza."""
+    from snapserver.fingerprint import identify
+
+    porte = [{"protocol": "tcp", "port": n, "state": "open"}
+             for n in (22, 80, 443, 445, 3306, 5432, 8080, 8443)]
+    esito = identify({
+        "ip": "10.0.0.13", "ports": porte,
+        "latenza": {"ultima": 900.0, "minima": 10.0, "massima": 1500.0,
+                    "media": 800.0, "campioni": 5},
+    })
+
+    assert esito["device_type"] != "mobile"
+
+
+def test_senza_latenza_non_si_inventano_prove():
+    """Un apparato mai raggiunto non produce indizi: inventarne sarebbe peggio."""
+    from snapserver.fingerprint import prove_dalla_latenza
+
+    assert prove_dalla_latenza({}, 0) == []
+    assert prove_dalla_latenza({"ultima": None, "minima": None, "massima": None}, 0) == []
+
+
+# --------------------------------------------------------------------------- #
+# Uno smartphone si dichiara da se'
+# --------------------------------------------------------------------------- #
+def test_la_porta_di_sincronizzazione_ios_identifica_un_iphone():
+    """La 62078 (lockdownd) risponde su ogni iPhone e iPad e su nient'altro: e' una
+    dichiarazione, non un indizio."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({"ip": "10.0.0.14",
+                      "ports": [{"protocol": "tcp", "port": 62078, "state": "open"}]})
+
+    assert esito["device_type"] == "mobile"
+    assert esito["confidence"] >= 90
+
+
+def test_il_ponte_di_debug_android_identifica_e_segnala():
+    """La 5555 aperta in rete consente di installare applicazioni senza
+    autenticazione: il motivo del verdetto deve dirlo, perche' e' l'unico posto
+    dove qualcuno lo leggera'."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({"ip": "10.0.0.15",
+                      "ports": [{"protocol": "tcp", "port": 5555, "state": "open"}]})
+
+    assert esito["device_type"] == "mobile"
+    prove = " ".join(x["prova"] for x in esito["evidence"])
+    assert "senza autenticazione" in prove
+
+
+def test_un_pc_con_la_5555_non_e_un_telefono():
+    """La 5555 non e' esclusiva: se l'apparato espone anche SMB o RDP, e' un
+    calcolatore che ha quella porta per altro."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({
+        "ip": "10.0.0.16",
+        "ports": [{"protocol": "tcp", "port": 5555, "state": "open"},
+                  {"protocol": "tcp", "port": 445, "state": "open"},
+                  {"protocol": "tcp", "port": 3389, "state": "open"}],
+    })
+
+    assert esito["device_type"] != "mobile"
+
+
+def test_produttore_di_telefoni_senza_servizi_e_con_latenza_da_radio():
+    """Le tre cose insieme sono una dichiarazione; nessuna da sola lo sarebbe -- un
+    Mac ha una scheda Apple, un server puo' essere lento."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({
+        "ip": "10.0.0.17", "mac_vendor": "Samsung Electronics Co.,Ltd",
+        "ports": [],
+        "latenza": {"ultima": 300.0, "minima": 20.0, "massima": 700.0,
+                    "media": 250.0, "campioni": 8},
+    })
+
+    assert esito["device_type"] == "mobile"
+    assert esito["confidence"] >= 90
+
+
+def test_un_mac_cablato_non_diventa_un_telefono():
+    """Una scheda Apple su un apparato cablato che offre servizi e' un Mac, non un
+    iPhone: la regola pretende TUTTE le tre condizioni."""
+    from snapserver.fingerprint import identify
+
+    esito = identify({
+        "ip": "10.0.0.18", "mac_vendor": "Apple, Inc.",
+        "ports": [{"protocol": "tcp", "port": 22, "state": "open"},
+                  {"protocol": "tcp", "port": 548, "state": "open",
+                   "service_name": "afp"}],
+        "latenza": {"ultima": 1.5, "minima": 1.2, "massima": 2.0, "media": 1.5,
+                    "campioni": 12},
+    })
+
+    assert esito["device_type"] != "mobile"

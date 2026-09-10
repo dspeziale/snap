@@ -1069,6 +1069,96 @@ che esistono per dire al browser che manca JavaScript o un cookie -- si leggono 
 ultime, perche' occupano il budget e non portano un fatto. Appena l'apparato ha detto
 identita' + un dato di contesto, **si smette**: continuare e' tempo tolto agli altri.
 
+### 14.2-quinquies L'apparato muto: quando NON c'e' niente da seguire
+
+**Misura.** Su 25 nodi con un'interfaccia web letta, `pages_read` valeva **1** su tutti
+e 25, marca riconosciuta su 5 su 38 pagine, modello su 2, firmware e posizione su
+zero. La navigazione del punto precedente non aveva sbagliato: non aveva **dove
+andare**. La radice di un apparato incorporato e' un `401` nudo, oppure una pagina di
+accesso senza titolo e senza un solo collegamento. Non c'e' un imbuto da seguire.
+
+Un apparato cosi' pero' *ha* una pagina che lo dichiara per intero; semplicemente non
+la nomina da nessuna parte. Da qui i **percorsi identificanti generici**
+(`web_probe.PERCORSI_GENERICI`), provati soltanto quando nessuna firma ha corrisposto e
+l'apparato non ha detto niente di se':
+
+| Percorso | Perche' |
+|---|---|
+| `/description.xml`, `/rootDesc.xml`, `/DeviceDescription.xml` | descrizione **UPnP**: per costruzione leggibile senza credenziali (chi cerca il servizio deve poterla leggere), e dichiara costruttore, modello, numero di serie e `friendlyName` -- esattamente i campi che si cercano |
+| `/DevMgmt/ProductConfigDyn.xml` | configurazione HP in XML, leggibile sulle multifunzioni di rete |
+| `/general/status.html` | pagina "General / Status" dei pannelli Brother |
+| `/status.html`, `/info.html` | nomi convenzionali di pagina informativa |
+
+Sono GET di sola lettura, senza parametri, e nessuna contiene un verbo d'azione: un
+test verifica la proprieta' su tutto il catalogo, cosi' non la si perde aggiungendo un
+indirizzo.
+
+**Tre argini alla spesa**, perche' la fase gira su centinaia di indirizzi:
+
+1. non si prova nulla se l'apparato **e' gia' identificato**, anche solo dal titolo
+   (`_identificato`): un titolo "HP LaserJet MFP M428" identifica il modello quanto una
+   tabella di fatti, e cinque richieste inutili per nodo sono la differenza fra una
+   fase che sta nel tempo e una che non ci sta;
+2. si smette al primo segno che l'apparato **non distingue gli indirizzi**: una
+   redirezione, o la *stessa pagina* servita per un percorso diverso. Un `404`, al
+   contrario, e' una buona notizia -- l'apparato discrimina, quindi il tentativo
+   successivo ha senso;
+3. un apparato che ha rimandato altrove **ogni** indirizzo senza mai servire una pagina
+   non si interroga affatto: darebbe la stessa risposta a tutti i tentativi.
+
+Il tetto per passata copre tutto il catalogo: un percorso che non si arriva mai a
+provare non e' un percorso, e' una riga che sembra fare qualcosa. Anche questo e' un
+test.
+
+### 14.2-sexies Impronte di somiglianza, e il riconoscimento che ne deriva
+
+Restano gli apparati che non dichiarano nulla **nemmeno** cosi'. Di loro non si sa il
+testo, ma si sa la **forma** della risposta, e la forma e' un'impronta:
+
+- **l'icona** (`favicon_hash`): un file che il costruttore mette nel firmware. Tutti
+  gli esemplari di quel modello la servono identica, byte per byte. Si conserva
+  l'impronta SHA-256 troncata, non l'immagine: non serve il contenuto, serve poterlo
+  confrontare;
+- **l'insieme dei nomi delle intestazioni HTTP** (`headers_hash`): l'impronta del
+  programma che risponde. Si conservano i **nomi**, non i valori -- i valori possono
+  contenere dati dell'apparato, i nomi no (GDPR art. 5, minimizzazione).
+
+L'impronta delle intestazioni non serve solo al confronto fra nodi: alcuni prodotti
+si annunciano proprio **nel nome** di un'intestazione e in nessun altro posto -- un
+server che ha nascosto `Server` manda ancora `X-AspNet-Version`, SharePoint manda
+`MicrosoftSharePointTeamServices`, Jenkins manda `X-Jenkins`. Tre firme del catalogo
+leggono l'impronta per questo.
+
+Da sole non dicono che cosa sia un apparato. Lo dicono **confrontate**: se tutti i nodi
+che servono quell'icona sono stampanti, il nodo muto che la serve e' una stampante.
+E' il riconoscimento per somiglianza (`ingest._web_twins_evidence`), che compone la
+prova `web_twins` e la passa al riconoscimento come genere proprio ("somiglianza").
+
+E' potente, e per questo pericoloso: un errore si moltiplica su tutto il gruppo, che e'
+esattamente il modo in cui questo prodotto ha gia' prodotto 98 telefoni VoIP
+inesistenti da una sola porta iniettata (§ 11). Tre argini, tutti con un test che li
+fissa:
+
+1. **il gruppo deve essere concorde** (`ACCORDO_MINIMO_GEMELLI = 0,80`): l'insieme
+   delle intestazioni di nginx e' lo stesso su una telecamera e su un server, e da un
+   gruppo discorde non si conclude niente. Marca e modello si riportano solo se
+   **unanimi**: due modelli sotto la stessa impronta vogliono dire che l'impronta e'
+   del programma, non dell'apparato, e un modello sbagliato in una scheda e' peggio di
+   un modello assente;
+2. **il donatore deve avere prove proprie**: tipo dichiarato da una persona, oppure
+   confidenza >= 70 (`CONFIDENZA_MINIMA_DONATORE`). Prestare a un terzo nodo
+   un'ipotesi debole la trasformerebbe in un'attribuzione;
+3. **la somiglianza non decide da sola**: il peso e' limitato a 5,0 su una scala in cui
+   la certezza sta a 14,0, quindi con un genere solo la confidenza risulta 48,6, che la
+   regola del genere unico riporta a 45 -- **sotto** la soglia richiesta a un donatore.
+   Ne segue che un nodo riconosciuto per somiglianza **non puo' propagare** la propria
+   ipotesi a un terzo nodo: la catena non si allunga. E' un'invariante aritmetica, non
+   un'intenzione, e c'e' un test che la verifica sui numeri.
+
+L'icona pesa il doppio delle intestazioni (4,0 contro 2,0): la prima dice il
+*prodotto*, la seconda solo il programma. Un gemello con il tipo dichiarato da una
+persona aggiunge 1,0, perche' e' la prova piu' attendibile che il prodotto abbia.
+
 ### 14.2-ter Prudenza sulle GET
 
 Una GET non e' innocua se il progettista dell'apparato ha messo un'azione dietro un
@@ -1278,6 +1368,14 @@ Scheda **Interfacce web** nella pagina del dispositivo. In cima, un riquadro
 posizione fisica, nome host, numero di serie, firmware, contatto, con il numero di
 pagine che sono servite ad arrivarci. Sotto, la tabella tecnica: una riga per porta con
 esito, come si presenta, prodotto e versione, certificato e data di lettura.
+
+Quando l'apparato ha dei **gemelli**, sopra i riquadri compare la lista degli
+apparati identici: "*7 altri nodi servono la stessa icona: e' lo stesso prodotto*", con
+il collegamento a ognuno. Per chi governa la rete e' un'informazione operativa prima
+che di riconoscimento -- se questo apparato va aggiornato, vanno aggiornati anche
+quelli, e se questo e' stato identificato a mano quel lavoro vale anche per loro. Il
+gruppo per insieme di intestazioni si presenta con la propria prudenza: "*stesso
+programma, non necessariamente lo stesso apparato*".
 
 I fatti stanno anche **in colonna** nella banca dati (`node_web.device_name`,
 `location`, `host_name`, `serial`, `firmware`, `contact`): nel dettaglio JSON c'erano
