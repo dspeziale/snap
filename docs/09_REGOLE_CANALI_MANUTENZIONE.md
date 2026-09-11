@@ -200,6 +200,89 @@ distinte e dichiarate.
 
 ---
 
+## 8-bis. Manutenzione: azzeramento delle informazioni raccolte di un tenant
+
+La conservazione (§8) è una politica che scade nel tempo. Questo è l'atto opposto:
+**buttare adesso tutto il raccolto di un tenant**, lasciando il tenant in piedi.
+
+*Amministrazione → Tenant → icona gomma sulla riga del tenant.*
+
+### 8-bis.1 A che serve, e in che cosa differisce dall'eliminazione del tenant
+
+Eliminare un tenant lo fa sparire: utenze, sonde, perimetro, controlli, tutto. Serve
+quando un cliente se ne va.
+
+L'azzeramento serve quando **la raccolta è sporca** e si vuole ricominciare *senza
+rifare la configurazione*:
+
+- una scansione partita su un perimetro sbagliato;
+- una sonda dietro un NAT che ha inventato nodi (vedi `docs/14` §8-sexies: 251 nodi
+  inesistenti su 256);
+- un cambio di rete che rende l'inventario un archivio di fantasmi.
+
+### 8-bis.2 Il confine
+
+| Si cancella (ciò che una sonda ha **osservato**, e può riosservare) | Si conserva (ciò che una **persona** ha dichiarato, o che vale come **prova**) |
+|---|---|
+| Nodi, con porte, interfacce web, SMB, SNMP | Il tenant e le sue utenze |
+| Variazioni dell'inventario | Le sonde registrate, con le loro credenziali |
+| Campioni di raggiungibilità | Il perimetro (subnet) e le zone di rete |
+| Esiti e misure dei controlli | I controlli configurati e i loro bersagli |
+| Incidenti (con un'eccezione, sotto) | Le regole di notifica |
+| Presenze sulle reti senza fili | I collettori e le sorgenti SIEM dichiarate |
+| Correlazioni con la threat intelligence | I report prodotti |
+| Eventi e avvisi SIEM | Le notifiche già inviate |
+| Passate di scansione e conferimenti | Il registro di audit |
+
+Il confine è dichiarato **in un punto solo** (`server/snapserver/purge.py`) e non è un
+dettaglio di implementazione: un bottone che cancella «tutto» e che porta via anche la
+configurazione, o una prova di conformità, è peggio di nessun bottone.
+
+Un test pretende che **ogni** tabella con `tenant_id` stia da un lato o dall'altro: chi
+aggiungerà una tabella con dati raccolti e non la classificherà vedrà il test rosso,
+invece di scoprire un giorno che il bottone mente.
+
+### 8-bis.3 Le due eccezioni, che non sono tecniche
+
+- **Gli incidenti da cui è nata una comunicazione ad ACN non si cancellano.** Un
+  incidente è materia raccolta, ma una comunicazione all'autorità è un **atto dovuto**
+  (D.lgs. 138/2024, art. 25): la sua prova non può sparire con un bottone. Quegli
+  incidenti restano con le loro comunicazioni, e l'esito dichiara quanti sono stati
+  conservati e perché.
+- **Le notifiche già inviate restano**: sono la prova di ciò che è stato comunicato e a
+  chi. Cancellarle non renderebbe il sistema più pulito, solo meno dimostrabile.
+
+### 8-bis.4 La conferma, e le sonde
+
+La conferma **mostra il conto di ciò che si perde**, voce per voce, e chiede di
+**digitare il codice del tenant**: un avviso che si chiude per sbaglio non è una
+conferma per un'operazione che butta giorni di scansione. La pagina dei tenant ha una
+colonna *RACCOLTO* con quel numero, così si vede prima di aprire il bottone.
+
+Alle sonde viene chiesto di **ricominciare dalla scoperta** (comando `forget`). Senza,
+il bottone sembrerebbe rotto: la sonda ricorda quali fasi ha svolto su quali bersagli,
+e un nodo che il server ha dimenticato non tornerebbe fino alla scadenza della cadenza
+— giorni, con la console vuota. Il comando fa dimenticare alla sonda i nodi noti e lo
+stato delle fasi; **non** tocca la coda da conferire (ciò che è in attesa è stato
+raccolto e va consegnato) né la registrazione.
+
+Decisioni: **MN-06** l'azzeramento è riservato all'**amministratore di sistema**, come
+l'eliminazione del tenant; **MN-07** la conferma è la **trascrizione del codice** del
+tenant, non un clic; **MN-08** il confine fra raccolto e dichiarato è dichiarato in un
+punto solo e **verificato da un test di completezza**; **MN-09** le prove di
+conformità (comunicazioni ad ACN, notifiche inviate, registro di audit) **sopravvivono
+per costruzione**; **MN-10** l'esito è registrato nel registro di audit del tenant con
+severità *critical* e con il **conto** di ciò che è stato eliminato — una traccia senza
+numeri non dimostrerebbe niente.
+
+Requisiti: **SR-132** la console deve permettere di azzerare le informazioni raccolte
+di un tenant conservandone la configurazione; **SR-133** l'operazione deve dichiarare
+in anticipo, per genere di dato, quanti record elimina; **SR-134** le prove di
+conformità non devono essere eliminabili da questa operazione; **SR-135** l'azzeramento
+deve chiedere alle sonde del tenant di ricominciare la raccolta dalla scoperta.
+
+---
+
 ## 9. Manutenzione: copia e ripristino
 
 | ID | Decisione | Perche' |

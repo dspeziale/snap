@@ -791,12 +791,32 @@ SCRIPT_RAFFICA = (
 ARGOMENTI_SCRIPT_RAFFICA = (
     "http.useragent=snap-probe (inventario di rete autorizzato)")
 
-# Tempo massimo per host della raffica. Misurato: `-A` su un host di questa rete
-# impiega ~24 s; su un apparato lento (VoIP, IoT, sistemi che non rispondono a -sV) si
-# arriva ai minuti. Sotto i due minuti la raffica non conclude e non produce nulla --
-# che e' il difetto peggiore, perche' consuma tempo e non lascia dato.
-ATTESA_RAFFICA_HOST = "240s"
-ATTESA_RAFFICA_PROCESSO_SEC = 420
+# Tempo massimo della raffica, per host e per processo. I due numeri vanno letti
+# insieme, e la loro storia va raccontata perche' li avevo sbagliati entrambi.
+#
+# Erano 240 s per host e 420 s per processo, su una stima di ~24 s per `-A`. Misurato
+# in esercizio su un host vero di questa rete (10.20.10.31, sette porte aperte,
+# Apache + TLS), con il catalogo completo:
+#
+#   30 porte di riconoscimento   432,6 s   7 porte, 256 righe NSE, sistema operativo
+#   porte note + riconoscimento  438,5 s   identico
+#   234 porte (elenco completo)  oltre 390 s e non concluso
+#
+# Il numero di PORTE e' quasi irrilevante (432 contro 438): il costo e' `-A` piu' il
+# catalogo di script -- rilevamento del sistema operativo, traceroute, `-sV`, e
+# script lenti per natura come `ssl-enum-ciphers`, che enumera tutte le suite di
+# cifratura di ogni porta TLS.
+#
+# Con i due tetti vecchi la raffica NON POTEVA CONCLUDERE su un host con porte
+# aperte: nmap scriveva "Skipping host ... due to host timeout" e buttava anche il
+# lavoro gia' fatto -- zero record dopo quattro minuti di rete. E' lo stesso difetto
+# che il commento precedente diceva di voler evitare, con i numeri sbagliati.
+#
+# L'ORDINE FRA I DUE CONTA. Il tetto del PROCESSO deve stare sopra quello per host,
+# altrimenti il processo viene ucciso prima che il tetto per host possa intervenire e
+# si perde l'XML -- cioe' tutto. Un test lo verifica.
+ATTESA_RAFFICA_HOST = "600s"
+ATTESA_RAFFICA_PROCESSO_SEC = 900
 
 MAX_WORKERS = 32
 
@@ -1083,6 +1103,28 @@ class NetworkScanner:
             if stage is None:
                 attesa.append(nodo)
                 continue
+            # LA RAFFICA NON HA NULLA DA CHIEDERE A UN NODO GIA' PROFILATO, e senza
+            # questo controllo non lo sapeva. Il difetto, misurato in esercizio:
+            #
+            # la raffica dichiara svolte le fasi che copre (`svolte.update(
+            # FASI_COPERTE_DALLA_RAFFICA)`), ma "raffica" non compare mai in
+            # `stages_done` di un nodo profilato per un'altra via -- uno profilato
+            # prima che la raffica esistesse, o IMPORTATO dal vecchio archivio. Per
+            # quei nodi `"raffica" not in svolte` restava vero per sempre: la raffica
+            # li ripigliava a ogni ciclo, e siccome ogni raffica occupa un posto del
+            # ciclo per suo conto, riempiva tutto. Nel diario di un'installazione si
+            # leggevano dieci "Fase raffica" per ciclo su nodi gia' completi, e UNA
+            # sola fase di arricchimento: SNMP, SMB, vulnerabilita' e letture web non
+            # arrivavano quasi mai al proprio turno.
+            #
+            # Il criterio giusto non e' "ha fatto la raffica" ma "le fasi che la
+            # raffica svolge sono svolte": e' cio' per cui la raffica esiste. Si
+            # confronta con le fasi RICHIESTE, perche' senza socket raw il sistema
+            # operativo non e' rilevabile e non va preteso.
+            if stage == "raffica":
+                coperte = set(FASI_COPERTE_DALLA_RAFFICA) & set(richieste)
+                if coperte and coperte <= svolte:
+                    continue
             # Un host che ha gia' fatto 'ports' senza trovare porte aperte non ha piu'
             # nulla da profilare: servizi, sistema operativo e approfondimento lavorano
             # tutti sulle porte. Metterlo in coda per quelle fasi e' tempo sprecato -- su
@@ -1225,6 +1267,40 @@ class NetworkScanner:
         return self.run_cycle()
 
     # -- ciclo parallelo -----------------------------------------------------
+    def _arricchimenti_per_urgenza(self) -> list:
+        """Le fasi di arricchimento, dalla piu' in attesa alla meno.
+
+        PERCHE' L'ORDINE NON PUO' ESSERE FISSO, con la misura che l'ha imposto.
+
+        I posti del ciclo riservati all'arricchimento sono pochi -- quattro fasi per
+        RISERVA_ARRICCHIMENTO posti -- e quando la frontiera dei profili e' piena se
+        ne libera uno o due per volta. Con un ordine fisso quei posti vanno sempre
+        alle stesse fasi, e l'ultima dell'elenco non arriva MAI al proprio turno.
+
+        Misurato su un'installazione reale, dopo giorni di esercizio:
+
+            smb    184 esecuzioni
+            vuln    72 esecuzioni
+            web      0      <- ultima dell'elenco
+            snmp     0      <- nessun nodo con la 161 aperta (altro motivo)
+
+        La conseguenza non era un ritardo: era una funzione MORTA. La pagina dei
+        certificati TLS restava vuota per sempre, perche' i certificati li raccoglie
+        la lettura web; e la colonna con cio' che le interfacce dichiarano di se'
+        restava vuota con 1.875 nodi che espongono una 443.
+
+        Chi ha atteso di piu' passa davanti: una fase MAI eseguita prima di tutte,
+        poi la meno recente. Cosi' nessuna fase puo' restare indietro per il solo
+        fatto di essere in fondo a un elenco, e l'ordine si corregge da se'.
+        """
+        def attesa(fase: str):
+            stato = self.store.scan_state("*", fase) or {}
+            ultimo = (stato.get("last_run_at") or "").strip()
+            # `False` viene prima di `True`: le fasi mai eseguite stanno in testa.
+            return (bool(ultimo), ultimo)
+
+        return sorted(FASI_ARRICCHIMENTO, key=attesa)
+
     def _claim_keys_for(self, task: dict) -> list:
         """Chiavi da prenotare per un compito.
 
@@ -2418,10 +2494,13 @@ class NetworkScanner:
         #    ancora da profilare, la fase web non e' partita nemmeno una volta in un
         #    giorno di esercizio: il passo 2 esauriva ogni ciclo. Un compito per fase e
         #    per ciclo: le due attivita' devono avanzare insieme, come la scoperta.
-        for fase, mai_lette in (("snmp", self._snmp_pending),
-                                ("smb", self._smb_pending),
-                                ("vuln", self._vuln_pending),
-                                ("web", self._web_pending)):
+        in_attesa_di_lettura = {"snmp": self._snmp_pending, "smb": self._smb_pending,
+                                "vuln": self._vuln_pending, "web": self._web_pending}
+        # L'ORDINE NON E' FISSO: chi ha atteso di piu' passa davanti. Con un ordine
+        # fisso l'ultima fase dell'elenco non arrivava mai al proprio turno -- vedi
+        # `_arricchimenti_per_urgenza`, dove sta la misura.
+        for fase in self._arricchimenti_per_urgenza():
+            mai_lette = in_attesa_di_lettura[fase]
             if len(compiti) >= limite:
                 break
             if (fase not in self._required_stages()
@@ -2479,34 +2558,25 @@ class NetworkScanner:
         #    dopo di essa la lettura SNMP non arriverebbe mai al proprio turno.
         #    SNMP riguarda pochi nodi, ha cadenza di mezza giornata e racconta
         #    dell'apparato piu' di una ri-lettura delle porte.
-        if len(compiti) < limite and (self._snmp_pending()
-                                      or self._due("*", "snmp", cadenze["snmp"])):
-            aggiungi_nodi("snmp", [n for n in (self._snmp_pending()
-                                               or self._snmp_nodes())
-                                   if n["ip"] not in assegnati])
-
-        # 4-bis. Enumerare SMB, con la stessa ragione della lettura SNMP: prima
-        #    della ri-ispezione, altrimenti non arriverebbe mai al proprio turno.
-        #    Prima i nodi mai letti.
-        if len(compiti) < limite and (self._smb_pending()
-                                      or self._due("*", "smb", cadenze["smb"])):
-            aggiungi_nodi("smb", [n for n in (self._smb_pending() or self._smb_nodes())
-                                  if n["ip"] not in assegnati])
-
-        # 4-quater. Cercare le vulnerabilita', con la stessa ragione: prima della
-        #    ri-ispezione. Prima i nodi mai verificati.
-        if len(compiti) < limite and (self._vuln_pending()
-                                      or self._due("*", "vuln", cadenze["vuln"])):
-            aggiungi_nodi("vuln", [n for n in (self._vuln_pending() or self._vuln_nodes())
-                                   if n["ip"] not in assegnati])
-
-        # 4-ter. Leggere le pagine di gestione, con la stessa ragione della
-        #    lettura SNMP: prima della ri-ispezione, altrimenti non arriverebbe mai
-        #    al proprio turno. Prima i nodi mai letti.
-        if len(compiti) < limite and (self._web_pending()
-                                      or self._due("*", "web", cadenze["web"])):
-            aggiungi_nodi("web", [n for n in (self._web_pending() or self._web_nodes())
-                                  if n["ip"] not in assegnati])
+        #    ANCHE QUI L'ORDINE NON E' FISSO. Le quattro fasi erano elencate una
+        #    dopo l'altra, sempre nella stessa sequenza, ed erano due elenchi da
+        #    tenere allineati (questo e quello dei posti riservati). L'effetto lo
+        #    racconta `_arricchimenti_per_urgenza`: l'ultima dell'elenco non
+        #    arrivava mai al proprio turno. Ora la sequenza la decide l'attesa, in
+        #    un punto solo.
+        pendenti_di = {"snmp": (self._snmp_pending, self._snmp_nodes),
+                       "smb": (self._smb_pending, self._smb_nodes),
+                       "vuln": (self._vuln_pending, self._vuln_nodes),
+                       "web": (self._web_pending, self._web_nodes)}
+        for fase in self._arricchimenti_per_urgenza():
+            if len(compiti) >= limite:
+                break
+            mai_letti, tutti = pendenti_di[fase]
+            attesa = mai_letti()
+            if not attesa and not self._due("*", fase, cadenze[fase]):
+                continue
+            aggiungi_nodi(fase, [n for n in (attesa or tutti())
+                                 if n["ip"] not in assegnati])
 
         # 5. Ri-ispezionare secondo le cadenze.
         for fase in self._required_stages():

@@ -67,10 +67,15 @@
             </td>
             <td class="text-end">
               {# La console prima della configurazione: si va a GUARDARE una sonda
-                 piu' spesso di quanto si vada a cambiarla. #}
+                 piu' spesso di quanto si vada a cambiarla.
+
+                 ARANCIONE e non blu: e' il colore della sonda, e questo bottone e'
+                 il punto in cui si cambia macchina. La pagina che apre porta lo
+                 stesso colore, cosi' l'appartenenza dei dati si vede senza
+                 leggerla. #}
               <a href="{{ url_for('probes.console', probe_id=probe.id) }}"
-                 class="btn btn-sm btn-primary" title="Console della sonda">
-                <i class="bi bi-display"></i>
+                 class="btn btn-sm btn-snap-sonda" title="Console della sonda">
+                <i class="bi bi-hdd-network"></i>
               </a>
               <a href="{{ url_for('probes.detail', probe_id=probe.id) }}"
                  class="btn btn-sm btn-outline-secondary" title="Configurazione e comandi">

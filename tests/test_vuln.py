@@ -25,7 +25,7 @@ import pytest
 
 from snapprobe.scanner import (DEFAULT_CADENCES, VULN_HOST_TIMEOUT, VULN_SCRIPTS,
                                STAGES, NetworkScanner, vuln_findings)
-from test_scanner import EsecutoreFinto, leggi
+from test_scanner import EsecutoreFinto, chiamata_di, leggi
 
 PERIMETRO = [{"cidr": "192.0.2.0/24", "label": "Rete di prova"}]
 
@@ -74,14 +74,14 @@ def test_la_fase_riguarda_solo_i_nodi_con_una_porta_a_rischio(sonda):
                                            "state": "open"}}}))
     esecutore = EsecutoreFinto(leggi("nmap_vuln.xml"))
     NetworkScanner(sonda, esecutore).run_stage("vuln", "*")
-    assert esecutore.chiamate[-1]["targets"] == ["192.0.2.51"]
+    assert chiamata_di(esecutore, "vuln")["targets"] == ["192.0.2.51"]
 
 
 def test_gli_argomenti_della_fase_vuln(sonda):
     _nodo_a_rischio(sonda)
     esecutore = EsecutoreFinto(leggi("nmap_vuln.xml"))
     NetworkScanner(sonda, esecutore).run_stage("vuln", "*")
-    argomenti = esecutore.chiamate[-1]["arguments"]
+    argomenti = chiamata_di(esecutore, "vuln")["arguments"]
     valore = argomenti[argomenti.index("--script") + 1]
     assert valore == VULN_SCRIPTS
     assert argomenti[argomenti.index("--host-timeout") + 1] == VULN_HOST_TIMEOUT

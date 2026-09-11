@@ -312,6 +312,32 @@
           periodici</strong>: il bersaglio e' un servizio del cliente, non della singola sonda.
         </p>
 
+<h3>Guardare una sonda dal server</h3>
+        <p>
+          Dal bottone <strong>arancione</strong> sulla riga di una sonda si apre la sua
+          <strong>console remota</strong>: le stesse cose che si vedono aprendo
+          l'interfaccia della sonda in sede -- configurazione in vigore, nodi, coda da
+          conferire, fasi in corso, presenze, ultime passate e il <strong>diario
+          locale</strong>, che prima si poteva leggere solo stando davanti alla sonda.
+        </p>
+        <p>
+          <strong>Perche' quella pagina e' arancione.</strong> Mostra, dentro questa
+          console, cio' che appartiene a un'altra macchina. Due interfacce che si
+          somigliano sono un rischio operativo: chi crede di stare sul server mentre
+          guarda una sonda prende decisioni sui dati sbagliati. L'arancione e' il colore
+          della sonda, e lo si trova sul nastro appiccicato in alto (che resta mentre si
+          scorre), sulla cornice attorno al contenuto e sul piede della pagina.
+        </p>
+        <p>
+          <strong>Quello che si vede non e' dal vivo, e la pagina lo dichiara.</strong> La
+          sonda sta nella rete del cliente e apre lei la comunicazione, ogni quindici
+          secondi: il server non puo' raggiungerla. Quella e' percio' l'ultima
+          <strong>istantanea consegnata</strong>, con il proprio istante nel nastro; se il
+          battito non arriva da oltre due minuti la targhetta dell'istante diventa
+          <strong>rossa</strong>. I comandi viaggiano nella direzione opposta: si accodano
+          e la sonda li ritira al battito successivo, entro un minuto.
+        </p>
+
         <!-- ============================================================= -->
         <h2 id="perimetro">4. Perimetro di scansione</h2>
         <p>
@@ -370,6 +396,28 @@
               pagina della sonda con il suo esito.</li>
         </ul>
 
+<h3>Reti senza fili</h3>
+        <p>
+          Ogni subnet ha un interruttore <strong>Senza fili</strong>. Non e' un'etichetta
+          descrittiva: <strong>cambia il modo in cui la sonda osserva quella rete</strong>.
+        </p>
+        <p>
+          Su una rete cablata un apparato resta dov'e': una passata completa ogni tre
+          giorni lo trova. Su una rete Wi-Fi un telefono che entra in una stanza o un
+          portatile che si sospende stanno agganciati <strong>minuti</strong>, e una
+          passata ogni tre giorni non li vede mai. Dove l'interruttore e' attivo la sonda
+          esegue quindi una <strong>ricognizione breve e frequente</strong> (ogni due
+          minuti) e chi compare fa partire subito l'approfondimento, invece di attendere
+          il proprio turno nel ciclo ordinario.
+        </p>
+        <div class="alert alert-warning">
+          <strong>Dato personale.</strong> Sapere quali apparati personali erano in rete e
+          quando e' un dato che riguarda le persone, non solo le macchine (GDPR art. 5):
+          le presenze si conservano <strong>90 giorni</strong> per impostazione
+          predefinita, non per sempre. La durata si governa in
+          <em>Amministrazione &rarr; Archivio</em>.
+        </div>
+
         <h3>Attivare e disattivare</h3>
         <p>
           Ogni subnet ha un interruttore. Le subnet disattivate <strong>escono dal
@@ -397,16 +445,57 @@
             <thead><tr><th>FASE</th><th>COSA FA</th><th>NOTE</th></tr></thead>
             <tbody>
               <tr><td><code>discovery</code></td><td>trova gli indirizzi vivi in una subnet</td><td>una passata per subnet, ogni N giorni (3 per impostazione predefinita)</td></tr>
-              <tr><td><code>ports</code></td><td>cerca le porte aperte</td><td>quante porte dipende dal profilo di sforzo</td></tr>
+              <tr><td><code>raffica</code></td><td>chiede a UN nodo tutto quello che nmap sa dire: porte, versioni dei servizi, sistema operativo, traceroute e un catalogo di script scelti per famiglia di servizio</td><td>un processo dedicato per nodo. Quando riesce, copre in un colpo solo <code>ports</code>, <code>services</code> e <code>os</code></td></tr>
+              <tr><td><code>ports</code></td><td>cerca le porte aperte</td><td>quante porte dipende dal profilo di sforzo; gli host vanno a gruppi</td></tr>
               <tr><td><code>services</code></td><td>riconosce i servizi e ne raccoglie il banner</td><td>interroga <strong>le porte gia' trovate</strong>, non riparte da zero</td></tr>
               <tr><td><code>os</code></td><td>stima il sistema operativo</td><td>richiede accesso a socket raw</td></tr>
               <tr><td><code>deep</code></td><td>approfondisce i nodi rimasti incerti</td><td>UDP e script di riconoscimento</td></tr>
               <tr><td><code>snmp</code></td><td>legge tutto cio' che SNMP espone sui nodi con la porta 161 aperta</td><td>solo script di <strong>sola lettura</strong>; su switch e stampanti e' la fonte piu' ricca che esista</td></tr>
+              <tr><td><code>smb</code></td><td>enumera condivisioni, utenti e versione del protocollo sui nodi con 139/445 aperta</td><td>sola lettura; su una rete Windows dice il dominio e il livello di firma</td></tr>
+              <tr><td><code>vuln</code></td><td>esegue gli script di rilevazione dei difetti noti sulle porte a rischio</td><td>solo rilevazione: nessuno script di categoria <em>exploit</em>, <em>dos</em>, <em>fuzzer</em>, <em>intrusive</em> o <em>brute</em></td></tr>
               <tr><td><code>web</code></td><td>apre le interfacce di gestione trovate e legge che cosa dichiarano; interroga le stampanti via IPP</td><td>sola lettura: nessun modulo inviato, nessun comando eseguito</td></tr>
+              <tr><td><code>presence</code></td><td>ricognizione breve e frequente sulle sole reti dichiarate <strong>senza fili</strong></td><td>ogni due minuti; chi compare fa partire subito l'approfondimento (vedi <em>Reti senza fili</em>)</td></tr>
               <tr><td><code>monitor</code></td><td>verifica che i nodi noti rispondano ancora</td><td>alimenta stato e disponibilita'</td></tr>
             </tbody>
           </table>
         </div>
+<h3>Perche' un processo di nmap per ogni nodo</h3>
+        <p>
+          La scansione lavora in <strong>due tempi</strong>: prima la ricognizione dice
+          <em>chi risponde</em> su una subnet, poi ogni nodo trovato riceve un processo
+          di nmap tutto suo &mdash; la <code>raffica</code> &mdash; fino a trentadue
+          insieme.
+        </p>
+        <p>
+          Non e' una scelta di gusto, e' una misura. Il budget di pacchetti di nmap e'
+          <strong>per processo</strong>: dividerlo fra molti host stringe la finestra
+          su ciascuno e fa passare per filtrate le porte che sono aperte davvero.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>HOST IN UN SOLO PROCESSO</th><th>ESITO MISURATO</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>3,3 s, tutte le porte trovate</td></tr>
+              <tr><td>64</td><td>2,6 s per 16 host vivi, tutte le porte trovate</td></tr>
+              <tr><td>256</td><td>fase &laquo;completata&raquo;, <strong>zero porte</strong> su 256 nodi</td></tr>
+              <tr><td>oltre 500</td><td>il processo non termina entro il tetto di due ore</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Il parallelismo si e' quindi spostato <strong>nel pool</strong>, dove nmap non
+          lo penalizza, invece di stare dentro un processo solo dove lo penalizza. Una
+          raffica su un apparato con qualche porta aperta costa circa <strong>sette
+          minuti</strong>: e' il prezzo di un profilo completo al primo passaggio.
+        </p>
+        <div class="alert alert-info">
+          Una fase che finisce sistematicamente in <strong>pochi secondi con zero
+          record</strong> non e' una fase veloce: e' una fase che non ha funzionato. Il
+          diario della sonda dice quanti compiti sono partiti, non quanto dato hanno
+          prodotto: i due numeri vanno letti insieme.
+        </div>
+
         <h3>La lettura SNMP</h3>
         <p>
           Dove la porta <strong>161/udp</strong> risponde, l'apparato racconta di se' piu' di
@@ -808,6 +897,42 @@
               in <em>Threat Intelligence</em>.</li>
         </ul>
 
+<h3>Presenze sulle reti senza fili</h3>
+        <p>
+          <em>Dispositivi &rarr; Presenze Wi-Fi</em> risponde a una domanda che
+          l'inventario non sa rispondere: <strong>chi c'era, e quando</strong>.
+        </p>
+        <p>
+          L'unita' non e' l'indirizzo IP &mdash; che il DHCP riassegna, e che quindi
+          confonderebbe due apparati diversi in una riga sola &mdash; ma
+          <strong>l'apparato riconosciuto</strong>. Il riconoscimento e' a scalare, e la
+          colonna dichiara sempre da che cosa e' venuto, perche' un'identita' dedotta
+          vale meno di una letta:
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>FONTE</th><th>QUANTO VALE</th></tr></thead>
+            <tbody>
+              <tr><td><strong>MAC</strong></td><td>la piu' solida: identifica la scheda di rete. Non sempre disponibile &mdash; serve essere sullo stesso segmento</td></tr>
+              <tr><td><strong>Numero di serie</strong></td><td>letto dall'apparato (SNMP, SMB): buono quanto il MAC, dove c'e'</td></tr>
+              <tr><td><strong>Nome host</strong></td><td>stabile in pratica, ma un apparato lo puo' cambiare</td></tr>
+              <tr><td><strong>Indirizzo</strong></td><td>l'ultima risorsa: se l'indirizzo viene riassegnato, due apparati si confondono. Un'impronta debole (TTL, porte, famiglia di sistema operativo) serve ad accorgersene</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          Il pulsante <strong>Storico dell'andamento</strong>, in cima alla pagina, apre
+          il grafico di <strong>quanti</strong> apparati erano in rete intervallo per
+          intervallo: e' il respiro di una rete di utenza &mdash; il picco del mattino,
+          la pausa, lo svuotamento della sera &mdash; e serve a riconoscere cio' che non
+          c'entra, come venti apparati nuovi alle tre di notte.
+        </p>
+        <p>
+          La tabella <strong>Permanenze</strong> elenca invece le singole presenze: da
+          quando a quando, per quanto, e con quale identita'.
+        </p>
+
         <h3>Come si leggono le tabelle dei nodi</h3>
         <p>
           Nelle tabelle dei nodi &mdash; inventario, stato della rete, sala operativa,
@@ -824,6 +949,38 @@
               <strong>produttore</strong> quando lo si conosce &mdash; dal MAC, dalla
               lettura SNMP, dalla pagina di gestione o dall'IPP, indifferentemente.</li>
         </ul>
+
+        <h3>La colonna Sistema operativo non resta mai vuota</h3>
+        <p>
+          Una cella vuota non dice &laquo;non lo so&raquo;: dice
+          <strong>niente</strong>, e chi legge non sa se il dato manchi perche' non e'
+          stato raccolto o perche' non si e' potuto dedurre. La colonna porta quindi
+          sempre qualcosa, per <strong>approssimazioni successive</strong>, e la
+          <strong>fonte</strong> del giudizio si legge passandoci sopra.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>SI PARTE DA</th><th>QUANTO VALE</th></tr></thead>
+            <tbody>
+              <tr><td>Il rilevamento di nmap</td><td>la stima migliore: viene dal comportamento della pila di rete</td></tr>
+              <tr><td>Quello che l'apparato dichiara di se'</td><td>SNMP, SMB, la pagina di gestione: spesso piu' preciso della stima</td></tr>
+              <tr><td>Il servizio riconosciuto</td><td>un IIS dice Windows, un OpenSSH con la sua variante dice la distribuzione</td></tr>
+              <tr><td>Il tipo di dispositivo</td><td>una stampante o un telefono VoIP hanno un firmware, non un sistema operativo generico</td></tr>
+              <tr><td>&laquo;Non determinato&raquo;, col motivo</td><td>l'ultima risorsa, e <strong>dichiarata</strong>: per esempio &laquo;servono i socket raw&raquo;. Un limite detto e' un'informazione, un vuoto no</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>La colonna Info</h3>
+        <p>
+          Al posto della subnet &mdash; che si legge dall'indirizzo &mdash; l'elenco dei
+          nodi porta la colonna <strong>Info</strong>: in poche parole, cio' che le
+          <strong>interfacce web</strong> dell'apparato dichiarano di se'. Titolo della
+          pagina, prodotto e versione, marca del server: e' spesso il modo piu' rapido
+          di capire che cos'e' una macchina senza aprirne la scheda. La riga e' corta
+          per scelta, e la pagina del nodo porta tutto il resto.
+        </p>
         <p class="small text-body-secondary">
           L'ordinamento e la ricerca continuano a funzionare su entrambe le
           informazioni: sono due righe nella stessa cella, non un'immagine.

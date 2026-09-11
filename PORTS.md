@@ -87,7 +87,56 @@ Da qui due conseguenze, entrambe volute:
 - porta **5532** e non la 5432 predefinita: dal momento che si lega una porta
   dell'host, vale la regola del progetto (solo 5500‑5600) e la 5432 è fuori range.
 
-Stato: il servizio è **predisposto**, il codice della sonda scrive ancora su SQLite.
+Stato: **in uso**. Dalla versione 1.5.0 la sonda scrive su PostgreSQL e SQLite
+non esiste più: i dati del vecchio archivio si importano al primo avvio.
+
+### Sonda fuori dal contenitore (`docker-compose.nativa.yml`)
+
+Su Docker Desktop (Windows/Mac) i contenitori stanno dentro una macchina virtuale e
+il suo NAT **risponde per ogni indirizzo**: misurato sulla stessa subnet e nello
+stesso momento, `nmap -sn` dava 5 host attivi dal PC e 256 su 256 dentro il
+contenitore. Una sonda in quelle condizioni non fa inventario, lo *inventa*. Là la
+sonda si avvia sulla macchina (`start-nativa.ps1`) e in contenitore resta la sola
+base dati.
+
+Le porte non cambiano, cambia **chi le lega**:
+
+| Porta | Protocollo | Servizio | Chi la lega | Raggiungibile da |
+|---|---|---|---|---|
+| **5510** | TCP/HTTPS | Interfaccia della sonda | contenitore `proxy-nativa` | rete |
+| **5512** | TCP/HTTP | Solo rimando `http` → `https` (308) | contenitore `proxy-nativa` | rete |
+| 5511 | TCP/HTTP | La sonda (dev server di Flask) | la sonda, sulla macchina | **solo 127.0.0.1** |
+| 5532 | TCP | PostgreSQL della sonda | contenitore, porta pubblicata | **solo 127.0.0.1** |
+
+**Il TLS resta davanti.** Fuori dal contenitore la sonda non ha più il proxy del
+compose di esercizio, ed esporla direttamente significherebbe HTTP in chiaro sulla
+rete — con la password della sonda dentro. Quindi la sonda ascolta in chiaro *solo*
+sul proprio loopback e davanti le sta lo stesso nginx dell'esercizio:
+
+```
+rete  --HTTPS-->  proxy-nativa (contenitore)  --loopback-->  sonda:5511
+```
+
+Che un contenitore raggiunga un servizio legato al **solo** `127.0.0.1` dell'host non
+è ovvio, ed è stato misurato su questa installazione: un servizio di prova legato a
+`127.0.0.1:5599` risultava raggiungibile dal contenitore via `host-gateway`, perché
+Docker Desktop apre la connessione dal lato Windows — per il servizio è una
+connessione locale. È ciò che permette alla sonda di **non esporre nulla in chiaro**.
+
+La **prima impostazione della password** non passa dal proxy: là ogni richiesta
+arriva dall'indirizzo del gateway di Docker, uguale per chi sta alla postazione e per
+chi arriva dalla LAN, e un permesso su quell'indirizzo aprirebbe la sonda a tutta la
+rete. Si fa **dalla macchina della sonda**, avviandola una volta con `-PrimaPassword` e
+aprendo `http://127.0.0.1:5511/primo-accesso`: là l'indirizzo del client è quello
+vero. L'interruttore serve perché con il proxy davanti il cookie di sessione è
+marcato `Secure`, e un cookie Secure non viene rimandato su HTTP: senza cookie non
+c'è sessione, senza sessione il token anti-CSRF viene rifiutato e la pagina risponde
+«token scaduto» a ogni tentativo. Il token anti-CSRF **resta**: su quella pagina è
+ciò che impedisce a un sito qualunque di impossessarsi della sonda. Dopo, si riavvia
+senza l'interruttore (vedi `allow-primo-accesso.nativa.conf`).
+
+Con `-SenzaProxy` la sonda si avvia comunque, ma resta raggiungibile solo da
+`127.0.0.1`: nulla in chiaro sulla rete, e nulla raggiungibile da altrove.
 
 ## SIEM opzionale (`docker/siem/docker-compose.yml`)
 

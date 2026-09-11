@@ -47,6 +47,23 @@
     raggiungibile SOLO da 127.0.0.1: nulla in chiaro sulla rete, ma nulla
     raggiungibile dalla rete.
 
+.PARAMETER PrimaPassword
+    Avvio per la SOLA prima impostazione della password, da fare una volta.
+
+    Perche' serve una modalita' a parte. Con il proxy TLS davanti il cookie di
+    sessione si marca `Secure`, e un cookie Secure NON viene rimandato su HTTP: ne'
+    dal browser ne' da nessun altro client. La prima password si sceglie invece sul
+    loopback in chiaro (http://127.0.0.1:5511/primo-accesso), perche' il proxy non
+    puo' distinguere chi sta alla postazione da chi arriva dalla LAN -- vede sempre
+    l'indirizzo del gateway di Docker. Le due cose insieme non funzionano: senza
+    cookie non c'e' sessione, senza sessione il token anti-CSRF viene rifiutato, e
+    la pagina risponde "token scaduto" a ogni tentativo.
+
+    Con questo interruttore il cookie NON e' marcato Secure, cosi' la prima
+    impostazione si puo' fare. Serve una volta: dopo, si riavvia senza
+    l'interruttore. Non si indebolisce la protezione anti-CSRF, che su quella pagina
+    e' cio' che impedisce a un sito qualunque di impossessarsi della sonda.
+
 .PARAMETER SoloVerifica
     Controlla i presupposti e non avvia nulla.
 
@@ -54,11 +71,13 @@
     .\start-nativa.ps1
     .\start-nativa.ps1 -SoloVerifica
     .\start-nativa.ps1 -SenzaProxy
+    .\start-nativa.ps1 -PrimaPassword      # una volta, per scegliere la password
 #>
 [CmdletBinding()]
 param(
     [int]$Port = 5511,
     [switch]$SenzaProxy,
+    [switch]$PrimaPassword,
     [switch]$SoloVerifica
 )
 
@@ -149,7 +168,7 @@ e' in esecuzione il proxy di esercizio (snap-probe-proxy), che cerca la sonda ne
     docker compose -f docker-compose.yml -f docker-compose.nativa.yml up -d proxy-nativa
 "@
 }
-if ($SenzaProxy) {
+if ($SenzaProxy -or $PrimaPassword) {
     Avvisa @"
 -SenzaProxy: nessuna terminazione TLS. L'interfaccia restera' raggiungibile SOLO da
   127.0.0.1 sulla macchina della sonda; dalla rete non sara' raggiungibile affatto.
@@ -270,9 +289,19 @@ $env:PYTHONUNBUFFERED = '1'
 # entrambi i casi una richiesta diretta al loopback risulta locale, quindi la prima
 # impostazione della password dalla macchina continua a funzionare.
 $env:SNAP_PROBE_BEHIND_PROXY = $(if ($SenzaProxy) { '0' } else { '1' })
-# Il cookie di sessione solo su HTTPS quando c'e' il TLS davanti. Con -SenzaProxy il
-# canale e' HTTP sul loopback: marcarlo Secure impedirebbe l'accesso.
-$env:SNAP_PROBE_COOKIE_SECURE = $(if ($SenzaProxy) { '0' } else { '1' })
+# IL COOKIE DI SESSIONE solo su HTTPS quando c'e' il TLS davanti -- con una
+# eccezione dichiarata.
+#
+# Un cookie Secure non viene rimandato su HTTP: ne' dal browser ne' da altri client.
+# Sul canale che conta (browser -> proxy) e' giusto marcarlo, perche' altrimenti una
+# richiesta verso la 5512 in chiaro -- quella del solo rimando a HTTPS -- porterebbe
+# il cookie sulla rete. Ma la PRIMA impostazione della password si fa sul loopback in
+# chiaro, e la' un cookie Secure impedisce perfino di cominciare: senza cookie non
+# c'e' sessione, senza sessione il token anti-CSRF viene rifiutato, e la pagina
+# risponde "token scaduto" a ogni tentativo. Da qui -PrimaPassword: una volta, per
+# scegliere la password, poi si riavvia senza.
+$env:SNAP_PROBE_COOKIE_SECURE =
+    $(if ($SenzaProxy -or $PrimaPassword) { '0' } else { '1' })
 
 # L'INTERFACCIA DI USCITA DELLE SCANSIONI, se dichiarata in .env. Su una macchina con
 # piu' interfacce nmap sceglie dalla tabella di instradamento, e la tabella puo'
@@ -303,9 +332,16 @@ if ($SenzaProxy) {
     foreach ($indirizzo in $suRete) {
         Write-Host ("                https://{0}:5510" -f $indirizzo) -ForegroundColor Cyan
     }
-    Write-Host '  Prima password: http://127.0.0.1:5511/primo-accesso da QUESTA macchina' -ForegroundColor DarkGray
+    Write-Host '  Prima password: riavviare con -PrimaPassword, poi' -ForegroundColor DarkGray
+    Write-Host '                  http://127.0.0.1:5511/primo-accesso da QUESTA macchina' -ForegroundColor DarkGray
 }
 Write-Host '  Archivio:     127.0.0.1:5532 (in contenitore)' -ForegroundColor DarkGray
+if ($PrimaPassword) {
+    Write-Host ''
+    Write-Host ("  MODALITA' PRIMA PASSWORD: aprire http://127.0.0.1:{0}/primo-accesso" -f $Port) -ForegroundColor Yellow
+    Write-Host '  da QUESTA macchina, scegliere la password, poi fermare (Ctrl+C) e' -ForegroundColor Yellow
+    Write-Host '  riavviare senza -PrimaPassword.' -ForegroundColor Yellow
+}
 Write-Host '  Ctrl+C per fermare' -ForegroundColor DarkGray
 Write-Host ''
 

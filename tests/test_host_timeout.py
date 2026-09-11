@@ -24,6 +24,7 @@ import pytest
 
 from snapprobe.scanner import (
     EFFORT_PROFILES,
+    FASI_COPERTE_DALLA_RAFFICA,
     HOST_TIMEOUT_CHOICES,
     HOST_TIMEOUT_MAX_SECONDS,
     HOST_TIMEOUT_MIN_SECONDS,
@@ -459,9 +460,32 @@ def test_i_nodi_piu_avanzati_arrivano_al_proprio_turno(sonda):
     compiti = scanner.plan_tasks()
     fasi = [c["stage"] for c in compiti]
 
-    assert "os" in fasi, (
-        "il completamento del profilo deve avere un posto riservato: %s" % fasi)
-    assert "ports" in fasi, (
-        "l'esame delle porte dei candidati deve avere un posto riservato: %s" % fasi)
-    compito_os = next(c for c in compiti if c["stage"] == "os")
-    assert "192.0.2.11" in compito_os["hosts"]
+    # LE FASI SI CHIAMANO DIVERSAMENTE DA PRIMA, e l'invariante e' la stessa. Con il
+    # motore a due fasi il completamento del profilo lo svolge la RAFFICA, che chiede
+    # porte, servizi e sistema operativo in un processo solo
+    # (FASI_COPERTE_DALLA_RAFFICA): pretendere qui la fase "os" verificherebbe il
+    # vocabolario di un motore che non c'e' piu', non la garanzia che interessa.
+    #
+    # La garanzia che interessa e' che le DUE FRONTIERE avanzino nello stesso ciclo:
+    # il nodo nuovo (192.0.2.10) e quello che attende il completamento
+    # (192.0.2.11) devono avere entrambi un posto. Se una delle due sta dietro
+    # all'altra, una delle due non arriva mai -- ed e' successo in entrambi i versi.
+    portanti = set(FASI_COPERTE_DALLA_RAFFICA) | {"raffica"}
+    assert portanti & set(fasi), (
+        "nessuna fase che porti avanti un profilo e' stata pianificata: %s" % fasi)
+
+    serviti = set()
+    for compito in compiti:
+        if compito["stage"] not in portanti:
+            continue
+        serviti.update(compito.get("hosts") or ())
+        if compito.get("target"):
+            serviti.add(compito["target"])
+
+    assert "192.0.2.11" in serviti, (
+        "il nodo che attende il completamento del profilo non ha un posto: %s"
+        % [(c["stage"], c.get("hosts") or c.get("target")) for c in compiti])
+    assert "192.0.2.10" in serviti, (
+        "il nodo nuovo non ha un posto: mettendo davanti il completamento, le porte"
+        " dei candidati non venivano mai esaminate. %s"
+        % [(c["stage"], c.get("hosts") or c.get("target")) for c in compiti])

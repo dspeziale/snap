@@ -53,6 +53,46 @@ CHANGELOG = [
             "Il conferimento accetta il genere \"presence\" (avvistamenti sulle reti"
             " senza fili) e conserva l'istantanea della console consegnata dalla"
             " sonda, con il proprio istante.",
+            "LA CONSOLE DI UNA SONDA SI VEDE CHE NON E' IL SERVER. Mostra, dentro"
+            " la console, le stesse cose che si vedono aprendo l'interfaccia della"
+            " sonda in sede: due interfacce che si somigliano sono un rischio"
+            " operativo -- chi crede di stare sul server mentre guarda una sonda"
+            " prende decisioni sui dati sbagliati. La pagina porta ora l'arancione"
+            " della sonda: un nastro APPICCICATO IN ALTO che resta mentre si scorre"
+            " (su una pagina lunga la scritta in testa scorrerebbe via proprio"
+            " mentre si leggono i numeri), una cornice arancione attorno a tutto il"
+            " contenuto e un piede che ripete l'appartenenza. Il nastro porta anche"
+            " l'istante del dato e diventa rosso quando il battito non arriva:"
+            " l'altra cosa che non si deve dimenticare guardando quella pagina."
+            " Anche i bottoni che aprono la console sono arancioni -- sono il punto"
+            " in cui si cambia macchina.",
+            "AZZERAMENTO DELLE INFORMAZIONI RACCOLTE, dalla pagina dei tenant. Serve"
+            " quando la raccolta e' sporca -- un perimetro sbagliato, una sonda"
+            " dietro un NAT che ha inventato nodi, un cambio di rete che rende"
+            " l'inventario un archivio di fantasmi -- e si vuole ricominciare senza"
+            " rifare la configurazione. Il tenant RESTA: si butta solo cio' che le"
+            " sonde hanno osservato.",
+            "Il confine fra \"raccolto\" e \"dichiarato\" e' scritto in un punto solo"
+            " (purge.py) e verificato da un test che pretende che OGNI tabella del"
+            " tenant stia da un lato o dall'altro: chi aggiungera' una tabella e non"
+            " la classifichera' vedra' il test rosso, invece di scoprire un giorno"
+            " che il bottone mente. Restano utenze, sonde, perimetro, zone,"
+            " controlli, regole, report, notifiche inviate e registro di audit.",
+            "Due cose non si cancellano per ragioni che non sono tecniche: gli"
+            " incidenti da cui e' nata una comunicazione ad ACN -- una comunicazione"
+            " all'autorita' e' un atto dovuto (D.lgs. 138/2024 art. 25) e la sua"
+            " prova non sparisce con un bottone -- e le notifiche gia' inviate, che"
+            " sono la prova di cio' che e' stato comunicato e a chi. L'esito dice"
+            " quanti incidenti sono stati conservati e perche'.",
+            "La conferma mostra il conto di cio' che si perde, voce per voce, e"
+            " chiede di digitare il codice del tenant: un avviso che si chiude per"
+            " sbaglio non e' una conferma per un'operazione che butta giorni di"
+            " scansione. La pagina dei tenant ha una colonna RACCOLTO con quel"
+            " numero, cosi' si vede prima di aprire il bottone.",
+            "Alle sonde viene chiesto di ricominciare dalla scoperta (comando"
+            " `forget`). Senza, il bottone sembrerebbe rotto: la sonda ricorda quali"
+            " fasi ha svolto, e un nodo che il server ha dimenticato non tornerebbe"
+            " fino alla scadenza della cadenza -- giorni, con la console vuota.",
         ],
     },
     {

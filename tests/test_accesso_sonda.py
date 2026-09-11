@@ -381,3 +381,93 @@ def test_la_provenienza_si_giudica_sull_indirizzo_non_su_un_intestazione(sonda):
                           headers={"X-Forwarded-For": "127.0.0.1"})
 
     assert risposta.status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# La prima password e il cookie marcato Secure
+# --------------------------------------------------------------------------- #
+# LA TRAPPOLA CHE QUESTE PROVE CHIUDONO, trovata sul campo.
+#
+# Con il proxy TLS davanti il cookie di sessione si marca `Secure` -- ed e' giusto:
+# senza, una richiesta verso la porta del solo rimando a HTTPS porterebbe il cookie
+# in chiaro sulla rete. Ma la PRIMA password si sceglie sul loopback IN CHIARO,
+# perche' il proxy non puo' distinguere chi sta alla postazione da chi arriva dalla
+# LAN (vede sempre l'indirizzo del gateway di Docker).
+#
+# Le due decisioni insieme non funzionano, e il modo in cui falliscono e' subdolo: un
+# cookie Secure non viene rimandato su HTTP, quindi non c'e' sessione; senza sessione
+# il token anti-CSRF viene rifiutato; il gestore dell'errore CSRF RIMANDA ALLA PAGINA
+# con un avviso, cioe' risponde 303 -- che a un occhio distratto somiglia a un
+# successo. Sul campo l'esito era un ciclo di "il token di sicurezza e' scaduto" a
+# ogni tentativo, e l'impressione che la password venisse impostata.
+#
+# La via d'uscita e' un avvio dedicato (`start-nativa.ps1 -PrimaPassword`) che toglie
+# il solo `Secure` per il tempo della prima impostazione. Il token anti-CSRF resta:
+# su quella pagina e' cio' che impedisce a un sito qualunque, aperto in un'altra
+# scheda, di impossessarsi della sonda.
+def _imposta_dal_locale(applicazione, password=PASSWORD):
+    """Sceglie la prima password come farebbe un browser sul loopback, in chiaro."""
+    import re
+
+    cliente = applicazione.test_client()
+    pagina = cliente.get("/primo-accesso", environ_overrides=DA_LOCALE)
+    assert pagina.status_code == 200, pagina.status_code
+    testo = pagina.data.decode("utf-8")
+    trovato = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', testo)
+    dati = {"password": password, "conferma": password}
+    if trovato:
+        dati["csrf_token"] = trovato.group(1)
+    return cliente.post("/primo-accesso", data=dati, environ_overrides=DA_LOCALE)
+
+
+def test_la_prima_password_si_imposta_dal_loopback_in_chiaro(sonda):
+    """E' la via prevista quando la sonda gira fuori dal contenitore."""
+    esito = _imposta_dal_locale(sonda)
+
+    assert esito.status_code in (302, 303), esito.status_code
+    assert _store(sonda).get_setting("ui_password_hash"), (
+        "la password non e' stata impostata: con il cookie non marcato Secure la"
+        " sessione esiste e il token anti-CSRF e' valido")
+
+
+def test_l_avvio_per_la_prima_password_non_marca_il_cookie_secure():
+    """La contraddizione si verifica DOVE VIVE: nello script di avvio.
+
+    Perche' non si prova a livello di applicazione, anche se sarebbe la sede
+    naturale: il client di prova di Werkzeug NON rispetta l'attributo `Secure` --
+    verificato: rimanda il cookie anche su `http://` -- e in prova il token
+    anti-CSRF e' disattivato (`TestConfig.WTF_CSRF_ENABLED = False`). Una prova
+    scritta la' passerebbe qualunque cosa faccia l'applicazione, cioe' non
+    proverebbe niente.
+
+    Cio' che si puo' verificare, ed e' cio' che conta, e' che le due modalita' di
+    avvio restino coerenti: dedicata alla prima password -> cookie non marcato
+    Secure (altrimenti l'installazione non si riesce a configurare); normale ->
+    marcato (altrimenti una richiesta verso la porta del solo rimando porterebbe il
+    cookie in chiaro sulla rete).
+    """
+    from pathlib import Path
+
+    radice = Path(__file__).resolve().parents[1]
+    script = (radice / "docker" / "probe" / "start-nativa.ps1").read_text(
+        encoding="utf-8")
+
+    assert "-PrimaPassword" in script or "PrimaPassword" in script, (
+        "l'avvio dedicato alla prima password non esiste piu': senza, con il proxy"
+        " davanti la prima password non si puo' impostare affatto")
+
+    riga = next((r for r in script.splitlines()
+                 if "SNAP_PROBE_COOKIE_SECURE" in r and "=" in r
+                 and not r.lstrip().startswith("#")), "")
+    seguito = script[script.index(riga) + len(riga):
+                     script.index(riga) + len(riga) + 200] if riga else ""
+    decisione = riga + seguito
+    assert "PrimaPassword" in decisione, (
+        "l'avvio dedicato alla prima password deve togliere il marchio Secure dal"
+        " cookie: un cookie Secure non viene rimandato su HTTP, quindi non c'e'"
+        " sessione, quindi il token anti-CSRF viene rifiutato -- e la pagina"
+        " risponde 'token scaduto' a ogni tentativo. Riga trovata: %r" % decisione[:160])
+    assert "'1'" in decisione, (
+        "in modalita' normale il cookie deve restare marcato Secure: il canale e'"
+        " HTTPS, e senza il marchio una richiesta verso la porta del solo rimando"
+        " porterebbe il cookie in chiaro sulla rete")

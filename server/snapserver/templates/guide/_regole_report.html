@@ -428,10 +428,47 @@
   <li>Riservata all'amministratore di sistema: vale per tutti i tenant ed e' una scelta
       con conseguenze legali (GDPR art. 5(1)(e), NIS2).</li>
 </ul>
+<h3>Azzerare le informazioni raccolte di un tenant</h3>
+<p>
+  La conservazione fa scadere i dati nel tempo. Questo e' l'atto opposto: <strong>buttare
+  adesso tutto il raccolto</strong> di un tenant, lasciando il tenant in piedi. Si trova
+  in <em>Amministrazione &rarr; Tenant</em>, icona <strong>gomma</strong> sulla riga del
+  tenant.
+</p>
+<p>
+  Serve quando la raccolta e' <strong>sporca</strong> e si vuole ricominciare senza rifare
+  la configurazione: un perimetro sbagliato, una sonda che ha inventato nodi perche' non
+  vedeva la rete vera, un cambio di rete che rende l'inventario un archivio di fantasmi.
+</p>
+<ul>
+  <li><strong>Non</strong> e' l'eliminazione del tenant: restano utenze, sonde registrate,
+      perimetro, zone, controlli, regole, report prodotti, notifiche inviate e registro
+      delle azioni.</li>
+  <li>Se ne vanno i nodi con tutto quello che pende da loro (porte, interfacce web, SMB,
+      SNMP), le variazioni, i campioni di raggiungibilita', gli esiti e le misure dei
+      controlli, gli incidenti, le presenze, le correlazioni con la Threat Intelligence,
+      gli eventi e gli avvisi SIEM, le passate e i conferimenti.</li>
+  <li>Gli <strong>incidenti da cui e' nata una comunicazione ad ACN non si cancellano</strong>:
+      una comunicazione all'autorita' e' un atto dovuto e la sua prova non sparisce con un
+      bottone. L'esito dice quanti sono stati conservati.</li>
+  <li>La finestra mostra <strong>il conto di cio' che si perde</strong>, voce per voce, e
+      chiede di <strong>digitare il codice del tenant</strong>: un avviso che si chiude per
+      sbaglio non e' una conferma per un'operazione che butta giorni di scansione. La
+      colonna <em>RACCOLTO</em> nella tabella mostra quel numero anche senza aprire la
+      finestra.</li>
+  <li>Alle sonde del tenant viene chiesto di <strong>ricominciare dalla scoperta</strong>:
+      l'inventario si ripopola man mano, non istantaneamente. La coda da conferire non si
+      tocca -- cio' che e' in attesa e' stato raccolto e va consegnato -- e nemmeno la
+      registrazione.</li>
+  <li>Riservato all'<strong>amministratore di sistema</strong>, e registrato nel registro
+      delle azioni con severita' critica e con i numeri.</li>
+</ul>
+
 <h3>Copie e ripristino</h3>
 <ul>
-  <li>La copia usa l'API di backup di SQLite, <strong>non</strong> la copia del file: un
-      file copiato mentre il server scrive puo' essere incoerente.</li>
+  <li>La copia e' un archivio <strong><code>pg_dump</code></strong> in formato
+      personalizzato, <strong>non</strong> la copia dei file della base dati: legge in
+      una singola istantanea, quindi e' coerente anche mentre il server scrive.</li>
   <li>Ogni copia viene <strong>verificata appena prodotta</strong>; se non passa viene
       eliminata, perche' un file parziale sarebbe indistinguibile da una copia buona.</li>
   <li>Una copia contiene <strong>tutti i tenant</strong>, gli indirizzi di rete e le

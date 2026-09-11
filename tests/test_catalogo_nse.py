@@ -232,3 +232,35 @@ class _EsecutoreMuto:
 
     def run(self, *args, **kwargs):
         raise AssertionError("nessun processo nmap deve partire in questa prova")
+
+
+# --------------------------------------------------------------------------- #
+# I tetti di tempo della raffica
+# --------------------------------------------------------------------------- #
+def test_il_tetto_del_processo_sta_sopra_quello_per_host():
+    """L'ORDINE FRA I DUE CONTA, e sbagliarlo non da' errore: da' zero record.
+
+    Se il processo viene ucciso prima che il tetto per host possa intervenire, si
+    perde l'XML -- cioe' tutto il lavoro dell'host. Misurato in esercizio: con 240 s
+    per host e 420 s per processo, su un host che ne chiedeva 432 la raffica non
+    concludeva mai e nmap buttava anche cio' che aveva gia' trovato
+    ("Skipping host ... due to host timeout").
+    """
+    from snapprobe.scanner import ATTESA_RAFFICA_HOST, ATTESA_RAFFICA_PROCESSO_SEC
+
+    secondi_host = int(ATTESA_RAFFICA_HOST.rstrip("s"))
+    assert ATTESA_RAFFICA_PROCESSO_SEC > secondi_host, (
+        "il tetto del processo (%d s) non sta sopra quello per host (%d s): il"
+        " processo verrebbe ucciso prima, e con lui l'XML"
+        % (ATTESA_RAFFICA_PROCESSO_SEC, secondi_host))
+
+
+def test_il_tetto_per_host_regge_una_raffica_misurata():
+    """Misurato su un host reale (sette porte aperte, Apache + TLS, catalogo
+    completo): 432,6 s. Un tetto sotto quella soglia rende la raffica inutile su
+    qualunque host che abbia davvero qualcosa da dire."""
+    from snapprobe.scanner import ATTESA_RAFFICA_HOST
+
+    assert int(ATTESA_RAFFICA_HOST.rstrip("s")) >= 480, (
+        "sotto gli 8 minuti la raffica non conclude su un host con porte aperte:"
+        " misurati 432 s con il catalogo completo")

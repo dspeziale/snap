@@ -45,12 +45,32 @@ class EsecutoreFinto:
         return self._capacita
 
     def run(self, arguments, targets, timeout=None, label=None) -> str:
-        # `label` descrive la fase in corso per l'indicatore: qui non serve,
-        # ma la firma deve corrispondere a quella del runner vero.
-        self.chiamate.append({"arguments": list(arguments), "targets": list(targets)})
+        # `label` SI REGISTRA, e serve. Un ciclo non fa una sola invocazione di nmap:
+        # oltre a quella della fase c'e' la verifica di un nodo prima dello scarto e
+        # il recupero dei nodi che una passata di gruppo non aveva visto. Un test che
+        # guardi `chiamate[-1]` verifica quindi la POSIZIONE, non la fase, e diventa
+        # rosso appena si aggiunge un'invocazione legittima. Con l'etichetta la fase
+        # si identifica per quello che e'.
+        self.chiamate.append({"arguments": list(arguments), "targets": list(targets),
+                              "label": label or ""})
         if self.errore is not None:
             raise self.errore
         return self.xml
+
+
+def chiamata_di(esecutore, fase: str) -> dict:
+    """L'invocazione di nmap appartenente a quella FASE, non l'ultima in ordine.
+
+    Vedi la nota in `EsecutoreFinto.run`: l'etichetta che lo scanner passa al runner
+    comincia col nome della fase ("snmp su 1 nodi"), quindi identifica la chiamata
+    senza dipendere da quante altre ne avvengono nello stesso giro.
+    """
+    trovate = [c for c in esecutore.chiamate
+               if str(c.get("label") or "").startswith(fase + " ")]
+    assert trovate, (
+        "nessuna invocazione di nmap per la fase %r: %s"
+        % (fase, [c.get("label") for c in esecutore.chiamate]))
+    return trovate[-1]
 
 
 def leggi(nome: str) -> str:

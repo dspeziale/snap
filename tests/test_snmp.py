@@ -23,7 +23,7 @@ import pytest
 
 from snapprobe.scanner import (DEFAULT_CADENCES, SNMP_HOST_TIMEOUT, SNMP_PORT,
                                SNMP_SCRIPTS, STAGES, NetworkScanner, snmp_summary)
-from test_scanner import EsecutoreFinto, leggi
+from test_scanner import EsecutoreFinto, chiamata_di, leggi
 
 PERIMETRO = [{"cidr": "192.0.2.0/24", "label": "Rete di prova"}]
 
@@ -92,7 +92,7 @@ def test_la_fase_snmp_interroga_solo_i_nodi_con_la_porta_aperta(sonda):
     scanner = NetworkScanner(sonda, esecutore)
 
     scanner.run_stage("snmp", "*")
-    assert esecutore.chiamate[-1]["targets"] == ["192.0.2.51"]
+    assert chiamata_di(esecutore, "snmp")["targets"] == ["192.0.2.51"]
 
 
 def test_senza_nodi_snmp_la_fase_non_viene_programmata(sonda):
@@ -144,7 +144,7 @@ def test_gli_argomenti_della_fase_snmp_sono_di_sola_lettura(sonda):
     esecutore = EsecutoreFinto(leggi("nmap_porte_servizi_os.xml"))
     NetworkScanner(sonda, esecutore).run_stage("snmp", "*")
 
-    argomenti = esecutore.chiamate[-1]["arguments"]
+    argomenti = chiamata_di(esecutore, "snmp")["arguments"]
     assert "-sU" in argomenti and str(SNMP_PORT) in argomenti
     valore = argomenti[argomenti.index("--script") + 1]
     assert valore == SNMP_SCRIPTS
@@ -485,3 +485,4 @@ def test_processi_e_connessioni_si_contano_nella_forma_di_nmap():
     riassunto = snmp_summary({"snmp-processes": PROCESSI, "snmp-netstat": NETSTAT})
     assert riassunto["processi"] == 2
     assert riassunto["connessioni"] == 3
+

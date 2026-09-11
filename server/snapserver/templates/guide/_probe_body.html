@@ -10,6 +10,7 @@
   copyright: (c) 2024-26 DS Consulting
   license: MIT
 #}
+
 <div class="alert alert-primary d-flex gap-2">
   <i class="bi bi-info-circle fs-5"></i>
   <div>
@@ -52,6 +53,15 @@
         <td><strong>Accesso a socket raw</strong> (su Windows: Npcap)</td>
         <td>serve al riconoscimento del sistema operativo e alle scansioni piu' efficienti</td>
         <td>la sonda lavora comunque, ma il sistema operativo non viene rilevato e il profilo si considera completo senza di esso</td>
+      </tr>
+      <tr>
+        <td><strong>Base dati locale</strong> raggiungibile (PostgreSQL)</td>
+        <td>e' l'archivio della sonda: coda da conferire, chiavi della registrazione,
+            nodi noti, diario. Era un file, e un file che si corrompe su un apparato
+            lasciato in sede e' la perdita di tutto il raccolto</td>
+        <td>la sonda <strong>attende</strong> l'archivio fino a 90 secondi riprovando,
+            invece di andare in ciclo di riavvio; se non arriva, lo dichiara con la
+            causa</td>
       </tr>
       <tr>
         <td>Raggiungibilita' del server</td>
@@ -150,10 +160,16 @@
     <tbody>
       <tr>
         <td><strong>Prima apertura</strong></td>
-        <td>La password non esiste e va scelta. <strong>Si scegle dalla postazione
+        <td>La password non esiste e va scelta. <strong>Si sceglie dalla postazione
             della sonda</strong> (<code>http://127.0.0.1:5510/</code>): dalla rete la
             scelta iniziale viene rifiutata, cosi' la sonda appartiene a chi l'ha
-            installata e non al primo che la trova in rete.</td>
+            installata e non al primo che la trova in rete.
+            <br><strong>Sonda fuori dal contenitore</strong> (Windows, con il proxy TLS
+            davanti): l'indirizzo locale e' <code>http://127.0.0.1:5511/</code> e la
+            sonda va avviata una volta con <code>-PrimaPassword</code>. Senza
+            quell'interruttore il cookie di sessione e' marcato <code>Secure</code>, non
+            viene rimandato su HTTP, e la pagina risponde &laquo;il token di sicurezza
+            e' scaduto&raquo; a ogni tentativo.</td>
       </tr>
       <tr>
         <td><strong>Accessi successivi</strong></td>
@@ -281,6 +297,33 @@
       chiesto la lettura si aspetta di vederla sulla console, non alla fase successiva.</li>
 </ul>
 
+<h3>La ricognizione delle reti senza fili</h3>
+<p>
+  Sulle subnet che il server dichiara <strong>senza fili</strong> la sonda non attende
+  il ciclo ordinario: esegue una <strong>ricognizione breve e frequente</strong>, ogni
+  due minuti, e chi compare fa partire subito l'approfondimento.
+</p>
+<p>
+  Il motivo e' la durata della presenza. Su una rete cablata un apparato resta dov'e',
+  e una passata ogni tre giorni lo trova. Su una rete Wi-Fi un telefono che entra in
+  una stanza o un portatile che si sospende stanno agganciati <strong>minuti</strong>:
+  con la sola passata completa non comparirebbero mai nell'inventario.
+</p>
+<p>
+  La pagina di stato porta il riquadro <strong>Presenze</strong> con l'esito
+  dell'ultima ricognizione: quante reti, quanti apparati presenti, quanti nuovi e in
+  quanto tempo. Lo storico si legge sulla console del server
+  (<em>Dispositivi &rarr; Presenze Wi-Fi</em>), perche' e' la' che i dati si
+  conservano.
+</p>
+<p>
+  Riconoscere <em>quale</em> apparato sia visto due volte e' il punto difficile: senza
+  MAC (serve essere sullo stesso segmento) si ricade sul numero di serie letto
+  dall'apparato, sul nome host e in ultimo sull'indirizzo. La console dichiara sempre
+  da quale di queste fonti viene l'identita', perche' una dedotta vale meno di una
+  letta.
+</p>
+
 <h2 id="autonomia">6. Autonomia e coda</h2>
 <p>
   Se il server non risponde, la sonda <strong>continua a lavorare</strong>: scansiona,
@@ -311,6 +354,16 @@
   rimuovono. Entrambi chiedono di digitare una parola di conferma, e nessuno dei due
   tocca l'inventario sul server.
 </p>
+<div class="alert alert-info">
+  <strong>C'e' anche un terzo caso, e non parte da qui.</strong> Quando sul server si
+  azzerano le <em>informazioni raccolte</em> di un tenant, la sonda riceve la richiesta
+  di <strong>ricominciare dalla scoperta</strong>: dimentica i nodi noti e lo stato
+  delle fasi, e riparte al contatto successivo. Senza, ricorderebbe di avere gia'
+  profilato nodi che il server ha dimenticato, e quei nodi non tornerebbero fino alla
+  scadenza della cadenza &mdash; giorni. La <strong>coda da conferire non si
+  tocca</strong> (cio' che e' in attesa e' stato raccolto e va consegnato) e nemmeno la
+  registrazione.
+</div>
 <div class="table-responsive">
   <table class="table table-sm table-bordered align-middle" data-snap-table
          data-page-size="100" data-no-search="true">

@@ -434,6 +434,242 @@ Due dettagli che sono costati un tentativo ciascuno:
 
 ---
 
+---
+
+## 8-quater. Il catalogo NSE va confrontato con l'nmap installato
+
+### 8-quater.1 Il guasto
+
+Il catalogo della raffica elencava `ipp-info` e `pgsql-info`. **Nessuno dei due esiste
+in nmap 7.99.** La conseguenza non è che quei due script non partivano: nmap **non
+partiva affatto**.
+
+```
+NSE: failed to initialize the script engine:
+nse_main.lua:829: 'ipp-info' did not match a category, filename, or directory
+QUITTING!
+```
+
+Nel diario della sonda si leggeva, per ogni bersaglio:
+
+```
+Fase raffica su 10.20.10.31 (1 bersagli): 0 host, 0 record in 3.9 s
+Fase raffica su 10.20.10.35 (1 bersagli): 0 host, 0 record in 3.6 s
+```
+
+Una fase che finiva presto e non trovava niente. È il difetto peggiore che questo
+prodotto possa avere: **non si vede ciò che non c'è**. Il numero di record era zero e
+nessuna riga diceva perché — il diario registra l'esito del processo, non lo `stderr`
+di nmap.
+
+Il sospetto era caduto altrove (privilegi mancanti, l'interfaccia di uscita
+dichiarata, il NAT del contenitore). La causa era un nome scritto male in un elenco.
+
+### 8-quater.2 La correzione, e perché correggere i nomi non basta
+
+I due nomi sono corretti:
+
+| Prima | Dopo | Perché |
+|---|---|---|
+| `ipp-info` | `cups-info` | `ipp-info` non esiste. Per le stampanti nmap ha `cups-info` (categorie `discovery`, `safe`). |
+| `pgsql-info` | *rimosso* | Non esiste uno script di sola lettura per PostgreSQL: c'è `pgsql-brute`, categoria **vietata** da questo prodotto. La versione la dichiara `-sV`. |
+
+Ma la lezione è un'altra: **un nome sbagliato non deve poter fermare una fase.** Serve
+anche in condizioni normali — le versioni di nmap non hanno tutte gli stessi script, e
+una sonda lasciata in sede può averne una più vecchia di quella su cui il catalogo è
+stato scritto.
+
+Il catalogo viene quindi confrontato con l'indice degli script dell'nmap **installato**:
+
+- la fonte è `script.db`, l'indice che nmap stesso consulta — si legge dal disco,
+  **senza avviare processi**;
+- si cerca nella cartella dati dell'nmap trovato (installazione monocartella di
+  Windows e installazione all'uso di Unix), poi nei percorsi noti, e in ultimo la si
+  può dichiarare con `SNAP_PROBE_NMAP_SCRIPT_DB`;
+- si legge **una volta sola** per processo: è un file letto da trentadue thread di
+  scansione;
+- ciò che quell'nmap non conosce viene **escluso e scritto nel diario**, una volta per
+  fase. Un elenco ridotto in silenzio sarebbe una perdita di dati invisibile;
+- le **categorie** (`default`, `safe`, `discovery`, `version`, `auth`, `vuln`,
+  `malware`) non sono script e restano: non stanno nell'indice, e scartarle
+  priverebbe la raffica del set che `-A` porta con sé.
+
+Se l'indice **non si trova**, non si scarta nulla: si torna al comportamento di prima
+— nmap protesta se un nome è sbagliato. Meglio una protesta di una fase svuotata in
+silenzio perché non si è trovato un file.
+
+Il catalogo resta comunque **tenuto corretto**: il filtro è una rete di sicurezza, non
+un permesso di scrivere nomi a caso. Un test lo verifica contro l'indice dell'nmap
+installato e si salta dove nmap non c'è.
+
+---
+
+## 8-quinquies. L'interfaccia di uscita: nmap non deve scegliere da sé
+
+### 8-quinquies.1 La misura
+
+Una sonda che gira su una macchina d'ufficio non ha una sola interfaccia. Misurato su
+un'installazione reale (Windows, sonda fuori dal contenitore) con `nmap --iflist`:
+**nove** interfacce — la LAN, due adattatori virtuali di Docker/WSL e sei link-local —
+e nella tabella di instradamento **due rotte predefinite**:
+
+```
+0.0.0.0/0   eth6  metrica 40   gateway 10.10.60.1   <- Wi-Fi, SPENTO, senza indirizzo
+0.0.0.0/0   eth7  metrica 55   gateway 10.20.10.1   <- la LAN vera, attiva
+```
+
+La rotta con la metrica **migliore** era quella di un'interfaccia **spenta**, rimasta
+appesa al Wi-Fi. Tutto ciò che non stava sulla rete locale usciva da là: le scansioni
+partivano da un'interfaccia morta, e l'esito era incoerente senza che nulla lo dicesse.
+
+nmap sceglie l'interfaccia **dalla tabella di instradamento del sistema**, quindi
+eredita l'errore del sistema.
+
+### 8-quinquies.2 La difesa
+
+Dichiararla esplicitamente: `-e` per l'interfaccia, `-S` per l'indirizzo di partenza.
+
+```
+SNAP_PROBE_SCAN_INTERFACE=eth7          il nome che usa NMAP (nmap --iflist)
+SNAP_PROBE_SCAN_SOURCE_IP=10.20.10.42
+```
+
+Quattro proprietà, ognuna con la sua ragione:
+
+1. **Sta nell'involucro comune a tutte le fasi** (`_arguments_for`), lo stesso punto in
+   cui si aggiunge `--exclude-ports`: nessuna fase deve potersela dimenticare.
+2. **Vale solo con i socket raw.** Una scansione per connessione passa dallo stack del
+   sistema, che non accetta né `-e` né `-S`: passarli sarebbe un errore di nmap, non
+   una precisazione.
+3. **Il nome è verificato con una allowlist.** Non è pedanteria: quel valore finisce
+   sulla riga di comando di un processo. Sono ammessi i nomi brevi (`eth7`,
+   `Ethernet`) e la forma di Windows (`\Device\NPF_{GUID}`); un valore che non
+   corrisponde viene **rifiutato dichiarandolo nel diario**, e si torna al
+   comportamento del sistema — non si ferma la scansione.
+4. **Vuoto significa «come decide il sistema»**, che è il comportamento di sempre ed è
+   giusto dove c'è una sola interfaccia (sonda in contenitore su Linux con rete host).
+
+L'ambiente ha la precedenza sull'archivio locale: l'installazione sa dove gira.
+
+> **Nota operativa.** Il pinning difende le scansioni con socket raw. Se i socket raw
+> non ci sono, la scansione per connessione passa dallo stack del sistema e **torna a
+> subire la rotta sbagliata**: là il difetto va corretto nella tabella di
+> instradamento della macchina, non nel prodotto.
+
+---
+
+## 8-sexies. Una scoperta che non è credibile si rifiuta
+
+### 8-sexies.1 La misura
+
+Sulla subnet `10.10.60.0/24` il prodotto dichiarava **256 nodi attivi su 256 indirizzi
+possibili**. Dal PC dell'operatore, lo stesso `nmap -sn` sulla stessa subnet nello
+stesso momento trovava **5 host**.
+
+```
+dal PC:                 nmap -sn 10.10.60.0/24  ->    5 host attivi
+dentro il contenitore:  nmap -sn 10.10.60.0/24  ->  256 host attivi su 256
+```
+
+Non erano gli argomenti: è `nmap -sn` nudo, in entrambi i casi. La causa è la **rete
+del contenitore**: su Docker Desktop la sonda gira dentro una macchina virtuale e il
+NAT di quella macchina **risponde per ogni indirizzo**, compresi l'indirizzo di rete e
+quello di broadcast, dove un host non può esistere.
+
+Il risultato erano **251 nodi inesistenti su 256**, con porte e classificazioni, che il
+prodotto conferiva come inventario.
+
+Un inventario inventato è il peggior esito possibile: un dato mancante si vede; 251
+nodi falsi che sembrano lavoro fatto portano a decisioni sbagliate su una rete vera.
+
+### 8-sexies.2 I due segnali
+
+Presi insieme sono conclusivi:
+
+1. **rispondono l'indirizzo di RETE o quello di BROADCAST** — là non c'è un host, per
+   definizione (RFC 950): se rispondono, risponde qualcos'altro;
+2. **risponde quasi tutto il segmento** (oltre il 95%) — una /24 con tutti gli host
+   attivi esiste, ma *insieme al primo segnale* non è una rete, è un intermediario.
+
+In quel caso la scoperta si **rifiuta**: nessun nodo registrato, e il motivo scritto nel
+diario, con il rimedio (sonda con accesso reale alla rete). Su una rete più piccola di
+otto indirizzi il controllo non si applica: «quasi tutti» non significherebbe niente.
+
+Il rifiuto non è la soluzione, è un **allarme**: la soluzione è eseguire la sonda dove
+vede le interfacce vere — `network_mode: host` su Linux, oppure fuori dal contenitore
+(vedi `docker-compose.nativa.yml` e `PORTS.md`).
+
+---
+
+---
+
+## 8-septies. La raffica affamava l'arricchimento
+
+### 8-septies.1 Il difetto
+
+Quando la raffica riesce, dichiara svolte le fasi che copre — porte, servizi, sistema
+operativo — perché le ha chieste tutte in un processo solo. Ma il criterio con cui un
+nodo risultava **in attesa** della raffica era `"raffica" not in stages_done`, e
+`"raffica"` non compare mai fra le fasi di un nodo profilato per un'altra via:
+
+- un nodo profilato **prima** che la raffica esistesse;
+- un nodo **importato** dal vecchio archivio SQLite — cioè, su un'installazione reale,
+  *tutti*.
+
+Per quei nodi la condizione restava vera **per sempre**: la raffica li ripigliava a
+ogni ciclo. E siccome ogni raffica occupa un posto del ciclo per suo conto (un processo
+per nodo), riempiva tutto. Nel diario di un'installazione si leggevano dieci
+`Fase raffica su …` per ciclo, su nodi già completi, e **una sola** fase di
+arricchimento:
+
+```
+19:26:42  Ciclo di scansione: 29 compiti su 29 thread (sforzo max)
+19:26:42  Fase vuln su * (1 bersagli): 1 host, 0 record in 42.8 s
+19:26:03  Fase raffica su 10.20.10.31 (1 bersagli): 0 host, 0 record in 3.9 s
+19:26:03  Fase raffica su 10.20.10.35 (1 bersagli): 0 host, 0 record in 3.9 s
+…
+```
+
+SNMP, SMB, ricerca di vulnerabilità e letture web non arrivavano quasi mai al proprio
+turno: le funzioni esistevano, erano configurate, e non producevano.
+
+### 8-septies.2 La correzione
+
+Il criterio giusto non è «ha fatto la raffica» ma **«le fasi che la raffica svolge sono
+svolte»**: è ciò per cui la raffica esiste.
+
+```python
+if stage == "raffica":
+    coperte = set(FASI_COPERTE_DALLA_RAFFICA) & set(richieste)
+    if coperte and coperte <= svolte:
+        continue
+```
+
+Si confronta con le fasi **richieste** e non con l'elenco fisso: senza socket raw il
+sistema operativo non è rilevabile, e pretenderlo terrebbe in coda ogni nodo di una
+sonda senza privilegi.
+
+### 8-septies.3 Cosa ha rivelato, oltre a sé stesso
+
+Il difetto era mascherato da due altri, corretti insieme (§8-quater e la nota sui tetti
+di tempo in `ATTESA_RAFFICA_HOST`):
+
+1. il catalogo NSE conteneva due nomi inesistenti, quindi **nmap non partiva** e ogni
+   raffica finiva in 3,9 s con zero record — il che rendeva l'occupazione dei posti
+   quasi gratuita e perciò invisibile;
+2. i tetti di tempo erano sotto il costo reale, quindi anche una raffica che partiva
+   non concludeva.
+
+Insieme davano un motore che sembrava lavorare — ventinove compiti su ventinove
+thread — e non produceva niente. Le tre cause erano indipendenti e nessuna delle tre
+si sarebbe vista dai soli conteggi del ciclo: **il diario diceva quanti compiti, non
+quanto dato**.
+
+Da qui una regola per il futuro: una fase che finisce sistematicamente in pochi secondi
+con zero record non è una fase veloce, è una fase che non ha funzionato.
+
+---
+
 ## 8. Cosa si conserva del motore precedente
 
 Non e' una riscrittura da zero di tutto: la scoperta degli host (ping sweep, 0,06 s

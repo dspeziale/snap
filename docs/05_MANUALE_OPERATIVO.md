@@ -589,7 +589,106 @@ regole. **Non avvia scansioni** -- rilegge l'archivio -- quindi si puo' eseguire
 orario di lavoro. Riferisce con numeri che cosa ha prodotto, un passo che non riesce
 non ferma i successivi, e l'operazione resta nel registro.
 
+### 5.8 Guardare una sonda dal server (console remota)
+
+Menu **Sonde**, bottone **arancione** sulla riga della sonda (oppure *Apri la console
+della sonda* dalla sua pagina di configurazione).
+
+Mostra le stesse cose che si vedono aprendo l'interfaccia della sonda in sede:
+configurazione in vigore, nodi, coda da conferire, fasi in corso, ricognizione delle
+presenze, ultime passate, ultimi conferimenti e il **diario locale** — che prima si
+poteva leggere solo stando davanti alla sonda.
+
+**Perche' e' arancione.** La pagina mostra, dentro la console, cio' che appartiene a
+un'altra macchina. Due interfacce che si somigliano sono un rischio operativo: chi
+crede di stare sul server mentre guarda una sonda prende decisioni sui dati sbagliati.
+La sonda ha per questo un marchio arancione, e qui quell'arancione arriva sulla pagina
+del server:
+
+- un **nastro appiccicato in alto**, che resta mentre si scorre (su una pagina lunga
+  la scritta in testa scorrerebbe via proprio mentre si leggono i numeri);
+- una **cornice arancione** attorno a tutto il contenuto, cosi' anche a meta' pagina
+  si vede di chi sono i dati;
+- un **piede** che ripete l'appartenenza per chi arriva in fondo.
+
+**Il dato non e' dal vivo, e la pagina lo dichiara.** La sonda sta nella rete del
+cliente e apre lei la comunicazione, ogni quindici secondi: il server non puo'
+raggiungerla. Quello che si vede e' percio' l'**ultima istantanea consegnata**, con il
+proprio istante nel nastro. Se il battito non arriva da oltre due minuti la targhetta
+dell'istante diventa **rossa**: quello non e' lo stato attuale.
+
+I comandi viaggiano nella direzione opposta — si accodano dalla pagina di
+configurazione e la sonda li ritira al battito successivo, entro un minuto. E' un
+ritardo dichiarato, non un difetto nascosto: e' il prezzo di non aprire un canale
+permanente dall'interno della rete del cliente verso l'esterno.
+
+### 5.9 Azzerare le informazioni raccolte di un tenant
+
+Menu **Amministrazione > Tenant**, icona **gomma** sulla riga del tenant. Riservato
+all'**amministratore di sistema**.
+
+Non e' l'eliminazione del tenant: il tenant **resta**, con utenze, sonde, perimetro,
+controlli e regole. Si butta solo cio' che le sonde hanno **osservato**. Serve quando
+la raccolta e' sporca e si vuole ricominciare senza rifare la configurazione: un
+perimetro sbagliato, una sonda dietro un NAT che ha inventato nodi, un cambio di rete
+che rende l'inventario un archivio di fantasmi.
+
+| Viene eliminato | Viene conservato |
+|---|---|
+| Nodi, con porte, interfacce web, SMB, SNMP | Utenze e sonde registrate |
+| Variazioni dell'inventario e campioni di raggiungibilita' | Perimetro (subnet) e zone di rete |
+| Esiti, misure e incidenti dei controlli | Controlli configurati e regole di notifica |
+| Presenze sulle reti senza fili | Report prodotti e notifiche inviate |
+| Correlazioni con la threat intelligence | Registro di audit |
+| Eventi e avvisi SIEM | Collettori e sorgenti SIEM dichiarate |
+| Passate di scansione e conferimenti | Incidenti con una comunicazione ad ACN |
+
+Gli **incidenti da cui e' nata una comunicazione ad ACN** non si cancellano: una
+comunicazione all'autorita' e' un atto dovuto (D.lgs. 138/2024, art. 25) e la sua prova
+non sparisce con un bottone. L'esito dice quanti sono stati conservati.
+
+**Come si conferma.** La finestra mostra il conto di cio' che si perde, voce per voce,
+e chiede di **digitare il codice del tenant**: un avviso che si chiude per sbaglio non
+e' una conferma per un'operazione che butta giorni di scansione. La colonna *RACCOLTO*
+nella tabella dei tenant mostra quel numero anche senza aprire la finestra.
+
+**Cosa succede dopo.** Alle sonde del tenant viene chiesto di **ricominciare dalla
+scoperta**: dimenticano i nodi noti e lo stato delle fasi, e la raccolta riparte al
+prossimo contatto. La coda da conferire **non** si tocca (cio' che e' in attesa e' stato
+raccolto e va consegnato) e nemmeno la registrazione. L'inventario si ripopola man mano,
+non istantaneamente: la prima scoperta arriva entro un minuto, i profili nei minuti
+successivi.
+
+L'operazione resta nel registro di audit del tenant, con severita' *critica* e con il
+conto di cio' che e' stato eliminato.
+
 ## 6. Uso dell'interfaccia della sonda
+
+### 6.0-bis La prima password, con la sonda fuori dal contenitore
+
+Su Windows la sonda si avvia sulla macchina e il TLS lo termina un proxy in
+contenitore (vedi `PORTS.md`). In quella configurazione la **prima** password si
+sceglie cosi', una volta sola:
+
+```
+.\start-nativa.ps1 -PrimaPassword
+```
+
+e poi si apre `http://127.0.0.1:5511/primo-accesso` **da quella macchina**. Fatto
+questo si ferma e si riavvia senza l'interruttore.
+
+Perche' serve un avvio dedicato: con il proxy davanti il cookie di sessione e'
+marcato `Secure`, e un cookie `Secure` **non viene rimandato su HTTP** -- ne' dal
+browser ne' da altri client. Senza cookie non c'e' sessione; senza sessione il token
+anti-CSRF viene rifiutato e la pagina risponde «il token di sicurezza e' scaduto» a
+ogni tentativo. L'interruttore toglie il solo `Secure`, per il tempo della prima
+impostazione: il token anti-CSRF **resta**, perche' su quella pagina e' cio' che
+impedisce a un sito qualunque, aperto in un'altra scheda, di impossessarsi della
+sonda.
+
+Dalla rete quella pagina resta negata dal proxy, per disegno: la' ogni richiesta
+arriva dall'indirizzo del gateway di Docker, uguale per chi sta alla postazione e per
+chi arriva dalla LAN, e un permesso su quell'indirizzo aprirebbe la sonda a tutti.
 
 ### 6.0 Accesso
 
@@ -602,7 +701,7 @@ utenti e senza ruoli (DEC-11).
 | Accessi successivi | Password all'apertura; sessione di 8 ore (`SNAP_PROBE_SESSION_MINUTES`); uscita dal pulsante in fondo al menu |
 | Password sbagliata | 5 tentativi, poi blocco di 15 minuti. Il blocco scade da se' |
 | Cambio password | *Configurazione > Password dell'interfaccia*, con la password attuale. Almeno 10 caratteri, una maiuscola, una minuscola, una cifra: la stessa regola della console |
-| Password dimenticata | Non si recupera da remoto, di proposito. Dal dispositivo: cancellare la voce `ui_password_hash` dall'archivio locale (`probe/data/snap_probe.sqlite3`, tabella `settings`); alla riapertura l'interfaccia chiede di scegliere una password nuova |
+| Password dimenticata | Non si recupera da remoto, di proposito. Dal dispositivo: cancellare la voce `ui_password_hash` dalla tabella `settings` dell'archivio locale, con l'utenza proprietaria -- `docker exec snap-probe-postgres psql -U <proprietario> -d snap_probe -p 5532 -c "DELETE FROM settings WHERE key = 'ui_password_hash';"` --; alla riapertura l'interfaccia chiede di scegliere una password nuova |
 
 Ogni accesso -- riuscito, fallito, bloccato -- e il cambio password entrano nel
 **diario locale** con l'indirizzo di provenienza: e' la traccia che risponde a "chi
@@ -724,12 +823,21 @@ tracciata nel registro.
 | `SNAP_PROBE_LOG_FILE` | vuoto | Diario su file, in aggiunta a quello a schermo |
 | `SNAP_PROBE_SESSION_MINUTES` | `480` | Durata della sessione dell'interfaccia |
 | `SNAP_PROBE_PORT` | `5510` | Porta dell'interfaccia locale |
-| `SNAP_PROBE_STORE` | `probe/data/snap_probe.sqlite3` | Archivio locale |
+| `SNAP_PROBE_DATABASE_URL` | *obbligatoria* | Archivio locale (PostgreSQL): l'utenza applicativa, che scrive i dati |
+| `SNAP_PROBE_OWNER_DATABASE_URL` | *obbligatoria* | Stessa base dati con l'utenza proprietaria: crea e migra lo schema |
 | `SNAP_PROBE_TICK_SECONDS` | `15` | Cadenza del ciclo dell'agente |
 | `SNAP_PROBE_SCAN_INTERVAL` | `300` | Intervallo di raccolta iniziale |
 | `SNAP_PROBE_HTTP_TIMEOUT` | `15` | Timeout delle richieste al server |
 | `SNAP_PROBE_COOKIE_NAME` | `snap_probe_session` | Nome del cookie di sessione: deve differire da quello del server |
 | `SNAP_PROBE_DEBUG` | `false` | Modalita' di sviluppo |
+| `SNAP_PROBE_BEHIND_PROXY` | `false` | Legge l'indirizzo del client dalle intestazioni `X-Forwarded-*`: si attiva **solo** con un proxy davanti che le riscrive |
+| `SNAP_PROBE_COOKIE_SECURE` | `false` | Cookie di sessione solo su HTTPS |
+| `SNAP_PROBE_SERVER_CA` | vuoto | Certificato di cui fidarsi per il canale verso il server. Serve quando il server ha un certificato proprio: **senza, la sonda rifiuta di parlargli** -- ed e' il comportamento giusto, su quel canale passano le chiavi della registrazione. Non esiste un interruttore per disattivare la verifica |
+| `SNAP_PROBE_FIRST_ACCESS_FROM` | vuoto | Indirizzi ammessi alla **prima** impostazione della password, oltre al loopback. Vuoto = solo dalla postazione della sonda |
+| `SNAP_PROBE_SCAN_INTERFACE` | vuoto | Interfaccia da cui devono partire le scansioni (`-e` di nmap), col nome che usa nmap (`nmap --iflist`). Vuoto = come decide il sistema. Vale con i socket raw |
+| `SNAP_PROBE_SCAN_SOURCE_IP` | vuoto | Indirizzo di partenza delle scansioni (`-S` di nmap) |
+| `SNAP_PROBE_NMAP` | vuoto | Percorso dell'eseguibile di nmap, se non e' nel PATH |
+| `SNAP_PROBE_NMAP_SCRIPT_DB` | vuoto | Percorso di `script.db`, l'indice degli script NSE, se non si trova accanto a nmap |
 
 ---
 

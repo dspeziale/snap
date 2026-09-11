@@ -34,9 +34,13 @@ class ClienteFinto:
         self.ordine = ordine
         self.battito_fallisce = battito_fallisce
         self.lotti = []
+        # L'istantanea della console consegnata col battito: si conserva per poter
+        # verificare che parta davvero, non solo che il battito avvenga.
+        self.console = None
 
-    def heartbeat(self):
+    def heartbeat(self, console: dict = None):
         self.ordine.append("battito")
+        self.console = console
         if self.battito_fallisce:
             raise TransportError("collegamento rifiutato")
         return {"config": {}, "commands": []}
@@ -144,3 +148,23 @@ def test_all_avvio_vale_l_ultimo_contatto_recente(probe_store):
     probe_store.set_setting("last_contact_at", "non-una-data")
     assert ProbeAgent(probe_store, "1.0.0-test").online is False, (
         "un valore illeggibile non si indovina")
+
+
+def test_il_battito_porta_l_istantanea_della_console(agente, probe_store):
+    """La console remota del server si regge su questa.
+
+    La sonda non e' raggiungibile dall'esterno: cio' che il server mostra di lei e'
+    cio' che il battito porta. Se l'istantanea smettesse di partire, quella pagina
+    resterebbe vuota senza che nulla lo dica -- un difetto che si vede solo aprendo
+    la console, e solo se qualcuno ci pensa.
+    """
+    ordine: list = []
+    cliente = ClienteFinto(ordine)
+    agente.client = cliente
+    agente._run_due_scan = ScansioneFinta(ordine).esegui
+
+    agente.run_once()
+
+    assert cliente.console, "il battito non ha portato l'istantanea della console"
+    assert "agent" in cliente.console, cliente.console
+    assert "scan" in cliente.console, cliente.console

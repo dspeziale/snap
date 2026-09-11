@@ -54,7 +54,7 @@ graph LR
     end
     subgraph "Infrastruttura di raccolta"
         S["snap server<br/>console web + canale sonde<br/>porta 5500"]
-        DB[("SQLite<br/>snap_server.sqlite3")]
+        DB[("PostgreSQL<br/>snap_server")]
     end
     OP["Operatori<br/>(browser)"]
     TEC["Tecnico di campo<br/>(browser locale)"]
@@ -432,11 +432,11 @@ graph TB
             T1["Thread interfaccia web<br/>127.0.0.1:5510"]
             T2["Thread agente<br/>raccolta e conferimento"]
         end
-        F1[("probe/data/snap_probe.sqlite3<br/>coda, chiavi, diario")]
+        F1[("PostgreSQL snap_probe<br/>127.0.0.1:5532<br/>coda, chiavi, diario")]
     end
     subgraph N2["Nodo di raccolta"]
         PROC2["Processo python run.py (server)<br/>0.0.0.0:5500"]
-        F2[("server/data/snap_server.sqlite3")]
+        F2[("PostgreSQL snap_server<br/>rete interna del compose")]
         F4[("server/instance/secret_key")]
     end
 

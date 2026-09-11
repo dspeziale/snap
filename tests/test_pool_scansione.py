@@ -835,3 +835,70 @@ def test_il_recupero_rispetta_il_perimetro(probe_store):
 
     assert esecutore.chiamate == []
     assert probe_store.local_node("192.168.99.9")["state"] == "discarded"
+
+
+# --------------------------------------------------------------------------- #
+# L'arricchimento non deve morire di fame
+# --------------------------------------------------------------------------- #
+# IL GUASTO CHE QUESTE PROVE CHIUDONO, misurato in esercizio.
+#
+# I posti del ciclo riservati all'arricchimento sono pochi, e quando la frontiera dei
+# profili e' piena se ne libera uno o due per volta. Le quattro fasi erano elencate a
+# mano, sempre nella stessa sequenza, in DUE punti del pianificatore: l'ultima
+# dell'elenco non arrivava mai al proprio turno.
+#
+# Dopo giorni di esercizio su un'installazione reale:
+#
+#     smb    184 esecuzioni
+#     vuln    72 esecuzioni
+#     web      0      <- ultima dell'elenco
+#
+# La conseguenza non era un ritardo, era una funzione MORTA: la pagina dei certificati
+# TLS restava vuota per sempre (i certificati li raccoglie la lettura web), con 1.875
+# nodi che espongono una 443.
+def test_una_fase_mai_eseguita_passa_davanti_a_una_gia_fatta(sonda):
+    from snapprobe.scanner import FASI_ARRICCHIMENTO
+
+    scanner = NetworkScanner(sonda, EsecutoreConcorrente(0))
+    for fase in ("snmp", "smb", "vuln"):
+        sonda.record_scan("*", fase, "completed", "")
+
+    ordine = scanner._arricchimenti_per_urgenza()
+
+    assert set(ordine) == set(FASI_ARRICCHIMENTO), ordine
+    assert ordine[0] == "web", (
+        "una fase MAI eseguita deve venire per prima: %s" % ordine)
+
+
+def test_fra_le_fasi_gia_fatte_viene_prima_la_piu_vecchia(sonda):
+    scanner = NetworkScanner(sonda, EsecutoreConcorrente(0))
+    # Le fasi si registrano in ordine: l'istante cresce, quindi la prima registrata
+    # e' la piu' vecchia e deve tornare in testa.
+    for fase in ("web", "vuln", "smb", "snmp"):
+        sonda.record_scan("*", fase, "completed", "")
+        time.sleep(1.05)   # l'istante si conserva al secondo
+
+    ordine = scanner._arricchimenti_per_urgenza()
+
+    assert ordine == ["web", "vuln", "smb", "snmp"], (
+        "chi ha atteso di piu' deve passare davanti: %s" % ordine)
+
+
+def test_l_ordine_non_e_codificato_a_mano_in_due_posti(sonda):
+    """Il difetto nasceva dall'avere DUE elenchi da tenere allineati.
+
+    Se qualcuno reintroducesse una sequenza fissa, la fase in fondo tornerebbe a
+    morire di fame senza che nulla lo dica: questa prova guarda il codice, perche'
+    e' la' che il difetto vive.
+    """
+    from pathlib import Path
+
+    sorgente = (Path(__file__).resolve().parents[1]
+                / "probe" / "snapprobe" / "scanner.py").read_text(encoding="utf-8")
+    pianificatore = sorgente[sorgente.index("def plan_tasks"):
+                             sorgente.index("def _run_task")]
+
+    assert pianificatore.count("_arricchimenti_per_urgenza()") == 2, (
+        "i due punti in cui il pianificatore assegna posti all'arricchimento devono"
+        " chiedere l'ordine allo stesso posto: trovati %d"
+        % pianificatore.count("_arricchimenti_per_urgenza()"))

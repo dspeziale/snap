@@ -1011,3 +1011,110 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
 .snap-fascia:hover {
   opacity: 1;
 }
+
+/* --- Console remota di una sonda: si deve VEDERE che non e' il server ----
+ *
+ * PERCHE' ESISTE QUESTO TRATTAMENTO. La console della sonda mostra, dentro il
+ * server, le stesse cose che si vedono aprendo l'interfaccia della sonda in sede.
+ * Due interfacce che si somigliano sono un rischio operativo: chi crede di stare
+ * sul server mentre guarda una sonda (o viceversa) prende decisioni sui dati
+ * sbagliati. La sonda ha per questo un marchio ARANCIONE, diverso dal blu della
+ * console; qui quell'arancione arriva sulla pagina del server, in modo che
+ * l'appartenenza si veda senza doverla leggere.
+ *
+ * Il colore e' lo stesso del marchio della sonda (#fd7e14). Il nastro porta il
+ * proprio fondo, quindi il contrasto non dipende dal tema: testo quasi nero su
+ * arancione, ben oltre il minimo WCAG 2.1 AA. Nessuna animazione. */
+.snap-sonda-nastro {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #fd7e14;
+  color: #1a1200;
+  border-radius: .5rem;
+  padding: .55rem .9rem;
+  margin-bottom: .85rem;
+  box-shadow: 0 .35rem .75rem rgba(0, 0, 0, .18);
+}
+
+/* Le strisce diagonali dicono "questo riquadro e' altrove" meglio di una scritta:
+ * sono il segno che si usa sulle zone di transito. Statiche, decorative, e per
+ * questo nascoste alle tecnologie assistive (aria-hidden nel modello). */
+.snap-sonda-strisce {
+  height: 6px;
+  border-radius: 3px;
+  margin-bottom: .5rem;
+  background-image: repeating-linear-gradient(
+    135deg,
+    #1a1200 0, #1a1200 6px,
+    transparent 6px, transparent 12px);
+  opacity: .55;
+}
+
+.snap-sonda-nastro .snap-sonda-etichetta {
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  opacity: .85;
+}
+
+.snap-sonda-nastro .snap-sonda-nome {
+  font-weight: 700;
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+/* Le targhette dentro il nastro non usano i colori Bootstrap: su fondo arancione
+ * un `text-bg-warning` sparirebbe. Fondo scuro traslucido, testo chiaro. */
+.snap-sonda-nastro .snap-sonda-targa {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  background-color: rgba(0, 0, 0, .22);
+  color: #fff;
+  border-radius: .35rem;
+  padding: .15rem .45rem;
+  font-size: .78rem;
+  white-space: nowrap;
+}
+
+.snap-sonda-nastro .snap-sonda-targa-vecchia {
+  background-color: #842029;   /* rosso Bootstrap scuro: il dato non e' attuale */
+  color: #fff;
+  font-weight: 600;
+}
+
+/* La cornice attorno al contenuto: anche a meta' pagina, dove il nastro non si
+ * legge piu', il bordo laterale dice di chi sono questi dati. */
+.snap-sonda-cornice {
+  border-left: .3rem solid #fd7e14;
+  border-radius: .5rem;
+  padding: .75rem .75rem .1rem .9rem;
+  background-color: rgba(253, 126, 20, .05);
+}
+
+/* Il piede: chiude la cornice e ripete l'appartenenza dopo una pagina lunga. */
+.snap-sonda-piede {
+  border-top: 1px dashed rgba(253, 126, 20, .55);
+  color: var(--bs-secondary-color);
+  font-size: .78rem;
+  padding-top: .5rem;
+  margin-top: .25rem;
+}
+
+/* L'accesso alla console dalle pagine delle sonde: bottone arancione pieno, non
+ * un collegamento discreto. E' il punto in cui si cambia macchina. */
+.btn-snap-sonda {
+  background-color: #fd7e14;
+  border-color: #e06a00;
+  color: #1a1200;
+  font-weight: 600;
+}
+
+.btn-snap-sonda:hover,
+.btn-snap-sonda:focus-visible {
+  background-color: #e06a00;
+  border-color: #c25c00;
+  color: #fff;
+}

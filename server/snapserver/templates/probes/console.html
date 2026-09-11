@@ -14,7 +14,7 @@
 
 {% extends 'base.html' %}
 {% block title %}Console di {{ probe.name }}{% endblock %}
-{% block page_icon %}bi-display{% endblock %}
+{% block page_icon %}bi-hdd-network{% endblock %}
 {% block page_title %}Console di {{ probe.name }}{% endblock %}
 {% block page_subtitle %}
   Quello che si vede aprendo l'interfaccia della sonda, dal server. La sonda non e'
@@ -22,6 +22,60 @@
 {% endblock %}
 
 {% block content %}
+
+{# --- SI DEVE VEDERE CHE QUESTA NON E' LA CONSOLE DEL SERVER ------------------
+   Questa pagina mostra, dentro il server, le stesse cose che si vedono aprendo
+   l'interfaccia della sonda in sede. Due interfacce che si somigliano sono un
+   rischio operativo: chi crede di stare sul server mentre guarda una sonda prende
+   decisioni sui dati sbagliati. La sonda ha per questo un marchio ARANCIONE; qui
+   quell'arancione arriva sulla pagina del server.
+
+   Il nastro e' APPICCICATO IN ALTO (`position: sticky`): su una pagina lunga la
+   scritta in testa scorrerebbe via proprio mentre si leggono i numeri, cioe' nel
+   momento in cui confondersi costa. Porta anche l'istante del dato, perche' quella
+   e' l'altra cosa che non si deve dimenticare guardando questa pagina. #}
+<div class="snap-sonda-nastro">
+  <div class="snap-sonda-strisce" aria-hidden="true"></div>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <i class="bi bi-hdd-network fs-4" aria-hidden="true"></i>
+      <div>
+        <div class="snap-sonda-etichetta">Console remota della sonda</div>
+        <div class="snap-sonda-nome">
+          {{ probe.name }}
+          <span class="font-monospace fw-normal">({{ probe.code }})</span>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex align-items-center flex-wrap gap-2">
+      <span class="snap-sonda-targa">
+        <i class="bi bi-{{ 'broadcast' if online else 'plug' }}" aria-hidden="true"></i>
+        {{ 'in linea' if online else 'silente' }}
+      </span>
+      {% if consolle_at %}
+      <span class="snap-sonda-targa{{ ' snap-sonda-targa-vecchia' if not fresca else '' }}">
+        <i class="bi bi-clock" aria-hidden="true"></i>
+        {% if fresca %}
+          stato di {{ consolle_at|ago }}
+        {% else %}
+          dato vecchio: {{ consolle_at|ago }}
+        {% endif %}
+      </span>
+      {% else %}
+      <span class="snap-sonda-targa snap-sonda-targa-vecchia">
+        <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+        nessuno stato ricevuto
+      </span>
+      {% endif %}
+      <a class="btn btn-sm btn-light"
+         href="{{ url_for('probes.detail', probe_id=probe.id) }}">
+        <i class="bi bi-gear me-1" aria-hidden="true"></i> Configurazione
+      </a>
+    </div>
+  </div>
+</div>
+
+<div class="snap-sonda-cornice">
 
 {# Alias sicuri: l'intestazione si disegna anche quando NON e' arrivata nessuna
    istantanea, ed e' proprio il caso in cui la si guarda. #}
@@ -283,7 +337,8 @@
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10">
             <thead><tr><th>QUANDO</th><th>FASE</th><th>BERSAGLIO</th><th>ESITO</th></tr></thead>
             <tbody>
               {% for riga in consolle.scan.get('states_recent') or [] %}
@@ -311,7 +366,8 @@
       </div>
       <div class="card-body p-0">
         <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10">
             <thead><tr><th>QUANDO</th><th>RECORD</th><th>ESITO</th></tr></thead>
             <tbody>
               {% for riga in consolle.get('syncs') or [] %}
@@ -355,4 +411,13 @@
     </p>
   </div>
 </div>
+{# Chiude la cornice e ripete l'appartenenza: dopo una pagina lunga, chi arriva
+     in fondo non ha piu' il nastro sotto gli occhi. #}
+  <div class="snap-sonda-piede">
+    <i class="bi bi-hdd-network me-1" aria-hidden="true"></i>
+    Fine dei dati della sonda <strong>{{ probe.code }}</strong>. Tutto quanto sta
+    dentro questa cornice arancione viene da lei, non dal server.
+  </div>
+</div>
 {% endblock %}
+

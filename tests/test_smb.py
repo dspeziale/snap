@@ -25,7 +25,7 @@ import pytest
 
 from snapprobe.scanner import (DEFAULT_CADENCES, SMB_HOST_TIMEOUT, SMB_PORTS,
                                SMB_SCRIPTS, STAGES, NetworkScanner, smb_summary)
-from test_scanner import EsecutoreFinto, leggi
+from test_scanner import EsecutoreFinto, chiamata_di, leggi
 
 PERIMETRO = [{"cidr": "192.0.2.0/24", "label": "Rete di prova"}]
 
@@ -82,7 +82,7 @@ def test_la_fase_smb_interroga_solo_i_nodi_con_la_porta_aperta(sonda):
                                            "state": "open"}}}))
     esecutore = EsecutoreFinto(leggi("nmap_smb.xml"))
     NetworkScanner(sonda, esecutore).run_stage("smb", "*")
-    assert esecutore.chiamate[-1]["targets"] == ["192.0.2.51"]
+    assert chiamata_di(esecutore, "smb")["targets"] == ["192.0.2.51"]
 
 
 def test_la_fase_smb_riguarda_anche_chi_espone_solo_la_445(sonda):
@@ -122,7 +122,7 @@ def test_gli_argomenti_della_fase_smb_sono_il_comando_chiesto(sonda):
     esecutore = EsecutoreFinto(leggi("nmap_smb.xml"))
     NetworkScanner(sonda, esecutore).run_stage("smb", "*")
 
-    argomenti = esecutore.chiamate[-1]["arguments"]
+    argomenti = chiamata_di(esecutore, "smb")["arguments"]
     assert "-p" in argomenti and SMB_PORTS in argomenti
     valore = argomenti[argomenti.index("--script") + 1]
     assert valore == SMB_SCRIPTS
@@ -344,7 +344,7 @@ def test_la_richiesta_su_un_nodo_specifico_enumera_quel_nodo(sonda):
     scanner.run_stage("smb", "*")
     esecutore.chiamate.clear()
     scanner.run_stage("smb", "192.0.2.51")
-    assert esecutore.chiamate[-1]["targets"] == ["192.0.2.51"], (
+    assert chiamata_di(esecutore, "smb")["targets"] == ["192.0.2.51"], (
         "la richiesta su un nodo specifico deve enumerare quel solo nodo")
 
 # --------------------------------------------------------------------------- #
