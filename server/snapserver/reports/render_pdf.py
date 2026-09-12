@@ -620,6 +620,21 @@ class Foglio:
         c.line(MARGINE, self.y, self.larghezza - MARGINE, self.y)
         self.y -= 14
 
+    def sottotitolo_sezione(self, testo):
+        """Titolo di terzo livello: non numerato, ma riconoscibile.
+
+        Reso come un paragrafo qualsiasi si confondeva con il testo, e un documento
+        lungo diventava un muro: chi cerca "la prima password" deve poterla trovare
+        scorrendo, non leggendo.
+        """
+        self.spazio(30)
+        self.y -= 6
+        c = self.c
+        c.setFont(self.font["titolo"], 11)
+        c.setFillColor(self.tema["banda"])
+        c.drawString(MARGINE, self.y, testo)
+        self.y -= 15
+
     def paragrafo(self, testo, colore=None, dimensione=CORPO, mono=False):
         c = self.c
         font = self.font["mono"] if mono else self.font["corpo"]

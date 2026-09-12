@@ -240,7 +240,7 @@ si registra cio' che l'utente chiude e non cio' che apre.
 | Rete | Nodi, **mappa della rete** ad albero, stato della rete, cambiamenti, perimetro, dati conferiti dalle sonde. Pastiglia **verde** con i nodi in inventario |
 | Controlli | Bersagli e controlli, incidenti, notifiche, regole di notifica. Pastiglia **blu** con i controlli attivi e, a gruppo chiuso, pastiglia rossa con gli incidenti aperti |
 | Sicurezza | Threat Intelligence e registro Audit & Eventi. Pastiglia rossa con i riscontri confermati, gialla con quelli aperti |
-| Report e resoconti | Catalogo dei dodici generi di report, archivio di quelli prodotti (scaricabili e eliminabili) e resoconto quotidiano |
+| Report e resoconti | Catalogo dei quattordici generi di report, archivio di quelli prodotti (scaricabili e eliminabili) e resoconto quotidiano |
 | Sonde | Flotta sonde (stato, configurazione, comandi, revoca) e registrazione di una nuova sonda |
 | Amministrazione | Tenant (solo amministratore di sistema), utenti, impostazioni e manutenzione |
 | Guida operativa | Si apre in una finestra nuova: si consulta accanto a cio' che si sta facendo |

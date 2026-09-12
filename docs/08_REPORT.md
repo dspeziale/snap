@@ -87,7 +87,7 @@ capitolo 11.
 | RP-31 | Il report sulla segmentazione elenca **anche le reti con zona dichiarata**, non solo quelle senza | Elencare solo cio' che manca e' meta' del documento: la segmentazione si dimostra con le reti che dichiarano che cosa sono, con quante esposizioni risultano attese in quel contesto e quante restano aperte. E' anche il modo di far vedere che una zona dichiarata NON chiude i riscontri: cambia il giudizio su quelli che appartengono a quel contesto |
 | RP-29 | La **scheda dell'apparato** riporta cio' che l'apparato dichiara di se' -- nome, marca, modello, posizione fisica, nome host, numero di serie, firmware -- prima della sezione sul riconoscimento | Una dichiarazione dell'apparato vale piu' di una deduzione del prodotto, ed e' la parte che un tecnico legge per prima: dice che cosa ha davanti e dove si trova. Ogni riga porta la porta da cui viene, perche' un dato senza la sua fonte non e' verificabile |
 | RP-30 | Il campo del frontespizio si chiama **Indirizzo della console** e non "Console" | Una parola sola non si capisce: chi legge il documento non puo' sapere quale indirizzo sia, ed e' quello che gli serve per verificare i dati alla fonte. Quando non e' impostato, il campo dice anche dove si imposta |
-| RP-21 | Un report si puo' **eliminare dall'archivio**, con il suo file, previa conferma | Con dodici generi e piu' ampiezze l'elenco si riempie di prove e di edizioni superate, e un archivio in cui non si trova piu' il documento giusto smette di essere un archivio. L'eliminazione e' tracciata nel registro: si cancella un file, non la storia di averlo prodotto |
+| RP-21 | Un report si puo' **eliminare dall'archivio**, con il suo file, previa conferma | Con quattordici generi e piu' ampiezze l'elenco si riempie di prove e di edizioni superate, e un archivio in cui non si trova piu' il documento giusto smette di essere un archivio. L'eliminazione e' tracciata nel registro: si cancella un file, non la storia di averlo prodotto |
 | RP-22 | La **scheda dell'apparato** non ha un periodo ma un soggetto | Come il rapporto di incidente: la domanda non e' "che cosa e' successo in trenta giorni" ma "che cosa sappiamo di questo dispositivo". Costringerla in una finestra temporale avrebbe aggiunto una scelta che non serve a chi la stampa per allegarla a una richiesta di intervento |
 | RP-23 | Il **report di igiene** misura cio' che manca, non cio' che c'e' | "Nessuna vulnerabilita'" puo' voler dire due cose opposte: che la rete e' a posto o che non si e' guardato. Un documento che dichiara i propri punti ciechi e' l'unico modo perche' gli altri restino credibili |
 | RP-15 | La tipografia dei report e' **PT Sans Narrow**, con corpo proporzionato al formato (10 pt su A4), non i 19 pt dei manuali | La convenzione dei 19 pt riguarda i manuali software, dove serve leggibilita' a schermo condiviso. Su un A4 tecnico con tabelle, 19 pt produrrebbe quaranta pagine per dieci di contenuto |
@@ -148,6 +148,11 @@ capitolo 11.
 | R9 | Segmentazione e zone di rete | Sicurezza, architetti di rete | Mensile, su richiesta | 5-9 | "La segmentazione dichiarata regge? Che cosa e' raggiungibile dove non dovrebbe" |
 | R10 | Igiene dell'inventario | Chi gestisce il prodotto, sistemisti | Mensile, su richiesta | 4-8 | "Che cosa manca per fidarsi dei numeri, e che cosa fare per migliorarli" |
 | R11 | Scheda dell'apparato | Chi interviene, fornitori, inventario d'ufficio | A richiesta, per dispositivo | 3-5 | "Tutto cio' che sappiamo di questo apparato, in un foglio" |
+| R12 | Certificati TLS | Chi rinnova i certificati, sistemisti | Mensile, su richiesta | 4-10 | "Quali certificati scadono, quali sono deboli, chi li ha emessi" |
+| R13 | Vetusta' del parco | Direzione IT, chi pianifica le sostituzioni | Mensile, su richiesta | 4-9 | "Quali sistemi non li aggiorna piu' nessuno, e da quanti anni" |
+| R14 | Presenze sulle reti senza fili | Sicurezza fisica, DPO | Settimanale, mensile | 3-6 | "Chi c'e' stato sulle reti senza fili, e con quale certezza lo so" |
+| R15 | Salute della flotta e copertura | Chi gestisce il servizio, fornitore | Settimanale | 4-8 | "Le sonde funzionano? Quanta parte del perimetro e' davvero coperta?" |
+| R16 | Esposizione SMB | Sistemisti Windows, sicurezza interna | Mensile, su richiesta | 5-14 | "Dove la firma SMB non e' richiesta, dove SMB 1.0 e' ancora acceso" |
 
 ### R1 - Sintesi esecutiva
 
@@ -353,6 +358,116 @@ periodo da scegliere (RP-22), e' la fotografia di cio' che si sa adesso.
 `monitor_samples`, `checks`.
 
 ---
+
+### R12 - Certificati TLS
+
+**Destinatario**: chi rinnova i certificati -- che quasi mai e' chi guarda la console:
+e' il referente del sistema che li ospita, e cambia da sistema a sistema.
+
+**Perche' esiste**. Un certificato che scade non e' un rischio teorico: e' un servizio
+che smette di funzionare a una data nota. L'unica ragione per cui coglie di sorpresa e'
+che nessuno tiene l'elenco. Questo documento e' quell'elenco.
+
+**Contenuto**: gia' scaduti; in scadenza a 30 e a 90 giorni; certificati con una
+debolezza dimostrata (firma SHA-1 o MD5, chiave RSA sotto i 2048 bit -- NIST SP 800-57
+-- autofirma); chi li ha emessi, con quanti ne ha emessi ciascuno. Un parco con venti
+emittenti diversi non ha una politica dei certificati: ne ha venti, ed e' il primo dato
+da guardare prima delle singole scadenze.
+
+**Limite dichiarato in copertina**: si vedono i soli certificati che una sonda ha
+potuto leggere aprendo una connessione HTTPS. Un servizio che la sonda non raggiunge
+non compare, e la sua assenza NON e' la conferma che non esista.
+
+### R13 - Vetusta' del parco
+
+**Destinatario**: chi decide che cosa sostituire e con quale urgenza.
+
+**Perche' esiste**. La domanda non e' "quali sistemi hanno una vulnerabilita'" -- quella
+ha gia' il suo documento (R8) -- ma "quali sistemi non li tocca piu' nessuno": e' la
+causa a monte di meta' delle vulnerabilita', e non compare in nessun catalogo di CVE.
+
+**Come si stabilisce l'eta'**: dall'anno che l'interfaccia dichiara di se' -- copyright
+nel pie' di pagina, una data in un meta, una stringa di build, l'intestazione
+`Last-Modified`, l'inizio di validita' del certificato TLS. Fra le prove si tiene la
+piu' recente. Un nodo con piu' interfacce conta per la PIU' VECCHIA: un apparato con
+un'applicazione aggiornata e una console di gestione ferma al 2011 ha un problema, e la
+media lo nasconderebbe.
+
+**Limite dichiarato in copertina**, ed e' il punto piu' importante del documento: un
+"(c) 2014" NON dimostra che il software sia del 2014. Dimostra che nessuno ha piu'
+toccato quella pagina dal 2014: e' un limite INFERIORE all'eta', non una misura. Per
+questo ogni riga porta la PROVA -- il frammento da cui l'anno viene, ripulito dal
+markup ma non riscritto -- e non il solo numero: chi legge deve poter dare un giudizio,
+non fidarsi.
+
+**Contenuto**: ferme da oltre dieci anni; ferme da cinque a dieci; distribuzione per
+anno dichiarato; e il conto delle interfacce che non dichiarano alcun anno, che NON
+compaiono nell'elenco e non sono "recenti": sono mute, ed e' una cosa diversa.
+
+### R14 - Presenze sulle reti senza fili
+
+**Destinatari**: chi risponde della sicurezza fisica ("quanti apparati non riconosco")
+e chi risponde del trattamento dei dati ("per quanto tempo li conservo").
+
+**Unita' di misura**: l'apparato riconosciuto, non l'indirizzo IP -- che il DHCP
+riassegna, e che confonderebbe due apparati diversi in una riga sola. Il riconoscimento
+e' a scalare (indirizzo fisico, numero di serie, nome host, niente) e la sua fonte e'
+sempre dichiarata: un'identita' dedotta vale meno di una letta. La sezione "con quale
+certezza" e' quella che dice se lo storico e' affidabile: se meta' degli apparati e'
+riconosciuta dal solo indirizzo, lo storico e' una successione di indirizzi, non di
+apparati.
+
+**Contenuto**: le reti osservate; le fonti dell'identita' con la loro certezza; gli
+apparati comparsi per la prima volta nel periodo; i piu' assidui, come termine di
+paragone -- e' rispetto a chi torna ogni giorno che un apparato comparso una volta sola
+si nota.
+
+**Trattamento dei dati**, dichiarato nel documento: sapere quali apparati personali
+erano in rete e quando riguarda le persone, non solo le macchine (Reg. UE 2016/679,
+art. 5). Il documento nomina gli APPARATI, non le persone; le presenze si conservano
+per il tempo dichiarato in Amministrazione > Archivio e si cancellano da se'.
+
+### R15 - Salute della flotta e copertura
+
+**Destinatario**: chi gestisce il servizio -- il fornitore, o chi in azienda risponde
+del fatto che il monitoraggio funzioni.
+
+**Perche' esiste**. E' l'unico documento che non parla della rete del cliente ma dello
+STRUMENTO, e risponde alla sola domanda che conta prima di guardare qualunque altro
+report: "posso fidarmi di questi dati?". Va letto per primo.
+
+**La parte importante sono i punti ciechi**: una subnet dichiarata nel perimetro e mai
+guardata non produce righe in nessun altro documento -- e una tabella vuota si legge
+come "niente da segnalare" invece che come "non guardato". Questo documento li nomina,
+uno per uno, e distingue le reti mai prese come bersaglio da quelle guardate che non
+hanno prodotto nulla.
+
+**Come si misurano le fasi**. Si contano le passate che non hanno visto NESSUN host,
+non quelle a zero record: il contatore dei record lo valorizzano le sole fasi che
+scrivono record propri (scoperta e lettura web), mentre porte, SMB e vulnerabilita'
+conferiscono aggiornando i nodi e lo lasciano a zero anche quando hanno lavorato.
+Misurato sul parco reale: 68.342 righe di porte raccolte a fronte di 563 passate
+`ports` tutte dichiarate a zero record. Presentarlo come "fase fallita" sarebbe stato un
+allarme falso, e il documento spiega la differenza invece di nasconderla.
+
+### R16 - Esposizione SMB
+
+**Destinatari**: sistemisti Windows, sicurezza interna.
+
+**Perche' esiste**. SMB e' il protocollo con cui si muove il ransomware dentro una rete:
+la firma dei messaggi non richiesta e il protocollo 1.0 ancora acceso sono le due
+condizioni che glielo rendono facile, e sono scritte in cio' che ogni apparato dichiara
+di se'.
+
+**Contenuto**: dove la firma e' abilitata ma NON richiesta (il presupposto degli
+attacchi di inoltro NTLM: "abilitata" non basta, deve essere "richiesta"); dove risponde
+ancora SMB 1.0, che si riconosce dal nome storico `NT LM 0.12` -- un dispositivo che
+dichiara anche 3.1.1 resta esposto finche' accetta quel dialetto, perche' e' il client a
+scegliere; le condivisioni che si lasciano enumerare senza credenziali.
+
+**Come si raccoglie**: in SOLA LETTURA, da quello che ogni dispositivo dichiara quando
+gli si chiede come parla. Nessuna credenziale provata, nessun file aperto, nessuna
+condivisione montata.
 
 ## 4-bis. Il fascicolo di conformita' europea
 
@@ -599,7 +714,7 @@ che impedisce a due titoli di sovrapporsi. Non scende nemmeno sotto la larghezza
 serve per contenere il proprio valore piu' lungo andando a capo: e' la ragione per cui
 un indirizzo lungo occupa cinque righe strette invece di perdere la coda.
 
-Sul campo, gli otto generi del catalogo generati sull'inventario reale non abbreviano
+Sul campo, i generi del catalogo prodotti sull'inventario reale non abbreviano
 piu' alcun valore.
 
 **Elenchi su due colonne.** Il ripiego a colonna unica e' automatico: se a mezza pagina
@@ -618,7 +733,7 @@ documento con un registro. Le DATE di calendario che arrivano da cataloghi ester
 inserimento nel KEV, scadenza per la correzione -- non si convertono: una data non ha un
 fuso, e convertirla la sposterebbe di un giorno.
 
-**Frontespizio (RP-18).** Fascia colorata alta il 42% della pagina: marchio (tre archi e
+**Frontespizio (RP-18).** Fascia colorata alta il 42% della pagina (34% in orizzontale), **e di piu' se il contenuto lo richiede**: l'altezza si calcola sul titolo andato a capo e sul sottotitolo, perche' con una quota fissa la riga di identificazione finiva sotto il bordo -- testo chiaro su fondo bianco, tagliato a meta'. Dentro la fascia: marchio (tre archi e
 un punto: il segnale che una sonda ascolta), nome del prodotto e claim, etichetta del
 genere in alto a destra, titolo, sottotitolo con la domanda a cui il report risponde, riga
 `Tenant X · istante · generato da Y`. Sotto la fascia: lo scopo in due righe, poi due
@@ -637,6 +752,12 @@ riquadro della provenienza dei dati.
 | Fascicolo di conformita' | indaco `#2a2440` | CONFORMITA' |
 | Rapporto di incidente | terra bruciata `#3d2410` | INCIDENTE |
 | Resoconto quotidiano (allegato) | ardesia `#1f3033` | RESOCONTO |
+| Certificati TLS | verde bosco `#1f3a34` | CERTIFICATI TLS |
+| Vetusta' del parco | ruggine `#3b2a17` | VETUSTA' DEL PARCO |
+| Presenze sulle reti senza fili | blu notte chiaro `#1b2c3f` | PRESENZE SENZA FILI |
+| Salute della flotta | grigio neutro `#2b2b33` | STATO DEL SERVIZIO |
+| Esposizione SMB | prugna `#33202b` | ESPOSIZIONE SMB |
+| Documentazione di prodotto | acciaio `#23313d` | INSTALLAZIONE |
 
 Ogni tema porta anche l'accento (barrette delle sezioni, valori degli indicatori, linea
 dei grafici) e il tono chiaro (fasce di indicatori, righe alternate delle tabelle).
@@ -711,6 +832,11 @@ offerte per quel genere:
 | Vulnerabilita' ed esposizioni | 7, 30, 90 | 30 | analista | A4 verticale |
 | Segmentazione e zone di rete | 7, 30, 90 | 30 | analista | A4 verticale |
 | Igiene dell'inventario | 7, 30, 90 | 30 | analista | A4 verticale |
+| Certificati TLS | 30, 90 | 30 | analista | A4 **orizzontale** |
+| Vetusta' del parco | 30, 90 | 30 | analista | A4 **orizzontale** |
+| Presenze sulle reti senza fili | 7, 30, 90 | 30 | analista | A4 **orizzontale** |
+| Salute della flotta e copertura | 1, 7, 30 | 7 | analista | A4 **orizzontale** |
+| Esposizione SMB | 30, 90 | 30 | analista | A4 **orizzontale** |
 | Rapporto di incidente | l'incidente stesso | - | analista | A4 verticale |
 | Scheda dell'apparato | il dispositivo stesso | - | analista | A4 verticale |
 

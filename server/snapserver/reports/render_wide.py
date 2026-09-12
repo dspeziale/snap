@@ -1924,8 +1924,8 @@ def _riga_certificato(voce: dict) -> list:
         # UNA RIGA SOLA: l'impaginatore disegna la cella com'e', e un
         # a capo esce come un quadratino -- il carattere che il font non ha.
         ("%s  %s" % (nome, dove)) if nome else dove,
-        str(voce.get("cert_subject") or voce.get("cert_soggetto_dn") or "-")[:60],
-        str(voce.get("cert_issuer") or voce.get("cert_emittente_dn") or "-")[:50],
+        str(voce.get("cert_subject") or voce.get("cert_soggetto_dn") or "-"),
+        str(voce.get("cert_issuer") or voce.get("cert_emittente_dn") or "-"),
         str(voce.get("cert_expires") or "-"),
         quando,
         ", ".join(voce.get("debolezze") or []) or "-",
@@ -2037,7 +2037,7 @@ def certificates_report(percorso, dati: dict) -> str:
     if dati["emittenti"]:
         foglio.tabella(
             ["EMITTENTE", "QUANTI", "AUTOFIRMATI", "CON DEBOLEZZE"],
-            [[str(e["emittente"])[:70], str(e["quanti"]), str(e["autofirmati"]),
+            [[str(e["emittente"]), str(e["quanti"]), str(e["autofirmati"]),
               str(e["deboli"])] for e in dati["emittenti"]],
             larghezze=[58, 14, 14, 14], allineamento=["l", "r", "r", "r"])
     else:
@@ -2120,11 +2120,11 @@ def _riga_vetusta(v: dict) -> list:
     dove = "%s:%s" % (v.get("ip") or "?", v.get("port") or "?")
     return [
         ("%s  %s" % (nome, dove)) if nome else dove,
-        str(v.get("device_label") or v.get("device_type") or "-")[:26],
-        str(v.get("product") or v.get("server_header") or v.get("title") or "-")[:34],
+        str(v.get("device_label") or v.get("device_type") or "-"),
+        str(v.get("product") or v.get("server_header") or v.get("title") or "-"),
         str(v.get("web_year") or "-"),
         ("%d anni" % v["eta"]) if v.get("eta") is not None else "-",
-        str(v.get("web_year_source") or "-")[:16],
+        str(v.get("web_year_source") or "-"),
         _prova_leggibile(v.get("web_year_evidence"), v.get("web_year")),
     ]
 
@@ -2275,7 +2275,7 @@ def presenze_report(percorso, dati: dict) -> str:
     if dati["reti"]:
         foglio.tabella(
             ["RETE", "ETICHETTA", "ZONA", "APPARATI", "PERMANENZE"],
-            [[str(r["cidr"]), str(r["label"] or "-")[:34], str(r["zone"] or "-")[:20],
+            [[str(r["cidr"]), str(r["label"] or "-"), str(r["zone"] or "-"),
               str(r["apparati"] or 0), str(r["permanenze"] or 0)]
              for r in dati["reti"]],
             larghezze=[20, 30, 18, 16, 16], allineamento=["l", "l", "l", "r", "r"])
@@ -2305,9 +2305,9 @@ def presenze_report(percorso, dati: dict) -> str:
     if dati["nuovi"]:
         foglio.tabella(
             ["APPARATO", "MAC", "INDIRIZZO", "FONTE", "DAL", "PERMANENZE"],
-            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"])[:34],
+            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"]),
               str(v.get("mac") or "-"), str(v.get("ip") or "-"),
-              str(v["fonte"]), str(v["dal"])[:16], str(v["permanenze"])]
+              str(v["fonte"]), foglio.istante(v["dal"]), str(v["permanenze"])]
              for v in dati["nuovi"][:MAX_RIGHE_ELENCO]],
             larghezze=[26, 16, 14, 18, 16, 10],
             allineamento=["l", "l", "l", "l", "l", "r"])
@@ -2325,9 +2325,9 @@ def presenze_report(percorso, dati: dict) -> str:
     if dati["assidui"]:
         foglio.tabella(
             ["APPARATO", "MAC", "FONTE", "PERMANENZE", "DAL", "ULTIMA VOLTA"],
-            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"])[:34],
+            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"]),
               str(v.get("mac") or "-"), str(v["fonte"]),
-              str(v["permanenze"]), str(v["dal"])[:16], str(v["al"])[:16]]
+              str(v["permanenze"]), foglio.istante(v["dal"]), foglio.istante(v["al"])]
              for v in dati["assidui"]],
             larghezze=[26, 16, 18, 10, 15, 15],
             allineamento=["l", "l", "l", "r", "l", "l"])
@@ -2376,8 +2376,8 @@ def _nome_sonda(s: dict) -> str:
     nome = str(s["name"] or "").strip()
     confronto = nome.lower().replace(" ", "").replace("-", "")
     if not nome or confronto in codice.lower().replace("-", ""):
-        return codice[:30]
-    return ("%s  %s" % (codice, nome))[:30]
+        return codice
+    return "%s  %s" % (codice, nome)
 
 
 def _stato_sonda(s: dict) -> str:
@@ -2432,8 +2432,8 @@ def flotta_report(percorso, dati: dict) -> str:
         foglio.tabella(
             ["SONDA", "SEDE", "STATO", "AGENTE", "ULTIMO BATTITO", "LOTTI", "PASSATE",
              "NODI"],
-            [[_nome_sonda(s), str(s["site"] or "-")[:18], _stato_sonda(s),
-              str(s["agent_version"] or "-"), str(s["last_seen_at"] or "mai")[:16],
+            [[_nome_sonda(s), str(s["site"] or "-"), _stato_sonda(s),
+              str(s["agent_version"] or "-"), foglio.istante(s["last_seen_at"], vuoto="mai"),
               str(s["lotti"] or 0), str(s["passate"] or 0), str(s["nodi"] or 0)]
              for s in dati["sonde"]],
             larghezze=[22, 13, 11, 9, 15, 10, 10, 10],
@@ -2452,7 +2452,7 @@ def flotta_report(percorso, dati: dict) -> str:
             " al loro turno.")
         foglio.tabella(
             ["RETE", "ETICHETTA", "ZONA", "INDIRIZZI"],
-            [[str(c["cidr"]), str(c["label"] or "-")[:40], str(c["zone"] or "-")[:20],
+            [[str(c["cidr"]), str(c["label"] or "-"), str(c["zone"] or "-"),
               str(c["host_count"] or 0)] for c in dati["ciechi"][:MAX_RIGHE_ELENCO]],
             larghezze=[22, 38, 22, 18], allineamento=["l", "l", "l", "r"])
         if len(dati["ciechi"]) > MAX_RIGHE_ELENCO:
@@ -2470,7 +2470,7 @@ def flotta_report(percorso, dati: dict) -> str:
             " dichiara quando nmap non sa come arrivare a un bersaglio.")
         foglio.tabella(
             ["RETE", "ETICHETTA", "ULTIMA PASSATA"],
-            [[str(c["cidr"]), str(c["label"] or "-")[:40], str(c["ultima"])[:16]]
+            [[str(c["cidr"]), str(c["label"] or "-"), foglio.istante(c["ultima"])]
              for c in dati["vuote"][:MAX_RIGHE_ELENCO]],
             larghezze=[1.2, 1.6, 1.4], colonne=2)
     else:
@@ -2505,10 +2505,10 @@ def flotta_report(percorso, dati: dict) -> str:
     if dati["copertura"]:
         foglio.tabella(
             ["RETE", "ETICHETTA", "ZONA", "ATTIVA", "WI-FI", "NODI", "ULTIMA PASSATA"],
-            [[str(c["cidr"]), str(c["label"] or "-")[:30], str(c["zone"] or "-")[:18],
+            [[str(c["cidr"]), str(c["label"] or "-"), str(c["zone"] or "-"),
               "si" if int(c["is_enabled"] or 0) else "no",
               "si" if int(c["is_wifi"] or 0) else "-",
-              str(c["nodi"] or 0), str(c["ultima"] or "mai")[:16]]
+              str(c["nodi"] or 0), foglio.istante(c["ultima"], vuoto="mai")]
              for c in dati["copertura"][:MAX_RIGHE_ELENCO]],
             larghezze=[1.3, 1.4, 1.0, .6, .5, .6, 1.2],
             allineamento=["l", "l", "l", "l", "l", "r", "l"], colonne=2)
@@ -2533,6 +2533,16 @@ SEZIONI_SMB = [
     "Condivisioni enumerate",
     "Tutti i dispositivi letti",
 ]
+
+
+# La firma in forma breve, per l'elenco completo: la dicitura estesa non entra in una
+# colonna e usciva troncata a meta' parola ("abilitata ma non richi"), che si legge come
+# un errore del programma. Il significato esteso sta nella sezione che la spiega.
+FIRMA_BREVE = {
+    "abilitata ma non richiesta": "non richiesta",
+    "non attiva": "non attiva",
+    "richiesta": "richiesta",
+}
 
 
 def smb_report(percorso, dati: dict) -> str:
@@ -2578,11 +2588,11 @@ def smb_report(percorso, dati: dict) -> str:
     if dati["senza_firma"]:
         foglio.tabella(
             ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "RETE", "FIRMA"],
-            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
-              str(v["ip"]), str(v.get("os_name") or "-")[:26],
+            [[str(v.get("hostname") or v.get("device_label") or "-"),
+              str(v["ip"]), str(v.get("os_name") or "-"),
               str(v.get("cidr") or "-"), str(v["firma"])]
              for v in dati["senza_firma"][:MAX_RIGHE_ELENCO]],
-            larghezze=[24, 16, 24, 18, 24])
+            larghezze=[22, 14, 22, 16, 26])
         if len(dati["senza_firma"]) > MAX_RIGHE_ELENCO:
             foglio.paragrafo("Mostrati i primi %d di %d."
                              % (MAX_RIGHE_ELENCO, len(dati["senza_firma"])))
@@ -2599,11 +2609,11 @@ def smb_report(percorso, dati: dict) -> str:
     if dati["con_smb1"]:
         foglio.tabella(
             ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "PROTOCOLLI DICHIARATI"],
-            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
-              str(v["ip"]), str(v.get("os_name") or "-")[:26],
-              ", ".join(v["protocolli"])[:44]]
+            [[str(v.get("hostname") or v.get("device_label") or "-"),
+              str(v["ip"]), str(v.get("os_name") or "-"),
+              ", ".join(v["protocolli"]) or "-"]
              for v in dati["con_smb1"][:MAX_RIGHE_ELENCO]],
-            larghezze=[24, 16, 24, 42])
+            larghezze=[22, 14, 22, 42])
     else:
         foglio.paragrafo("Nessun dispositivo letto dichiara SMB 1.0.")
 
@@ -2611,8 +2621,8 @@ def smb_report(percorso, dati: dict) -> str:
     if dati["con_condivisioni"]:
         foglio.tabella(
             ["DISPOSITIVO", "INDIRIZZO", "CONDIVISIONI"],
-            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
-              str(v["ip"]), ", ".join(v["condivisioni"])[:70]]
+            [[str(v.get("hostname") or v.get("device_label") or "-"),
+              str(v["ip"]), ", ".join(v["condivisioni"]) or "-"]
              for v in dati["con_condivisioni"][:MAX_RIGHE_ELENCO]],
             larghezze=[24, 16, 66])
     else:
@@ -2622,15 +2632,21 @@ def smb_report(percorso, dati: dict) -> str:
             " dispositivo ha rifiutato -- ed e' il comportamento corretto.")
 
     foglio.titolo_sezione("Tutti i dispositivi letti")
+    foglio.paragrafo(
+        "Nella colonna FIRMA, \"non richiesta\" sta per \"abilitata ma non"
+        " richiesta\": e' la condizione descritta nella sezione 3, non una firma"
+        " assente -- quella e' \"non attiva\". Una casella vuota significa che il"
+        " dispositivo non ha dichiarato nulla in proposito.")
     if dati["nodi"]:
         foglio.tabella(
             ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "RETE", "FIRMA", "PROTOCOLLI"],
-            [[str(v.get("hostname") or v.get("device_label") or "-")[:28],
-              str(v["ip"]), str(v.get("os_name") or "-")[:22],
-              str(v.get("cidr") or "-"), str(v["firma"] or "-")[:22],
-              ", ".join(v["protocolli"])[:30]]
+            [[str(v.get("hostname") or v.get("device_label") or "-"),
+              str(v["ip"]), str(v.get("os_name") or "-"),
+              str(v.get("cidr") or "-"),
+              FIRMA_BREVE.get(v["firma"], v["firma"] or "-"),
+              ", ".join(v["protocolli"]) or "-"]
              for v in dati["nodi"][:MAX_RIGHE_ELENCO]],
-            larghezze=[22, 14, 20, 16, 20, 24])
+            larghezze=[22, 13, 21, 15, 13, 24])
         if len(dati["nodi"]) > MAX_RIGHE_ELENCO:
             foglio.paragrafo("Mostrati i primi %d di %d."
                              % (MAX_RIGHE_ELENCO, len(dati["nodi"])))

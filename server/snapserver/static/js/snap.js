@@ -351,6 +351,19 @@
         || attivo.isContentEditable;
     }
 
+    // Una ricerca o un filtro in corso dentro il blocco che si ricarica: ricaricare
+    // li azzererebbe, e chi sta cercando qualcosa vedrebbe sparire il proprio lavoro
+    // ogni minuto. Si aspetta che la casella torni vuota.
+    function staFiltrando() {
+      var caselle = elemento.querySelectorAll("input[type='search'], input[type='text']");
+      for (var indice = 0; indice < caselle.length; indice += 1) {
+        if ((caselle[indice].value || "").trim() !== "") {
+          return true;
+        }
+      }
+      return false;
+    }
+
     window.setInterval(function () {
       if (document.hidden) {
         scadenza = Date.now() + secondi * 1000;
@@ -359,7 +372,7 @@
       if (Date.now() < scadenza) {
         return;
       }
-      if (staScrivendo()) {
+      if (staScrivendo() || staFiltrando()) {
         scadenza = Date.now() + 15000;
         return;
       }

@@ -1611,6 +1611,32 @@ l'avvistamento nel futuro. Un dato imperfetto non e' un apparato inesistente.
 
 ### 14-bis.8 Dove si vede
 
+### In rete adesso
+
+In cima alla pagina delle presenze c'e' una domanda diversa da quella dello storico:
+**chi c'e' adesso**, cioe' quali apparati sono stati visti negli ultimi cinque minuti.
+La finestra e' la promessa piu' stretta che la pagina puo' mantenere: la ricognizione
+conferisce a intervalli di pochi minuti, e una finestra piu' corta dichiarerebbe assente
+chi c'e'.
+
+Ogni riga porta **lo storico dell'apparato accanto alla sua presenza**: quante
+permanenze gli si conoscono, su quanti indirizzi, dal quando. Senza quello l'elenco non
+sarebbe interpretabile -- l'apparato che c'e' sempre stato e quello comparso adesso per
+la prima volta occuperebbero righe identiche. Chi ha una sola permanenza e' marcato
+*mai visto prima*: su una rete di ospiti e' la normalita', non un allarme, ed e' la riga
+da guardare per prima.
+
+La pagina **si ricarica da sola ogni minuto**. E' l'unica del prodotto che lo fa, e la
+ragione e' che senza ricarica mostrerebbe con sicurezza uno stato vecchio di mezz'ora.
+La ricarica si sospende quando la scheda non e' in primo piano -- ricaricare una pagina
+che nessuno guarda e' solo carico sul server -- e si rimanda se si sta scrivendo in un
+campo.
+
+**Se la ricognizione e' ferma, la pagina lo dichiara.** Un elenco vuoto perche' non c'e'
+nessuno e un elenco vuoto perche' nessuno sta guardando si assomigliano sullo schermo e
+significano cose opposte: quando l'ultimo avvistamento e' piu' vecchio di dieci minuti
+compare un avviso che dice quale dei due casi e'.
+
 - **Dispositivi -> Presenze Wi-Fi**: le permanenze in tabella, con quattro indicatori
   in cima. Il piu' importante e' *senza identita'*: dice se lo storico e' affidabile.
 - **Scheda del dispositivo -> Cambiamenti e raggiungibilita'**: le presenze di quel

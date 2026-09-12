@@ -389,11 +389,41 @@ Cio' che ha richiesto una traduzione vera:
 schema all'avvio, l'**applicativo** legge e scrive i dati e non puo' cambiare la
 struttura -- quindi un difetto del programma non puo' cancellare una tabella.
 
-**Il lucchetto c'e' ancora**, e va spiegato: serviva a SQLite, e con PostgreSQL non
-servirebbe. Si e' mantenuto per fare **una** modifica per volta -- il comportamento
-resta quello verificato. Togliendolo, il pool servirebbe i trentadue thread davvero in
-parallelo: e' il passo successivo, da fare misurando, non insieme al cambio di
-archivio.
+**Il lucchetto globale non c'e' piu'** (sonda 1.2.0). Serviva a SQLite, che ammette un
+solo scrittore per volta; con PostgreSQL ogni operazione apre la propria transazione dal
+pool e la concorrenza la gestisce il database. Era sopravvissuto al porting e metteva in
+fila quarantatre operazioni -- scansioni, agente, controlli e interfaccia, una per volta.
+Resta soltanto dove serve davvero: l'importazione del vecchio archivio, che legge e
+scrive in due transazioni distinte.
+
+### 8-ter.2-bis Interfaccia e motore sono due processi
+
+Vivevano nello stesso interprete Python, che esegue un thread per volta (GIL): mentre i
+trentadue lavoratori di scansione lavoravano, la pagina aspettava. Misurato sulla pagina
+di accesso, che non tocca nemmeno l'archivio:
+
+| Condizione | Tempo di risposta |
+|---|---|
+| Scansioni attive, processo unico | 3-6 s, e oltre i 120 s del proxy sotto il carico di un browser (**504 Gateway Timeout**) |
+| Scansioni sospese, processo unico | 0,46-0,73 s |
+| Scansioni attive, due processi | **0,22 s** |
+
+L'agente gira in un processo suo (`run.py --headless`) e l'interfaccia in un altro
+(`run.py --solo-interfaccia`); condividono l'archivio PostgreSQL, che e' fatto per
+questo. Fermare l'interfaccia ferma anche l'agente: due agenti sullo stesso archivio si
+contenderebbero le prenotazioni dei bersagli.
+
+### 8-ter.2-ter Quando nmap non sa come arrivarci
+
+Un XML valido e vuoto non distingue "l'host non ha risposto" da "non so come
+arrivarci". La seconda nmap la scrive su **stdout** -- `failed to determine route to
+...` -- e il prodotto la buttava via, tenendo solo `stderr`: il risultato era una
+passata a zero host attribuita a un timeout, ripetuta a ogni ciclo per sempre.
+
+Ora la diagnostica si raccoglie da entrambi i flussi, i bersagli senza rotta si
+riconoscono, la causa giusta finisce nel diario della sonda e quei bersagli vanno **in
+attesa** invece di essere ripresi a ogni giro -- anche quando sono nodi gia' confermati,
+che prima ne erano esenti.
 
 ### 8-ter.3 I dati del vecchio archivio si importano
 

@@ -78,12 +78,46 @@ param(
     [int]$Port = 5511,
     [switch]$SenzaProxy,
     [switch]$PrimaPassword,
-    [switch]$SoloVerifica
+    [switch]$SoloVerifica,
+    # Avvia la sonda SENZA finestra: il diario va su file invece che a schermo. La
+    # sonda e' un servizio, non un programma da guardare -- una finestra aperta per
+    # giorni si chiude per sbaglio, e con lei si ferma la raccolta.
+    [switch]$Nascosta,
+    # Riservato: e' la seconda esecuzione, quella gia' senza finestra. Non si usa a
+    # mano.
+    [switch]$SonoIlProcessoNascosto
 )
 
 $ErrorActionPreference = 'Stop'
 $Qui = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Radice = Resolve-Path (Join-Path $Qui '..\..')
+
+# AVVIO SENZA FINESTRA. Si rilancia se stesso in un processo nascosto e si esce
+# subito: il diario finisce su file, e la sonda continua a girare quando questa
+# finestra non c'e' piu'. Il file si sovrascrive a ogni avvio -- e' il diario della
+# sessione corrente, non un archivio: quello sta nell'interfaccia della sonda.
+if ($Nascosta -and -not $SonoIlProcessoNascosto) {
+    $registro = Join-Path $Radice 'probe\sonda-nativa.log'
+    $argomenti = @(
+        '-ExecutionPolicy', 'Bypass',
+        '-File', ('"{0}"' -f $MyInvocation.MyCommand.Path),
+        '-Port', $Port, '-SonoIlProcessoNascosto'
+    )
+    if ($SenzaProxy) { $argomenti += '-SenzaProxy' }
+    if ($PrimaPassword) { $argomenti += '-PrimaPassword' }
+    $processo = Start-Process -FilePath 'powershell.exe' `
+        -ArgumentList ($argomenti -join ' ') `
+        -WorkingDirectory $Radice -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $registro `
+        -RedirectStandardError ($registro + '.err')
+    Write-Host ''
+    Write-Host ("  Sonda avviata senza finestra (processo {0})." -f $processo.Id) `
+               -ForegroundColor Green
+    Write-Host ("  Diario: {0}" -f $registro) -ForegroundColor DarkGray
+    Write-Host '  Per fermarla: .\stop-nativa.ps1' -ForegroundColor DarkGray
+    Write-Host ''
+    exit 0
+}
 
 function Fermati([string]$Messaggio) {
     Write-Host ''
@@ -342,7 +376,11 @@ if ($PrimaPassword) {
     Write-Host '  da QUESTA macchina, scegliere la password, poi fermare (Ctrl+C) e' -ForegroundColor Yellow
     Write-Host '  riavviare senza -PrimaPassword.' -ForegroundColor Yellow
 }
-Write-Host '  Ctrl+C per fermare' -ForegroundColor DarkGray
+if ($SonoIlProcessoNascosto) {
+    Write-Host '  (avvio senza finestra: fermare con stop-nativa.ps1)' -ForegroundColor DarkGray
+} else {
+    Write-Host '  Ctrl+C per fermare' -ForegroundColor DarkGray
+}
 Write-Host ''
 
 # DUE PROCESSI, NON UNO. L'interfaccia web e i trentadue lavoratori di scansione

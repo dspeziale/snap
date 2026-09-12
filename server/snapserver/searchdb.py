@@ -176,6 +176,33 @@ def _q(chiave, titolo, domanda, colonne, sql, parametri=None, nota=""):
             "nota": nota}
 
 
+def _anno_di(quanti_anni_fa: int) -> int:
+    """L'anno di tanti anni fa.
+
+    La soglia si calcola ADESSO e non si scrive in tabella: una soglia scritta
+    invecchia insieme al codice che la contiene, e fra due anni direbbe un'altra cosa.
+    """
+    from datetime import date
+
+    return date.today().year - int(quanti_anni_fa)
+
+
+def _fra_giorni(giorni: int) -> str:
+    """Una data futura in forma ISO, per confrontarla con le scadenze dei certificati:
+    l'archivio le conserva come testo ISO, e il confronto fra testi ISO ordina bene."""
+    from datetime import date, timedelta
+
+    return (date.today() + timedelta(days=int(giorni))).isoformat()
+
+
+def _minuti_fa(minuti: int) -> str:
+    """L'istante di tanti minuti fa, nella scrittura dell'archivio."""
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc)
+            - timedelta(minutes=int(minuti))).strftime("%Y-%m-%d %H:%M:%S")
+
+
 SAVED_QUERIES = [
     _q("desktop_remoto", "Chi espone il desktop remoto",
        "Quali dispositivi rispondono su RDP o VNC? E' la prima porta che un attacco"
@@ -343,6 +370,106 @@ SAVED_QUERIES = [
        " WHERE tenant_id = ? AND severity IN ('warning', 'critical')"
        " AND created_at >= ? ORDER BY created_at DESC",
        parametri=lambda t: (t, days_ago_str(7))),
+
+    # ----------------------------------------------------------------------- #
+    # I nodi delle relazioni
+    #
+    # Ogni relazione del catalogo risponde a una domanda; queste interrogazioni
+    # portano agli STESSI dispositivi, ma qui e ora e in forma esportabile. Servono a
+    # chi il documento lo ha letto e adesso deve lavorarci: il PDF si consegna, il CSV
+    # si apre.
+    # ----------------------------------------------------------------------- #
+    _q("vetusta_grave", "Interfacce ferme da oltre dieci anni",
+       "Quali interfacce web dichiarano un anno anteriore a dieci anni fa? Sono i"
+       " nodi della relazione sulla vetusta' del parco: non e' la prova che il"
+       " software sia di allora, e' la prova che da allora non lo tocca nessuno.",
+       ["indirizzo", "nome host", "dispositivo", "porta", "prodotto", "anno",
+        "fonte dell'anno"],
+       "SELECT n.ip, COALESCE(n.hostname, ''), COALESCE(n.device_label, ''),"
+       " w.scheme || '/' || w.port,"
+       " COALESCE(w.product, COALESCE(w.server_header, '')),"
+       " w.web_year, COALESCE(w.web_year_source, '')"
+       " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+       " WHERE w.tenant_id = ? AND w.web_year IS NOT NULL AND w.web_year > 0"
+       " AND w.web_year <= ? ORDER BY w.web_year, n.ip",
+       parametri=lambda t: (t, _anno_di(10)),
+       nota="E' la sezione \"Ferme da oltre dieci anni\" della relazione sulla"
+            " vetusta' del parco, con gli stessi dispositivi."),
+
+    _q("vetusta_muta", "Interfacce che non dichiarano alcun anno",
+       "Quali interfacce web non lasciano capire la propria eta'? Non sono"
+       " \"recenti\": sono mute, ed e' una cosa diversa -- nella relazione sulla"
+       " vetusta' non compaiono, e questa e' la loro lista.",
+       ["indirizzo", "nome host", "dispositivo", "porta", "prodotto", "titolo"],
+       "SELECT n.ip, COALESCE(n.hostname, ''), COALESCE(n.device_label, ''),"
+       " w.scheme || '/' || w.port,"
+       " COALESCE(w.product, COALESCE(w.server_header, '')),"
+       " substr(COALESCE(w.title, ''), 1, 60)"
+       " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+       " WHERE w.tenant_id = ? AND (w.web_year IS NULL OR w.web_year = 0)"
+       " ORDER BY n.ip"),
+
+    _q("smb_senza_firma", "Dove la firma SMB non e' richiesta",
+       "Su quali dispositivi la firma dei messaggi e' abilitata ma NON richiesta? E'"
+       " il presupposto degli attacchi di inoltro NTLM, e sono i nodi della relazione"
+       " sull'esposizione SMB.",
+       ["indirizzo", "nome host", "dispositivo", "sistema", "che cosa dichiara",
+        "letto il"],
+       "SELECT n.ip, COALESCE(n.hostname, ''), COALESCE(n.device_label, ''),"
+       " COALESCE(n.os_name, ''), substr(m.output, 1, 90), m.collected_at"
+       " FROM node_smb m JOIN nodes n ON n.id = m.node_id"
+       " WHERE m.tenant_id = ? AND m.script_id LIKE '%security-mode%'"
+       " AND LOWER(m.output) LIKE '%enabled but not required%'"
+       " ORDER BY n.ip"),
+
+    _q("smb_uno", "Chi parla ancora SMB 1.0",
+       "Quali dispositivi accettano il dialetto SMB 1.0? Si riconosce dal nome"
+       " storico \"NT LM 0.12\": chi lo accetta resta esposto anche se dichiara pure"
+       " le versioni recenti, perche' e' il client a scegliere.",
+       ["indirizzo", "nome host", "dispositivo", "sistema", "dialetti dichiarati"],
+       "SELECT n.ip, COALESCE(n.hostname, ''), COALESCE(n.device_label, ''),"
+       " COALESCE(n.os_name, ''), substr(m.output, 1, 90)"
+       " FROM node_smb m JOIN nodes n ON n.id = m.node_id"
+       " WHERE m.tenant_id = ? AND m.script_id LIKE '%protocols%'"
+       " AND LOWER(m.output) LIKE '%nt lm 0.12%' ORDER BY n.ip"),
+
+    _q("certificati_in_scadenza", "Certificati TLS scaduti o in scadenza",
+       "Quali certificati sono gia' scaduti o scadono entro trenta giorni? Un"
+       " certificato che scade non e' un rischio teorico: e' un servizio che smette"
+       " di funzionare a una data nota.",
+       ["indirizzo", "nome host", "porta", "soggetto", "emittente", "scade il"],
+       "SELECT n.ip, COALESCE(n.hostname, ''), w.port,"
+       " substr(COALESCE(w.cert_subject, ''), 1, 60),"
+       " substr(COALESCE(w.cert_issuer, ''), 1, 60), w.cert_expires"
+       " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+       " WHERE w.tenant_id = ? AND w.cert_expires IS NOT NULL"
+       " AND w.cert_expires <> '' AND substr(w.cert_expires, 1, 10) <= ?"
+       " ORDER BY w.cert_expires",
+       parametri=lambda t: (t, _fra_giorni(30))),
+
+    _q("reti_mai_guardate", "Reti dichiarate e mai guardate",
+       "Quali subnet sono nel perimetro, attive, e nessuna passata ha mai preso come"
+       " bersaglio? Sono i punti ciechi: non producono righe in nessun altro elenco,"
+       " e una tabella vuota si legge come \"niente da segnalare\".",
+       ["subnet", "etichetta", "zona", "indirizzi possibili", "dichiarata il"],
+       "SELECT s.cidr, COALESCE(s.label, ''), COALESCE(s.zone, ''), s.host_count,"
+       " s.created_at FROM subnets s"
+       " WHERE s.tenant_id = ? AND s.is_enabled = 1"
+       " AND NOT EXISTS (SELECT 1 FROM scan_runs r WHERE r.tenant_id = s.tenant_id"
+       "   AND r.target = s.cidr) ORDER BY s.cidr"),
+
+    _q("presenti_ora", "Chi e' in rete adesso, senza fili",
+       "Quali apparati sono stati visti sulle reti senza fili negli ultimi cinque"
+       " minuti, e da che cosa sono riconosciuti? E' l'elenco della pagina delle"
+       " presenze, in forma esportabile.",
+       ["apparato", "indirizzo", "MAC", "riconosciuto da", "qui dalle",
+        "ultimo avvistamento"],
+       "SELECT COALESCE(p.device_label, COALESCE(p.hostname, 'non identificato')),"
+       " p.ip, COALESCE(p.mac, ''), p.identity_source, p.first_seen_at,"
+       " p.last_seen_at FROM presence_sessions p"
+       " WHERE p.tenant_id = ? AND p.last_seen_at >= ?"
+       " ORDER BY p.last_seen_at DESC",
+       parametri=lambda t: (t, _minuti_fa(5))),
 
     _q("conferimenti", "Conferimenti rifiutati o parziali",
        "Se una sonda consegna e il server rifiuta, l'inventario invecchia senza che"

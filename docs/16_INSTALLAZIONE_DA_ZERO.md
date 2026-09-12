@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Prodotto | snap — Secure Network Assessment Platform |
-| Versione documentata | 1.6.0 |
+| Versione documentata | console 1.7.0, sonda 1.2.0 |
 | Conformità documentale | ISO/IEC/IEEE 29148:2018 (§ scopo, riferimenti, istruzioni) |
 | Destinatari | chi installa il sistema e chi lo assiste |
 
@@ -208,6 +208,35 @@ docker compose -f docker-compose.yml -f docker-compose.nativa.yml up -d postgres
 `start-nativa.ps1` verifica i presupposti prima di avviare: file di configurazione,
 nessuna sonda in contenitore già attiva, base dati raggiungibile, nmap nel PATH, proxy
 TLS in esecuzione, ancora di fiducia verso la console.
+
+Così la sonda resta legata alla finestra: chiuderla la ferma. Per **avviarla senza
+finestra**, come si conviene a un servizio:
+
+```powershell
+.\start-nativa.ps1 -Nascosta
+```
+
+Lo script si rilancia in un processo nascosto e restituisce subito il prompt. Il diario
+finisce in `probe\sonda-nativa.log` (e gli errori in `.log.err`), e si sovrascrive a
+ogni avvio: è il diario della sessione corrente, non un archivio -- lo storico sta
+nell'interfaccia della sonda.
+
+Senza finestra non c'è più un Ctrl+C da premere, e per fermarla c'è un comando:
+
+```powershell
+.\stop-nativa.ps1                    # ferma agente e interfaccia
+.\stop-nativa.ps1 -ConIContenitori   # ferma anche proxy TLS e archivio
+```
+
+`stop-nativa.ps1` riconosce i processi dalla riga di comando -- sono i soli `run.py` di
+questo prodotto -- e ferma **prima l'agente, poi l'interfaccia**: all'inverso resterebbe
+un agente che continua a prenotare bersagli senza che nessuno possa vedere che cosa sta
+facendo.
+
+> **Privilegi.** Aperta come utente normale, la sonda non può usare la scansione SYN
+> (`-sS`) né il rilevamento del sistema operativo (`-O`): ricade sulla scansione per
+> connessione, più lenta e senza sistema operativo, e lo dichiara nella propria pagina
+> di stato. Per l'inventario completo va aperta **come amministratore**.
 
 > **Non avviare mai anche `snap-probe`.** Due sonde sullo stesso archivio si contendono
 > le prenotazioni dei bersagli e lo stato dei nodi diventa incoerente. Lo script lo

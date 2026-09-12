@@ -171,7 +171,7 @@ limitato al tenant corrente.
 
 ### 6.2 Interrogazioni pronte
 
-Sedici domande che si ripetono, con la loro motivazione in chiaro:
+Ventitre' domande che si ripetono, con la loro motivazione in chiaro. Le ultime sette portano agli stessi dispositivi delle relazioni del catalogo (`08_REPORT.md`): il PDF si consegna, il CSV si apre e ci si lavora.
 
 | Interrogazione | A che cosa serve |
 |---|---|
@@ -191,6 +191,13 @@ Sedici domande che si ripetono, con la loro motivazione in chiaro:
 | Copertura del perimetro | Quanto di cio' che si e' dichiarato e' stato visto |
 | Eventi gravi del registro | Che cosa il sistema ha annotato |
 | Conferimenti rifiutati o parziali | Se una sonda consegna e il server rifiuta, l'inventario invecchia in silenzio |
+| Interfacce ferme da oltre dieci anni | I nodi della relazione sulla vetusta': non prova che il software sia di allora, prova che da allora non lo tocca nessuno |
+| Interfacce che non dichiarano alcun anno | Non sono "recenti": sono mute, ed e' una cosa diversa -- nella relazione non compaiono |
+| Dove la firma SMB non e' richiesta | Il presupposto degli attacchi di inoltro NTLM: "abilitata" non basta, deve essere "richiesta" |
+| Chi parla ancora SMB 1.0 | Si riconosce da `NT LM 0.12`: chi lo accetta resta esposto anche dichiarando le versioni recenti |
+| Certificati TLS scaduti o in scadenza | Un servizio che smette di funzionare a una data nota |
+| Reti dichiarate e mai guardate | I punti ciechi: non producono righe in nessun altro elenco, e una tabella vuota si legge come "niente da segnalare" |
+| Chi e' in rete adesso, senza fili | L'elenco della pagina delle presenze, in forma esportabile |
 
 A video l'elenco si ferma a 200 righe; l'esportazione in CSV ne porta fino a 5.000,
 perche' un foglio di calcolo le regge e una pagina no. Il separatore e' il punto e

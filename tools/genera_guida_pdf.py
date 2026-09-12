@@ -289,8 +289,7 @@ def genera(sorgente: Path, destinazione: Path) -> Path:
         elif genere == "titolo2":
             foglio.titolo_sezione(contenuto)
         elif genere == "titolo3":
-            foglio.a_capo()
-            foglio.paragrafo(contenuto)
+            foglio.sottotitolo_sezione(contenuto)
         elif genere == "paragrafo":
             foglio.paragrafo(contenuto)
         elif genere == "elenco":

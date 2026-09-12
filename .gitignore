@@ -30,3 +30,8 @@ screenshot.png
 
 # Log di avvio con percorsi locali
 .snap-run/
+
+# Diario della sonda avviata senza finestra (start-nativa.ps1 -Nascosta):
+# e' la sessione corrente, non un archivio.
+probe/sonda-nativa.log
+probe/sonda-nativa.log.err

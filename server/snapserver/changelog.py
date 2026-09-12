@@ -21,6 +21,68 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.7.0",
+        "date": "2026-09-12",
+        "abstract": "Quattro relazioni nuove -- vetusta' del parco, presenze senza"
+                    " fili, salute della flotta, esposizione SMB -- ciascuna con il"
+                    " suo destinatario dichiarato. La pagina delle presenze dice chi"
+                    " e' in rete adesso, e si aggiorna da sola. E la sonda comincia a"
+                    " contare le proprie versioni per conto suo.",
+        "changes": [
+            "VETUSTA' DEL PARCO. Una relazione su quali interfacce non le aggiorna"
+            " piu' nessuno e da quanti anni, con la PROVA in chiaro accanto a ogni"
+            " riga -- il frammento di pagina da cui l'anno viene. Non e' l'elenco"
+            " delle vulnerabilita': e' la causa a monte di meta' di esse, e non"
+            " compare in nessun catalogo di CVE. Sul parco reale: 55 interfacce ferme"
+            " da oltre dieci anni, la piu' vecchia da ventuno.",
+            "PRESENZE SULLE RETI SENZA FILI. Chi c'e' stato, con quale certezza lo si"
+            " sa e per quanto si conservano quei dati: una relazione che si consegna"
+            " a chi risponde della sicurezza fisica e a chi risponde del trattamento"
+            " dei dati, e che dichiara la conservazione a termine invece di lasciarla"
+            " dedurre.",
+            "SALUTE DELLA FLOTTA E COPERTURA. L'unica relazione che non parla della"
+            " rete ma dello STRUMENTO, e che va letta prima delle altre: quali sonde"
+            " funzionano e -- soprattutto -- quali reti dichiarate nel perimetro non"
+            " ha mai guardato nessuno. Una subnet mai scoperta non produce righe in"
+            " nessun altro documento, e una tabella vuota si legge come \"niente da"
+            " segnalare\" invece che come \"non guardato\".",
+            "ESPOSIZIONE SMB. Dove la firma dei messaggi e' abilitata ma non"
+            " richiesta, dove SMB 1.0 risponde ancora, quali condivisioni si lasciano"
+            " enumerare senza credenziali. Tutto letto da cio' che ogni dispositivo"
+            " dichiara di se': nessuna credenziale provata, nessun file aperto.",
+            "IN RETE ADESSO, nella pagina delle presenze: chi e' stato visto negli"
+            " ultimi cinque minuti, ciascuno con il proprio storico sulla stessa riga"
+            " -- quante permanenze, su quanti indirizzi, dal quando -- perche' senza"
+            " quello non si distingue l'apparato che c'e' sempre stato da quello"
+            " comparso adesso. La pagina si ricarica da sola ogni minuto e, se la"
+            " ricognizione e' ferma, lo dichiara: un elenco vuoto perche' non c'e'"
+            " nessuno e un elenco vuoto perche' nessuno sta guardando si assomigliano"
+            " sullo schermo e significano cose opposte.",
+            "SETTE DOMANDE GIA' SCRITTE IN PIU', in Sala operativa, che portano"
+            " agli stessi dispositivi delle relazioni nuove: interfacce ferme da"
+            " oltre dieci anni, interfacce mute, firma SMB non richiesta, SMB 1.0"
+            " ancora acceso, certificati scaduti o in scadenza, reti dichiarate e mai"
+            " guardate, chi e' in rete adesso. Il PDF si consegna, il CSV si apre e ci"
+            " si lavora.",
+            "LA FASCIA DELLA COPERTINA SI DIMENSIONA SUL CONTENUTO. Con l'altezza"
+            " fissa la riga di identificazione -- tenant e data -- finiva sotto il"
+            " bordo: testo chiaro su fondo bianco, tagliato a meta'. Riguardava ogni"
+            " relazione prodotta finora.",
+            "LE FASI DI SCANSIONE SI MISURANO SU CIO' CHE E' MISURABILE. Il contatore"
+            " dei record lo valorizzano le sole fasi che scrivono record propri; le"
+            " altre conferiscono aggiornando i nodi e lo lasciano a zero anche quando"
+            " hanno lavorato -- 68.342 righe di porte raccolte a fronte di 563 passate"
+            " tutte dichiarate a zero. Presentarlo come \"fase fallita\" sarebbe stato"
+            " un allarme falso: si contano le passate che non hanno visto NESSUN host,"
+            " e la differenza fra le due cose e' scritta nel documento.",
+            "LA SONDA HA UNA NUMERAZIONE PROPRIA, che riparte dalla 1.2.0. Le due"
+            " parti si aggiornano in momenti diversi -- la sonda sta in sede dal"
+            " cliente, la console si aggiorna quando si vuole -- e un numero unico"
+            " costringeva a inventare versioni della sonda per cambiamenti che non la"
+            " riguardavano.",
+        ],
+    },
+    {
         "version": "1.6.0",
         "date": "2026-09-12",
         "abstract": "I certificati in scadenza si mandano per posta a chi deve"
