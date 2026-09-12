@@ -803,7 +803,9 @@
           <thead>
             <tr>
               <th>PORTA</th><th>ESITO</th><th>SI PRESENTA COME</th>
-              <th>PRODOTTO E VERSIONE</th><th>CERTIFICATO</th><th>LETTA</th>
+              <th>PRODOTTO E VERSIONE</th><th>CERTIFICATO</th>
+              <th title="L'anno che la pagina dichiara di se': dice quando e' stata toccata l'ultima volta, non l'eta' del software">ANNO DICHIARATO</th>
+              <th>LETTA</th>
             </tr>
           </thead>
           <tbody>
@@ -887,6 +889,42 @@
                 {% endif %}
                 {% else %}
                 <span class="text-body-secondary">&mdash;</span>
+                {% endif %}
+              </td>
+              {# L'ANNO CHE LA PAGINA DICHIARA, con la prova sotto gli occhi.
+                 Un "(c) 2014" non dimostra che il software sia del 2014: dimostra che
+                 nessuno ha piu' toccato quella pagina dal 2014. Percio' qui si mostra
+                 il frammento da cui l'anno viene: chi legge deve poter dare un
+                 giudizio, non fidarsi di un numero. #}
+              <td class="small">
+                {% if pagina.web_year %}
+                <div>
+                  <span class="badge {{ 'text-bg-danger' if (pagina.web_age_years or 0) >= 10
+                                        else ('text-bg-warning' if (pagina.web_age_years or 0) >= 5
+                                              else 'text-bg-secondary') }}">
+                    {{ pagina.web_year }}
+                  </span>
+                  {% if pagina.web_age_years %}
+                  <span class="text-body-secondary">
+                    {{ pagina.web_age_years }} anni fa
+                  </span>
+                  {% endif %}
+                </div>
+                <div class="text-body-secondary">
+                  fonte: {{ pagina.web_year_source or 'non dichiarata' }}
+                  {% if pagina.web_years and ',' in pagina.web_years %}
+                  &middot; anni visti: {{ pagina.web_years }}
+                  {% endif %}
+                </div>
+                {% if pagina.web_year_evidence %}
+                <div class="font-monospace text-body-secondary"
+                     title="Il frammento della pagina da cui viene l'anno">
+                  {{ pagina.web_year_evidence }}
+                </div>
+                {% endif %}
+                {% else %}
+                <span class="text-body-secondary"
+                      title="La pagina non dichiara nessun anno: non significa che sia recente">&mdash;</span>
                 {% endif %}
               </td>
               <td class="small text-body-secondary">{{ pagina.collected_at|dt }}</td>

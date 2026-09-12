@@ -49,7 +49,7 @@ class EsecutoreFinto:
     def running_count(self) -> int:
         return 0
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         # `label` descrive la fase in corso per l'indicatore: qui non serve,
         # ma la firma deve corrispondere a quella del runner vero.
         self.chiamate.append({"arguments": list(arguments), "targets": list(targets),

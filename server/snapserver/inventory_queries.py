@@ -653,7 +653,8 @@ def dati_accessori(righe) -> dict:
 
     for riga in query(
             "SELECT node_id, port, title, product, model, brand, device_name,"
-            " location, firmware, server_header"
+            " location, firmware, server_header, web_year, web_age_years,"
+            " web_year_source"
             " FROM node_web WHERE node_id IN (%s) ORDER BY node_id, port"
             % segnaposto, tuple(identificativi)):
         accessori[int(riga["node_id"])]["web"].append(dict(riga))
@@ -693,7 +694,7 @@ def con_colonne_derivate(righe) -> list:
     il posto di cio' che l'apparato dichiara di se'.
     """
     from .os_guess import indovina
-    from .web_presentation import riassunto_web
+    from .web_presentation import eta_web, riassunto_web
 
     accessori = dati_accessori(righe)
     elenco = []
@@ -711,6 +712,10 @@ def con_colonne_derivate(righe) -> list:
                 for p in extra.get("web") or []),
             porte=extra.get("porte") or ())
         voce["info_web"] = riassunto_web(extra.get("web") or [])
+        # L'eta' dichiarata dall'interfaccia web, quando supera la soglia:
+        # un apparato la cui pagina e' ferma a dieci anni fa non riceve
+        # aggiornamenti, e in un elenco e' cio' che si vuole vedere subito.
+        voce["eta_web"] = eta_web(extra.get("web") or [])
         elenco.append(voce)
     return elenco
 

@@ -1,0 +1,53 @@
+{#
+  snap server - PSN senza alcun piano conferito.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN{% endblock %}
+{% block page_icon %}bi-diagram-3{% endblock %}
+{% block page_title %}PSN &mdash; piano di indirizzamento{% endblock %}
+{% block page_subtitle %}
+  Nessun piano conferito: il sottosistema e' installato e attende il documento.
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h2 class="h6"><i class="bi bi-info-circle me-1"></i> Che cosa fa questa sezione</h2>
+    <p>
+      Il piano di indirizzamento del PSN e' un foglio di calcolo di decine di schede:
+      l'anagrafica delle subnet, una scheda per subnet con <strong>una riga per
+      indirizzo</strong>, i tenant, i database, i servizi pubblicati e la convenzione
+      dei nomi. E' un documento corretto, e proprio per questo non risponde alle
+      domande che contano:
+    </p>
+    <ul>
+      <li>qual e' il <strong>prossimo indirizzo libero</strong> in una subnet;</li>
+      <li>questo <strong>hostname esiste due volte</strong>?</li>
+      <li>due <strong>subnet si sovrappongono</strong>?</li>
+      <li>un indirizzo e' <strong>fuori dalla propria subnet</strong>?</li>
+      <li>che cosa sta <strong>dietro un URL pubblico</strong>;</li>
+      <li>che cosa e' <strong>cambiato</strong> dalla versione precedente.</li>
+    </ul>
+    <p class="mb-0">
+      Conferendo il file, il sottosistema lo legge, ne ricostruisce le relazioni e
+      dichiara cio' che non torna. Il piano resta il documento di riferimento: qui non
+      si modifica, si interroga.
+    </p>
+  </div>
+  <div class="card-footer">
+    {% if g.user and g.user['role'] == 'superadmin' %}
+      <a class="btn btn-primary" href="{{ url_for('psn.import_form') }}">
+        <i class="bi bi-upload me-1"></i> Conferisci il piano
+      </a>
+    {% else %}
+      <span class="text-body-secondary small">
+        Il conferimento del piano e' riservato all'amministratore di sistema.
+      </span>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -86,6 +86,41 @@ CATEGORIA_ICONA = {
 # l'accento serve alle barrette delle sezioni e ai valori; il chiaro alle fasce di
 # indicatori e alle righe alternate delle tabelle.
 TEMI = {
+    # Certificati TLS: una fascia propria, perche' chi li rinnova riceve questo
+    # documento e nient'altro, e deve riconoscerlo sulla scrivania.
+    "certificates": {
+        "banda": HexColor("#1f3a34"), "accento": HexColor("#2f7d68"),
+        "chiaro": HexColor("#e6f2ee"), "etichetta": "CERTIFICATI TLS",
+    },
+    # Documentazione di prodotto (installazione, procedure): non e' un report sulla
+    # rete di un cliente, e la fascia lo deve dire prima del titolo -- chi ha cinque
+    # documenti sulla scrivania non deve confondere una guida con un rapporto.
+    "installazione": {
+        "banda": HexColor("#23313d"), "accento": HexColor("#31708f"),
+        "chiaro": HexColor("#eaf1f6"), "etichetta": "INSTALLAZIONE",
+    },
+    # Vetusta': il colore della ruggine. Chi riceve questo documento deve capire
+    # dalla copertina che non parla di un attacco, ma di abbandono.
+    "vetusta": {
+        "banda": HexColor("#3b2a17"), "accento": HexColor("#8a5a1f"),
+        "chiaro": HexColor("#f6efe4"), "etichetta": "VETUSTA' DEL PARCO",
+    },
+    # Presenze: contiene dati che riguardano le persone, e la fascia lo dichiara --
+    # non e' un documento da lasciare su una scrivania come gli altri.
+    "presenze": {
+        "banda": HexColor("#1b2c3f"), "accento": HexColor("#3f6f9f"),
+        "chiaro": HexColor("#eaf1f7"), "etichetta": "PRESENZE SENZA FILI",
+    },
+    # Flotta: e' il documento sullo STRUMENTO, non sulla rete. Fascia neutra, perche'
+    # confonderlo con un rapporto sulla rete del cliente sarebbe l'errore peggiore.
+    "flotta": {
+        "banda": HexColor("#2b2b33"), "accento": HexColor("#5c6070"),
+        "chiaro": HexColor("#eeeff2"), "etichetta": "STATO DEL SERVIZIO",
+    },
+    "smb": {
+        "banda": HexColor("#33202b"), "accento": HexColor("#94406a"),
+        "chiaro": HexColor("#f7ecf1"), "etichetta": "ESPOSIZIONE SMB",
+    },
     "noc": {
         "banda": HexColor("#2c3a1c"), "accento": HexColor("#5f7a2e"),
         "chiaro": HexColor("#f0f3e7"), "etichetta": "TURNO NOC",
@@ -147,6 +182,15 @@ TEMA_PREDEFINITO = TEMI["noc"]
 
 MM = 2.834645669
 MARGINE = 18 * MM
+
+# Quota, dall'alto della fascia, sotto la quale puo' cominciare il titolo: il marchio
+# con il suo sottotitolo finisce a 80 punti dal bordo, il resto e' aria voluta.
+ALTEZZA_INTESTAZIONE_BANDA = 110
+# Le maiuscole del titolo salgono sopra la linea di base: la misura serve a far
+# quadrare i conti con la quota qui sopra, che riguarda cio' che si VEDE.
+ALTEZZA_MAIUSCOLE_TITOLO = 26
+# Spazio fra la riga di identificazione e il bordo inferiore della fascia.
+PIEDE_BANDA = 38
 CORPO = 9
 INTERLINEA = 12
 
@@ -296,7 +340,19 @@ class Foglio:
         # frontespizio si distribuisce su tre colonne, altrimenti le tavole finiscono
         # sotto il pie' di pagina. In verticale la fascia puo' essere generosa.
         verticale = self.altezza > self.larghezza
-        alto_banda = self.altezza * (0.42 if verticale else 0.34)
+        # LA FASCIA SI DIMENSIONA SUL SUO CONTENUTO. Con l'altezza fissa la riga di
+        # identificazione (tenant, data) finiva sotto il bordo: testo bianco su fondo
+        # bianco, tagliato a meta' dal margine della fascia. Si calcola quanto serve --
+        # intestazione, titolo a capo, sottotitolo, riga di identificazione -- e si
+        # tiene il piu' grande fra quello e la proporzione voluta.
+        righe_titolo = simpleSplit(self.titolo, self.font["titolo"], 34,
+                                   self.larghezza - 2 * MARGINE)
+        righe_sottotitolo = simpleSplit(self.sottotitolo, self.font["sottotitolo"], 13,
+                                        self.larghezza - 2 * MARGINE)[:2]
+        necessaria = (ALTEZZA_INTESTAZIONE_BANDA + ALTEZZA_MAIUSCOLE_TITOLO
+                      + 38 * len(righe_titolo) + 17 * len(righe_sottotitolo)
+                      + PIEDE_BANDA)
+        alto_banda = max(self.altezza * (0.42 if verticale else 0.34), necessaria)
         base_banda = self.altezza - alto_banda
 
         c.setFillColor(self.tema["banda"])
@@ -322,20 +378,28 @@ class Foglio:
         c.drawCentredString(self.larghezza - MARGINE - larghezza_etichetta / 2,
                             self.altezza - 65, etichetta)
 
-        # Titolo grande e riga di identificazione.
-        y = base_banda + alto_banda * 0.34
+        # Titolo grande e riga di identificazione. Il blocco si ancora al BASSO della
+        # fascia: si parte da dove deve finire e si risale, cosi' un titolo su due
+        # righe alza il titolo invece di spingere l'ultima riga fuori dalla fascia.
+        y = (base_banda + PIEDE_BANDA + 38 * len(righe_titolo)
+             + 17 * len(righe_sottotitolo))
         c.setFillColor(BIANCO)
         c.setFont(self.font["titolo"], 34)
-        for riga in simpleSplit(self.titolo, self.font["titolo"], 34,
-                                self.larghezza - 2 * MARGINE):
+        for riga in righe_titolo:
             c.drawString(MARGINE, y, riga)
             y -= 38
         c.setFont(self.font["sottotitolo"], 13)
         c.setFillColor(Color(1, 1, 1, alpha=.82))
-        c.drawString(MARGINE, y - 2, self.sottotitolo)
+        # A CAPO, non troncato: un sottotitolo lungo usciva dal foglio a destra e la
+        # frase finiva fuori pagina. Al massimo due righe: oltre, la fascia perde
+        # l'equilibrio e il titolo smette di essere la cosa piu' visibile.
+        for riga in righe_sottotitolo:
+            c.drawString(MARGINE, y - 2, riga)
+            y -= 17
         c.setFont(self.font["corpo"], 9)
         c.setFillColor(Color(1, 1, 1, alpha=.66))
-        identificazione = "Tenant %s  ·  %s" % (self.tenant, self.generato)
+        identificazione = ("Tenant %s  ·  %s" % (self.tenant, self.generato)
+                           if self.tenant else self.generato)
         if self.autore:
             identificazione += "  ·  generato da %s" % self.autore
         c.drawString(MARGINE, y - 20, identificazione)
@@ -381,7 +445,8 @@ class Foglio:
         copertina che gira. Compare su tutti i report, che passano tutti da qui.
         """
         c = self.c
-        testo = "Tenant %s  ·  %s" % (self.tenant, self.generato)
+        testo = ("Tenant %s  ·  %s" % (self.tenant, self.generato)
+                 if self.tenant else self.generato)
         if self.intervallo:
             testo += "  ·  periodo di riferimento: %s" % self.intervallo
         righe = simpleSplit(testo, self.font["corpo_grassetto"], 12.5,
@@ -512,8 +577,13 @@ class Foglio:
         c.drawString(MARGINE, MARGINE + 8, "© 2024-26 DS Consulting")
         c.setFont(self.font["corpo"], 7)
         c.setFillColor(INCHIOSTRO_3)
+        # L'avvertenza deve essere VERA: una guida di installazione non contiene la
+        # rete di nessuno, e stamparci sopra "riservato" insegna a ignorare l'avviso
+        # proprio sui documenti dove conta.
         c.drawString(MARGINE, MARGINE - 1,
-                     "Documento riservato: contiene informazioni sulla rete del tenant.")
+                     "Documento riservato: contiene informazioni sulla rete del tenant."
+                     if self.tenant else
+                     "Documentazione di prodotto: non contiene dati di rete.")
         nota = "%s%s" % (PRODOTTO, "" if self.font["completo"]
                          else " · PT Sans Narrow non disponibile, reso in Helvetica")
         c.drawRightString(self.larghezza - MARGINE, MARGINE + 8, nota)
@@ -646,7 +716,9 @@ class Foglio:
                 c.setFont(p["font"], p["corpo"])
                 c.setFillColor(p["colore"])
                 c.drawString(MARGINE + pad + p["rientro"], y + 2, riga)
-        self.y = base - 8
+        # Aria sotto il riquadro: con otto punti la prima riga del testo
+        # seguente appoggiava sul bordo, e i due blocchi si leggevano come uno.
+        self.y = base - 15
 
     def riquadri(self, voci):
         """Fascia di indicatori: valore grande, etichetta piccola, come sul cruscotto."""

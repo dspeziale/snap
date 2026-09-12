@@ -21,6 +21,77 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.6.0",
+        "date": "2026-09-12",
+        "abstract": "I certificati in scadenza si mandano per posta a chi deve"
+                    " rinnovarli, con tutto cio' che serve a rifarli. L'inventario"
+                    " dice da quanti anni nessuno tocca un'interfaccia web. E chi"
+                    " sbaglia lo schema dell'indirizzo viene rimandato invece che"
+                    " respinto.",
+        "changes": [
+            "CERTIFICATI IN SCADENZA, INVIATI A CHI LI RINNOVA. Dalla pagina"
+            " Certificati TLS si spedisce l'elenco a un recapito scritto sul momento."
+            " Il recapito non si configura una volta per tutte perche' chi rinnova un"
+            " certificato quasi mai e' chi guarda la console: e' il referente del"
+            " sistema che lo ospita, e cambia da sistema a sistema. Un elenco di"
+            " destinatari fissi manda tutto a tutti, che e' il modo in cui questi"
+            " messaggi smettono di essere letti.",
+            "Il messaggio porta il certificato PER INTERO -- soggetto e emittente in"
+            " DN completo, validita', numero di serie, versione, algoritmo di firma,"
+            " chiave, impronte SHA-256 e SHA-1, nomi alternativi DNS e IP, uso e uso"
+            " esteso -- piu' il contesto del server (indirizzo, porta, nome host,"
+            " dispositivo, sistema operativo, prodotto web, TLS negoziato). Chi"
+            " rinnova lavora in una finestra di manutenzione, non davanti alla"
+            " console: un avviso che dicesse solo \"scade fra 12 giorni\" lo"
+            " costringerebbe a tornare qui per ogni campo.",
+            "Si manda ESATTAMENTE cio' che si sta guardando: la soglia in giorni del"
+            " campo e la pastiglia attiva. Senza filtro parte cio' che scade entro la"
+            " soglia, oggi compreso; i gia' scaduti NON ci sono -- non stanno"
+            " scadendo, sono un'altra coda di lavoro, piu' urgente, e mescolarla la"
+            " renderebbe meno visibile. Per quelli c'e' la pastiglia Scaduti.",
+            "Due corpi, testo e HTML: il testo semplice sopravvive alle regole"
+            " aziendali che tolgono l'HTML e al copia-incolla dentro un ticket, che e'"
+            " il modo in cui questo elenco viene usato davvero. Il messaggio passa"
+            " dalla coda del prodotto, quindi ha ritentativi, e nel registro di audit"
+            " resta a chi e' stato mandato e con quale criterio.",
+            "QUANTO E' VECCHIA UN'INSTALLAZIONE. Le letture web ricavano ora l'anno"
+            " che la pagina dichiara di se': copyright, meta, stringhe di build,"
+            " intestazione Last-Modified, inizio di validita' del certificato. Nella"
+            " lista dei nodi compare una pastiglia (\"ferma al 2014\") quando l'eta'"
+            " supera i cinque anni, rossa oltre i dieci; nel dettaglio c'e' la"
+            " colonna ANNO DICHIARATO con la fonte e IL FRAMMENTO da cui l'anno"
+            " viene.",
+            "La prova si mostra perche' il dato va letto per quello che e': un"
+            " \"(c) 2014\" non dimostra che il software sia del 2014, dimostra che"
+            " nessuno ha piu' toccato quella pagina dal 2014. E' un limite inferiore"
+            " all'eta' -- e resta il segnale piu' economico che esista su una rete"
+            " reale per riconoscere un'installazione abbandonata. Si prende l'anno"
+            " PIU' RECENTE fra le prove: la domanda e' da quanto nessuno tocca quella"
+            " cosa, non quando e' nata.",
+            "Gli anni assurdi si rifiutano e i numeri di serie non diventano date: un"
+            " solo \"2098\" in un elenco di apparati vecchi farebbe perdere fiducia in"
+            " tutto l'elenco. Un Last-Modified di oggi si ignora, perche' una pagina"
+            " generata al volo lo scrive sempre \"adesso\" e crederci direbbe che ogni"
+            " apparato e' nuovo.",
+            "CHI ARRIVA IN CHIARO SU UNA PORTA HTTPS VIENE RIMANDATO, non respinto."
+            " Prima rispondeva \"400 Bad Request -- The plain HTTP request was sent to"
+            " HTTPS port\": esatto e inutile, perche' chi legge non capisce di avere"
+            " sbagliato schema e conclude che il servizio non risponde. Capita a"
+            " tutti, perche' davanti a una porta non standard il browser assume"
+            " http://. Vale per la console e per la sonda.",
+            "GUIDA DI INSTALLAZIONE IN PDF, generata dal sorgente in docs/ con"
+            " l'impaginatore dei report: frontespizio con indice, tipografia PT Sans,"
+            " numerazione. Porta le misure e i guasti veri incontrati sul campo, non"
+            " una procedura teorica. Si rigenera con `python tools/genera_guida_pdf.py`:"
+            " una copia modificata a mano sarebbe una seconda verita'.",
+            "L'impaginatore dei documenti: il sottotitolo va a capo invece di uscire"
+            " dal foglio, un documento senza tenant non scrive piu' \"Tenant\" seguito"
+            " dal vuoto, e l'avvertenza di riservatezza dice il vero -- una guida di"
+            " installazione non contiene la rete di nessuno, e stamparci sopra"
+            " \"riservato\" insegna a ignorare l'avviso proprio dove conta.",
+        ],
+    },
+    {
         "version": "1.5.0",
         "date": "2026-09-10",
         "abstract": "La console della sonda si vede dal server: avanzamento, coda,"
@@ -53,6 +124,44 @@ CHANGELOG = [
             "Il conferimento accetta il genere \"presence\" (avvistamenti sulle reti"
             " senza fili) e conserva l'istantanea della console consegnata dalla"
             " sonda, con il proprio istante.",
+            "SOTTOSISTEMA PSN: il piano di indirizzamento diventa un sistema."
+            " Il piano del Polo vive in un foglio di settantanove schede -- anagrafica"
+            " delle subnet, una scheda per subnet con UNA RIGA PER INDIRIZZO, tenant,"
+            " database, servizi pubblicati, convenzione dei nomi. E' un documento"
+            " corretto, e proprio per questo non risponde alle domande che contano:"
+            " qual e' il prossimo indirizzo libero, questo hostname esiste due volte,"
+            " due subnet si sovrappongono, che cosa sta dietro un URL, che cosa e'"
+            " cambiato dalla versione precedente. Nuovo menu PSN con nove pagine.",
+            "SEPARATO PER COSTRUZIONE, come richiesto: archivio in un DATABASE"
+            " distinto (non uno schema dentro quello del prodotto, che finirebbe nelle"
+            " sue copie e nelle sue migrazioni), nessuna chiave esterna verso le"
+            " tabelle del prodotto, nessuna query che le nomini -- e due test che lo"
+            " verificano, perche' una promessa non verificata decade da se'. Le"
+            " istruzioni per rimuoverlo del tutto stanno in docs/15_PSN.md: sette"
+            " passi, e l'archivio del prodotto non si sfiora. Nessuna dipendenza"
+            " nuova: un .xlsx e' un archivio di XML e si legge con la libreria"
+            " standard.",
+            "TRE DIFETTI DEL DOCUMENTO, trovati al primo conferimento del piano vero."
+            " 441 indirizzi su quattro fogli erano salvati come NUMERI senza punti"
+            " (192168230128): nessun lettore li riconosce, e quei fogli risultavano"
+            " vuoti -- ora si ricostruiscono, ma solo quando la ricostruzione e'"
+            " univoca dentro la rete del foglio, perche' indovinare un indirizzo e'"
+            " peggio che perderlo. Due fogli dichiarano un codice di subnet che in"
+            " anagrafica appartiene a un'altra rete (il foglio 10.58.70.0 dichiara"
+            " 041, che e' la 10.58.80.0): fidandosi del codice, 254 indirizzi"
+            " finirebbero archiviati sotto la subnet sbagliata. E centinaia di celle"
+            " con errori di formula, che valgono come vuoto invece di diventare una"
+            " subnet chiamata #VALUE!.",
+            "L'ANALISI DICHIARA, NON ACCUSA. Duplicati di hostname e di indirizzo,"
+            " subnet sovrapposte, indirizzi fuori dalla propria subnet, database senza"
+            " tenant in anagrafica, rinomine che il piano stesso dichiara in sospeso."
+            " Due giudizi sono stati corretti perche' producevano rumore: i segnaposto"
+            " (\"-\", \"n/a\", \"VIP 1\") non sono nomi e non fanno duplicati ne'"
+            " assegnazioni; e una convenzione INCOMPLETA non rende sbagliati i nomi --"
+            " pretendere sito-tenant-ruolo dava 79 riscontri su 257 nomi, ma i nomi"
+            " erano giusti e il Nomenclatore non elencava i siti delle Centrali"
+            " Operative. Ora una riga per SIGLA non dichiarata, da portare a chi"
+            " mantiene la convenzione: da 117 accuse a 64 riscontri azionabili.",
             "LA CONSOLE DI UNA SONDA SI VEDE CHE NON E' IL SERVER. Mostra, dentro"
             " la console, le stesse cose che si vedono aprendo l'interfaccia della"
             " sonda in sede: due interfacce che si somigliano sono un rischio"

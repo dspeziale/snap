@@ -1,0 +1,94 @@
+{#
+  snap server - PSN: conferimento di una versione del piano.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; conferisci il piano{% endblock %}
+{% block page_icon %}bi-upload{% endblock %}
+{% block page_title %}Conferisci il piano{% endblock %}
+{% block page_subtitle %}
+  Il foglio del piano di indirizzamento, letto e messo in relazione. Il documento non
+  viene modificato: viene interpretato.
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-file-earmark-spreadsheet me-1"></i>
+          Il file</h2>
+      </div>
+      <form method="post" enctype="multipart/form-data"
+            action="{{ url_for('psn.import_run') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="card-body">
+          <div class="mb-3">
+            <label class="form-label" for="piano">Piano di indirizzamento (.xlsx)</label>
+            <input class="form-control" type="file" id="piano" name="piano"
+                   accept=".xlsx,.xlsm" required>
+            <div class="form-text">
+              Al massimo 10 MB. Il nome del file conserva la versione: se contiene
+              <code>V.1.8</code>, quella versione viene registrata.
+            </div>
+          </div>
+          <p class="small text-body-secondary mb-0">
+            Il conferimento e' una transazione: o entra tutto il piano, o niente. Un
+            piano importato a meta' sarebbe peggio di nessun piano, perche' sembrerebbe
+            completo.
+          </p>
+        </div>
+        <div class="card-footer">
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i> Conferisci e analizza
+          </button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('psn.index') }}">Annulla</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-question-circle me-1"></i>
+          Che cosa succede al file</h2>
+      </div>
+      <div class="card-body small">
+        <ol class="ps-3 mb-3">
+          <li><strong>Si legge</strong> senza librerie esterne: un
+              <code>.xlsx</code> e' un archivio di documenti XML, e leggerlo con la
+              libreria standard evita di far passare un file che arriva da fuori
+              attraverso un lettore generico.</li>
+          <li><strong>Si mappa per nome di colonna</strong>, non per posizione: nel
+              piano reale i fogli di indirizzi hanno cinque forme di intestazione
+              diverse.</li>
+          <li><strong>Si ricostruiscono</strong> gli indirizzi che Excel ha salvato
+              come numeri senza punti, ma solo quando la ricostruzione e' univoca
+              dentro la rete del foglio. Altrimenti si scartano e si dichiarano:
+              indovinare un indirizzo e' peggio che perderlo.</li>
+          <li><strong>Si estraggono le relazioni</strong> scritte in prosa nelle
+              descrizioni: gli indirizzi e i nomi citati diventano collegamenti.</li>
+          <li><strong>Si analizza</strong>: duplicati, sovrapposizioni, indirizzi
+              fuori posto, sigle non dichiarate nella convenzione.</li>
+        </ol>
+        <p class="mb-0">
+          Nulla viene corretto in silenzio. Se il documento si contraddice, la
+          contraddizione compare fra i riscontri: correggerla e' una decisione di chi
+          mantiene il piano, non del prodotto.
+        </p>
+      </div>
+      {% if piano %}
+      <div class="card-footer small text-body-secondary">
+        Ultima versione conferita: <strong>{{ piano['file_name'] }}</strong>
+        ({{ piano['imported_at']|dt }}). Conferire lo stesso file due volte non lo
+        duplica: l'impronta lo riconosce.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

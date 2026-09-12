@@ -1,0 +1,70 @@
+{#
+  snap server - PSN: cio' che nel piano non torna.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; riscontri{% endblock %}
+{% block page_icon %}bi-exclamation-triangle{% endblock %}
+{% block page_title %}Riscontri sul piano{% endblock %}
+{% block page_subtitle %}
+  Differenze fra cio' che il piano dichiara in un punto e cio' che dichiara in un
+  altro. Il documento non viene modificato: la differenza viene dichiarata.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+<div class="card">
+  <div class="card-header">
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-sm btn-outline-secondary {{ 'active' if not genere }}"
+         href="{{ url_for('psn.findings', piano=piano['id']) }}">Tutti</a>
+      {% for r in per_genere %}
+      <a class="btn btn-sm btn-outline-secondary {{ 'active' if genere == r['kind'] }}"
+         href="{{ url_for('psn.findings', piano=piano['id'], genere=r['kind']) }}">
+        {{ etichette.get(r['kind'], r['kind']) }}
+        <span class="badge text-bg-secondary">{{ r['quanti'] }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="50">
+        <thead><tr><th>GRAVITA</th><th>GENERE</th><th>RISCONTRO</th>
+          <th>SUBNET</th></tr></thead>
+        <tbody>
+          {% for r in riscontri %}
+          <tr>
+            <td>
+              <span class="badge text-bg-{{ 'danger' if r['severity'] == 'critical'
+                            else ('warning' if r['severity'] == 'warning' else 'secondary') }}">
+                {{ r['severity'] }}</span>
+            </td>
+            <td class="small">{{ etichette.get(r['kind'], r['kind']) }}</td>
+            <td>
+              <div class="fw-semibold small">{{ r['title'] }}</div>
+              {% if r['detail'] %}
+                <div class="small text-body-secondary">{{ r['detail'] }}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if r['subnet_id'] %}
+                <a href="{{ url_for('psn.subnet', subnet_id=r['subnet_id']) }}">
+                  {{ r['subnet_code'] or r['subnet_id'] }}</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="text-center text-body-secondary py-4">
+            Nessun riscontro: il piano e' coerente con se stesso.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

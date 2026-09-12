@@ -200,6 +200,61 @@ distinte e dichiarate.
 
 ---
 
+## 8-ter. Invio dell'elenco dei certificati in scadenza
+
+*Rete → Certificati TLS*, in fondo alla pagina: un campo per un indirizzo e il pulsante
+**Invia**.
+
+### 8-ter.1 Perché il recapito si scrive sul momento
+
+Chi rinnova un certificato quasi mai è chi guarda la console: è il referente del sistema
+che lo ospita, e cambia da sistema a sistema. Un elenco di destinatari fissi manderebbe
+tutto a tutti — che è il modo in cui questi messaggi smettono di essere letti.
+
+### 8-ter.2 Che cosa parte
+
+Si spedisce **ciò che si sta guardando**: la soglia in giorni del campo e la pastiglia
+attiva viaggiano con la richiesta.
+
+| Filtro attivo | Che cosa viene inviato |
+|---|---|
+| nessuno / *In scadenza* | i certificati che scadono **da oggi fino alla soglia** |
+| *Scaduti* | solo quelli **già scaduti** |
+
+I già scaduti **non** sono compresi nel primo caso: non stanno scadendo, sono un'altra
+coda di lavoro — più urgente — e mescolarla la renderebbe meno visibile.
+
+Per ogni server il messaggio porta il certificato **per intero**: soggetto ed emittente
+in DN completo, validità, numero di serie, versione, algoritmo di firma, chiave, impronte
+SHA‑256 e SHA‑1, nomi alternativi DNS e IP, uso e uso esteso; più indirizzo, porta, nome
+host, dispositivo, sistema operativo, prodotto web, autofirmato e TLS negoziato. Chi
+rinnova lavora sul sistema che lo ospita, in una finestra di manutenzione: un avviso che
+dicesse solo «scade fra 12 giorni» lo costringerebbe a tornare alla console per ogni
+campo.
+
+Due corpi, **testo e HTML**: il testo semplice sopravvive alle regole aziendali che
+tolgono l'HTML, ai client vecchi e al copia‑incolla dentro un ticket — che è il modo in
+cui questo elenco viene usato davvero.
+
+### 8-ter.3 Limiti dichiarati
+
+L'elenco riguarda i soli certificati che **le sonde hanno potuto leggere** aprendo una
+connessione HTTPS: un servizio che la sonda non raggiunge non compare, e la sua assenza
+**non è una conferma**. Il messaggio lo dichiara in fondo, sempre — anche quando non c'è
+nulla da segnalare.
+
+Decisioni: **MN‑11** il recapito si indica al momento dell'invio, non si configura;
+**MN‑12** si invia esattamente l'insieme mostrato a schermo; **MN‑13** il messaggio
+riporta il certificato per intero, perché serve a rifarlo; **MN‑14** l'invio passa dalla
+coda (ritentativi) e resta nel registro di audit con destinatario e criterio.
+
+Requisiti: **SR‑139** la console deve permettere di inviare l'elenco dei certificati in
+scadenza a un recapito indicato al momento; **SR‑140** il messaggio deve contenere tutti
+i dati del certificato di ciascun server; **SR‑141** l'insieme inviato deve coincidere
+con quello mostrato.
+
+---
+
 ## 8-bis. Manutenzione: azzeramento delle informazioni raccolte di un tenant
 
 La conservazione (§8) è una politica che scade nel tempo. Questo è l'atto opposto:

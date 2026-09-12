@@ -251,3 +251,63 @@ def riassunto_web(pagine) -> list:
         if len(scelte) >= MAX_VOCI_INFO:
             break
     return scelte
+
+
+# --------------------------------------------------------------------------- #
+# L'ETA' DICHIARATA: da quanto tempo nessuno tocca quell'interfaccia
+# --------------------------------------------------------------------------- #
+# Si mostra solo quando SUPERA una soglia, e va spiegato perche' non sempre.
+#
+# Un'interfaccia aggiornata quest'anno non dice niente: e' la normalita', e scriverlo
+# su ogni riga toglierebbe spazio a cio' che conta. Un'interfaccia ferma a dieci anni
+# fa dice invece molto -- e' quasi sempre un apparato che nessuno aggiorna piu'. La
+# soglia e' il punto in cui il dato smette di essere rumore e diventa un indizio.
+#
+# Cinque anni: sotto ci stanno i cicli di manutenzione normali (un apparato comprato
+# tre anni fa e mai aggiornato non e' una notizia); sopra si entra nel territorio dei
+# sistemi che nessuno guarda piu'.
+ETA_DA_SEGNALARE = 5
+
+# Oltre questa soglia non e' piu' "vecchio", e' "abbandonato": cambia il colore, non
+# solo il numero.
+ETA_GRAVE = 10
+
+
+def eta_web(pagine) -> dict:
+    """L'interfaccia piu' VECCHIA fra quelle di un nodo, se supera la soglia.
+
+    Si prende la piu' vecchia e non la media: un nodo che espone un'applicazione
+    aggiornata e una console di gestione ferma al 2011 ha un problema, e la media lo
+    nasconderebbe.
+
+    Restituisce `{}` quando non c'e' niente da segnalare -- nessun anno raccolto,
+    oppure un'eta' dentro la norma. Un dizionario vuoto e' l'assenza di notizia, che
+    e' diversa da "e' nuovo".
+    """
+    peggiore = None
+    for pagina in pagine or []:
+        eta = pagina.get("web_age_years")
+        anno = pagina.get("web_year")
+        if not anno or eta is None:
+            continue
+        try:
+            eta = int(eta)
+        except (TypeError, ValueError):
+            continue
+        if eta < ETA_DA_SEGNALARE:
+            continue
+        if peggiore is None or eta > peggiore["eta"]:
+            peggiore = {"eta": eta, "anno": int(anno),
+                        "fonte": pagina.get("web_year_source") or "",
+                        "porta": pagina.get("port")}
+    if peggiore is None:
+        return {}
+    peggiore["grave"] = peggiore["eta"] >= ETA_GRAVE
+    peggiore["testo"] = "ferma al %d" % peggiore["anno"]
+    peggiore["spiegazione"] = (
+        "L'interfaccia web sulla porta %s dichiara %d: nessuno l'ha piu' aggiornata da"
+        " %d anni. E' un limite inferiore all'eta' -- non prova che il software sia di"
+        " quell'anno -- e la fonte e' %s."
+        % (peggiore["porta"], peggiore["anno"], peggiore["eta"],
+           peggiore["fonte"] or "non dichiarata"))
+    return peggiore

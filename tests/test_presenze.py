@@ -679,3 +679,108 @@ def test_ogni_periodo_offerto_apre_la_pagina(logged_client, scelta):
     risposta = logged_client.get("/inventory/presenze/andamento?periodo=%s" % scelta)
 
     assert risposta.status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Chi c'e' ADESSO
+#
+# E' una domanda diversa da quella dello storico, e la differenza non e' sottile:
+# lo storico dice chi c'e' stato, questa dice chi c'e'. La parte che questi test
+# proteggono e' la distinzione fra "non c'e' nessuno" e "nessuno sta guardando":
+# sullo schermo si assomigliano, e significano cose opposte.
+# --------------------------------------------------------------------------- #
+def _adesso(server_app, tenant_id, **filtri):
+    with server_app.app_context():
+        from snapserver.presence import presenti_ora
+
+        return presenti_ora(tenant_id, **filtri)
+
+
+def test_chi_e_stato_visto_ora_compare_fra_i_presenti(server_app):
+    tenant_id = _tenant(server_app)
+    _vedi(server_app, tenant_id, {"ip": "10.2.60.10", "mac": "AA:BB:CC:0A:00:01"})
+
+    presenti = _adesso(server_app, tenant_id)["presenti"]
+
+    assert [p for p in presenti if p["ip"] == "10.2.60.10"]
+
+
+def test_chi_e_sparito_da_un_ora_non_e_in_rete_adesso(server_app):
+    """La finestra e' la promessa del riquadro: chi e' fuori non deve comparire, o il
+    numero in alto direbbe una cosa che non e' vera."""
+    from datetime import datetime, timedelta, timezone
+
+    tenant_id = _tenant(server_app)
+    vecchio = (datetime.now(timezone.utc) - timedelta(hours=1)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    _vedi(server_app, tenant_id, {"ip": "10.2.60.11", "mac": "AA:BB:CC:0A:00:02"},
+          visto_a=vecchio)
+
+    presenti = _adesso(server_app, tenant_id)["presenti"]
+
+    assert [p for p in presenti if p["ip"] == "10.2.60.11"] == []
+
+
+def test_ogni_presente_porta_con_se_il_proprio_storico(server_app):
+    """Senza lo storico sulla riga non si distingue l'apparato che c'e' sempre stato
+    da quello comparso adesso per la prima volta."""
+    tenant_id = _tenant(server_app)
+    nodo = {"ip": "10.2.60.12", "mac": "AA:BB:CC:0A:00:03"}
+    _vedi(server_app, tenant_id, nodo, visto_a="2026-09-01 08:00:00")
+    _vedi(server_app, tenant_id, dict(nodo, ip="10.2.60.13"))
+
+    voce = [p for p in _adesso(server_app, tenant_id)["presenti"]
+            if p["ip"] == "10.2.60.13"][0]
+
+    assert voce["storia"]["permanenze"] >= 2
+    assert voce["storia"]["indirizzi"] >= 2
+    assert voce["nuovo"] is False
+
+
+def test_chi_non_si_era_mai_visto_e_dichiarato_nuovo(server_app):
+    tenant_id = _tenant(server_app)
+    _vedi(server_app, tenant_id, {"ip": "10.2.60.14", "mac": "AA:BB:CC:0A:00:04"})
+
+    voce = [p for p in _adesso(server_app, tenant_id)["presenti"]
+            if p["ip"] == "10.2.60.14"][0]
+
+    assert voce["nuovo"] is True
+
+
+def test_una_ricognizione_ferma_non_si_confonde_con_una_rete_vuota(server_app):
+    """Un elenco vuoto perche' non c'e' nessuno e un elenco vuoto perche' nessuno sta
+    guardando si assomigliano: il prodotto deve dire quale dei due e'."""
+    from datetime import datetime, timedelta, timezone
+
+    tenant_id = _tenant(server_app)
+    vecchio = (datetime.now(timezone.utc) - timedelta(hours=6)).strftime(
+        "%Y-%m-%d %H:%M:%S")
+    _vedi(server_app, tenant_id, {"ip": "10.2.61.1", "mac": "AA:BB:CC:0B:00:01"},
+          visto_a=vecchio)
+
+    dati = _adesso(server_app, tenant_id)
+
+    assert dati["presenti"] == []
+    assert dati["ferma"] is True
+    assert dati["ritardo_sec"] > 0
+
+
+def test_con_avvistamenti_freschi_la_ricognizione_non_e_dichiarata_ferma(server_app):
+    tenant_id = _tenant(server_app)
+    _vedi(server_app, tenant_id, {"ip": "10.2.61.2", "mac": "AA:BB:CC:0B:00:02"})
+
+    assert _adesso(server_app, tenant_id)["ferma"] is False
+
+
+def test_la_pagina_mostra_chi_e_in_rete_adesso(server_app, logged_client):
+    tenant_id = _tenant(server_app)
+    _vedi(server_app, tenant_id, {"ip": "10.2.62.5", "mac": "AA:BB:CC:0C:00:05",
+                                  "hostname": "portatile-01"})
+
+    testo = logged_client.get("/inventory/presenze").get_data(as_text=True)
+
+    assert "In rete adesso" in testo
+    assert "10.2.62.5" in testo
+    # La pagina si aggiorna da sola: senza, mostrerebbe con sicurezza uno stato
+    # vecchio di mezz'ora.
+    assert 'data-snap-refresh' in testo

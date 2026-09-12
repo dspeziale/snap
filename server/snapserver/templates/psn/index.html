@@ -1,0 +1,237 @@
+{#
+  snap server - PSN: quadro d'insieme del piano di indirizzamento.
+
+  L'ordine della pagina e' l'ordine delle domande: prima QUANTO c'e' (e quanto e'
+  libero), poi CHE COSA NON TORNA, poi la struttura. I riscontri stanno in alto
+  perche' sono la ragione per cui si apre questa pagina la seconda volta.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN{% endblock %}
+{% block page_icon %}bi-diagram-3{% endblock %}
+{% block page_title %}PSN &mdash; piano di indirizzamento{% endblock %}
+{% block page_subtitle %}
+  Il piano come sistema: subnet, indirizzi liberi e occupati, tenant, database,
+  servizi pubblicati, e cio' che nel documento non torna.
+{% endblock %}
+{% block page_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('psn.imports') }}">
+    <i class="bi bi-clock-history me-1"></i> Conferimenti
+  </a>
+  {% if g.user and g.user['role'] == 'superadmin' %}
+  <a class="btn btn-sm btn-primary" href="{{ url_for('psn.import_form') }}">
+    <i class="bi bi-upload me-1"></i> Conferisci una versione
+  </a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+
+{# --- Quanto c'e', e quanto e' libero ------------------------------------- #}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">SUBNET</p>
+      <p class="snap-stat-value mb-0">{{ totali.subnet }}</p>
+      <p class="snap-stat-foot mb-0">in {{ sezioni|length }} sezioni del piano</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">INDIRIZZI CENSITI</p>
+      <p class="snap-stat-value mb-0">{{ '{:,}'.format(totali.indirizzi).replace(',', '.') }}</p>
+      <p class="snap-stat-foot mb-0">una riga per indirizzo, come nel piano</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">ASSEGNATI</p>
+      <p class="snap-stat-value mb-0">{{ totali.assegnati }}</p>
+      <p class="snap-stat-foot mb-0">+ {{ totali.riservati }} riservati senza hostname</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-lg-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">LIBERI</p>
+      <p class="snap-stat-value mb-0">{{ '{:,}'.format(totali.liberi).replace(',', '.') }}</p>
+      <p class="snap-stat-foot mb-0">indirizzo di rete e broadcast esclusi</p>
+    </div></div>
+  </div>
+</div>
+
+{# --- Che cosa non torna -------------------------------------------------- #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-exclamation-triangle me-1"></i> Che cosa non torna nel piano
+    </h2>
+    <a class="btn btn-sm btn-outline-secondary"
+       href="{{ url_for('psn.findings', piano=piano['id']) }}">Tutti i riscontri</a>
+  </div>
+  <div class="card-body">
+    {% if riscontri %}
+      <div class="d-flex flex-wrap gap-2">
+        {% for r in riscontri %}
+        <a class="btn btn-sm btn-outline-{{ 'danger' if r['severity'] == 'critical'
+                    else ('warning' if r['severity'] == 'warning' else 'secondary') }}"
+           href="{{ url_for('psn.findings', piano=piano['id'], genere=r['kind']) }}">
+          {{ etichette.get(r['kind'], r['kind']) }}
+          <span class="badge text-bg-{{ 'danger' if r['severity'] == 'critical'
+                        else ('warning' if r['severity'] == 'warning' else 'secondary') }}">
+            {{ r['quanti'] }}</span>
+        </a>
+        {% endfor %}
+      </div>
+      <p class="small text-body-secondary mt-2 mb-0">
+        Ogni riscontro e' una riga da portare a chi mantiene il piano. Il prodotto non
+        modifica il documento: dichiara la differenza fra cio' che vi e' scritto e cio'
+        che vi e' scritto altrove.
+      </p>
+    {% else %}
+      <p class="mb-0 text-success-emphasis">
+        <i class="bi bi-check-circle me-1"></i>
+        Nessun riscontro: hostname unici, nessuna sovrapposizione, ogni indirizzo
+        dentro la propria subnet.
+      </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  {# --- Le subnet piu' piene: la coda del lavoro ------------------------- #}
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0"><i class="bi bi-bar-chart-steps me-1"></i>
+          Subnet piu' occupate</h2>
+        <a class="btn btn-sm btn-outline-secondary"
+           href="{{ url_for('psn.subnets', piano=piano['id']) }}">Tutte</a>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-sort="OCCUPAZIONE">
+            <thead><tr><th>CODICE</th><th>SUBNET</th><th class="text-end">USATI</th>
+              <th style="min-width:9rem">OCCUPAZIONE</th>
+              <th>PROSSIMO LIBERO</th></tr></thead>
+            <tbody>
+              {% for v in piene %}
+              <tr>
+                <td class="fw-semibold">
+                  <a href="{{ url_for('psn.subnet', subnet_id=v['id']) }}">{{ v['code'] }}</a>
+                </td>
+                <td class="small">
+                  {{ v['name'] }}
+                  <div class="text-body-secondary font-monospace">{{ v['cidr'] }}</div>
+                </td>
+                <td class="text-end">{{ v['usati'] }} / {{ v['totale'] }}</td>
+                <td>
+                  <div class="progress" style="height:.5rem" role="progressbar"
+                       aria-valuenow="{{ v['percentuale'] }}" aria-valuemin="0"
+                       aria-valuemax="100"
+                       aria-label="Occupazione di {{ v['code'] }}">
+                    <div class="progress-bar bg-primary"
+                         style="width: {{ v['percentuale'] }}%"></div>
+                  </div>
+                  <span class="small text-body-secondary">{{ v['percentuale'] }}%</span>
+                </td>
+                <td class="font-monospace small">{{ v['primo_libero_ip'] or '&mdash;'|safe }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="5" class="text-center text-body-secondary py-3">
+                Nessuna subnet con indirizzi.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# --- Le sezioni del piano: le supernet e il loro significato ---------- #}
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-layers me-1"></i> Sezioni del piano</h2>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush">
+          {% for s in sezioni %}
+          <li class="list-group-item">
+            <div class="fw-semibold small">{{ s['title'] }}</div>
+            <div class="small text-body-secondary">
+              {% if s['supernet'] %}
+                <span class="font-monospace">{{ s['supernet'] }}</span>
+              {% endif %}
+              {% if s['environment'] %}
+                &middot; <span class="badge text-bg-light text-dark border">{{ s['environment'] }}</span>
+              {% endif %}
+              {% if s['criticality'] %}
+                <span class="badge text-bg-light text-dark border">{{ s['criticality'] }}</span>
+              {% endif %}
+            </div>
+          </li>
+          {% else %}
+          <li class="list-group-item text-body-secondary">
+            Nessuna sezione riconosciuta nell'anagrafica.
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="card-footer small text-body-secondary">
+        Le sezioni non sono decorative: il loro titolo dichiara la supernet,
+        l'ambiente e la criticita' delle subnet che contengono. Nel foglio quelle tre
+        informazioni stavano nel testo di una cella.
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- Occupazione per ambiente ------------------------------------------- #}
+{% if per_ambiente %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-pie-chart me-1"></i> Per ambiente</h2>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for nome, v in per_ambiente %}
+      <div class="col-6 col-md-3">
+        <div class="border rounded p-2">
+          <div class="snap-stat-label">{{ nome|upper }}</div>
+          <div class="fs-5">{{ v.assegnati }}<span class="text-body-secondary fs-6">
+            / {{ v.totale }}</span></div>
+          <div class="small text-body-secondary">{{ v.subnet }} subnet</div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# --- Cio' che la lettura ha dovuto dichiarare --------------------------- #}
+{% if avvisi %}
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-info-circle me-1"></i>
+      Avvisi della lettura del documento</h2>
+  </div>
+  <div class="card-body">
+    <ul class="small mb-0">
+      {% for a in avvisi %}<li>{{ a }}</li>{% endfor %}
+    </ul>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    Sono cose che il lettore ha incontrato nel foglio e non ha nascosto: fogli senza
+    corrispondenza in anagrafica, celle non leggibili, indirizzi ricostruiti. Un
+    importatore silenzioso avrebbe prodotto lo stesso numero di righe e una verita'
+    diversa.
+  </div>
+</div>
+{% endif %}
+{% endblock %}

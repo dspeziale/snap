@@ -1,0 +1,70 @@
+{#
+  snap server - PSN: le subnet del piano con la loro occupazione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; subnet{% endblock %}
+{% block page_icon %}bi-diagram-2{% endblock %}
+{% block page_title %}Subnet del piano{% endblock %}
+{% block page_subtitle %}
+  Codice, rete, classe di traffico e occupazione. La colonna «prossimo libero» e' la
+  risposta alla domanda per cui si apre un piano di indirizzamento.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="50" data-no-sort="OCCUPAZIONE">
+        <thead><tr>
+          <th>CODICE</th><th>NOME</th><th>RETE</th><th>CLASSE</th><th>AMBIENTE</th>
+          <th class="text-end">ASSEGNATI</th><th class="text-end">RISERVATI</th>
+          <th class="text-end">LIBERI</th><th>OCCUPAZIONE</th><th>PROSSIMO LIBERO</th>
+        </tr></thead>
+        <tbody>
+          {% for v in subnet %}
+          <tr>
+            <td class="fw-semibold">
+              <a href="{{ url_for('psn.subnet', subnet_id=v['id']) }}">{{ v['code'] }}</a>
+            </td>
+            <td class="small">{{ v['name'] }}</td>
+            <td class="font-monospace small">{{ v['cidr'] or '—' }}</td>
+            <td class="small">
+              {% if v['traffic_class'] %}
+                <span class="badge text-bg-light text-dark border">{{ v['traffic_class'] }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {{ v['environment'] or '' }}
+              {% if v['criticality'] %}
+                <div class="text-body-secondary">{{ v['criticality'] }}</div>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ v['assegnati'] or 0 }}</td>
+            <td class="text-end">{{ v['riservati'] or 0 }}</td>
+            <td class="text-end">{{ v['liberi'] or 0 }}</td>
+            <td style="min-width:8rem">
+              <div class="progress" style="height:.45rem" role="progressbar"
+                   aria-valuenow="{{ v['percentuale'] }}" aria-valuemin="0"
+                   aria-valuemax="100" aria-label="Occupazione di {{ v['code'] }}">
+                <div class="progress-bar bg-primary" style="width: {{ v['percentuale'] }}%"></div>
+              </div>
+              <span class="small text-body-secondary">{{ v['percentuale'] }}%</span>
+            </td>
+            <td class="font-monospace small">{{ v['primo_libero_ip'] or '—' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="10" class="text-center text-body-secondary py-4">
+            Nessuna subnet nel piano conferito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

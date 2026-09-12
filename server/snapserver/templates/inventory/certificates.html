@@ -47,6 +47,53 @@
       </div>
     </form>
   </div>
+
+  {# INVIO DELL'ELENCO A UN RECAPITO. Chi rinnova un certificato quasi mai e' chi
+     guarda questa pagina: e' il referente del sistema che lo ospita, e cambia da
+     sistema a sistema. Percio' il recapito si scrive sul momento invece di essere
+     configurato una volta per tutte -- un elenco di destinatari fissi manda tutto a
+     tutti, che e' il modo in cui questi messaggi smettono di essere letti.
+
+     Si spedisce CIO' CHE SI STA GUARDANDO: la soglia e il filtro attivi viaggiano
+     nascosti, cosi' il messaggio corrisponde all'elenco a schermo. #}
+  <div class="card-footer bg-body-tertiary">
+    <form method="post" action="{{ url_for('inventory.certificates_email') }}"
+          class="row g-2 align-items-end"
+          data-confirm="L'elenco dei certificati, con tutti i loro dati, verra' inviato all'indirizzo indicato. Procedere?"
+          data-confirm-title="Invio dell'elenco per posta"
+          data-confirm-ok="Invia">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="stato" value="{{ filtri.stato }}">
+      <input type="hidden" name="entro" value="{{ filtri.entro }}">
+      <div class="col-12 col-md-5">
+        <label class="form-label small mb-1" for="email-certificati">
+          <i class="bi bi-envelope me-1"></i> Invia l'elenco per posta
+        </label>
+        <input type="email" class="form-control form-control-sm" id="email-certificati"
+               name="email" required placeholder="nome.cognome@organizzazione.it"
+               autocomplete="email" aria-describedby="email-certificati-nota">
+      </div>
+      <div class="col-12 col-md-3">
+        <button type="submit" class="btn btn-sm btn-primary w-100">
+          <i class="bi bi-send me-1"></i> Invia
+        </button>
+      </div>
+      <div class="col-12 col-md-4">
+        <div class="form-text small mb-0" id="email-certificati-nota">
+          {% if filtri.stato == 'scaduti' %}
+            Vengono inviati i soli certificati <strong>gia' scaduti</strong>,
+          {% else %}
+            Vengono inviati i certificati che scadono entro
+            <strong>{{ filtri.entro }} giorni</strong> &mdash; la soglia indicata qui
+            sopra. Quelli <em>gia' scaduti</em> non sono compresi: per averli, scegliere
+            la pastiglia <em>Scaduti</em>. Ogni certificato porta
+          {% endif %}
+          ciascuno con <strong>tutti i dati del certificato</strong>: soggetto,
+          emittente, validita', seriale, algoritmo, chiave, impronte e nomi coperti.
+        </div>
+      </div>
+    </form>
+  </div>
   <div class="card-body p-0"><div class="table-responsive">
     <table class="table table-sm table-hover align-middle mb-0" data-snap-table
            data-page-size="50" data-no-sort="NODO">

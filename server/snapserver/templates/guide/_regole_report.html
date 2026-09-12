@@ -228,6 +228,45 @@
       recapito, su quale canale): un documento che lascia la console e' un atto che si
       traccia.</li>
 </ul>
+<h3>Inviare l'elenco dei certificati in scadenza</h3>
+<p>
+  In <em>Rete &gt; Certificati TLS</em>, in fondo alla pagina, c'e' un campo per un
+  indirizzo di posta e un pulsante <strong>Invia</strong>.
+</p>
+<p>
+  <strong>Perche' il recapito si scrive sul momento</strong> invece di configurarlo una
+  volta per tutte: chi rinnova un certificato quasi mai e' chi guarda la console. E' il
+  referente del sistema che lo ospita, e cambia da sistema a sistema. Un elenco di
+  destinatari fissi manderebbe tutto a tutti &mdash; che e' il modo in cui questi
+  messaggi smettono di essere letti.
+</p>
+<ul>
+  <li>Si spedisce <strong>cio' che si sta guardando</strong>: la soglia in giorni del
+      campo e la pastiglia attiva viaggiano con la richiesta. Senza filtro parte cio'
+      che scade <strong>entro la soglia, oggi compreso</strong>.</li>
+  <li>I certificati <strong>gia' scaduti non sono compresi</strong>: non stanno
+      scadendo, sono un'altra coda di lavoro &mdash; piu' urgente &mdash; e mescolarla
+      la renderebbe meno visibile. Per quelli si sceglie la pastiglia <em>Scaduti</em>.</li>
+  <li>Ogni server porta <strong>tutto il certificato</strong>: soggetto ed emittente in
+      DN completo, validita', numero di serie, versione, algoritmo di firma, chiave,
+      impronte SHA-256 e SHA-1, nomi alternativi DNS e IP, uso e uso esteso; piu'
+      indirizzo, porta, nome host, dispositivo, sistema operativo, prodotto web e TLS
+      negoziato. Chi rinnova lavora in una finestra di manutenzione, non davanti alla
+      console.</li>
+  <li>Il messaggio ha <strong>due corpi</strong>, testo e HTML: il testo semplice
+      sopravvive alle regole aziendali che tolgono l'HTML e al copia-incolla dentro un
+      ticket, che e' il modo in cui questo elenco viene usato davvero.</li>
+  <li>Passa dalla <strong>coda</strong> del prodotto, quindi ha ritentativi, e nel
+      registro delle azioni resta <strong>a chi</strong> e' stato mandato e con quale
+      criterio. Senza posta configurata il pulsante lo dichiara invece di non fare
+      nulla.</li>
+</ul>
+<p>
+  L'elenco riguarda i soli certificati che le sonde hanno potuto leggere aprendo una
+  connessione HTTPS: un servizio che la sonda non raggiunge non compare, e la sua
+  assenza <strong>non e' una conferma</strong>. Il messaggio lo dice da se', in fondo.
+</p>
+
 <h3>Il catalogo dei report</h3>
 <p>
   Nella scheda <strong>Catalogo dei report</strong> si scelgono genere, giorno finale e

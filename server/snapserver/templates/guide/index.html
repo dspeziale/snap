@@ -950,6 +950,46 @@
               lettura SNMP, dalla pagina di gestione o dall'IPP, indifferentemente.</li>
         </ul>
 
+<h3>Da quanti anni nessuno tocca quell'interfaccia</h3>
+        <p>
+          Leggendo una pagina il prodotto cerca anche <strong>l'anno che quella pagina
+          dichiara di se'</strong>: il copyright nel pie', un <code>meta</code> con una
+          data, una stringa di build, l'intestazione <code>Last-Modified</code>, e
+          l'inizio di validita' del certificato TLS. Fra tutte le prove si tiene
+          <strong>la piu' recente</strong>, perche' la domanda e' &laquo;da quanto
+          tempo nessuno tocca questa cosa&raquo;, non &laquo;quando e' nata&raquo;.
+        </p>
+        <div class="alert alert-warning">
+          <strong>Che cosa si puo' concludere, e che cosa no.</strong> Un
+          &laquo;&copy;&nbsp;2014&raquo; <em>non</em> dimostra che il software sia del
+          2014: dimostra che <strong>nessuno ha piu' toccato quella pagina dal
+          2014</strong>. E' un limite <em>inferiore</em> all'eta', non una misura --
+          ed e' comunque il segnale piu' economico che esista su una rete reale per
+          riconoscere un'installazione abbandonata, perche' un apparato la cui
+          interfaccia si ferma a dodici anni fa quasi mai riceve aggiornamenti di
+          firmware.
+        </div>
+        <p>
+          Per questo il prodotto lo tratta come <strong>indizio con la prova
+          allegata</strong>: nella pagina di un nodo, accanto all'anno, c'e' la fonte e
+          <strong>il frammento di pagina da cui viene</strong>. Chi legge deve poter
+          dare un giudizio, non fidarsi di un numero.
+        </p>
+        <ul>
+          <li>nell'elenco dei nodi compare una pastiglia (&laquo;ferma al
+              2014&raquo;) <strong>solo oltre i cinque anni</strong>: un'interfaccia
+              aggiornata quest'anno non e' una notizia, e scriverlo su ogni riga
+              toglierebbe spazio a cio' che conta. Oltre i dieci anni diventa rossa;</li>
+          <li>non si contano gli anni fuori da un intervallo credibile (un numero di
+              serie non e' una data), quelli dentro gli script e i fogli di stile
+              (sono le date delle librerie, non dell'apparato) e un
+              <code>Last-Modified</code> di oggi, che una pagina generata al volo
+              scrive sempre;</li>
+          <li>dove non c'e' nessuna prova <strong>non si scrive niente</strong>: una
+              pagina che non dichiara un anno non e' &laquo;recente&raquo;, e dirlo
+              sarebbe peggio che tacere.</li>
+        </ul>
+
         <h3>La colonna Sistema operativo non resta mai vuota</h3>
         <p>
           Una cella vuota non dice &laquo;non lo so&raquo;: dice

@@ -293,6 +293,35 @@ def primo_accesso():
     return render_template("primo_accesso.html", solo_locale=False)
 
 
+def identita_sonda() -> tuple:
+    """`(identita, registrata)`: come si chiama questa sonda, e se e' registrata.
+
+    Serve alla pagina di accesso, che la mostra in un campo di sola lettura. Ha due
+    ragioni, entrambe pratiche: dire A QUALE sonda ci si sta collegando -- chi ne
+    amministra diverse apre schede identiche -- e dare al gestore di password del
+    browser un nome sotto cui archiviare la credenziale. Un modulo con la sola
+    password non viene salvato dalla maggior parte dei gestori.
+
+    Quando la sonda non e' ancora registrata non ha un codice: si ripiega sul nome
+    della macchina, che e' stabile e riconoscibile.
+    """
+    codice = (_store().get_setting("probe_code") or "").strip()
+    if codice:
+        return codice, True
+    import socket
+
+    try:
+        nome = socket.gethostname()
+    except OSError:
+        nome = ""
+    return (nome or "sonda"), False
+
+def _contesto_accesso() -> dict:
+    """Le variabili che la pagina di accesso usa oltre al blocco."""
+    identita, registrata = identita_sonda()
+    return {"identita": identita, "registrata": registrata}
+
+
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     """Accesso con la password dell'interfaccia."""
@@ -305,7 +334,8 @@ def login():
     if request.method == "POST":
         if bloccato:
             flash("Troppi tentativi: riprovare fra %d minuti." % bloccato, "danger")
-            return render_template("login.html", bloccato=bloccato), 429
+            return render_template("login.html", bloccato=bloccato,
+                                   **_contesto_accesso()), 429
 
         password = request.form.get("password") or ""
         impronta = _store().get_setting(CHIAVE_HASH) or ""
@@ -330,9 +360,11 @@ def login():
             flash("Troppi tentativi: accesso bloccato per %d minuti." % MINUTI_BLOCCO,
                   "danger")
         return render_template("login.html",
-                               bloccato=_minuti_di_blocco_residui()), 401
+                               bloccato=_minuti_di_blocco_residui(),
+                               **_contesto_accesso()), 401
 
     return render_template("login.html", bloccato=bloccato,
+                           **_contesto_accesso(),
                            avanti=request.args.get("avanti") or "")
 
 

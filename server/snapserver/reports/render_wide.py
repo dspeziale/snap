@@ -18,6 +18,9 @@ license: MIT
 
 from __future__ import annotations
 
+import re
+from html import unescape
+
 from .dataset import change_label
 from .render_pdf import (
     ATTENZIONE,
@@ -1885,3 +1888,756 @@ def incident_report(percorso, dati: dict) -> str:
         " dell'impatto, che il sistema non puo' conoscere.")
     foglio.salva()
     return str(percorso)
+
+
+# Quante righe stanno in un elenco prima che smetta di essere un documento.
+# Misurato sul parco reale: 1246 certificati facevano 136 pagine -- non un
+# documento, un archivio stampato che nessuno legge.
+MAX_RIGHE_ELENCO = 120
+
+SEZIONI_CERTIFICATI = [
+    "Che cosa dice questo documento",
+    "Situazione in una riga",
+    "Gia' scaduti",
+    "In scadenza nei prossimi 30 giorni",
+    "In scadenza fra 31 e 90 giorni",
+    "Certificati con una debolezza dimostrata",
+    "Chi ha emesso i certificati",
+    "Elenco completo",
+]
+
+
+def _riga_certificato(voce: dict) -> list:
+    """Una riga della tabella: dove sta, che cos'e', quando scade."""
+    nome = (voce.get("hostname") or voce.get("device_label") or "").strip()
+    dove = "%s:%s" % (voce.get("ip") or "?", voce.get("port") or "?")
+    giorni = voce.get("giorni")
+    if giorni is None:
+        quando = "data non leggibile"
+    elif giorni < 0:
+        quando = "scaduto da %d gg" % abs(giorni)
+    elif giorni == 0:
+        quando = "scade oggi"
+    else:
+        quando = "fra %d gg" % giorni
+    return [
+        # UNA RIGA SOLA: l'impaginatore disegna la cella com'e', e un
+        # a capo esce come un quadratino -- il carattere che il font non ha.
+        ("%s  %s" % (nome, dove)) if nome else dove,
+        str(voce.get("cert_subject") or voce.get("cert_soggetto_dn") or "-")[:60],
+        str(voce.get("cert_issuer") or voce.get("cert_emittente_dn") or "-")[:50],
+        str(voce.get("cert_expires") or "-"),
+        quando,
+        ", ".join(voce.get("debolezze") or []) or "-",
+    ]
+
+
+COLONNE_CERTIFICATO = ["DOVE", "SOGGETTO", "EMITTENTE", "SCADENZA", "QUANDO",
+                       "DEBOLEZZE"]
+PESI_CERTIFICATO = [16, 26, 22, 12, 12, 12]
+
+
+def certificates_report(percorso, dati: dict) -> str:
+    """Lo stato dei certificati TLS del parco."""
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="certificates", titolo="Certificati TLS",
+        sottotitolo="Quali scadono, quali sono deboli, chi li ha emessi",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"),
+        generato=dati["generato_utc"],
+        scopo=[
+            "Lo stato dei certificati TLS trovati sul parco di %s: quando scadono,"
+            " chi li ha emessi e quali portano una debolezza dimostrata."
+            % dati["tenant"]["nome"],
+            "Un certificato che scade non e' un rischio teorico: e' un servizio che"
+            " smette di funzionare a una data nota. L'unica ragione per cui coglie di"
+            " sorpresa e' che nessuno tiene l'elenco.",
+        ],
+        sezioni=SEZIONI_CERTIFICATI, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    foglio.titolo_sezione("Che cosa dice questo documento")
+    foglio.paragrafo(
+        "Ogni riga e' un certificato che una sonda ha letto aprendo una connessione"
+        " HTTPS verso un servizio del parco. Non c'e' nulla di dedotto: soggetto,"
+        " emittente, validita', algoritmo di firma e lunghezza della chiave sono"
+        " scritti dentro il certificato stesso.")
+    foglio.box([{"testo":
+                 "Limite di questo elenco: si vedono i soli certificati che una sonda"
+                 " ha potuto leggere. Un servizio che la sonda non raggiunge non"
+                 " compare, e la sua assenza NON e' la conferma che non esista."}])
+
+    foglio.titolo_sezione("Situazione in una riga")
+    # Il colore non e' decorazione: distingue cio' che e' gia' rotto da cio' che lo
+    # sara'. Un numero senza colore in una fascia di sei si legge come gli altri.
+    foglio.riquadri([
+        (conti["scaduti"], "gia' scaduti",
+         ATTENZIONE if conti["scaduti"] else OK),
+        (conti["entro_30"], "scadono entro 30 giorni",
+         ATTENZIONE if conti["entro_30"] else OK),
+        (conti["entro_90"], "entro 90 giorni", None),
+        (conti["deboli"], "con una debolezza",
+         ATTENZIONE if conti["deboli"] else OK),
+        (conti["autofirmati"], "autofirmati", None),
+        (conti["totale"], "certificati in totale", None),
+    ])
+    foglio.paragrafo(
+        "I certificati sono distribuiti su %d dispositivi. Le tre finestre non si"
+        " sommano: chi scade entro 30 giorni e' compreso anche negli 90."
+        % conti["nodi"])
+
+    def tabella(titolo: str, voci: list, vuoto: str) -> None:
+        foglio.titolo_sezione(titolo)
+        if not voci:
+            foglio.paragrafo(vuoto)
+            return
+        foglio.tabella(COLONNE_CERTIFICATO,
+                       [_riga_certificato(v) for v in voci[:MAX_RIGHE_ELENCO]],
+                       larghezze=PESI_CERTIFICATO)
+        if len(voci) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d, in ordine di scadenza: i"
+                             " piu' urgenti sono qui."
+                             % (MAX_RIGHE_ELENCO, len(voci)))
+
+    tabella("Gia' scaduti", dati["scaduti"],
+            "Nessun certificato risulta scaduto fra quelli letti.")
+    tabella("In scadenza nei prossimi 30 giorni", dati["entro_30"],
+            "Nessun certificato scade entro trenta giorni.")
+    tabella("In scadenza fra 31 e 90 giorni",
+            [c for c in dati["entro_90"] if c not in dati["entro_30"]],
+            "Nessun certificato scade in quella finestra.")
+
+    foglio.titolo_sezione("Certificati con una debolezza dimostrata")
+    foglio.paragrafo(
+        "Un certificato invecchia anche senza scadere. La firma SHA-1 non e' piu'"
+        " emessa dalle CA pubbliche dal 2016 e una chiave RSA sotto i 2048 bit non e'"
+        " piu' adeguata (NIST SP 800-57): sono difetti che restano tali fino al"
+        " rinnovo, qualunque sia la data di scadenza. L'autofirma non e' un difetto in"
+        " se' -- su una rete interna e' una scelta legittima -- ma va deciso di"
+        " proposito, non subito.")
+    if dati["deboli"]:
+        foglio.tabella(COLONNE_CERTIFICATO,
+                       [_riga_certificato(v)
+                        for v in dati["deboli"][:MAX_RIGHE_ELENCO]],
+                       larghezze=PESI_CERTIFICATO)
+        if len(dati["deboli"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo(
+                "Mostrati i primi %d di %d. Quando le debolezze sono cosi' diffuse il"
+                " problema non e' il singolo certificato: e' che nessuno li emette da"
+                " un punto solo -- si veda la sezione sugli emittenti."
+                % (MAX_RIGHE_ELENCO, len(dati["deboli"])))
+    else:
+        foglio.paragrafo("Nessuna debolezza dimostrata fra i certificati letti.")
+
+    foglio.titolo_sezione("Chi ha emesso i certificati")
+    foglio.paragrafo(
+        "Un parco con venti emittenti diversi non ha una politica dei certificati: ne"
+        " ha venti. E' il primo dato da guardare prima delle singole scadenze.")
+    if dati["emittenti"]:
+        foglio.tabella(
+            ["EMITTENTE", "QUANTI", "AUTOFIRMATI", "CON DEBOLEZZE"],
+            [[str(e["emittente"])[:70], str(e["quanti"]), str(e["autofirmati"]),
+              str(e["deboli"])] for e in dati["emittenti"]],
+            larghezze=[58, 14, 14, 14], allineamento=["l", "r", "r", "r"])
+    else:
+        foglio.paragrafo("Nessun certificato letto.")
+
+    foglio.titolo_sezione("Elenco completo")
+    # SI TRONCA, E LO SI DICE. Un troncamento taciuto sarebbe peggio dell'elenco
+    # lungo: chi legge crederebbe di avere tutto.
+    completo = dati["certificati"]
+    if completo:
+        foglio.tabella(COLONNE_CERTIFICATO,
+                       [_riga_certificato(v) for v in completo[:MAX_RIGHE_ELENCO]],
+                       larghezze=PESI_CERTIFICATO)
+        if len(completo) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo(
+                "Mostrati i primi %d di %d, in ordine di scadenza. L'elenco intero si"
+                " consulta nella console (Rete > Certificati TLS), dove si filtra e si"
+                " ordina." % (MAX_RIGHE_ELENCO, len(completo)))
+    else:
+        foglio.paragrafo(
+            "Nessun certificato TLS e' stato letto sul parco. Se ci si aspettava il"
+            " contrario, la causa e' quasi sempre una di queste: i servizi HTTPS non"
+            " sono nel perimetro dichiarato, la fase di lettura web non e' ancora"
+            " passata, oppure le sonde non raggiungono quelle reti.")
+
+    foglio.salva()
+    return percorso
+
+
+# --------------------------------------------------------------------------- #
+# Vetusta' del parco
+# --------------------------------------------------------------------------- #
+SEZIONI_VETUSTA = [
+    "Che cosa dice questo documento, e che cosa non dice",
+    "Situazione in una riga",
+    "Ferme da oltre dieci anni",
+    "Ferme da cinque a dieci anni",
+    "Distribuzione per anno dichiarato",
+]
+
+
+RE_MARCATORE = re.compile(r"<[^>]*>")
+
+
+def _prova_leggibile(testo, anno, larghezza: int = 56) -> str:
+    """La prova dell'anno, ripulita dal markup e centrata sull'anno.
+
+    Il frammento arriva cosi' com'e' dalla pagina, e spesso porta con se' la coda di
+    un attributo HTML tagliato a meta': una prova che si legge come codice rotto non
+    convince nessuno, e questo documento chiede di essere giudicato sulle prove.
+    """
+    testo = RE_MARCATORE.sub(" ", str(testo or ""))
+    # Le entita' HTML si sciolgono DOPO aver tolto i marcatori: prima, un "&lt;"
+    # diventerebbe una parentesi e si porterebbe via il testo che segue.
+    testo = unescape(testo)
+    # Coda di un marcatore aperto e mai chiuso, in fondo al frammento.
+    if "<" in testo and ">" not in testo[testo.index("<"):]:
+        testo = testo[:testo.index("<")]
+    anno = str(anno or "")
+    posizione = testo.find(anno) if anno else -1
+    if posizione > 0:
+        # Coda di un attributo senza la sua apertura: la prova comincia dopo
+        # l'ultimo segno di chiusura che precede l'anno.
+        taglio = testo.rfind(">", 0, posizione)
+        if taglio >= 0:
+            testo = testo[taglio + 1:]
+    testo = " ".join(testo.split())
+    if len(testo) <= larghezza:
+        return testo or "-"
+    posizione = testo.find(anno) if anno else 0
+    inizio = max(0, (posizione if posizione >= 0 else 0) - larghezza // 4)
+    ritaglio = testo[inizio:inizio + larghezza]
+    return ("..." + ritaglio if inizio else ritaglio).rstrip()
+
+
+def _riga_vetusta(v: dict) -> list:
+    # Il nome host e NIENTE altro: il tipo di apparato ha gia' la sua colonna, e
+    # ripeterlo qui sprecava la meta' della piu' stretta.
+    nome = str(v.get("hostname") or "").strip()
+    dove = "%s:%s" % (v.get("ip") or "?", v.get("port") or "?")
+    return [
+        ("%s  %s" % (nome, dove)) if nome else dove,
+        str(v.get("device_label") or v.get("device_type") or "-")[:26],
+        str(v.get("product") or v.get("server_header") or v.get("title") or "-")[:34],
+        str(v.get("web_year") or "-"),
+        ("%d anni" % v["eta"]) if v.get("eta") is not None else "-",
+        str(v.get("web_year_source") or "-")[:16],
+        _prova_leggibile(v.get("web_year_evidence"), v.get("web_year")),
+    ]
+
+
+COLONNE_VETUSTA = ["DOVE", "DISPOSITIVO", "PRODOTTO", "ANNO", "ETA'", "FONTE", "PROVA"]
+PESI_VETUSTA = [16, 13, 17, 6, 8, 11, 29]
+
+
+def vetusta_report(percorso, dati: dict) -> str:
+    """Da quanti anni nessuno aggiorna le interfacce del parco."""
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="vetusta", titolo="Vetusta' del parco",
+        sottotitolo="Da quanti anni nessuno tocca queste interfacce",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"), generato=dati["generato_utc"],
+        scopo=[
+            "Quali sistemi di %s non li aggiorna piu' nessuno, con la prova."
+            % dati["tenant"]["nome"],
+            "Non e' l'elenco delle vulnerabilita': e' la causa a monte di meta' di"
+            " esse, e non compare in nessun catalogo di CVE.",
+        ],
+        sezioni=SEZIONI_VETUSTA, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    foglio.titolo_sezione("Che cosa dice questo documento, e che cosa non dice")
+    foglio.paragrafo(
+        "Ogni riga riporta l'anno che l'interfaccia web di un apparato dichiara di se':"
+        " il copyright nel pie' di pagina, una data in un meta, una stringa di build,"
+        " l'intestazione Last-Modified oppure l'inizio di validita' del certificato"
+        " TLS. Fra le prove si tiene la piu' recente.")
+    foglio.box([{"testo":
+                 "Un \"(c) 2014\" NON dimostra che il software sia del 2014: dimostra"
+                 " che nessuno ha piu' toccato quella pagina dal 2014. E' un limite"
+                 " INFERIORE all'eta', non una misura. Per questo ogni riga porta la"
+                 " PROVA -- il frammento da cui l'anno viene -- e non il solo numero:"
+                 " chi legge deve poter dare un giudizio, non fidarsi."}])
+    foglio.paragrafo(
+        "Le interfacce che non dichiarano alcun anno sono %d e NON compaiono qui."
+        " Non sono \"recenti\": sono mute, ed e' una cosa diversa."
+        % conti["senza_anno"])
+
+    foglio.titolo_sezione("Situazione in una riga")
+    foglio.riquadri([
+        (conti["gravi"], "ferme da 10+ anni",
+         ATTENZIONE if conti["gravi"] else OK),
+        (conti["preoccupanti"], "ferme da 5-10 anni",
+         ATTENZIONE if conti["preoccupanti"] else OK),
+        ("%d anni" % conti["eta_massima"], "la piu' vecchia", None),
+        (conti["nodi"], "dispositivi con un anno", None),
+        (conti["senza_anno"], "interfacce mute", None),
+    ])
+
+    foglio.titolo_sezione("Ferme da oltre dieci anni")
+    if dati["gravi"]:
+        foglio.paragrafo(
+            "Un'interfaccia ferma a piu' di dieci anni fa non e' un caso: e' un"
+            " apparato uscito dal ciclo di manutenzione. Se e' raggiungibile dalla rete"
+            " di utenza, va deciso che cosa farne -- aggiornarlo, isolarlo o"
+            " sostituirlo -- prima che lo decida qualcun altro.")
+        foglio.tabella(COLONNE_VETUSTA,
+                       [_riga_vetusta(v) for v in dati["gravi"][:MAX_RIGHE_ELENCO]],
+                       larghezze=PESI_VETUSTA)
+        if len(dati["gravi"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d, dal piu' vecchio."
+                             % (MAX_RIGHE_ELENCO, len(dati["gravi"])))
+    else:
+        foglio.paragrafo("Nessuna interfaccia dichiara un anno anteriore a dieci anni fa.")
+
+    foglio.titolo_sezione("Ferme da cinque a dieci anni")
+    if dati["preoccupanti"]:
+        foglio.tabella(
+            COLONNE_VETUSTA,
+            [_riga_vetusta(v) for v in dati["preoccupanti"][:MAX_RIGHE_ELENCO]],
+            larghezze=PESI_VETUSTA)
+        if len(dati["preoccupanti"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["preoccupanti"])))
+    else:
+        foglio.paragrafo("Nessuna interfaccia in questa fascia.")
+
+    foglio.titolo_sezione("Distribuzione per anno dichiarato")
+    if dati["distribuzione"]:
+        # Affiancata su tre colonne: due sole colonne di numeri stirate su una pagina
+        # orizzontale sono un righello, non una tabella.
+        foglio.tabella(
+            ["ANNO", "DISPOSITIVI"],
+            [[str(v["anno"]), str(v["quanti"])] for v in dati["distribuzione"]],
+            larghezze=[1.0, 1.0], allineamento=["l", "r"], colonne=3)
+    else:
+        foglio.paragrafo("Nessun anno raccolto.")
+
+    foglio.salva()
+    return percorso
+
+
+# --------------------------------------------------------------------------- #
+# Presenze sulle reti senza fili
+# --------------------------------------------------------------------------- #
+SEZIONI_PRESENZE = [
+    "Che cosa dice questo documento",
+    "Situazione in una riga",
+    "Le reti osservate",
+    "Con quale certezza si riconoscono gli apparati",
+    "Apparati comparsi per la prima volta nel periodo",
+    "Gli apparati piu' assidui",
+    "Trattamento dei dati",
+]
+
+
+def presenze_report(percorso, dati: dict) -> str:
+    """Chi c'e' stato sulle reti senza fili, e con quale certezza."""
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="presenze", titolo="Presenze sulle reti senza fili",
+        sottotitolo="Chi c'e' stato, quanti non si riconoscono",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"), generato=dati["generato_utc"],
+        scopo=[
+            "Gli apparati visti sulle reti senza fili di %s nel periodo, con la fonte"
+            " dell'identita' e la sua incertezza." % dati["tenant"]["nome"],
+            "Su una rete di utenza la domanda operativa e' quanti apparati non si"
+            " riconoscono; quella di conformita' e' per quanto tempo si conservano"
+            " questi dati.",
+        ],
+        sezioni=SEZIONI_PRESENZE, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    foglio.titolo_sezione("Che cosa dice questo documento")
+    foglio.paragrafo(
+        "L'unita' non e' l'indirizzo IP -- che il DHCP riassegna, e che confonderebbe"
+        " due apparati diversi in una riga sola -- ma l'APPARATO riconosciuto. Il"
+        " riconoscimento e' a scalare e la sua fonte e' sempre dichiarata, perche'"
+        " un'identita' dedotta vale meno di una letta.")
+
+    foglio.titolo_sezione("Situazione in una riga")
+    foglio.riquadri([
+        (conti["apparati"], "apparati distinti", None),
+        (conti["nuovi"], "mai visti prima",
+         ATTENZIONE if conti["nuovi"] else OK),
+        (conti["identita_deboli"], "riconosciuti dal solo indirizzo",
+         ATTENZIONE if conti["identita_deboli"] else OK),
+        (conti["permanenze"], "permanenze registrate", None),
+        (conti["reti"], "reti senza fili", None),
+    ])
+
+    foglio.titolo_sezione("Le reti osservate")
+    if dati["reti"]:
+        foglio.tabella(
+            ["RETE", "ETICHETTA", "ZONA", "APPARATI", "PERMANENZE"],
+            [[str(r["cidr"]), str(r["label"] or "-")[:34], str(r["zone"] or "-")[:20],
+              str(r["apparati"] or 0), str(r["permanenze"] or 0)]
+             for r in dati["reti"]],
+            larghezze=[20, 30, 18, 16, 16], allineamento=["l", "l", "l", "r", "r"])
+    else:
+        foglio.paragrafo(
+            "Nessuna rete e' dichiarata senza fili. La ricognizione delle presenze si"
+            " attiva sulle sole subnet con quell'interruttore acceso (Rete >"
+            " Perimetro): senza, questo documento resta vuoto anche se la rete Wi-Fi"
+            " esiste.")
+
+    foglio.titolo_sezione("Con quale certezza si riconoscono gli apparati")
+    foglio.paragrafo(
+        "E' il dato che dice se lo storico e' affidabile. Se meta' degli apparati e'"
+        " riconosciuta dal solo indirizzo, la rete non fornisce i MAC alla sonda e lo"
+        " storico va letto per quello che e': una successione di indirizzi, non di"
+        " apparati.")
+    if dati["per_fonte"]:
+        foglio.tabella(
+            ["FONTE", "QUANTO VALE", "APPARATI", "PERMANENZE"],
+            [[str(v["nome"]), str(v["certezza"]), str(v["apparati"] or 0),
+              str(v["permanenze"] or 0)] for v in dati["per_fonte"]],
+            larghezze=[26, 34, 20, 20], allineamento=["l", "l", "r", "r"])
+    else:
+        foglio.paragrafo("Nessuna presenza registrata nel periodo.")
+
+    foglio.titolo_sezione("Apparati comparsi per la prima volta nel periodo")
+    if dati["nuovi"]:
+        foglio.tabella(
+            ["APPARATO", "MAC", "INDIRIZZO", "FONTE", "DAL", "PERMANENZE"],
+            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"])[:34],
+              str(v.get("mac") or "-"), str(v.get("ip") or "-"),
+              str(v["fonte"]), str(v["dal"])[:16], str(v["permanenze"])]
+             for v in dati["nuovi"][:MAX_RIGHE_ELENCO]],
+            larghezze=[26, 16, 14, 18, 16, 10],
+            allineamento=["l", "l", "l", "l", "l", "r"])
+        if len(dati["nuovi"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d, dal piu' recente."
+                             % (MAX_RIGHE_ELENCO, len(dati["nuovi"])))
+    else:
+        foglio.paragrafo("Nessun apparato nuovo nel periodo.")
+
+    foglio.titolo_sezione("Gli apparati piu' assidui")
+    foglio.paragrafo(
+        "Chi torna ogni giorno e' l'arredamento della rete. Serve come termine di"
+        " paragone: e' rispetto a questi che un apparato comparso una volta sola si"
+        " nota.")
+    if dati["assidui"]:
+        foglio.tabella(
+            ["APPARATO", "MAC", "FONTE", "PERMANENZE", "DAL", "ULTIMA VOLTA"],
+            [[str(v.get("hostname") or v.get("device_label") or v["identity_key"])[:34],
+              str(v.get("mac") or "-"), str(v["fonte"]),
+              str(v["permanenze"]), str(v["dal"])[:16], str(v["al"])[:16]]
+             for v in dati["assidui"]],
+            larghezze=[26, 16, 18, 10, 15, 15],
+            allineamento=["l", "l", "l", "r", "l", "l"])
+    else:
+        foglio.paragrafo("Nessuna permanenza nel periodo.")
+
+    foglio.titolo_sezione("Trattamento dei dati")
+    foglio.box([{"testo":
+                 "Sapere quali apparati personali erano in rete e quando e' un dato"
+                 " che riguarda le persone, non solo le macchine (Reg. UE 2016/679,"
+                 " art. 5). Questo documento nomina gli APPARATI, non le persone. Le"
+                 " presenze si conservano per il tempo dichiarato in Amministrazione >"
+                 " Archivio (90 giorni per impostazione predefinita) e poi si"
+                 " cancellano da se': e' il tempo che serve a leggere un andamento,"
+                 " non per sempre."}])
+
+    foglio.salva()
+    return percorso
+
+
+# --------------------------------------------------------------------------- #
+# Salute della flotta e copertura
+# --------------------------------------------------------------------------- #
+SEZIONI_FLOTTA = [
+    "Che cosa dice questo documento",
+    "Situazione in una riga",
+    "Le sonde",
+    "Punti ciechi: dichiarati e mai guardati",
+    "Reti guardate che non hanno prodotto nulla",
+    "Le fasi di scansione",
+    "Copertura del perimetro",
+]
+
+
+STATI_SONDA = {"active": "attiva", "pending": "in attesa", "idle": "ferma",
+               "error": "in errore", "unknown": "sconosciuto"}
+
+
+def _nome_sonda(s: dict) -> str:
+    """Codice della sonda, e il nome solo se aggiunge qualcosa.
+
+    Nome e codice sono quasi sempre lo stesso testo scritto in due modi, e affiancarli
+    riempiva la colonna di una ripetizione troncata a meta' parola.
+    """
+    codice = str(s["code"] or "")
+    nome = str(s["name"] or "").strip()
+    confronto = nome.lower().replace(" ", "").replace("-", "")
+    if not nome or confronto in codice.lower().replace("-", ""):
+        return codice[:30]
+    return ("%s  %s" % (codice, nome))[:30]
+
+
+def _stato_sonda(s: dict) -> str:
+    """Lo stato come lo legge chi non conosce i codici interni."""
+    if s["revoked_at"]:
+        return "revocata"
+    if int(s["scan_paused"] or 0) or not int(s["scan_enabled"] or 0):
+        return "sospesa"
+    stato = str(s["status"] or "").lower()
+    return STATI_SONDA.get(stato, stato or "-")
+
+
+def flotta_report(percorso, dati: dict) -> str:
+    """Lo strumento funziona? Posso fidarmi degli altri report?"""
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="flotta", titolo="Salute della flotta e copertura",
+        sottotitolo="Posso fidarmi di questi dati?",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"), generato=dati["generato_utc"],
+        scopo=[
+            "Lo stato delle sonde di %s e quanta parte del perimetro dichiarato e'"
+            " davvero coperta." % dati["tenant"]["nome"],
+            "Non parla della rete: parla dello STRUMENTO. E' la domanda da farsi prima"
+            " di guardare qualunque altro report.",
+        ],
+        sezioni=SEZIONI_FLOTTA, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    foglio.titolo_sezione("Che cosa dice questo documento")
+    foglio.paragrafo(
+        "Una subnet dichiarata nel perimetro e mai guardata non produce righe in"
+        " nessun altro report -- e una tabella vuota si legge come \"niente da"
+        " segnalare\" invece che come \"non guardato\". Questo documento nomina quei"
+        " punti ciechi.")
+
+    foglio.titolo_sezione("Situazione in una riga")
+    foglio.riquadri([
+        (conti["sonde_attive"], "sonde attive",
+         OK if conti["sonde_attive"] else ATTENZIONE),
+        (conti["sonde_sospese"], "con scansioni sospese",
+         ATTENZIONE if conti["sonde_sospese"] else OK),
+        (conti["ciechi"], "reti mai guardate",
+         ATTENZIONE if conti["ciechi"] else OK),
+        (conti["vuote"], "guardate senza esito", None),
+        (conti["subnet_attive"], "reti nel perimetro", None),
+        (conti["passate"], "passate nel periodo", None),
+    ])
+
+    foglio.titolo_sezione("Le sonde")
+    if dati["sonde"]:
+        foglio.tabella(
+            ["SONDA", "SEDE", "STATO", "AGENTE", "ULTIMO BATTITO", "LOTTI", "PASSATE",
+             "NODI"],
+            [[_nome_sonda(s), str(s["site"] or "-")[:18], _stato_sonda(s),
+              str(s["agent_version"] or "-"), str(s["last_seen_at"] or "mai")[:16],
+              str(s["lotti"] or 0), str(s["passate"] or 0), str(s["nodi"] or 0)]
+             for s in dati["sonde"]],
+            larghezze=[22, 13, 11, 9, 15, 10, 10, 10],
+            allineamento=["l", "l", "l", "l", "l", "r", "r", "r"])
+    else:
+        foglio.paragrafo(
+            "Nessuna sonda registrata: nessun dato di questo tenant puo' essere"
+            " aggiornato. Si registra da Sonde > Registra sonda.")
+
+    foglio.titolo_sezione("Punti ciechi: dichiarati e mai guardati")
+    if dati["ciechi"]:
+        foglio.paragrafo(
+            "Queste reti sono nel perimetro e attive, ma nessuna passata le ha mai"
+            " prese come bersaglio. Le cause piu' frequenti: nessuna sonda le"
+            " raggiunge (manca una rotta), oppure la scoperta non e' ancora arrivata"
+            " al loro turno.")
+        foglio.tabella(
+            ["RETE", "ETICHETTA", "ZONA", "INDIRIZZI"],
+            [[str(c["cidr"]), str(c["label"] or "-")[:40], str(c["zone"] or "-")[:20],
+              str(c["host_count"] or 0)] for c in dati["ciechi"][:MAX_RIGHE_ELENCO]],
+            larghezze=[22, 38, 22, 18], allineamento=["l", "l", "l", "r"])
+        if len(dati["ciechi"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrate le prime %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["ciechi"])))
+    else:
+        foglio.paragrafo("Ogni rete attiva del perimetro e' stata guardata almeno una"
+                         " volta.")
+
+    foglio.titolo_sezione("Reti guardate che non hanno prodotto nulla")
+    if dati["vuote"]:
+        foglio.paragrafo(
+            "Una rete guardata e vuota puo' essere davvero vuota -- oppure non"
+            " raggiungibile. Le due cose si distinguono dal diario della sonda, che"
+            " dichiara quando nmap non sa come arrivare a un bersaglio.")
+        foglio.tabella(
+            ["RETE", "ETICHETTA", "ULTIMA PASSATA"],
+            [[str(c["cidr"]), str(c["label"] or "-")[:40], str(c["ultima"])[:16]]
+             for c in dati["vuote"][:MAX_RIGHE_ELENCO]],
+            larghezze=[1.2, 1.6, 1.4], colonne=2)
+    else:
+        foglio.paragrafo("Ogni rete guardata ha prodotto almeno un nodo.")
+
+    foglio.titolo_sezione("Le fasi di scansione")
+    foglio.paragrafo(
+        "Una passata completata su ZERO host non e' una passata veloce: e' una passata"
+        " che non ha visto nulla. La colonna \"a vuoto\" e' il numero da guardare per"
+        " primo: se cresce su una fase sola, il problema e' quella fase; se cresce su"
+        " tutte, il problema e' la raggiungibilita' delle reti.")
+    if dati["fasi"]:
+        foglio.tabella(
+            ["FASE", "PASSATE", "COMPLETATE", "A VUOTO", "HOST VISTI", "RECORD",
+             "SECONDI MEDI"],
+            [[str(f["stage"]), str(f["passate"] or 0), str(f["completate"] or 0),
+              str(f["senza_host"] or 0), str(f["host"] or 0), str(f["record"] or 0),
+              str(f["secondi_medi"] or 0)] for f in dati["fasi"]],
+            larghezze=[18, 12, 14, 12, 14, 12, 14],
+            allineamento=["l", "r", "r", "r", "r", "r", "r"])
+        foglio.box([{"testo":
+                     "Come si legge la colonna RECORD. La valorizzano le sole fasi che"
+                     " scrivono record propri -- la scoperta e la lettura web; le"
+                     " altre (porte, SMB, vulnerabilita') conferiscono aggiornando i"
+                     " nodi e lasciano quel contatore a zero anche quando hanno"
+                     " lavorato. Un zero in quella colonna NON significa che la fase"
+                     " abbia fallito: per quello si guarda \"a vuoto\"."}])
+    else:
+        foglio.paragrafo("Nessuna passata registrata nel periodo.")
+
+    foglio.titolo_sezione("Copertura del perimetro")
+    if dati["copertura"]:
+        foglio.tabella(
+            ["RETE", "ETICHETTA", "ZONA", "ATTIVA", "WI-FI", "NODI", "ULTIMA PASSATA"],
+            [[str(c["cidr"]), str(c["label"] or "-")[:30], str(c["zone"] or "-")[:18],
+              "si" if int(c["is_enabled"] or 0) else "no",
+              "si" if int(c["is_wifi"] or 0) else "-",
+              str(c["nodi"] or 0), str(c["ultima"] or "mai")[:16]]
+             for c in dati["copertura"][:MAX_RIGHE_ELENCO]],
+            larghezze=[1.3, 1.4, 1.0, .6, .5, .6, 1.2],
+            allineamento=["l", "l", "l", "l", "l", "r", "l"], colonne=2)
+        if len(dati["copertura"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrate le prime %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["copertura"])))
+    else:
+        foglio.paragrafo("Nessuna subnet dichiarata nel perimetro.")
+
+    foglio.salva()
+    return percorso
+
+
+# --------------------------------------------------------------------------- #
+# Condivisioni ed esposizione SMB
+# --------------------------------------------------------------------------- #
+SEZIONI_SMB = [
+    "Che cosa dice questo documento",
+    "Situazione in una riga",
+    "Firma dei messaggi non richiesta",
+    "Protocollo SMB 1.0 ancora attivo",
+    "Condivisioni enumerate",
+    "Tutti i dispositivi letti",
+]
+
+
+def smb_report(percorso, dati: dict) -> str:
+    """Che cosa dichiara di se' il parco Windows."""
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="smb", titolo="Esposizione SMB",
+        sottotitolo="Firma dei messaggi, versioni del protocollo, condivisioni",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"), generato=dati["generato_utc"],
+        scopo=[
+            "Che cosa dichiarano di se' i dispositivi di %s che parlano SMB."
+            % dati["tenant"]["nome"],
+            "SMB e' il protocollo con cui si muove il ransomware dentro una rete: la"
+            " firma non richiesta e il protocollo 1.0 acceso sono le due condizioni"
+            " che glielo rendono facile.",
+        ],
+        sezioni=SEZIONI_SMB, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    foglio.titolo_sezione("Che cosa dice questo documento")
+    foglio.paragrafo(
+        "Tutto cio' che segue e' letto in SOLA LETTURA da quello che ogni dispositivo"
+        " dichiara di se' quando gli si chiede come parla: nessuna credenziale"
+        " provata, nessun file aperto, nessuna condivisione montata.")
+
+    foglio.titolo_sezione("Situazione in una riga")
+    foglio.riquadri([
+        (conti["senza_firma"], "firma non richiesta",
+         ATTENZIONE if conti["senza_firma"] else OK),
+        (conti["smb1"], "con SMB 1.0", ATTENZIONE if conti["smb1"] else OK),
+        (conti["firma_richiesta"], "firma richiesta", OK),
+        (conti["condivisioni"], "condivisioni viste", None),
+        (conti["nodi"], "dispositivi letti", None),
+    ])
+
+    foglio.titolo_sezione("Firma dei messaggi non richiesta")
+    foglio.paragrafo(
+        "Con la firma abilitata ma NON richiesta, un client puo' scegliere di non"
+        " firmare: la sessione diventa alterabile da chi sta in mezzo, ed e'"
+        " esattamente il presupposto degli attacchi di inoltro NTLM. \"Abilitata\" non"
+        " basta: deve essere \"richiesta\".")
+    if dati["senza_firma"]:
+        foglio.tabella(
+            ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "RETE", "FIRMA"],
+            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
+              str(v["ip"]), str(v.get("os_name") or "-")[:26],
+              str(v.get("cidr") or "-"), str(v["firma"])]
+             for v in dati["senza_firma"][:MAX_RIGHE_ELENCO]],
+            larghezze=[24, 16, 24, 18, 24])
+        if len(dati["senza_firma"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["senza_firma"])))
+    else:
+        foglio.paragrafo("Nessun dispositivo letto dichiara la firma come non"
+                         " richiesta.")
+
+    foglio.titolo_sezione("Protocollo SMB 1.0 ancora attivo")
+    foglio.paragrafo(
+        "SMB 1.0 e' ritirato da Microsoft e non riceve correzioni: dove risponde,"
+        " risponde anche a chi lo sfrutta. Nell'elenco dei dialetti si riconosce dal"
+        " nome storico \"NT LM 0.12\": un dispositivo che dichiara anche 3.1.1 resta"
+        " esposto finche' accetta quel dialetto, perche' e' il client a scegliere.")
+    if dati["con_smb1"]:
+        foglio.tabella(
+            ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "PROTOCOLLI DICHIARATI"],
+            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
+              str(v["ip"]), str(v.get("os_name") or "-")[:26],
+              ", ".join(v["protocolli"])[:44]]
+             for v in dati["con_smb1"][:MAX_RIGHE_ELENCO]],
+            larghezze=[24, 16, 24, 42])
+    else:
+        foglio.paragrafo("Nessun dispositivo letto dichiara SMB 1.0.")
+
+    foglio.titolo_sezione("Condivisioni enumerate")
+    if dati["con_condivisioni"]:
+        foglio.tabella(
+            ["DISPOSITIVO", "INDIRIZZO", "CONDIVISIONI"],
+            [[str(v.get("hostname") or v.get("device_label") or "-")[:30],
+              str(v["ip"]), ", ".join(v["condivisioni"])[:70]]
+             for v in dati["con_condivisioni"][:MAX_RIGHE_ELENCO]],
+            larghezze=[24, 16, 66])
+    else:
+        foglio.paragrafo(
+            "Nessuna condivisione enumerata. L'enumerazione riesce solo dove il"
+            " dispositivo la concede senza credenziali: dove non compare nulla, il"
+            " dispositivo ha rifiutato -- ed e' il comportamento corretto.")
+
+    foglio.titolo_sezione("Tutti i dispositivi letti")
+    if dati["nodi"]:
+        foglio.tabella(
+            ["DISPOSITIVO", "INDIRIZZO", "SISTEMA", "RETE", "FIRMA", "PROTOCOLLI"],
+            [[str(v.get("hostname") or v.get("device_label") or "-")[:28],
+              str(v["ip"]), str(v.get("os_name") or "-")[:22],
+              str(v.get("cidr") or "-"), str(v["firma"] or "-")[:22],
+              ", ".join(v["protocolli"])[:30]]
+             for v in dati["nodi"][:MAX_RIGHE_ELENCO]],
+            larghezze=[22, 14, 20, 16, 20, 24])
+        if len(dati["nodi"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["nodi"])))
+    else:
+        foglio.paragrafo(
+            "Nessun dispositivo ha risposto a SMB. La lettura avviene sui soli nodi"
+            " con la 139 o la 445 aperta.")
+
+    foglio.salva()
+    return percorso

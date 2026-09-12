@@ -35,7 +35,7 @@ class EsecutoreFinto:
         return {"available": True, "executable": "nmap-finto", "nmap_version": "7.99",
                 "raw_sockets": True, "os_detection": True, "detail": "esecutore di prova"}
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         # `label` descrive la fase in corso per l'indicatore: qui non serve,
         # ma la firma deve corrispondere a quella del runner vero.
         self.chiamate.append({"arguments": list(arguments), "targets": list(targets)})

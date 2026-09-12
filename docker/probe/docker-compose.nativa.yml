@@ -84,7 +84,7 @@ services:
   #
   # La configurazione di nginx e i certificati sono gli stessi dell'esercizio: una
   # sola configurazione da mantenere. L'unica differenza e' dove trova la sonda,
-  # e quella e' una riga di `extra_hosts`.
+  # e quella e' una variabile (`SONDA_HOST`).
   proxy-nativa:
     image: nginxinc/nginx-unprivileged:1.27-alpine
     container_name: snap-probe-proxy-nativa
@@ -99,16 +99,37 @@ services:
     # connessione dal lato Windows, quindi per il servizio e' una connessione
     # locale. E' cio' che permette alla sonda di NON esporre nulla in chiaro sulla
     # rete: ascolta su 127.0.0.1:5511 e la raggiunge solo questo proxy.
-    extra_hosts:
-      - "sonda:host-gateway"
+    #
+    # NON SI DICHIARA `extra_hosts` PER QUESTO NOME, e va spiegato perche' sembra
+    # prudente farlo. Docker Desktop mette gia' `host.docker.internal` in /etc/hosts,
+    # con l'indirizzo IPv4 che funziona. Aggiungendolo con `host-gateway` se ne
+    # ottiene un SECONDO, in IPv6:
+    #
+    #   192.168.65.254        host.docker.internal
+    #   fdc4:f303:9324::254   host.docker.internal
+    #
+    # nginx risolve il nome all'avvio e usa TUTTI gli indirizzi a turno: una
+    # richiesta su due finiva su quello IPv6, che su questa rete non e' instradabile
+    # ("connect() failed (101: Network unreachable)"), e l'interfaccia rispondeva a
+    # intermittenza -- il guasto peggiore, perche' una prova andata bene sembra una
+    # conferma. Un nome, un indirizzo.
+    #
+    # Questa variante esiste per Docker Desktop (vedi la nota in testa al file), che
+    # il nome lo fornisce di suo: su Linux la sonda va in contenitore con rete host e
+    # questo proxy non si usa.
     ports:
       # Le stesse porte dell'esercizio, cosi' l'indirizzo non cambia fra le
       # varianti: 5510 in HTTPS, 5512 che rimanda alla 5510. Dentro il range del
       # progetto (5500-5600), vedi PORTS.md.
       - "5510:5510"
       - "5512:5512"
+    environment:
+      # La sonda gira sulla macchina: il proxy la raggiunge dall'host, non dal
+      # proprio loopback. Vedi la nota in testa a nginx.conf.template.
+      SONDA_HOST: "host.docker.internal"
+      NGINX_ENVSUBST_FILTER: "^SONDA_"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       # La prima impostazione della password NON passa da qui: vedi il file, che
       # spiega perche' non ammette nessun indirizzo e quale sia la via giusta.
       - ./allow-primo-accesso.nativa.conf:/etc/nginx/allow-primo-accesso.conf:ro
@@ -116,8 +137,9 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      # `nginx -t` verifica anche che il nome `sonda` si risolva: se `extra_hosts`
-      # mancasse, il servizio risulterebbe malato invece di rispondere 502.
+      # `nginx -t` verifica anche che `${SONDA_HOST}` si risolva: se la variabile
+      # mancasse o il nome non risolvesse, il servizio risulterebbe malato invece di
+      # rispondere 502 a ogni richiesta.
       test: ["CMD", "nginx", "-t"]
       interval: 30s
       timeout: 5s

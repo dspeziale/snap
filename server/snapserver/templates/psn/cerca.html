@@ -1,0 +1,182 @@
+{#
+  snap server - PSN: una sola ricerca su tutto il piano.
+
+  E' la funzione che un foglio di settantanove schede non puo' avere: chi ha in mano
+  un indirizzo, un nome o un service name non sa in quale scheda cercarlo. Se il
+  testo e' un indirizzo, si cerca anche la subnet che lo CONTIENE -- che e' la
+  domanda vera di chi non sa di chi sia quell'indirizzo.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; ricerca{% endblock %}
+{% block page_icon %}bi-search{% endblock %}
+{% block page_title %}Cerca nel piano{% endblock %}
+{% block page_subtitle %}
+  Un indirizzo, un hostname, un nome di servizio, un tenant: una ricerca sola su
+  tutto il piano.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      {% if piano %}<input type="hidden" name="piano" value="{{ piano['id'] }}">{% endif %}
+      <div class="col-12 col-md-8">
+        <label class="form-label small mb-1" for="q">Che cosa cerchi</label>
+        <input type="search" class="form-control" id="q" name="q" value="{{ q }}"
+               placeholder="10.58.3.4, bc-prod-ipa01, SIEPROD, PSN02884971"
+               autocomplete="off" autofocus>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-search me-1"></i> Cerca</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% if q and q|length < 2 %}
+  <div class="alert alert-secondary">Servono almeno due caratteri.</div>
+{% elif q %}
+  {% set quanti = esiti.indirizzi|length + esiti.subnet|length + esiti.tenant|length
+                  + esiti.database|length + esiti.servizi|length %}
+  {% if not quanti %}
+    <div class="alert alert-secondary">
+      Nessun riscontro per <strong>{{ q }}</strong> nel piano conferito.
+    </div>
+  {% endif %}
+
+  {% if esiti.subnet %}
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="h6 mb-0">
+      <i class="bi bi-diagram-2 me-1"></i> Subnet ({{ esiti.subnet|length }})</h2></div>
+    <div class="card-body p-0"><div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead><tr><th>CODICE</th><th>NOME</th><th>RETE</th><th>CLASSE</th></tr></thead>
+        <tbody>
+          {% for s in esiti.subnet %}
+          <tr>
+            <td><a href="{{ url_for('psn.subnet', subnet_id=s['id']) }}">{{ s['code'] }}</a></td>
+            <td class="small">{{ s['name'] }}</td>
+            <td class="font-monospace small">{{ s['cidr'] }}</td>
+            <td class="small">{{ s['traffic_class'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if esiti.indirizzi %}
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="h6 mb-0">
+      <i class="bi bi-list-ol me-1"></i> Indirizzi ({{ esiti.indirizzi|length }})</h2></div>
+    <div class="card-body p-0"><div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="25">
+        <thead><tr><th>INDIRIZZO</th><th>STATO</th><th>HOSTNAME</th><th>SUBNET</th>
+          <th>DESCRIZIONE</th></tr></thead>
+        <tbody>
+          {% for a in esiti.indirizzi %}
+          <tr>
+            <td class="font-monospace">{{ a['ip'] }}</td>
+            <td><span class="badge text-bg-{{ 'primary' if a['state'] == 'assegnato'
+                        else ('success' if a['state'] == 'libero' else 'secondary') }}">
+              {{ a['state'] }}</span></td>
+            <td class="small fw-semibold">{{ a['hostname'] }}
+              {% if a['old_hostname'] %}
+                <div class="text-body-secondary">era {{ a['old_hostname'] }}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              <a href="{{ url_for('psn.subnet', subnet_id=a['subnet_id']) }}">
+                {{ a['code'] }}</a>
+              <div class="text-body-secondary">{{ a['subnet_name'] }}</div>
+            </td>
+            <td class="small text-body-secondary">{{ a['description'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if esiti.database %}
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="h6 mb-0">
+      <i class="bi bi-database me-1"></i> Database ({{ esiti.database|length }})</h2></div>
+    <div class="card-body p-0"><div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead><tr><th>SERVIZIO</th><th>ISTANZA</th><th>PDB</th><th>INDIRIZZO</th>
+          <th>TENANT</th></tr></thead>
+        <tbody>
+          {% for d in esiti.database %}
+          <tr>
+            <td class="small fw-semibold">{{ d['service_name'] }}</td>
+            <td class="small">{{ d['db_unique_name'] }}</td>
+            <td class="small">{{ d['pdb'] }}</td>
+            <td class="font-monospace small">{{ d['ip_tenant'] }}</td>
+            <td class="font-monospace small">{{ d['tenant_tgu'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if esiti.tenant %}
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="h6 mb-0">
+      <i class="bi bi-buildings me-1"></i> Tenant ({{ esiti.tenant|length }})</h2></div>
+    <div class="card-body p-0"><div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead><tr><th>IDENTIFICATIVO</th><th>TENANT</th><th>ZONA</th><th>STATO</th></tr></thead>
+        <tbody>
+          {% for t in esiti.tenant %}
+          <tr>
+            <td class="font-monospace small">{{ t['tgu_raw'] or t['tgu'] }}</td>
+            <td class="small fw-semibold">{{ t['name'] }}</td>
+            <td class="small">{{ t['zone'] }}</td>
+            <td class="small">{{ t['state'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  {% endif %}
+
+  {% if esiti.servizi %}
+  <div class="card mb-3">
+    <div class="card-header"><h2 class="h6 mb-0">
+      <i class="bi bi-globe2 me-1"></i> Servizi ({{ esiti.servizi|length }})</h2></div>
+    <div class="card-body p-0"><div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead><tr><th>ETICHETTA</th><th>URL</th><th>INDIRIZZO</th><th>BACKEND</th></tr></thead>
+        <tbody>
+          {% for s in esiti.servizi %}
+          <tr>
+            <td class="small fw-semibold">{{ s['label'] }}</td>
+            <td class="small text-break">{{ s['url'] }}</td>
+            <td class="font-monospace small">{{ s['vip'] }}</td>
+            <td class="font-monospace small">{{ s['backends'] }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}

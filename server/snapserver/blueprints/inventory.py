@@ -342,6 +342,90 @@ def certificates():
         filtri={"stato": stato or "", "entro": entro})
 
 
+@bp.post("/certificates/email")
+@role_required(ROLE_ANALYST)
+def certificates_email():
+    """Spedisce l'elenco dei certificati in scadenza a un recapito indicato adesso.
+
+    PERCHE' IL RECAPITO SI SCRIVE SUL MOMENTO e non si configura. Chi rinnova un
+    certificato spesso non e' chi guarda la console: e' il referente del sistema che
+    lo ospita, e cambia da sistema a sistema. Un elenco di destinatari fissi
+    manderebbe a tutti tutto, che e' il modo in cui questi messaggi smettono di essere
+    letti.
+
+    Si spedisce CIO' CHE SI STA GUARDANDO: la soglia in giorni e il filtro arrivano
+    dalla pagina, cosi' il messaggio corrisponde all'elenco a schermo e non a un
+    criterio diverso deciso altrove.
+
+    La notifica passa dalla coda del prodotto -- con ritentativi e traccia -- e non da
+    una spedizione diretta: cosi' un server di posta lento non blocca la richiesta, e
+    di cio' che e' stato mandato resta la prova.
+    """
+    from ..checks import EMAIL_PATTERN
+    from .. import certificates_report, notifications
+
+    tenant_id = current_tenant_id()
+    destinatario = (request.form.get("email") or "").strip()
+    try:
+        entro = int(request.form.get("entro") or 30)
+    except ValueError:
+        entro = 30
+    entro = max(1, min(entro, 3650))
+    stato = (request.form.get("stato") or "").strip()
+
+    ritorno = url_for("inventory.certificates", stato=stato or None, entro=entro)
+
+    if not EMAIL_PATTERN.match(destinatario):
+        flash("Indirizzo di posta non valido: l'elenco non e' stato inviato.", "warning")
+        return redirect(ritorno)
+
+    configurazione = notifications.smtp_config()
+    if not configurazione.get("enabled") or not notifications.is_configured(configurazione):
+        flash("La posta non e' configurata: l'elenco non puo' essere inviato."
+              " Si configura in Amministrazione > Canali di recapito.", "warning")
+        return redirect(ritorno)
+
+    # Si manda ESATTAMENTE cio' che si sta guardando: la soglia in giorni e la
+    # pastiglia attiva. Senza filtro vale "in scadenza", cioe' i certificati che
+    # scadranno entro la soglia -- non quelli gia' scaduti, che sono un'altra coda.
+    voci = certificates_report.certificati_per_rapporto(
+        tenant_id, entro_giorni=entro, stato=stato or "in_scadenza")
+    tenant = (getattr(g, "tenant", None) or {}).get("name") or ""
+    console = url_for("inventory.certificates", _external=True)
+
+    identificativo = notifications.queue_notification(
+        tenant_id,
+        "certificates.expiring",
+        destinatario,
+        certificates_report.oggetto(voci, entro, tenant),
+        certificates_report.corpo_testo(voci, entro, tenant, console),
+        body_html=certificates_report.corpo_html(voci, entro, tenant, console),
+    )
+    if identificativo is None:
+        flash("Notifiche disattivate: l'elenco non e' stato accodato.", "warning")
+        return redirect(ritorno)
+
+    # Si tenta subito: chi ha premuto il bottone sta guardando, e deve sapere adesso
+    # se il messaggio e' partito. Se non parte resta in coda e il recapito riprova.
+    esito = notifications.dispatch_pending(limit=5)
+
+    log_event("certificates.emailed",
+              "Elenco dei certificati inviato a %s: %d certificati (%s)"
+              % (destinatario, len(voci),
+                 {"scaduti": "solo quelli gia' scaduti",
+                  "tutti": "scaduti e in scadenza entro %d giorni" % entro}.get(
+                     stato, "in scadenza entro %d giorni" % entro)),
+              tenant_id=tenant_id, entity="notification", entity_id=identificativo)
+
+    if esito.get("sent"):
+        flash("Elenco inviato a %s: %d certificati." % (destinatario, len(voci)),
+              "success")
+    else:
+        flash("Elenco accodato per %s (%d certificati): il recapito riprova da solo."
+              " Lo stato si vede in Notifiche." % (destinatario, len(voci)), "info")
+    return redirect(ritorno)
+
+
 @bp.get("/map")
 @login_required
 def network_map():
@@ -527,6 +611,7 @@ def node(node_id: int):
         " device_name, location, host_name, serial, firmware, contact,"
         " pages_read, facts_locked, facts_json, cert_json,"
         " favicon_hash, favicon_bytes, favicon_path, headers_hash, headers_names,"
+        " web_year, web_year_source, web_year_evidence, web_age_years, web_years,"
         " body_bytes, error, collected_at FROM node_web"
         " WHERE tenant_id = ? AND node_id = ? ORDER BY port", (tenant_id, node_id))]
     # I fatti che l'apparato dichiara e che non hanno una colonna propria (l'interno e i
@@ -1178,10 +1263,13 @@ def presence():
     reti = [r["cidr"] for r in query(
         "SELECT cidr FROM subnets WHERE tenant_id = ? AND COALESCE(is_wifi, 0) = 1"
         " AND is_enabled = 1 ORDER BY cidr", (tenant_id,))]
+    subnet_id = request.args.get("subnet", type=int)
     return render_template(
         "inventory/presence.html",
-        permanenze=presenze.storico(tenant_id,
-                                    subnet_id=request.args.get("subnet", type=int)),
+        permanenze=presenze.storico(tenant_id, subnet_id=subnet_id),
+        # Chi c'e' ADESSO, prima di chi c'e' stato: e' la domanda che si fa chi apre
+        # questa pagina mentre sta succedendo qualcosa.
+        adesso=presenze.presenti_ora(tenant_id, subnet_id=subnet_id),
         riepilogo=presenze.riepilogo(tenant_id),
         reti_wifi=reti,
     )

@@ -176,6 +176,15 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(acn_bp)
     app.register_blueprint(api_probe_bp)
 
+    # --- Sottosistema PSN, registrato per ultimo e in un blocco proprio -------
+    # E' un sottosistema separato: archivio proprio, nessuna chiave esterna verso le
+    # tabelle del prodotto, modelli in `templates/psn/`. Per rimuoverlo si cancella
+    # questo blocco, la cartella `snapserver/psn/`, i suoi modelli, il blocco PSN
+    # nella barra laterale e il database. Vedi docs/15_PSN.md.
+    from .psn import bp as psn_bp
+
+    app.register_blueprint(psn_bp)
+
 
 def _safe_referrer() -> str | None:
     """Pagina di provenienza, solo se interna all'applicazione.

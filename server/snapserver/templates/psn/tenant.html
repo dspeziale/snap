@@ -1,0 +1,62 @@
+{#
+  snap server - PSN: i tenant del Polo.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; tenant{% endblock %}
+{% block page_icon %}bi-buildings{% endblock %}
+{% block page_title %}Tenant PSN{% endblock %}
+{% block page_subtitle %}
+  Gli ambienti del Polo con il loro identificativo. L'identificativo e' normalizzato
+  senza spazi: nel foglio lo stesso tenant e' scritto in piu' modi, e senza
+  normalizzazione il collegamento con i database non si trova.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="50">
+        <thead><tr><th>IDENTIFICATIVO</th><th>TENANT</th><th>ZONA</th><th>STATO</th>
+          <th>INDIRIZZO</th><th class="text-end">DATABASE</th><th>FONTE</th>
+          <th>NOTE</th></tr></thead>
+        <tbody>
+          {% for t in tenant %}
+          <tr>
+            <td class="font-monospace small">
+              {{ t['tgu_raw'] or t['tgu'] }}
+              {% if t['verify'] %}
+                <span class="badge text-bg-warning">da verificare</span>
+              {% endif %}
+            </td>
+            <td class="small fw-semibold">{{ t['name'] }}</td>
+            <td class="small">
+              {% if t['zone'] %}
+                <span class="badge text-bg-light text-dark border">{{ t['zone'] }}</span>
+              {% endif %}
+            </td>
+            <td class="small">{{ t['state'] }}</td>
+            <td class="font-monospace small">{{ t['ip'] }}</td>
+            <td class="text-end">
+              {% if t['database_count'] %}
+                <a href="{{ url_for('psn.databases', piano=piano['id']) }}">{{ t['database_count'] }}</a>
+              {% else %}<span class="text-body-secondary">0</span>{% endif %}
+            </td>
+            <td class="small text-body-secondary">{{ t['source'] }}</td>
+            <td class="small text-body-secondary">{{ t['notes'] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-body-secondary py-4">
+            Nessun tenant nel piano conferito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

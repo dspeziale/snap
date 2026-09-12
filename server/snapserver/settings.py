@@ -61,7 +61,7 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.5.0"
+    APP_VERSION = "1.6.0"
     APP_SUBTITLE = "Secure Network Assessment Platform"
     # Quale dei due componenti si sta guardando. Compare sotto il marchio e nel piede
     # di pagina: con console e sonda aperte in due schede e' l'informazione che
@@ -83,6 +83,14 @@ class Config:
     # ogni oggetto e, nel ripristino, ricrearli. Se manca, le due operazioni si
     # rifiutano dichiarando il motivo, invece di produrre una copia incompleta.
     OWNER_DATABASE_URL = os.environ.get("SNAP_SERVER_OWNER_DATABASE_URL", "")
+    # --- Sottosistema PSN (piano di indirizzamento) ---------------------------
+    # Archivio PROPRIO, distinto da quello del prodotto: il sottosistema si deve
+    # poter eliminare con un DROP DATABASE senza sfiorare l'inventario. Se non si
+    # dichiara, l'indirizzo si DERIVA da quello del prodotto cambiando il solo nome
+    # del database (`snap` -> `snap_psn`): un'installazione esistente non deve
+    # configurare nulla, e le credenziali non si duplicano in un secondo segreto.
+    PSN_DATABASE_URL = os.environ.get("SNAP_SERVER_PSN_DATABASE_URL", "")
+    PSN_OWNER_DATABASE_URL = os.environ.get("SNAP_SERVER_PSN_OWNER_DATABASE_URL", "")
     # Quanto una scrittura attende un lock, prima di rinunciare. Trenta secondi coprono
     # le operazioni lunghe (cancellazione di una sonda, ingestione di un lotto) mentre
     # i servizi di fondo scrivono; oltre, e' meglio un errore che una richiesta appesa.

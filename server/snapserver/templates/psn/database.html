@@ -1,0 +1,61 @@
+{#
+  snap server - PSN: i database, col tenant che li ospita.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; database{% endblock %}
+{% block page_icon %}bi-database{% endblock %}
+{% block page_title %}Database del piano{% endblock %}
+{% block page_subtitle %}
+  Servizi, istanze e indirizzi, con il tenant che li ospita. Dove il tenant non
+  compare in anagrafica la riga resta, e lo dichiara: un legame rotto e' un dato.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="50">
+        <thead><tr><th>GENERE</th><th>SERVIZIO</th><th>ISTANZA</th><th>PDB</th>
+          <th>INDIRIZZI</th><th>PORTA</th><th>UTENTE</th><th>TENANT</th></tr></thead>
+        <tbody>
+          {% for d in database %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-light text-dark border">{{ d['kind'] }}</span>
+            </td>
+            <td class="small fw-semibold">{{ d['service_name'] }}</td>
+            <td class="small">{{ d['db_unique_name'] }}</td>
+            <td class="small">{{ d['pdb'] }}</td>
+            <td class="font-monospace small">
+              {{ d['ip_tenant'] }}
+              {% if d['ip_sed'] %}
+                <div class="text-body-secondary">{{ d['ip_sed'] }} (da SED)</div>
+              {% endif %}
+            </td>
+            <td class="small">{{ d['port'] }}</td>
+            <td class="small">{{ d['db_user'] }}</td>
+            <td class="small">
+              {% if d['tenant_name'] %}
+                {{ d['tenant_name'] }}
+                <div class="text-body-secondary font-monospace">{{ d['tenant_tgu'] }}</div>
+              {% elif d['tenant_tgu'] %}
+                <span class="badge text-bg-warning">{{ d['tenant_tgu'] }} non in anagrafica</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="text-center text-body-secondary py-4">
+            Nessun database nel piano conferito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

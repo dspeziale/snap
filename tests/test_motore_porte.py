@@ -324,7 +324,7 @@ class _EsecutoreMuto:
     def running_count(self) -> int:
         return 0
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         raise AssertionError("la pianificazione non deve eseguire nmap")
 
 

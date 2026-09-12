@@ -44,7 +44,7 @@ class EsecutoreFinto:
     def detect_capabilities(self, force: bool = False) -> dict:
         return self._capacita
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         # `label` SI REGISTRA, e serve. Un ciclo non fa una sola invocazione di nmap:
         # oltre a quella della fase c'e' la verifica di un nodo prima dello scarto e
         # il recupero dei nodi che una passata di gruppo non aveva visto. Un test che
@@ -1044,7 +1044,7 @@ def test_prima_di_dichiarare_assente_si_prova_sulle_porte_note(sonda):
             return {"available": True, "raw_sockets": True, "os_detection": True,
                     "nmap_version": "7.99", "detail": "esecutore di prova"}
 
-        def run(self, arguments, targets, timeout=None, label=None):
+        def run(self, arguments, targets, timeout=None, label=None, diagnostica=None):
             self.chiamate.append({"arguments": list(arguments), "targets": list(targets)})
             if "-sn" in arguments:
                 return leggi("nmap_host_fantasma.xml")   # nessun host restituito

@@ -929,6 +929,24 @@ CREATE TABLE IF NOT EXISTS node_web (
     favicon_path TEXT,
     headers_hash TEXT,
     headers_names TEXT,
+    -- L'ANNO CHE LA PAGINA DICHIARA, e l'eta' che se ne deduce.
+    --
+    -- Un "(c) 2014" nel pie' di pagina non dimostra che il software sia del 2014:
+    -- dimostra che nessuno ha piu' toccato quella pagina dal 2014. E' un limite
+    -- INFERIORE all'eta', ed e' il segnale piu' economico che esista su una rete
+    -- reale per riconoscere un'installazione abbandonata.
+    --
+    -- La PROVA si conserva accanto al numero: un anno senza il frammento da cui
+    -- viene non e' verificabile, e un indizio non verificabile non puo' reggere la
+    -- decisione di sostituire un apparato.
+    web_year     INTEGER,
+    web_year_source TEXT,
+    web_year_evidence TEXT,
+    web_age_years INTEGER,
+    -- Tutti gli anni visti, non solo quello scelto: un apparato con "2008" nel
+    -- copyright e un certificato del 2021 racconta una storia che il solo numero
+    -- finale nasconderebbe.
+    web_years    TEXT,
     error        TEXT,
     details_json TEXT,
     collected_at TEXT    NOT NULL
@@ -941,6 +959,10 @@ CREATE INDEX IF NOT EXISTS ix_node_web_favicon
     ON node_web(tenant_id, favicon_hash);
 CREATE INDEX IF NOT EXISTS ix_node_web_headers
     ON node_web(tenant_id, headers_hash);
+-- La domanda che l'anno serve a fare e' "quali sono le installazioni piu' vecchie":
+-- senza indice sarebbe una scansione della tabella a ogni apertura della pagina.
+CREATE INDEX IF NOT EXISTS ix_node_web_anno
+    ON node_web(tenant_id, web_year);
 
 -- STORICO DELLE PRESENZE, per le reti senza fili.
 --

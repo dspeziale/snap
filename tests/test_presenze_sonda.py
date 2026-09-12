@@ -50,7 +50,7 @@ class EsecutoreFinto:
     def running_count(self) -> int:
         return 0
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         self.chiamate.append({"arguments": list(arguments), "targets": list(targets),
                               "timeout": timeout, "label": label})
         if self.errore is not None:

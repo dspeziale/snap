@@ -46,6 +46,17 @@ server {
     ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1h;
+
+    # CHI ARRIVA IN CHIARO SU QUESTA PORTA VIENE RIMANDATO, non respinto.
+    #
+    # Senza questa riga nginx risponde "400 Bad Request -- The plain HTTP request was
+    # sent to HTTPS port": esatto e inutile, perche' chi legge non capisce di avere
+    # sbagliato schema e conclude che il servizio non risponde. E' successo sulla
+    # console della sonda, che sta su una porta non standard (5510) dove il browser
+    # assume `http://`. Il 497 e' il codice interno con cui nginx segna proprio questa
+    # condizione. `$host` e il suffisso di porta perche' la console si raggiunge
+    # dall'indirizzo, da un nome o dal loopback.
+    error_page 497 =308 https://$host$suffisso_porta$request_uri;
     ssl_session_tickets off;
 
     # I report PDF e i log incollati non sono piccoli: un limite troppo stretto qui si

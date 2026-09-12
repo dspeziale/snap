@@ -69,7 +69,7 @@ class EsecutoreConcorrente:
         with self._lock:
             return self._massimo
 
-    def run(self, arguments, targets, timeout=None, label=None) -> str:
+    def run(self, arguments, targets, timeout=None, label=None, diagnostica=None) -> str:
         # `label` descrive la fase in corso per l'indicatore: qui non serve,
         # ma la firma deve corrispondere a quella del runner vero.
         with self._lock:

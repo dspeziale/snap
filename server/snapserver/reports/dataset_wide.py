@@ -17,7 +17,9 @@ license: MIT
 
 from __future__ import annotations
 
-from datetime import timedelta
+import json
+import re
+from datetime import date, timedelta
 
 from ..checks import INCIDENT_ACK, INCIDENT_OPEN, STATUS_OK
 from ..db import parse_utc, query, scalar
@@ -1275,3 +1277,465 @@ def incident_pack(tenant: dict, zona, incident_id: int) -> dict:
             "SELECT event, channel, recipients, status, sent_at, last_error"
             " FROM notifications WHERE incident_id = ? ORDER BY id", (incident_id,))],
     }
+
+
+# --------------------------------------------------------------------------- #
+# Certificati TLS
+# --------------------------------------------------------------------------- #
+# A CHI SERVE E PERCHE'. Un certificato che scade non e' un rischio teorico: e' un
+# servizio che smette di funzionare a una data nota, e l'unica ragione per cui coglie
+# di sorpresa e' che nessuno tiene l'elenco. Questo documento e' quell'elenco, e si
+# consegna a chi i certificati li rinnova -- che quasi mai e' chi guarda la console.
+#
+# Non e' solo la scadenza. Un certificato dice anche CHI lo ha emesso, con che
+# algoritmo e' firmato e quanto e' lunga la chiave: tre cose che invecchiano da sole,
+# indipendentemente dalla data di scadenza. Un certificato valido fino al 2030 ma
+# firmato SHA-1 e' gia' rotto oggi.
+#
+# LIMITE DICHIARATO, e va in copertina: si vedono i soli certificati che una sonda ha
+# potuto leggere aprendo una connessione HTTPS. Un servizio che la sonda non raggiunge
+# non compare, e la sua assenza non e' una conferma.
+
+# Algoritmi di firma che non si devono piu' trovare. Non e' un'opinione: le CA
+# pubbliche hanno smesso di emettere SHA-1 nel 2016, e MD5 era gia' rotto nel 2008.
+FIRME_DEBOLI = ("sha1", "md5", "md2")
+
+# Sotto questa lunghezza una chiave RSA non e' piu' considerata adeguata (NIST SP
+# 800-57, e le CA pubbliche non emettono sotto i 2048 dal 2014).
+RSA_MINIMA = 2048
+
+
+def _giorni_alla_scadenza(valore, oggi):
+    try:
+        return (date.fromisoformat(str(valore)[:10]) - oggi).days
+    except (ValueError, TypeError):
+        return None
+
+
+def _forza_della_chiave(testo: str) -> tuple:
+    """`(algoritmo, bit)` dalla descrizione della chiave, o `("", 0)`.
+
+    Il testo arriva dall'apparato nella forma "RSA 2048 bit" o "EC 256 bit": si legge
+    quello che c'e', senza indovinare cio' che manca.
+    """
+    testo = str(testo or "")
+    trovato = re.search(r"([A-Za-z]+)\D{0,8}(\d{3,5})", testo)
+    if not trovato:
+        return ("", 0)
+    return (trovato.group(1).upper(), int(trovato.group(2)))
+
+
+def _debolezze(voce: dict) -> list:
+    """Che cosa non va in questo certificato, oltre alla scadenza.
+
+    Si elencano solo le cose DIMOSTRATE dal certificato stesso: l'algoritmo di firma
+    e la lunghezza della chiave sono scritti dentro, non dedotti.
+    """
+    trovate = []
+    firma = str(voce.get("cert_algoritmo_firma") or "").lower()
+    for debole in FIRME_DEBOLI:
+        if debole in firma:
+            trovate.append("firma %s" % debole.upper())
+            break
+    algoritmo, bit = _forza_della_chiave(voce.get("cert_chiave"))
+    if algoritmo == "RSA" and 0 < bit < RSA_MINIMA:
+        trovate.append("chiave RSA da %d bit" % bit)
+    if voce.get("cert_selfsigned"):
+        trovate.append("autofirmato")
+    return trovate
+
+
+def certificates(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
+    """I certificati TLS del parco: scadenze, emittenti, algoritmi, debolezze."""
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+    oggi = date.today()
+
+    righe = query(
+        "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
+        " n.os_name, COALESCE(s.cidr, '') AS cidr, COALESCE(s.zone, '') AS zona,"
+        " w.port, w.cert_subject, w.cert_issuer, w.cert_expires, w.cert_selfsigned,"
+        " w.tls_version, w.cert_json, w.product, w.server_header, w.collected_at"
+        " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+        " LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE w.tenant_id = ? AND w.scheme = 'https'"
+        " AND w.cert_expires IS NOT NULL AND w.cert_expires != ''"
+        " ORDER BY w.cert_expires, inet(n.ip)", (tenant_id,))
+
+    certificati = []
+    for r in righe:
+        voce = dict(r)
+        try:
+            dettaglio = json.loads(r["cert_json"] or "{}")
+        except (TypeError, ValueError):
+            dettaglio = {}
+        voce.update({k: v for k, v in dettaglio.items() if k.startswith("cert_")})
+        voce["giorni"] = _giorni_alla_scadenza(r["cert_expires"], oggi)
+        voce["scaduto"] = voce["giorni"] is not None and voce["giorni"] < 0
+        voce["debolezze"] = _debolezze(voce)
+        certificati.append(voce)
+
+    def entro(n):
+        return [c for c in certificati
+                if c["giorni"] is not None and 0 <= c["giorni"] <= n]
+
+    scaduti = [c for c in certificati if c["scaduto"]]
+    # Gli emittenti: un parco con venti emittenti diversi non ha una politica, ne ha
+    # venti. E' il dato che una direzione guarda prima delle singole scadenze.
+    emittenti = {}
+    for c in certificati:
+        chiave = (c.get("cert_issuer") or c.get("cert_emittente_dn") or "non dichiarato")
+        voce = emittenti.setdefault(chiave, {"emittente": chiave, "quanti": 0,
+                                             "autofirmati": 0, "deboli": 0})
+        voce["quanti"] += 1
+        if c.get("cert_selfsigned"):
+            voce["autofirmati"] += 1
+        if c["debolezze"]:
+            voce["deboli"] += 1
+    emittenti = sorted(emittenti.values(), key=lambda v: -v["quanti"])
+
+    dati.update({
+        "certificati": certificati,
+        "scaduti": scaduti,
+        "entro_7": entro(7),
+        "entro_30": entro(30),
+        "entro_90": entro(90),
+        "autofirmati": [c for c in certificati if c.get("cert_selfsigned")],
+        "deboli": [c for c in certificati if c["debolezze"]],
+        "emittenti": emittenti,
+        "conteggi": {
+            "totale": len(certificati),
+            "scaduti": len(scaduti),
+            "entro_7": len(entro(7)),
+            "entro_30": len(entro(30)),
+            "entro_90": len(entro(90)),
+            "autofirmati": sum(1 for c in certificati if c.get("cert_selfsigned")),
+            "deboli": sum(1 for c in certificati if c["debolezze"]),
+            "nodi": len({c["node_id"] for c in certificati}),
+        },
+    })
+    return dati
+
+
+# --------------------------------------------------------------------------- #
+# Vetusta' del parco
+# --------------------------------------------------------------------------- #
+# A CHI SERVE. A chi decide che cosa sostituire e con quale urgenza. La domanda non e'
+# "quali sistemi hanno una vulnerabilita'" -- quella ha gia' il suo documento -- ma
+# "quali sistemi non li tocca piu' nessuno", che e' la causa a monte di meta' delle
+# vulnerabilita' e non compare in nessun catalogo di CVE.
+#
+# IL LIMITE, in copertina. Un "(c) 2014" nel pie' di una pagina non dimostra che il
+# software sia del 2014: dimostra che nessuno ha piu' toccato quella pagina dal 2014.
+# E' un limite INFERIORE all'eta'. Per questo ogni riga porta la PROVA -- il frammento
+# da cui l'anno viene -- e non il solo numero.
+ETA_PREOCCUPANTE = 5
+ETA_GRAVE = 10
+
+
+def vetusta(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
+    """Da quanti anni nessuno aggiorna le interfacce del parco."""
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+    oggi = date.today()
+
+    righe = query(
+        "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
+        " n.os_name, COALESCE(s.cidr, '') AS cidr, COALESCE(s.zone, '') AS zona,"
+        " w.port, w.scheme, w.product, w.server_header, w.title,"
+        " w.web_year, w.web_year_source, w.web_year_evidence, w.web_age_years,"
+        " w.web_years, w.collected_at"
+        " FROM node_web w JOIN nodes n ON n.id = w.node_id"
+        " LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE w.tenant_id = ? AND w.web_year IS NOT NULL AND w.web_year > 0"
+        " ORDER BY w.web_year, inet(n.ip)", (tenant_id,))
+
+    voci = [dict(r) for r in righe]
+    for v in voci:
+        anno = int(v.get("web_year") or 0)
+        v["eta"] = max(0, oggi.year - anno) if anno else None
+
+    # Un nodo puo' avere piu' interfacce: conta la PIU' VECCHIA. Un apparato che
+    # espone un'applicazione aggiornata e una console di gestione ferma al 2011 ha un
+    # problema, e la media lo nasconderebbe.
+    per_nodo = {}
+    for v in voci:
+        corrente = per_nodo.get(v["node_id"])
+        if corrente is None or (v["eta"] or 0) > (corrente["eta"] or 0):
+            per_nodo[v["node_id"]] = v
+    peggiori = sorted(per_nodo.values(), key=lambda v: -(v["eta"] or 0))
+
+    per_anno = {}
+    for v in per_nodo.values():
+        anno = int(v.get("web_year") or 0)
+        per_anno[anno] = per_anno.get(anno, 0) + 1
+    distribuzione = [{"anno": a, "quanti": n} for a, n in sorted(per_anno.items())]
+
+    gravi = [v for v in peggiori if (v["eta"] or 0) >= ETA_GRAVE]
+    preoccupanti = [v for v in peggiori
+                    if ETA_PREOCCUPANTE <= (v["eta"] or 0) < ETA_GRAVE]
+
+    # Quante interfacce NON dichiarano alcun anno: e' il complemento onesto del conto.
+    senza = scalar(
+        "SELECT COUNT(*) FROM node_web WHERE tenant_id = ?"
+        " AND (web_year IS NULL OR web_year = 0)", (tenant_id,)) or 0
+
+    dati.update({
+        "voci": voci,
+        "peggiori": peggiori,
+        "gravi": gravi,
+        "preoccupanti": preoccupanti,
+        "distribuzione": distribuzione,
+        "conteggi": {
+            "interfacce": len(voci),
+            "nodi": len(per_nodo),
+            "gravi": len(gravi),
+            "preoccupanti": len(preoccupanti),
+            "senza_anno": int(senza),
+            "eta_massima": max((v["eta"] or 0) for v in peggiori) if peggiori else 0,
+        },
+    })
+    return dati
+
+
+# --------------------------------------------------------------------------- #
+# Presenze sulle reti senza fili
+# --------------------------------------------------------------------------- #
+# A CHI SERVE. A chi risponde della sicurezza fisica e a chi risponde del trattamento
+# dei dati. Su una rete di utenza la domanda operativa e' "quanti apparati non
+# riconosco", e quella di conformita' e' "per quanto tempo conservo questi dati".
+#
+# DATO PERSONALE, e va scritto in copertina: sapere quali apparati personali erano in
+# rete e quando riguarda le persone, non solo le macchine (GDPR art. 5). Il documento
+# dichiara la base e la durata di conservazione, e non nomina le persone: nomina gli
+# APPARATI, con la fonte dell'identita' e la sua incertezza.
+def presenze(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
+    """Chi c'e' stato sulle reti senza fili, e con quale certezza lo si sa."""
+    from ..presence import FONTI
+
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+    da = dati["inizio_utc"]
+
+    reti = [dict(r) for r in query(
+        "SELECT s.id, s.cidr, s.label, s.zone,"
+        " (SELECT COUNT(DISTINCT p.identity_key) FROM presence_sessions p"
+        "  WHERE p.subnet_id = s.id AND p.last_seen_at >= ?) AS apparati,"
+        " (SELECT COUNT(*) FROM presence_sessions p"
+        "  WHERE p.subnet_id = s.id AND p.last_seen_at >= ?) AS permanenze"
+        " FROM subnets s WHERE s.tenant_id = ? AND COALESCE(s.is_wifi, 0) = 1"
+        " ORDER BY s.cidr", (da, da, tenant_id))]
+
+    per_fonte = [dict(r) for r in query(
+        "SELECT identity_source, COUNT(DISTINCT identity_key) AS apparati,"
+        " COUNT(*) AS permanenze FROM presence_sessions"
+        " WHERE tenant_id = ? AND last_seen_at >= ?"
+        " GROUP BY identity_source ORDER BY 2 DESC", (tenant_id, da))]
+    for v in per_fonte:
+        descrizione = FONTI.get(v["identity_source"] or "", FONTI["address"])
+        v["nome"] = descrizione["nome"]
+        v["certezza"] = descrizione["certezza"]
+
+    # I piu' assidui: chi torna ogni giorno e' l'arredamento della rete; chi compare
+    # una volta sola merita uno sguardo.
+    assidui = [dict(r) for r in query(
+        "SELECT identity_key, identity_source, MAX(hostname) AS hostname,"
+        " MAX(device_label) AS device_label, MAX(mac) AS mac, COUNT(*) AS permanenze,"
+        " MIN(first_seen_at) AS dal, MAX(last_seen_at) AS al"
+        " FROM presence_sessions WHERE tenant_id = ? AND last_seen_at >= ?"
+        " GROUP BY identity_key, identity_source"
+        " ORDER BY COUNT(*) DESC LIMIT 40", (tenant_id, da))]
+
+    nuovi = [dict(r) for r in query(
+        "SELECT identity_key, identity_source, MAX(hostname) AS hostname,"
+        " MAX(device_label) AS device_label, MAX(mac) AS mac, MAX(ip) AS ip,"
+        " MIN(first_seen_at) AS dal, COUNT(*) AS permanenze"
+        " FROM presence_sessions WHERE tenant_id = ?"
+        " GROUP BY identity_key, identity_source HAVING MIN(first_seen_at) >= ?"
+        " ORDER BY MIN(first_seen_at) DESC LIMIT 60", (tenant_id, da))]
+
+    # Il nome italiano della fonte accanto a ogni apparato: nelle tabelle compariva
+    # il codice interno ("address"), che non dice nulla a chi legge il documento.
+    for voce in assidui + nuovi:
+        voce["fonte"] = FONTI.get(voce["identity_source"] or "",
+                                  FONTI["address"])["nome"]
+
+    totale = sum(int(v["apparati"] or 0) for v in per_fonte)
+    deboli = sum(int(v["apparati"] or 0) for v in per_fonte
+                 if v["identity_source"] == "address")
+    dati.update({
+        "reti": reti,
+        "per_fonte": per_fonte,
+        "assidui": assidui,
+        "nuovi": nuovi,
+        "conteggi": {
+            "reti": len(reti),
+            "apparati": totale,
+            "nuovi": len(nuovi),
+            "identita_deboli": deboli,
+            "permanenze": sum(int(v["permanenze"] or 0) for v in per_fonte),
+        },
+    })
+    return dati
+
+
+# --------------------------------------------------------------------------- #
+# Salute della flotta e copertura del perimetro
+# --------------------------------------------------------------------------- #
+# A CHI SERVE. A chi gestisce il servizio -- il fornitore, o chi in azienda risponde
+# del fatto che il monitoraggio funzioni. Non parla della rete del cliente: parla
+# dello STRUMENTO, e risponde alla sola domanda che conta prima di guardare qualunque
+# altro report: "posso fidarmi di questi dati?".
+#
+# I PUNTI CIECHI sono la parte importante. Una subnet dichiarata nel perimetro e mai
+# scoperta non produce righe -- e una tabella vuota si legge come "niente da
+# segnalare" invece che come "non guardato". Questo documento li nomina.
+def flotta(tenant: dict, zona, giorno_fine, giorni: int = 7) -> dict:
+    """Le sonde funzionano, e quanta parte del perimetro dichiarato e' coperta."""
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+    da = dati["inizio_utc"]
+
+    sonde = [dict(r) for r in query(
+        "SELECT p.id, p.code, p.name, p.site, p.status, p.agent_version,"
+        " p.last_seen_at, p.last_sync_at, p.scan_enabled, p.scan_paused,"
+        " p.scan_effort, p.scan_interval_sec, p.revoked_at,"
+        " (SELECT COUNT(*) FROM ingest_batches b WHERE b.probe_id = p.id"
+        "  AND b.received_at >= ?) AS lotti,"
+        " (SELECT COUNT(*) FROM scan_runs r WHERE r.probe_id = p.id"
+        "  AND r.created_at >= ?) AS passate,"
+        " (SELECT COUNT(*) FROM nodes n WHERE n.probe_id = p.id) AS nodi"
+        " FROM probes p WHERE p.tenant_id = ? ORDER BY p.code",
+        (da, da, tenant_id))]
+
+    # Le fasi: quante ne sono andate a buon fine e quante non hanno trovato NESSUN
+    # host. Una passata completata su zero host non e' una passata veloce: e' una
+    # passata che non ha visto niente, e va distinta dalle altre.
+    #
+    # PERCHE' NON SI CONTANO I RECORD. Il contatore `records` lo valorizzano solo le
+    # fasi che scrivono record propri (la scoperta e la lettura web); ports, smb e
+    # vuln conferiscono aggiornando i nodi e lasciano quel campo a zero anche quando
+    # hanno lavorato -- misurato sul parco reale: 68.342 righe di porte raccolte a
+    # fronte di 563 passate `ports` tutte dichiarate a zero record. Leggerlo come
+    # "fase fallita" sarebbe un allarme falso, e il documento non lo fa.
+    fasi = [dict(r) for r in query(
+        "SELECT stage, COUNT(*) AS passate,"
+        " SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completate,"
+        " SUM(CASE WHEN COALESCE(hosts_up, 0) = 0 THEN 1 ELSE 0 END) AS senza_host,"
+        " SUM(CASE WHEN COALESCE(records, 0) = 0 THEN 1 ELSE 0 END) AS senza_record,"
+        " SUM(COALESCE(hosts_up, 0)) AS host, SUM(COALESCE(records, 0)) AS record,"
+        " ROUND(AVG(COALESCE(duration_ms, 0)) / 1000.0, 1) AS secondi_medi"
+        " FROM scan_runs WHERE tenant_id = ? AND created_at >= ?"
+        " GROUP BY stage ORDER BY COUNT(*) DESC", (tenant_id, da))]
+
+    # La copertura: ogni subnet dichiarata, con quanti nodi ci sono stati trovati e
+    # quando e' stata guardata l'ultima volta.
+    copertura = [dict(r) for r in query(
+        "SELECT s.cidr, s.label, s.zone, s.is_enabled, s.host_count,"
+        " COALESCE(s.is_wifi, 0) AS is_wifi,"
+        " (SELECT COUNT(*) FROM nodes n WHERE n.subnet_id = s.id) AS nodi,"
+        " (SELECT MAX(r.created_at) FROM scan_runs r"
+        "  WHERE r.tenant_id = s.tenant_id AND r.target = s.cidr) AS ultima"
+        " FROM subnets s WHERE s.tenant_id = ? ORDER BY s.cidr", (tenant_id,))]
+
+    ciechi = [c for c in copertura if int(c["is_enabled"] or 0) and not c["ultima"]]
+    vuote = [c for c in copertura
+             if int(c["is_enabled"] or 0) and c["ultima"] and not int(c["nodi"] or 0)]
+
+    dati.update({
+        "sonde": sonde,
+        "fasi": fasi,
+        "copertura": copertura,
+        "ciechi": ciechi,
+        "vuote": vuote,
+        "conteggi": {
+            "sonde": len(sonde),
+            "sonde_attive": sum(1 for s in sonde if (s.get("status") or "") == "active"
+                                and not s.get("revoked_at")),
+            "sonde_sospese": sum(1 for s in sonde if int(s.get("scan_paused") or 0)
+                                 or not int(s.get("scan_enabled") or 0)),
+            "subnet": len(copertura),
+            "subnet_attive": sum(1 for c in copertura if int(c["is_enabled"] or 0)),
+            "ciechi": len(ciechi),
+            "vuote": len(vuote),
+            "passate": sum(int(f["passate"] or 0) for f in fasi),
+            "senza_host": sum(int(f["senza_host"] or 0) for f in fasi),
+            "senza_record": sum(int(f["senza_record"] or 0) for f in fasi),
+        },
+    })
+    return dati
+
+
+# --------------------------------------------------------------------------- #
+# Condivisioni ed esposizione SMB
+# --------------------------------------------------------------------------- #
+# A CHI SERVE. Ai sistemisti Windows e a chi risponde della sicurezza interna. SMB e'
+# il protocollo con cui si muove il ransomware dentro una rete: la firma dei messaggi
+# non richiesta e il protocollo 1.0 ancora acceso sono le due condizioni che lo
+# rendono facile, e sono scritte in cio' che ogni apparato dichiara di se'.
+RE_FIRMA_NON_RICHIESTA = re.compile(r"(?i)signing enabled but not required")
+RE_FIRMA_DISABILITATA = re.compile(r"(?i)signing (?:disabled|not (?:enabled|supported))")
+RE_SMB1 = re.compile(r"(?i)\bSMBv?1(?:\.0)?\b|\bNT LM 0\.12\b")
+
+
+def smb(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
+    """Che cosa dichiara di se' il parco Windows: firma, versioni, condivisioni."""
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+
+    righe = query(
+        "SELECT m.node_id, m.script_id, m.output, m.collected_at, n.ip, n.hostname,"
+        " n.device_label, n.device_type, n.os_name, COALESCE(s.cidr,'') AS cidr,"
+        " COALESCE(s.zone,'') AS zona"
+        " FROM node_smb m JOIN nodes n ON n.id = m.node_id"
+        " LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE m.tenant_id = ? ORDER BY inet(n.ip)", (tenant_id,))
+
+    per_nodo = {}
+    for r in righe:
+        voce = per_nodo.setdefault(int(r["node_id"]), {
+            "node_id": int(r["node_id"]), "ip": r["ip"], "hostname": r["hostname"],
+            "device_label": r["device_label"], "os_name": r["os_name"],
+            "cidr": r["cidr"], "zona": r["zona"], "letture": [],
+            "firma": "", "protocolli": [], "condivisioni": [],
+            "collected_at": r["collected_at"],
+        })
+        testo = str(r["output"] or "")
+        voce["letture"].append(r["script_id"])
+        if "security-mode" in (r["script_id"] or ""):
+            if RE_FIRMA_NON_RICHIESTA.search(testo):
+                voce["firma"] = "abilitata ma non richiesta"
+            elif RE_FIRMA_DISABILITATA.search(testo):
+                voce["firma"] = "non attiva"
+            elif re.search(r"(?i)signing.*required", testo):
+                voce["firma"] = "richiesta"
+        if "protocols" in (r["script_id"] or ""):
+            voce["protocolli"] = sorted({p.strip() for p in re.findall(
+                r"(?im)^\s*([0-9]\.[0-9](?:\.[0-9])?|NT LM 0\.12|SMBv?1[^\n]*)", testo)
+                if p.strip()})[:8]
+        if "enum-shares" in (r["script_id"] or ""):
+            voce["condivisioni"] = sorted({c for c in re.findall(
+                r"(?im)^\s*\\\\[^\s\\]+\\([^\s:]+)", testo)})[:20]
+
+    nodi = sorted(per_nodo.values(), key=lambda v: str(v["ip"]))
+    senza_firma = [v for v in nodi if v["firma"] in
+                   ("abilitata ma non richiesta", "non attiva")]
+    con_smb1 = [v for v in nodi
+                if any(RE_SMB1.search(p) for p in v["protocolli"])]
+    con_condivisioni = [v for v in nodi if v["condivisioni"]]
+
+    dati.update({
+        "nodi": nodi,
+        "senza_firma": senza_firma,
+        "con_smb1": con_smb1,
+        "con_condivisioni": con_condivisioni,
+        "conteggi": {
+            "nodi": len(nodi),
+            "senza_firma": len(senza_firma),
+            "smb1": len(con_smb1),
+            "con_condivisioni": len(con_condivisioni),
+            "condivisioni": sum(len(v["condivisioni"]) for v in nodi),
+            "firma_richiesta": sum(1 for v in nodi if v["firma"] == "richiesta"),
+        },
+    })
+    return dati

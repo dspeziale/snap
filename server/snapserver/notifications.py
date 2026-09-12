@@ -70,6 +70,12 @@ NOTIFY_EVENTS = {
     # fatta tempo prima e' esattamente il modo in cui si perde un attacco.
     "siem.alert": "Allarme SIEM rilevato dai log",
     "rule.match": "Regola soddisfatta",
+    # Elenco dei certificati TLS in scadenza, spedito a richiesta verso un recapito
+    # indicato sul momento. Come `report.delivery` NON passa dalla scelta in
+    # Amministrazione: e' un'azione esplicita di un operatore che sta guardando quella
+    # pagina, non un momento del workflow che qualcuno potrebbe aver disattivato
+    # tempo prima.
+    "certificates.expiring": "Certificati TLS in scadenza, inviati a richiesta",
     # La credenziale provvisoria di un utente appena creato. Non e' un momento del
     # workflow degli incidenti: non passa dalla scelta in Amministrazione, perche'
     # trovarsela disattivata significherebbe un utente che non riceve le proprie

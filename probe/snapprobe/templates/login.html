@@ -54,13 +54,45 @@
       </div>
       {% endif %}
 
-      <form method="post" action="{{ url_for('auth.login') }}" autocomplete="off">
+      {# IL GESTORE DI PASSWORD DEL BROWSER DEVE POTER SALVARE, e per farlo deve
+         RICONOSCERE il modulo. Prima non poteva, per due motivi:
+
+           * `autocomplete="off"` glielo vietava esplicitamente. E' una difesa
+             apparente: chi ha accesso al browser di chi amministra la sonda ha gia'
+             vinto, e il prezzo era una password lunga ridigitata a ogni accesso --
+             cioe' l'incentivo a sceglierne una corta;
+           * NON C'ERA UN CAMPO UTENTE. Un modulo con la sola password non viene
+             salvato dalla maggior parte dei gestori, e quando lo e' finisce senza
+             identita': con piu' sonde non si distingue quale password sia quale.
+
+         Il campo qui sotto porta l'identita' della sonda ed e' in sola lettura: non
+         e' una credenziale da digitare (la sonda ha un solo operatore, non un elenco
+         di utenti) ma serve a due cose vere -- dire A QUALE sonda ci si sta
+         collegando, e dare al gestore di password un nome sotto cui archiviare. #}
+      <form method="post" action="{{ url_for('auth.login') }}" autocomplete="on">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="avanti" value="{{ avanti|default('') }}">
+        <div class="mb-3">
+          <label class="form-label" for="sonda">Sonda</label>
+          <div class="input-group">
+            <span class="input-group-text"><i class="bi bi-hdd-network"></i></span>
+            <input type="text" class="form-control" id="sonda" name="sonda"
+                   value="{{ identita }}" readonly autocomplete="username"
+                   aria-describedby="sonda-nota">
+          </div>
+          <div class="form-text" id="sonda-nota">
+            {% if registrata %}
+              Codice con cui questa sonda e' registrata presso la console.
+            {% else %}
+              Sonda non ancora registrata: e' il nome della macchina su cui gira.
+            {% endif %}
+          </div>
+        </div>
         <div class="mb-3">
           <label class="form-label" for="password">Password dell'interfaccia</label>
           <input type="password" class="form-control form-control-lg" id="password"
                  name="password" required autofocus
+                 autocomplete="current-password"
                  {{ 'disabled' if bloccato }}>
         </div>
         <button type="submit" class="btn btn-primary w-100" {{ 'disabled' if bloccato }}>

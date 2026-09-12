@@ -1385,6 +1385,76 @@ documento JSON del dispositivo (capitolo 15).
 
 ---
 
+## 14-quater. L'anno dichiarato dalla pagina: la vetustà di un'installazione
+
+### 14-quater.1 Che cosa si può concludere
+
+Leggendo l'interfaccia web di un apparato si ricava anche **l'anno che quella pagina
+dichiara di sé**. Il valore va enunciato prima del metodo, perché è il punto in cui
+questo dato si può usare male:
+
+> Un «© 2014» **non** dimostra che il software sia del 2014. Dimostra che **nessuno ha
+> più toccato quella pagina dal 2014**. È un limite *inferiore* all'età, non una misura.
+
+Detto questo, è il segnale più economico che esista su una rete reale per riconoscere
+un'installazione abbandonata: un apparato la cui interfaccia si ferma a dodici anni fa
+non riceve aggiornamenti, e quasi mai li riceve il firmware sotto.
+
+Per questo il prodotto lo tratta come **indizio con la prova allegata**: accanto
+all'anno conserva la fonte e il frammento di pagina da cui viene. Un indizio non
+verificabile non può reggere la decisione di sostituire un apparato.
+
+### 14-quater.2 Le fonti, e quanto valgono
+
+| Fonte | Che cos'è | Attendibilità |
+|---|---|---|
+| `copyright` | «© 2014», «Copyright 2010‑2018». Di un intervallo conta l'anno **finale** | la più usata dagli apparati e la più parlante |
+| `meta` | `<meta name="date\|build\|revised">` con una data dentro | buona dove c'è |
+| `build` | «build 2014», «release 2014.3»: un anno in contesto di versione | buona |
+| `certificato` | inizio di validità del certificato TLS | su un apparato che lo genera al primo avvio è la data di **installazione** |
+| `ultima-modifica` | l'intestazione HTTP `Last-Modified` | vale **solo se non è di oggi** |
+
+Si prende **l'anno più recente** fra le prove, non il più vecchio: la domanda a cui si
+risponde è «da quanto tempo nessuno tocca questa cosa». Un apparato con «© 2008» nel
+piè di pagina e un certificato del 2021 risponde 2021.
+
+### 14-quater.3 Che cosa non si conta
+
+- anni fuori da un intervallo credibile (1990 … anno corrente + 1): un numero di serie
+  o un numero di telefono non sono date, e un solo «2098» in un elenco di apparati
+  vecchi farebbe perdere fiducia in tutto l'elenco;
+- anni dentro **script e fogli di stile**: sono le date delle librerie (jQuery,
+  Bootstrap), non dell'apparato;
+- un `Last-Modified` **di oggi** — sotto i trenta giorni non si usa: una pagina generata
+  al volo lo scrive sempre «adesso», e crederci direbbe che ogni apparato è nuovo.
+
+Dove non c'è nessuna prova **non si scrive niente**. Una pagina che non dichiara un anno
+non è «recente», e dirlo sarebbe peggio che tacere.
+
+### 14-quater.4 Dove si vede
+
+- **Elenco dei nodi**, colonna *Info*: una pastiglia «ferma al 2014» compare **solo
+  oltre i cinque anni** — sotto ci stanno i cicli di manutenzione normali, e scriverlo
+  su ogni riga toglierebbe spazio a ciò che conta. Oltre i dieci anni diventa rossa. Di
+  un nodo con più interfacce si mostra **la più vecchia**, non la media: una console di
+  gestione ferma al 2011 accanto a un'applicazione aggiornata è un problema, e la media
+  lo nasconderebbe.
+- **Pagina di un nodo**, colonna *ANNO DICHIARATO*: l'anno, la fonte, gli altri anni
+  visti e il frammento da cui l'anno viene.
+
+Decisioni: **ID‑60** l'anno si raccoglie da **ogni** pagina visitata, non dalla sola
+radice (il copyright sta in fondo a una pagina interna, e la radice di un apparato è
+spesso un rimando vuoto); **ID‑61** si conserva la **prova** insieme al numero;
+**ID‑62** si sceglie l'anno **più recente** fra le fonti; **ID‑63** l'assenza di prove
+non produce un giudizio.
+
+Requisiti: **SR‑136** il prodotto deve ricavare dalle letture web l'anno dichiarato
+dalla pagina, con la fonte e l'evidenza testuale; **SR‑137** l'elenco dei nodi deve
+segnalare le installazioni la cui interfaccia non è aggiornata da oltre cinque anni;
+**SR‑138** il prodotto non deve attribuire un anno in assenza di prove.
+
+---
+
 ## 14-bis. Reti senza fili: presenze
 
 ### 14-bis.1 Perche' il ciclo ordinario non basta

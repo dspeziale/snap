@@ -822,6 +822,9 @@ def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
     schema = "https" if tls else "http"
     indirizzo = "%s://%s:%d/" % (schema, ip, port)
     esito = {"port": port, "protocol": "tcp", "scheme": schema, "url": indirizzo}
+    # Le prove dell'anno dichiarato dalle pagine: si accumulano lungo la lettura e si
+    # tirano le somme alla fine (vedi `web_facts.vetusta`).
+    prove_anno = []
 
     if tls:
         esito.update(leggi_certificato(ip, port))
@@ -895,6 +898,10 @@ def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
 
         for chiave, valore in web_facts.fatti(testo).items():
             fatti_noti.setdefault(chiave, valore)
+        # L'anno si cerca su OGNI pagina letta, non solo sulla radice: il copyright
+        # sta quasi sempre nel pie' di pagina di una pagina interna, e la radice di
+        # un apparato e' spesso un rimando vuoto.
+        prove_anno.extend(web_facts.anni_dichiarati(testo))
         titolo = RE_TITOLO.search(testo)
         if titolo:
             _annota_titolo(esito, _testo(titolo.group(1), 200))
@@ -959,6 +966,25 @@ def leggi_pagina(ip: str, port: int, tls: bool) -> dict:
 
     esito["pagine"] = visitati[:MAX_PAGINE_PER_PORTA + MAX_PAGINE_EXTRA]
     esito["pagine_lette"] = len(visitati)
+
+    # L'ANNO DICHIARATO, cioe' da quanto tempo nessuno tocca questa interfaccia.
+    #
+    # Si tirano le somme qui, dove ci sono tutte e tre le fonti: le prove raccolte
+    # nelle pagine, l'intestazione `Last-Modified` della prima e la data di inizio
+    # validita' del certificato. Un apparato la cui interfaccia si ferma a dieci anni
+    # fa non riceve aggiornamenti -- e quasi mai li riceve il firmware sotto.
+    #
+    # Se non c'e' nessuna prova non si scrive niente: una pagina che non dichiara un
+    # anno non e' "nuova", e dirlo sarebbe peggio che tacere.
+    giudizio = web_facts.vetusta(prove_anno,
+                                 ultima_modifica=esito.get("last_modified", ""),
+                                 certificato_dal=esito.get("cert_da", ""))
+    if giudizio:
+        esito["anno"] = giudizio["anno"]
+        esito["anno_fonte"] = giudizio["fonte"]
+        esito["anno_prova"] = giudizio["prova"]
+        esito["eta_anni"] = giudizio["eta_anni"]
+        esito["anni_visti"] = ",".join(str(a) for a in giudizio["anni"])
     if not fatti_noti and any(v["stato"] == 401 for v in visitati):
         # Detto esplicitamente: la pagina che contiene i dati esiste ma chiede le
         # credenziali. E' un'informazione, non un guasto -- e spiega perche' di questo
@@ -1206,7 +1232,11 @@ def _registra_prima_pagina(esito: dict, risposta, corpo: bytes, indirizzo: str) 
     esito["url_finale"] = indirizzo
     intestazioni = {k.lower(): _testo(v, 200) for k, v in risposta.headers.items()}
     for nome in ("server", "x-powered-by", "www-authenticate", "location",
-                 "content-type", "x-generator", "x-frame-options"):
+                 "content-type", "x-generator", "x-frame-options",
+                 # `Last-Modified` dice quando la pagina e' stata scritta: su un
+                 # apparato con pagine statiche e' la data del firmware. Vedi
+                 # `web_facts.vetusta`, che la usa solo se non e' di oggi.
+                 "last-modified"):
         if intestazioni.get(nome):
             esito[nome.replace("-", "_")] = intestazioni[nome]
     biscotti = [c.split("=", 1)[0].strip()

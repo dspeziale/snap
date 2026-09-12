@@ -318,5 +318,54 @@
     });
   })();
 
+  // ------------------------------------------------------------------ //
+  // Ricarica periodica
+  //
+  // Un elemento con [data-snap-refresh="<secondi>"] fa ricaricare la pagina a quel
+  // ritmo. Serve alle pagine che rispondono a "che cosa sta succedendo ADESSO": senza
+  // ricarica mostrerebbero con sicurezza uno stato vecchio di mezz'ora.
+  //
+  // Tre cautele, tutte volute: si sospende quando la scheda non e' in primo piano
+  // (ricaricare una pagina che nessuno guarda e' solo carico sul server), si rimanda
+  // se l'utente sta scrivendo in un campo, e la sospensione riparte da quando la
+  // scheda torna visibile invece che dall'ultimo istante utile.
+  // ------------------------------------------------------------------ //
+  (function ricaricaPeriodica() {
+    var elemento = document.querySelector("[data-snap-refresh]");
+    if (!elemento) {
+      return;
+    }
+    var secondi = parseInt(elemento.getAttribute("data-snap-refresh"), 10);
+    if (!secondi || secondi < 5) {
+      return;
+    }
+    var scadenza = Date.now() + secondi * 1000;
+
+    function staScrivendo() {
+      var attivo = document.activeElement;
+      if (!attivo) {
+        return false;
+      }
+      var tipo = attivo.tagName;
+      return tipo === "INPUT" || tipo === "SELECT" || tipo === "TEXTAREA"
+        || attivo.isContentEditable;
+    }
+
+    window.setInterval(function () {
+      if (document.hidden) {
+        scadenza = Date.now() + secondi * 1000;
+        return;
+      }
+      if (Date.now() < scadenza) {
+        return;
+      }
+      if (staScrivendo()) {
+        scadenza = Date.now() + 15000;
+        return;
+      }
+      window.location.reload();
+    }, 1000);
+  })();
+
   markActiveButtons();
 })();

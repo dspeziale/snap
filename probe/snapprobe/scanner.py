@@ -45,7 +45,8 @@ from datetime import datetime, timezone
 from . import mac_costruttori
 from . import nmap_xml
 from . import snmp_raccolta
-from .nmap_runner import NmapAborted, NmapError, NmapRunner, NmapTimeout, filtra_script
+from .nmap_runner import (NmapAborted, NmapError, NmapRunner, NmapTimeout,
+                          bersagli_senza_rotta as nmap_senza_rotta, filtra_script)
 
 # Fasi nell'ordine di priorita' con cui vengono valutate.
 STAGES = ("discovery", "monitor", "raffica", "ports", "services", "os", "deep",
@@ -398,6 +399,26 @@ SANITA_QUOTA_SOSPETTA = 0.95
 # escludere che ci finisca altro. Comprende la forma di Windows
 # (`\Device\NPF_{GUID}`) oltre ai nomi brevi.
 RE_INTERFACCIA = re.compile(r"^[A-Za-z0-9_.:\\{}-]{1,64}$")
+
+# Quanti dispositivi puo' portare UN compito di lettura web.
+#
+# PERCHE' NON VALE `hosts_per_task`, che e' 1. Quella regola nasce dal budget di
+# pacchetti di nmap, che e' per PROCESSO: dare molti host a un processo di nmap
+# stringe la finestra su ciascuno e fa passare per filtrate le porte aperte (i numeri
+# stanno su MAX_HOST_PER_PROCESSO_PORTE). La lettura web non usa nmap: sono richieste
+# HTTP, e non c'e' nessun budget da dividere.
+#
+# Applicandole quella regola, un compito web leggeva UN dispositivo per ciclo. Con
+# 2.054 apparati in attesa di lettura servivano duemila cicli, e il budget di tempo
+# del compito (BUDGET_WEB_COMPITO, con il suo "rinviati al giro successivo") era
+# codice morto: non si arrivava mai a consumarlo.
+#
+# Il limite vero resta il TEMPO, non il numero: misurato in esercizio, un dispositivo
+# costa ~8 s fra handshake TLS e attese (una pagina letta in 8,3 s), quindi i 180 s
+# del budget ne coprono una ventina. Trentadue e' un tetto con margine per gli
+# apparati veloci: chi non entra nel budget e' "mai letto" e ha la precedenza al giro
+# successivo.
+MAX_HOST_PER_COMPITO_WEB = 32
 
 MAX_HOST_PER_PROCESSO_PORTE = 64
 
@@ -2315,6 +2336,16 @@ class NetworkScanner:
         profilo = self.effort_profile()
         limite = max(1, int(limit or profilo["workers"]))
         per_compito = int(profilo["hosts_per_task"])
+
+        def quanti_per(fase: str) -> int:
+            """Host per compito, secondo la fase.
+
+            `hosts_per_task` e' 1 perche' il budget di pacchetti di nmap e' per
+            processo. La lettura web non usa nmap: vedi MAX_HOST_PER_COMPITO_WEB.
+            """
+            if fase == "web":
+                return max(per_compito, MAX_HOST_PER_COMPITO_WEB)
+            return per_compito
         # Posti che il completamento del profilo non puo' prendere: restano alle fasi
         # che vengono DOPO (monitoraggio, SNMP, SMB, vulnerabilita', web). Con un
         # host per compito il completamento riempiva l'intero ciclo e quelle fasi non
@@ -2340,7 +2371,7 @@ class NetworkScanner:
                     continue
                 gruppo.append(nodo["ip"])
                 assegnati.add(nodo["ip"])
-                if len(gruppo) >= per_compito:
+                if len(gruppo) >= quanti_per(fase):
                     compiti.append({"stage": fase, "target": "*", "hosts": list(gruppo)})
                     gruppo = []
             if gruppo and len(compiti) < massimo:
@@ -2350,7 +2381,7 @@ class NetworkScanner:
             """Un solo compito per questa fase: il resto del ciclo resta agli altri."""
             gruppo = []
             for nodo in nodi:
-                if nodo["ip"] in assegnati or len(gruppo) >= per_compito:
+                if nodo["ip"] in assegnati or len(gruppo) >= quanti_per(fase):
                     continue
                 gruppo.append(nodo["ip"])
                 assegnati.add(nodo["ip"])
@@ -2692,11 +2723,19 @@ class NetworkScanner:
                                                 porte=self._quante_porte(argomenti))
         inizio = _now_str()
         avvio = time.monotonic()
+        # `diagnostica` raccoglie cio' che nmap scrive su stderr, ed e' l'unico posto
+        # in cui dichiara di non saper raggiungere un bersaglio. Si dichiara PRIMA del
+        # try: se nmap solleva -- scadenza, interruzione -- la variabile deve esistere
+        # lo stesso, altrimenti la causa si perde proprio quando serve.
+        diagnostica = []
         try:
             etichetta = "%s su %s" % (
                 stage, target if stage == "discovery" else "%d nodi" % len(bersagli))
+            # `diagnostica` raccoglie cio' che nmap scrive su stderr: e' l'unico
+            # posto in cui dichiara di non saper raggiungere un bersaglio, e senza
+            # non si distingue "non ha risposto" da "non so come arrivarci".
             xml = self.runner.run(argomenti, bersagli, timeout=attesa_processo,
-                                  label=etichetta)
+                                  label=etichetta, diagnostica=diagnostica)
             stato = "completed"
             dettaglio = ""
         except NmapTimeout as errore:
@@ -2767,16 +2806,33 @@ class NetworkScanner:
                    ", ".join(str(i) for i in scaduti[:5]),
                    ", ..." if len(scaduti) > 5 else ""))
         if bersagli and not esecuzione["hosts_up"]:
-            # Nessun host restituito pur avendo bersagli: tipicamente il tempo
-            # per host non basta e nmap abbandona. Senza questa annotazione il
-            # blocco resterebbe invisibile.
-            self.store.log(
-                "warning",
-                "Fase %s: nessun host restituito su %d bersagli con %s per host. "
-                "Se si ripete, il tempo per host e' troppo breve per questa fase."
-                % (stage, len(bersagli), " ".join(argomenti[argomenti.index("--host-timeout") + 1:
-                                                            argomenti.index("--host-timeout") + 2])
-                   if "--host-timeout" in argomenti else "il valore corrente"))
+            # PRIMA SI GUARDA SE NMAP HA DETTO PERCHE'. Un XML valido e vuoto non
+            # distingue "l'host non ha risposto" da "non so come arrivarci", e la
+            # differenza cambia il rimedio: nel primo caso il tempo per host, nel
+            # secondo la tabella di instradamento -- o quella subnet non e' di questa
+            # sonda. Attribuirlo sempre al tempo per host significava suggerire nel
+            # diario una cura che non poteva funzionare.
+            senza_rotta = nmap_senza_rotta(diagnostica)
+            if senza_rotta:
+                self.store.log(
+                    "warning",
+                    "Fase %s: nmap non sa come raggiungere %s. Non e' il tempo per"
+                    " host: manca una rotta da questa sonda verso quella rete."
+                    " Questi bersagli vengono messi in attesa invece di essere"
+                    " ripresi a ogni ciclo; se la rete non e' di questa sonda,"
+                    " toglierla dal suo perimetro."
+                    % (stage, ", ".join(senza_rotta[:5])
+                       + (", ..." if len(senza_rotta) > 5 else "")))
+                self._metti_in_attesa(bersagli, "nessuna rotta")
+            else:
+                self.store.log(
+                    "warning",
+                    "Fase %s: nessun host restituito su %d bersagli con %s per host. "
+                    "Se si ripete, il tempo per host e' troppo breve per questa fase."
+                    % (stage, len(bersagli),
+                       " ".join(argomenti[argomenti.index("--host-timeout") + 1:
+                                          argomenti.index("--host-timeout") + 2])
+                       if "--host-timeout" in argomenti else "il valore corrente"))
         self.store.log("info", "Fase %s su %s (%d bersagli): %d host, %d record in %.1f s"
                        % (stage, target, len(bersagli), esecuzione["hosts_up"],
                           esecuzione["records"], durata / 1000.0))
@@ -3673,6 +3729,34 @@ class NetworkScanner:
             "detail": {"indirizzo": prove["ip"], "tentativi": tentativi,
                        "motivo": prove.get("assessment_reason")},
         })
+
+    def _metti_in_attesa(self, bersagli, motivo: str) -> None:
+        """Mette in attesa dei bersagli che nmap non ha potuto esaminare affatto.
+
+        PERCHE' ANCHE I NODI CONFERMATI. L'attesa progressiva esisteva gia', ma
+        `_scadenza_troppo_recente` la applica ai soli CANDIDATI: il ragionamento era
+        che un nodo confermato ha gia' dato prova di se', quindi vale la pena
+        riprovarlo. Non regge quando manca la ROTTA: li' non e' il nodo a tacere, e'
+        la rete a non esserci, e nessun numero di tentativi la fa comparire.
+
+        Misurato in esercizio: trentasei nodi in subnet non instradabili -- ventisette
+        dei quali confermati, quindi esenti dall'attesa -- tornavano in ogni ciclo,
+        occupavano i posti della frontiera e il conteggio "in lavorazione" restava
+        fermo. Il diario diceva "nessun host restituito" e incolpava il tempo per
+        host.
+
+        Non si SCARTA: una rotta puo' comparire (una VPN che si alza, un instradamento
+        corretto), e scartare un nodo vero perche' oggi non si raggiunge sarebbe
+        un'affermazione falsa. Si mette in attesa, con il conteggio che fa crescere
+        l'attesa a ogni ripetizione.
+        """
+        for ip in bersagli or ():
+            try:
+                self._annota_scadenza(str(ip))
+            except Exception as errore:  # noqa: BLE001 - un bersaglio non deve fermare la fase
+                self.store.log("warning",
+                               "Attesa non registrata per %s (%s): %s"
+                               % (ip, motivo, errore))
 
     def _annota_scadenza(self, ip: str, locale: dict = None) -> None:
         """Registra che nmap ha abbandonato questo host, e lo lascia candidato.

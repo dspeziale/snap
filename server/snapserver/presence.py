@@ -102,6 +102,18 @@ MOTIVI = {
     "profilo": "l'indirizzo e' passato a un altro apparato",
 }
 
+# Entro quanti minuti dall'ultimo avvistamento un apparato si dice "in rete adesso".
+# Non e' un numero arbitrario: la ricognizione conferisce a intervalli di pochi
+# minuti, e cinque e' la promessa piu' stretta che la pagina puo' mantenere senza
+# dichiarare presente chi se n'e' gia' andato.
+FINESTRA_PRESENZA_MIN = 5
+
+# Se l'ultimo avvistamento e' piu' vecchio di cosi', l'elenco non e' "vuoto": e'
+# VECCHIO, e la pagina deve dirlo. Un elenco vuoto e un elenco fermo si assomigliano
+# sullo schermo e significano cose opposte -- nessuno in rete, oppure nessuno che
+# guarda.
+RITARDO_SOSPETTO_MIN = 10
+
 RE_NON_ESADECIMALE = re.compile(r"[^0-9a-f]")
 
 
@@ -276,6 +288,94 @@ def _leggibile(riga) -> dict:
     voce["duration_sec"] = max(0.0, _secondi_tra(voce["first_seen_at"],
                                                  voce["last_seen_at"]))
     return voce
+
+
+
+def _sottrai_minuti(minuti: int) -> str:
+    """L'istante di `minuti` fa, nella scrittura dell'archivio."""
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc)
+            - timedelta(minutes=int(minuti))).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _storia_di(tenant_id: int, chiavi: list) -> dict:
+    """Per ogni identita', quanto e' che la si vede: permanenze, prima volta, indirizzi.
+
+    Serve a distinguere, nell'elenco di chi c'e' adesso, l'apparato che c'e' sempre
+    stato da quello comparso oggi per la prima volta: sulla stessa riga, e' l'unica
+    informazione che rende la presenza interpretabile.
+    """
+    if not chiavi:
+        return {}
+    segnaposti = ", ".join("?" for _ in chiavi)
+    righe = query(
+        "SELECT identity_key, COUNT(*) AS permanenze,"
+        " COUNT(DISTINCT ip) AS indirizzi, MIN(first_seen_at) AS dal,"
+        " MAX(last_seen_at) AS al, SUM(COALESCE(sightings, 0)) AS avvistamenti"
+        " FROM presence_sessions WHERE tenant_id = ?"
+        " AND identity_key IN (" + segnaposti + ")"
+        " GROUP BY identity_key", tuple([tenant_id] + list(chiavi)))
+    return {r["identity_key"]: dict(r) for r in righe}
+
+
+def presenti_ora(tenant_id: int, *, subnet_id: int = None,
+                 minuti: int = FINESTRA_PRESENZA_MIN) -> dict:
+    """Chi e' in rete ADESSO, ciascuno con la propria storia.
+
+    E' una domanda diversa da quella dello storico. Lo storico dice chi c'e' stato;
+    questo dice chi c'e' in questo momento -- ed e' la domanda che si fa chi sta
+    guardando la rete mentre succede qualcosa.
+
+    Il ritardo dell'ultimo avvistamento fa parte della risposta: un elenco vuoto
+    perche' non c'e' nessuno e un elenco vuoto perche' la ricognizione e' ferma si
+    assomigliano sullo schermo, e significano cose opposte.
+    """
+    da = _sottrai_minuti(minuti)
+    condizioni = ["p.tenant_id = ?", "p.last_seen_at >= ?"]
+    parametri = [tenant_id, da]
+    if subnet_id:
+        condizioni.append("p.subnet_id = ?")
+        parametri.append(int(subnet_id))
+    righe = query(
+        "SELECT p.*, s.cidr AS subnet_cidr, n.device_label AS node_label,"
+        " n.mac_vendor"
+        " FROM presence_sessions p"
+        " LEFT JOIN subnets s ON s.id = p.subnet_id"
+        " LEFT JOIN nodes n ON n.id = p.node_id"
+        " WHERE " + " AND ".join(condizioni) +
+        " ORDER BY p.last_seen_at DESC, p.id DESC LIMIT 1000", tuple(parametri))
+
+    presenti = [_leggibile(r) for r in righe]
+    storia = _storia_di(tenant_id, [v["identity_key"] for v in presenti])
+    for voce in presenti:
+        voce["storia"] = storia.get(voce["identity_key"]) or {}
+        # "Nuovo" vuol dire: questa e' la prima permanenza che gli si conosce. Non e'
+        # un allarme -- su una rete di ospiti e' la normalita' -- ma e' la riga che
+        # merita uno sguardo prima delle altre.
+        voce["nuovo"] = int((voce["storia"].get("permanenze") or 0)) <= 1
+
+    ultimo = max((v["last_seen_at"] for v in presenti), default=None)
+    if ultimo is None:
+        ultimo = query(
+            "SELECT MAX(last_seen_at) AS al FROM presence_sessions"
+            " WHERE tenant_id = ?", (tenant_id,), one=True)
+        ultimo = (dict(ultimo).get("al") if ultimo is not None else None)
+    ritardo = _secondi_tra(ultimo, utc_now_str()) if ultimo else float("inf")
+    return {
+        "minuti": int(minuti),
+        "presenti": presenti,
+        "apparati": len({v["identity_key"] for v in presenti}),
+        "nuovi": sum(1 for v in presenti if v["nuovo"]),
+        "senza_identita": sum(1 for v in presenti
+                              if v["identity_source"] == "address"),
+        "ultimo_avvistamento": ultimo,
+        "ritardo_sec": None if ritardo == float("inf") else int(ritardo),
+        # La ricognizione si considera ferma quando l'ultimo avvistamento e' piu'
+        # vecchio del doppio della finestra: un ritardo sotto quella soglia e'
+        # normale fra una passata e l'altra.
+        "ferma": ritardo > RITARDO_SOSPETTO_MIN * 60,
+    }
 
 
 def riepilogo(tenant_id: int, *, subnet_id: int = None) -> dict:

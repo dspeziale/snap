@@ -2171,3 +2171,17 @@ def test_il_fascicolo_europeo_e_nel_catalogo(server_app):
         assert "eu_compliance" in REPORT_KINDS
         assert "NIS2" in REPORT_KINDS["eu_compliance"]
         assert REPORT_CATALOG["eu_compliance"]["ruolo"] == "tenant_admin"
+
+
+def test_ogni_genere_ha_etichetta_generatore_e_tema():
+    """Aggiungere un report vuol dire toccare quattro elenchi. Dimenticarne uno da un
+    KeyError su una pagina, non un errore all'avvio: e' il modo in cui un report nuovo
+    rompe quelli vecchi."""
+    from snapserver.reports import REPORT_CATALOG, REPORT_KINDS
+    from snapserver.reports.generate import GENERATORI
+    from snapserver.reports.render_pdf import TEMI
+
+    for chiave in REPORT_CATALOG:
+        assert chiave in REPORT_KINDS, "manca l'etichetta di %r" % chiave
+        assert chiave in GENERATORI, "manca il generatore di %r" % chiave
+        assert chiave in TEMI, "manca il tema (fascia di copertina) di %r" % chiave

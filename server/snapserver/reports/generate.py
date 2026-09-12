@@ -17,17 +17,22 @@ from datetime import date
 
 from ..audit import log_event
 from . import (
+    KIND_CERTIFICATES,
     KIND_COMPLIANCE,
     KIND_EXECUTIVE,
+    KIND_FLOTTA,
     KIND_EU_COMPLIANCE,
     KIND_INCIDENT,
     KIND_INVENTORY,
     KIND_NOC,
+    KIND_PRESENZE,
     KIND_DEVICE,
     KIND_HYGIENE,
     KIND_SEGMENTATION,
     KIND_SOC,
+    KIND_SMB,
     KIND_THREAT,
+    KIND_VETUSTA,
     REPORT_CATALOG,
     REPORT_KINDS,
 )
@@ -47,6 +52,12 @@ def _dati_noc(tenant, zona, giorno, giorni):
 
 
 GENERATORI = {
+    KIND_CERTIFICATES: (dataset_wide.certificates,
+                        render_wide.certificates_report),
+    KIND_VETUSTA: (dataset_wide.vetusta, render_wide.vetusta_report),
+    KIND_PRESENZE: (dataset_wide.presenze, render_wide.presenze_report),
+    KIND_FLOTTA: (dataset_wide.flotta, render_wide.flotta_report),
+    KIND_SMB: (dataset_wide.smb, render_wide.smb_report),
     KIND_NOC: (_dati_noc, render_pdf.noc_report),
     KIND_EXECUTIVE: (dataset_wide.executive, render_wide.executive_report),
     KIND_INVENTORY: (dataset_wide.inventory, render_wide.inventory_report),

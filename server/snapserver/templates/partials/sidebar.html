@@ -25,6 +25,9 @@
                               'inventory.presence', 'inventory.presence_trend',
                               'inventory.zone_index',
                               'inventory.deliveries', 'inventory.delivery') %}
+{# Sottosistema PSN: appartenenza del gruppo. Sta con le altre per coerenza, ed e'
+   una riga sola da cancellare insieme al blocco. #}
+{% set in_psn = endpoint.startswith('psn.') %}
 {% set in_mappa = endpoint in ('inventory.network_map', 'inventory.network_map_graphic',
                                'inventory.network_map_zones') %}
 {# Gli incidenti hanno un menu proprio: si escludono da "Controlli" perche' quando si
@@ -425,6 +428,72 @@
              class="nav-link {% if endpoint == 'checks.incident_list' and request.args.get('status') == 'tutti' %}active{% endif %}">
             <i class="nav-icon bi bi-list-ul"></i><p>Tutti gli incidenti</p>
           </a>
+        </li>
+
+        {# --- SOTTOSISTEMA PSN --------------------------------------------------
+           BLOCCO SEPARATO, DA POTER CANCELLARE. Il PSN e' un sottosistema con
+           archivio proprio e nessun legame con le tabelle del prodotto: per
+           rimuoverlo si cancella questo blocco, `snapserver/psn/`, `templates/psn/`,
+           la registrazione del blueprint in `create_app` e il database. Vedi
+           docs/15_PSN.md. Un gruppo proprio, non una voce infilata in Rete: il piano
+           di indirizzamento e' un documento del cliente, non un dato raccolto dalle
+           sonde, e confonderli sarebbe il difetto peggiore di questa sezione. #}
+        <li class="nav-header">PSN</li>
+        <li class="nav-item {% if in_psn %}menu-open{% endif %}">
+          <a href="#" class="nav-link {% if in_psn %}active{% endif %}">
+            <i class="nav-icon bi bi-diagram-3"></i>
+            <p>Piano di indirizzamento <i class="nav-arrow bi bi-chevron-right"></i></p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('psn.index') }}"
+                 class="nav-link {% if endpoint == 'psn.index' %}active{% endif %}">
+                <i class="nav-icon bi bi-speedometer2"></i><p>Quadro d'insieme</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.subnets') }}"
+                 class="nav-link {% if endpoint in ('psn.subnets', 'psn.subnet') %}active{% endif %}">
+                <i class="nav-icon bi bi-diagram-2"></i><p>Subnet e indirizzi</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.findings') }}"
+                 class="nav-link {% if endpoint == 'psn.findings' %}active{% endif %}">
+                <i class="nav-icon bi bi-exclamation-triangle"></i><p>Riscontri</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.tenants') }}"
+                 class="nav-link {% if endpoint == 'psn.tenants' %}active{% endif %}">
+                <i class="nav-icon bi bi-buildings"></i><p>Tenant</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.databases') }}"
+                 class="nav-link {% if endpoint == 'psn.databases' %}active{% endif %}">
+                <i class="nav-icon bi bi-database"></i><p>Database</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.services') }}"
+                 class="nav-link {% if endpoint == 'psn.services' %}active{% endif %}">
+                <i class="nav-icon bi bi-globe2"></i><p>Servizi pubblicati</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.search') }}"
+                 class="nav-link {% if endpoint == 'psn.search' %}active{% endif %}">
+                <i class="nav-icon bi bi-search"></i><p>Cerca nel piano</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('psn.imports') }}"
+                 class="nav-link {% if endpoint in ('psn.imports', 'psn.import_form') %}active{% endif %}">
+                <i class="nav-icon bi bi-clock-history"></i><p>Versioni del piano</p>
+              </a>
+            </li>
+          </ul>
         </li>
 
         <li class="nav-header">AMMINISTRAZIONE E GUIDA</li>

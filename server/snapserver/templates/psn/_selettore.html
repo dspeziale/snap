@@ -1,0 +1,38 @@
+{#
+  snap server - Selettore della versione del piano, comune a tutte le pagine PSN.
+
+  Sta in un partial perche' compare su ogni pagina: il piano ha una versione, e
+  sapere QUALE si sta guardando e' parte del dato. Senza, due schermate identiche
+  possono venire da due documenti diversi.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% if piani and piani|length > 0 %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <span class="badge text-bg-secondary">
+    <i class="bi bi-file-earmark-spreadsheet me-1"></i>
+    {{ piano['file_name'] if piano else 'nessun piano' }}
+  </span>
+  {% if piano and piano['version'] %}
+    <span class="badge text-bg-light text-dark border">versione {{ piano['version'] }}</span>
+  {% endif %}
+  {% if piano %}
+    <span class="text-body-secondary small">conferito {{ piano['imported_at']|dt }}</span>
+  {% endif %}
+  {% if piani|length > 1 %}
+  <form method="get" class="ms-auto d-flex align-items-center gap-2">
+    <label class="form-label small mb-0" for="piano-scelto">Versione</label>
+    <select class="form-select form-select-sm w-auto" id="piano-scelto" name="piano"
+            onchange="this.form.submit()">
+      {% for v in piani %}
+      <option value="{{ v['id'] }}" {{ 'selected' if piano and v['id'] == piano['id'] }}>
+        {{ v['file_name'] }}{% if v['version'] %} (V.{{ v['version'] }}){% endif %}
+      </option>
+      {% endfor %}
+    </select>
+  </form>
+  {% endif %}
+</div>
+{% endif %}

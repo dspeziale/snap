@@ -172,6 +172,25 @@
             e' scaduto&raquo; a ogni tentativo.</td>
       </tr>
       <tr>
+        <td><strong>Il campo &laquo;Sonda&raquo;</strong></td>
+        <td>Sopra la password c'e' il codice di questa sonda, <strong>in sola
+            lettura</strong>: non e' una credenziale da digitare -- la sonda ha un solo
+            operatore, non un elenco di utenti -- ma dice <strong>a quale sonda</strong>
+            ci si sta collegando (chi ne amministra diverse apre schede identiche) e da'
+            al gestore di password del browser un nome sotto cui archiviare.</td>
+      </tr>
+      <tr>
+        <td><strong>Salvare la password nel browser</strong></td>
+        <td>Ora si puo': il modulo e' dichiarato come un accesso e il browser offre di
+            ricordarlo. Prima non poteva, ed era una difesa apparente -- chi ha accesso
+            al browser di chi amministra la sonda ha gia' vinto, e il prezzo era una
+            password lunga da ridigitare ogni volta, cioe' l'incentivo a sceglierne una
+            corta. <strong>Se il browser non lo offre</strong>, quasi sempre la pagina
+            ha un <em>errore di certificato</em>: in quello stato i browser rifiutano
+            di salvare le credenziali, e va reso attendibile il certificato della
+            sonda.</td>
+      </tr>
+      <tr>
         <td><strong>Accessi successivi</strong></td>
         <td>Password all'apertura, sessione di otto ore, uscita dal pulsante in fondo
             al menu.</td>
@@ -322,6 +341,29 @@
   dall'apparato, sul nome host e in ultimo sull'indirizzo. La console dichiara sempre
   da quale di queste fonti viene l'identita', perche' una dedotta vale meno di una
   letta.
+</p>
+
+<h3>L'anno che una pagina dichiara di se'</h3>
+<p>
+  Leggendo l'interfaccia web di un apparato la sonda cerca anche <strong>gli anni</strong>
+  che quella pagina dichiara: il copyright nel pie', un <code>meta</code> con una data,
+  una stringa di build, l'intestazione <code>Last-Modified</code> e l'inizio di validita'
+  del certificato TLS. Si cercano su <strong>ogni</strong> pagina visitata, non solo
+  sulla radice: il copyright sta quasi sempre in fondo a una pagina interna, e la radice
+  di un apparato e' spesso un rimando vuoto.
+</p>
+<p>
+  Serve a riconoscere le <strong>installazioni che nessuno aggiorna piu'</strong>. Va
+  letto per quello che e': un &laquo;&copy;&nbsp;2014&raquo; non dimostra che il software
+  sia del 2014, dimostra che nessuno ha piu' toccato quella pagina dal 2014 &mdash; un
+  limite <em>inferiore</em> all'eta'. Per questo alla console non si manda solo il
+  numero, ma anche <strong>la fonte e il frammento</strong> da cui viene: chi legge deve
+  poter dare un giudizio.
+</p>
+<p>
+  Non si contano gli anni fuori da un intervallo credibile (un numero di serie non e' una
+  data), quelli dentro script e fogli di stile (sono le date delle librerie) e un
+  <code>Last-Modified</code> di oggi, che una pagina generata al volo scrive sempre.
 </p>
 
 <h2 id="autonomia">6. Autonomia e coda</h2>

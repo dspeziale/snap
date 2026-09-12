@@ -20,12 +20,131 @@ Nota sulla numerazione: fino alla 1.0.0 la sonda aveva una propria numerazione,
 mentre l'immagine di distribuzione portava gia' quella del prodotto. Erano due numeri
 per la stessa cosa, e in assistenza non si capiva quale contasse: dalla 1.2.9 la sonda
 segue la versione del PRODOTTO, la stessa della console.
+
+
+Numerazione
+-----------
+Dalla 1.2.0 la sonda ha una numerazione PROPRIA, distinta da quella della console:
+le due parti si aggiornano in momenti diversi, e un numero unico costringeva a
+inventare versioni della sonda per cambiamenti che non la riguardavano. Le voci
+precedenti alla 1.2.0 appartengono al periodo in cui la sonda seguiva la versione del
+prodotto, e si conservano come storia: non vanno confrontate con i numeri di oggi.
 """
 
 from __future__ import annotations
 
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
+    {
+        "version": "1.2.0",
+        "date": "2026-09-12",
+        "abstract": "La sonda riparte con una numerazione PROPRIA, staccata da quella"
+                    " della console. Questa versione dichiara come base tutto cio' che"
+                    " la sonda sa fare oggi; le voci sotto restano come storia del"
+                    " periodo in cui seguiva la versione del prodotto.",
+        "changes": [
+            "NUMERAZIONE PROPRIA. Sonda e console si aggiornano in momenti diversi --"
+            " la sonda sta in sede dal cliente, la console si aggiorna quando si"
+            " vuole -- e un numero unico costringeva a inventare versioni della sonda"
+            " per cambiamenti che non la riguardavano. Il protocollo fra le due parti"
+            " non dipende da questi numeri: lo governa la versione dell'agente"
+            " dichiarata nel battito.",
+            "INTERFACCIA E MOTORE IN DUE PROCESSI. Vivevano nello stesso interprete"
+            " Python, che esegue un thread per volta: mentre i trentadue lavoratori"
+            " di scansione lavoravano, la pagina aspettava. Misurato sulla pagina di"
+            " accesso, che non tocca nemmeno l'archivio: 3-6 secondi con le scansioni"
+            " attive (e oltre i 120 secondi del proxy sotto il carico di un browser,"
+            " cioe' 504 Gateway Timeout), 0,46-0,73 secondi con le scansioni sospese."
+            " Ora l'agente gira in un processo suo e l'interfaccia in un altro:"
+            " misurati 0,22 s con le scansioni attive.",
+            "TOLTO IL LUCCHETTO GLOBALE DELL'ARCHIVIO. Con SQLite un solo scrittore"
+            " per volta era un obbligo del formato; con PostgreSQL ogni operazione ha"
+            " gia' la propria transazione, e il database gestisce la concorrenza. Il"
+            " lucchetto era sopravvissuto al porting e metteva in fila quarantatre"
+            " operazioni -- scansioni, agente, controlli e interfaccia, uno per volta."
+            " Resta solo dove serve davvero: l'importazione del vecchio archivio, che"
+            " legge e scrive in due transazioni distinte.",
+            "NMAP: SI RACCOGLIE CIO' CHE DICE, non solo cio' che produce. Un XML"
+            " valido e vuoto non distingue \"l'host non ha risposto\" da \"non so come"
+            " arrivarci\": la seconda nmap la scrive su stdout"
+            " (\"failed to determine route to ...\") e il prodotto la buttava via."
+            " Ora la riconosce, lo dice nel diario con la causa giusta e mette quei"
+            " bersagli in attesa invece di riprenderli a ogni ciclo -- anche quando"
+            " sono nodi gia' confermati, che ne erano esenti.",
+            "L'ANNO DICHIARATO DALLE PAGINE WEB, per riconoscere le installazioni che"
+            " nessuno aggiorna piu': copyright, meta, stringhe di build,"
+            " `Last-Modified` e inizio di validita' del certificato. Si tiene l'anno"
+            " piu' recente con la fonte e il frammento da cui viene, perche' un"
+            " \"(c) 2014\" non dimostra che il software sia del 2014 -- dimostra che"
+            " nessuno ha piu' toccato quella pagina dal 2014.",
+            "IL BROWSER PUO' SALVARE LA PASSWORD dell'interfaccia: il modulo e' ora"
+            " dichiarato come un accesso e porta un campo con il codice della sonda,"
+            " in sola lettura. Prima non si poteva, ed era una difesa apparente -- il"
+            " prezzo era una password lunga da ridigitare ogni volta.",
+            "Chi apre l'interfaccia in chiaro sulla porta HTTPS viene rimandato invece"
+            " che respinto con un \"400 Bad Request\" che non spiega nulla.",
+            "Il proxy davanti alla sonda nativa non risponde piu' a intermittenza: il"
+            " nome con cui raggiungeva la sonda era dichiarato due volte in /etc/hosts"
+            " (uno IPv4 e uno IPv6 non instradabile) e nginx li usava a turno.",
+        ],
+    },
+    {
+        "version": "1.6.0",
+        "date": "2026-09-12",
+        "abstract": "Le letture web ricavano l'anno che una pagina dichiara di se',"
+                    " per riconoscere le installazioni che nessuno aggiorna piu'. Il"
+                    " gestore di password del browser puo' finalmente salvare le"
+                    " credenziali di questa interfaccia. E un difetto del proxy la"
+                    " faceva rispondere a intermittenza.",
+        "changes": [
+            "L'ANNO CHE LA PAGINA DICHIARA DI SE'. Durante la lettura web si"
+            " raccolgono ora gli anni trovati su OGNI pagina visitata -- il copyright"
+            " sta quasi sempre nel pie' di una pagina interna, e la radice di un"
+            " apparato e' spesso un rimando vuoto -- piu' l'intestazione"
+            " `Last-Modified` e l'inizio di validita' del certificato TLS. Si"
+            " conserva l'anno piu' recente, la fonte e IL FRAMMENTO da cui viene.",
+            "Che cosa se ne puo' concludere, detto qui perche' e' il punto in cui"
+            " questo dato si puo' usare male: un \"(c) 2014\" non dimostra che il"
+            " software sia del 2014, dimostra che nessuno ha piu' toccato quella"
+            " pagina dal 2014. E' un limite INFERIORE all'eta', non una misura -- ed"
+            " e' comunque il segnale piu' economico che esista su una rete reale: un"
+            " apparato la cui interfaccia si ferma a dodici anni fa non riceve"
+            " aggiornamenti, e quasi mai li riceve il firmware sotto.",
+            "Quello che NON si conta: gli anni fuori da un intervallo credibile (un"
+            " numero di serie non e' una data), quelli dentro script e fogli di stile"
+            " (sono le date delle librerie, non dell'apparato) e un `Last-Modified`"
+            " di oggi, che una pagina generata al volo scrive sempre -- crederci"
+            " direbbe che ogni apparato e' nuovo. Dove non c'e' nessuna prova non si"
+            " scrive niente: una pagina che non dichiara un anno non e' \"nuova\".",
+            "IL BROWSER PUO' SALVARE LA PASSWORD di questa interfaccia. Prima non"
+            " poteva, per due motivi: il modulo dichiarava `autocomplete=\"off\"`, e"
+            " non aveva un campo utente -- un modulo con la sola password non viene"
+            " salvato dalla maggior parte dei gestori, e quando lo e' finisce senza"
+            " identita'. Ora c'e' un campo in sola lettura con il codice della sonda:"
+            " dice A QUALE sonda ci si sta collegando, e da' al gestore un nome sotto"
+            " cui archiviare.",
+            "Il divieto di salvataggio era una difesa apparente: chi ha accesso al"
+            " browser di chi amministra la sonda ha gia' vinto, e il prezzo era una"
+            " password lunga da ridigitare a ogni accesso -- cioe' l'incentivo a"
+            " sceglierne una corta.",
+            "Chi apre l'interfaccia in chiaro sulla porta HTTPS viene RIMANDATO invece"
+            " che respinto con un \"400 Bad Request\" che non spiega nulla. Capita a"
+            " tutti: davanti a una porta non standard come la 5510 il browser assume"
+            " http://.",
+            "CORRETTO UN DIFETTO DEL PROXY che faceva rispondere l'interfaccia A"
+            " INTERMITTENZA -- il guasto peggiore, perche' una prova andata bene"
+            " sembra una conferma. Il nome con cui il proxy raggiunge la sonda era"
+            " dichiarato due volte in /etc/hosts (uno IPv4 messo da Docker, uno IPv6"
+            " aggiunto dal compose), nginx li usava a turno e una richiesta su due"
+            " finiva su un indirizzo non instradabile. Un nome, un indirizzo.",
+            "Dove sta la sonda lo dice ora una variabile del modello di nginx e non"
+            " piu' `extra_hosts`: Docker rifiuta `extra_hosts` insieme a"
+            " `network_mode: service:` -- la variante per Docker Desktop -- con un"
+            " errore che arriva solo all'avvio del contenitore e non da"
+            " `docker compose config`. Resta una sola configurazione di nginx per"
+            " tutte le varianti.",
+        ],
+    },
     {
         "version": "1.5.0",
         "date": "2026-09-10",

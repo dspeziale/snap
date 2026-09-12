@@ -397,6 +397,14 @@ MIGRATIONS = [
     # propria (i telefoni IP Cisco ne dichiarano una decina): il dettaglio del nodo le
     # mostra tutte. Solo il vocabolario riconosciuto, mai il corpo della pagina.
     ("node_web", "facts_json", "TEXT"),
+    # L'anno dichiarato dalla pagina e l'eta' che se ne deduce, con la prova: vedi la
+    # nota in schema.sql. Sono migrazioni perche' l'indice su `web_year` si dichiara
+    # nello schema, e lo schema si applica DOPO le migrazioni.
+    ("node_web", "web_year", "INTEGER"),
+    ("node_web", "web_year_source", "TEXT"),
+    ("node_web", "web_year_evidence", "TEXT"),
+    ("node_web", "web_age_years", "INTEGER"),
+    ("node_web", "web_years", "TEXT"),
     # Tutti i dati del certificato TLS, anche quelli senza colonna (serie, versione,
     # algoritmo di firma, chiave, impronte, SAN, usi): dove c'e' HTTPS si registra tutto.
     ("node_web", "cert_json", "TEXT"),

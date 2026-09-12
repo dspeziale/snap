@@ -131,17 +131,21 @@ services:
     # Stessa rete della sonda: il proxy raggiunge 127.0.0.1:5511 sul loopback
     # dell'host, dove la sonda ascolta.
     network_mode: host
-    # Dove sta la sonda, per nome. Qui e' il loopback (la sonda condivide questa
-    # rete); nella variante nativa e' il gateway dell'host, perche' la sonda gira
-    # fuori dal contenitore. Il nome tiene UNA SOLA nginx.conf per tutte le
-    # varianti -- vedi la nota in testa a nginx.conf.
-    extra_hosts:
-      - "sonda:127.0.0.1"
+    environment:
+      # DOVE STA LA SONDA. Qui e' il loopback: la sonda condivide questa rete. Nella
+      # variante nativa e' il gateway dell'host, perche' la sonda gira fuori dal
+      # contenitore. Una VARIABILE e non `extra_hosts`: Docker rifiuta `extra_hosts`
+      # insieme a `network_mode: service:` (la variante per Docker Desktop), con un
+      # errore che arriva solo all'avvio del contenitore. Vedi nginx.conf.template.
+      SONDA_HOST: "127.0.0.1"
+      # Si sostituiscono SOLO le variabili SONDA_*: senza filtro, una variabile
+      # d'ambiente omonima di una variabile di nginx la cancellerebbe.
+      NGINX_ENVSUBST_FILTER: "^SONDA_"
     depends_on:
       snap-probe:
         condition: service_started
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       # Chi puo' scegliere la prima password: file separato, cosi' si modifica
       # senza toccare la configurazione del proxy.
       - ./allow-primo-accesso.conf:/etc/nginx/allow-primo-accesso.conf:ro

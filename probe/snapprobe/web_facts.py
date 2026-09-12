@@ -764,3 +764,187 @@ def stesso_apparato(indirizzo: str, ip: str, porta: int) -> bool:
         return False
     predefinita = 443 if parti.scheme == "https" else 80
     return (parti.port or predefinita) == int(porta)
+
+
+# --------------------------------------------------------------------------- #
+# L'ANNO DICHIARATO DALLA PAGINA: quanto e' vecchia un'installazione
+# --------------------------------------------------------------------------- #
+# CHE COSA SI PUO' CONCLUDERE, e va detto prima di come lo si calcola, perche' e' il
+# punto in cui questo dato si puo' usare male.
+#
+# Una pagina che scrive "(c) 2014" non dimostra che il software sia del 2014:
+# dimostra che NESSUNO HA PIU' TOCCATO QUELLA PAGINA dal 2014. E' un limite inferiore
+# all'eta', non una misura -- ed e' comunque il segnale piu' economico che esista su
+# una rete reale: un apparato la cui interfaccia si ferma a dodici anni fa non riceve
+# aggiornamenti, e quasi sempre non li riceve nemmeno il firmware sotto.
+#
+# Il prodotto lo tratta percio' come INDIZIO CON LA PROVA ALLEGATA, non come verita':
+# ogni anno trovato porta con se' il frammento da cui viene, cosi' chi guarda puo'
+# dare un giudizio invece di fidarsi.
+#
+# LE FONTI, dalla piu' alla meno attendibile:
+#
+#   copyright    "(c) 2014", "Copyright 2010-2018". La piu' usata dagli apparati e la
+#                piu' parlante: di un intervallo conta l'anno FINALE.
+#   meta         <meta name="date|build|revised"> con una data dentro.
+#   build        "build 2014", "release 2014.3": un anno in contesto di versione.
+#   certificato  l'inizio di validita' del certificato TLS. Su un apparato che lo
+#                genera al primo avvio e' la data di INSTALLAZIONE -- spesso il dato
+#                piu' onesto che ci sia.
+#   ultima-modifica  l'intestazione HTTP `Last-Modified`. Vale solo se NON e' di
+#                oggi: una pagina generata al volo la scrive sempre "adesso", e
+#                crederci direbbe che ogni apparato e' nuovo.
+#
+# SI PRENDE L'ANNO PIU' RECENTE fra le prove, non il piu' vecchio. La domanda a cui si
+# risponde e' "da quanto tempo nessuno tocca questa cosa": se una pagina porta insieme
+# un copyright 2008 e un certificato del 2021, la risposta e' 2021.
+ANNO_MINIMO_CREDIBILE = 1990
+
+RE_ANNO_COPYRIGHT = re.compile(
+    r"(?i)(?:©|&copy;|&#169;|\(c\)|copyright)\s*[^0-9]{0,20}?"
+    r"((?:19|20)\d{2})(?:\s*(?:[-–—]|to)\s*((?:19|20)\d{2}))?")
+RE_ANNO_BUILD = re.compile(
+    r"(?i)\b(?:build|release|versione|version|rev|revisione|compilato)\b"
+    r"[^0-9]{0,12}((?:19|20)\d{2})\b")
+RE_META_DATA = re.compile(
+    r'(?is)<meta[^>]+name\s*=\s*["\']?'
+    r"(date|dcterms\.modified|dcterms\.created|build|builddate|revised|"
+    r'last-modified|generator)["\']?[^>]*content\s*=\s*["\']([^"\']{1,200})')
+RE_DATA_ISO = re.compile(
+    r"\b((?:19|20)\d{2})-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b")
+RE_DATA_EU = re.compile(
+    r"\b(?:0?[1-9]|[12]\d|3[01])[/.-](?:0?[1-9]|1[0-2])[/.-]((?:19|20)\d{2})\b")
+RE_SOLO_ANNO = re.compile(r"\b((?:19|20)\d{2})\b")
+
+
+def _anno_credibile(valore, anno_corrente: int) -> int:
+    """L'anno se e' plausibile, altrimenti 0.
+
+    Il filtro non e' pedanteria: senza, un numero di serie o un identificativo
+    darebbero anni come 2098, e un solo anno assurdo in un elenco di apparati vecchi
+    fa perdere fiducia in tutto l'elenco.
+    """
+    try:
+        anno = int(valore)
+    except (TypeError, ValueError):
+        return 0
+    if ANNO_MINIMO_CREDIBILE <= anno <= anno_corrente + 1:
+        return anno
+    return 0
+
+
+def _prova_corta(testo: str, attorno: int, larghezza: int = 90) -> str:
+    """Il frammento attorno alla posizione trovata, ripulito da tag e spazi.
+
+    La prova va mostrata: un anno senza il contesto da cui viene non e' verificabile,
+    ed e' esattamente cio' che rende un indizio inutilizzabile.
+    """
+    inizio = max(0, attorno - larghezza // 2)
+    pezzo = testo[inizio:inizio + larghezza]
+    return RE_SPAZI.sub(" ", RE_TAG.sub(" ", pezzo)).strip()[:120]
+
+
+def anni_dichiarati(pagina: str, adesso=None) -> list:
+    """Gli anni che la pagina dichiara, ciascuno con fonte e prova.
+
+    Funzione PURA: nessuna rete, nessuno stato. Si collauda su pagine salvate, che e'
+    l'unico modo serio di collaudare un estrattore.
+    """
+    import datetime
+
+    anno_corrente = (adesso or datetime.date.today()).year
+    if not pagina:
+        return []
+    # Script e stili portano le date delle librerie (jQuery, Bootstrap), che non
+    # dicono nulla dell'apparato: si tolgono prima di guardare.
+    testo = RE_COMMENTO_HTML.sub(" ", RE_SCRIPT.sub(" ", pagina))
+
+    prove = []
+
+    def aggiungi(anno: int, fonte: str, prova: str) -> None:
+        if not anno:
+            return
+        for voce in prove:
+            if voce["anno"] == anno and voce["fonte"] == fonte:
+                return
+        prove.append({"anno": anno, "fonte": fonte, "prova": prova[:120]})
+
+    for trovato in RE_ANNO_COPYRIGHT.finditer(testo):
+        # Di un intervallo "2010-2018" conta la fine: e' l'ultima volta che qualcuno
+        # ha aggiornato quella riga.
+        anno = _anno_credibile(trovato.group(2) or trovato.group(1), anno_corrente)
+        aggiungi(anno, "copyright", _prova_corta(testo, trovato.start()))
+
+    for trovato in RE_ANNO_BUILD.finditer(testo):
+        aggiungi(_anno_credibile(trovato.group(1), anno_corrente), "build",
+                 _prova_corta(testo, trovato.start()))
+
+    for trovato in RE_META_DATA.finditer(pagina):
+        contenuto = trovato.group(2)
+        anno = 0
+        for espressione in (RE_DATA_ISO, RE_DATA_EU, RE_SOLO_ANNO):
+            data = espressione.search(contenuto)
+            if data:
+                anno = _anno_credibile(data.group(1), anno_corrente)
+                break
+        aggiungi(anno, "meta", "%s: %s" % (trovato.group(1), contenuto[:60]))
+
+    return prove
+
+
+def vetusta(prove: list, ultima_modifica: str = "", certificato_dal: str = "",
+            adesso=None) -> dict:
+    """Il giudizio sull'eta' dell'installazione, con la prova che lo regge.
+
+    Restituisce sempre un dizionario. VUOTO quando non c'e' alcuna prova: una pagina
+    che non dichiara nessun anno non e' "nuova", e dire che lo sia sarebbe peggio che
+    tacere.
+
+    `ultima_modifica` e' l'intestazione HTTP `Last-Modified`; `certificato_dal`
+    l'inizio di validita' del certificato TLS.
+    """
+    import datetime
+    import email.utils
+
+    oggi = adesso or datetime.date.today()
+    tutte = list(prove or [])
+
+    if ultima_modifica:
+        istante = None
+        try:
+            istante = email.utils.parsedate_to_datetime(ultima_modifica)
+        except (TypeError, ValueError):
+            istante = None
+        if istante is not None:
+            giorni = (oggi - istante.date()).days
+            # Una pagina generata al volo scrive `Last-Modified: adesso`: crederci
+            # direbbe che ogni apparato e' nuovo. Sotto i trenta giorni non si usa.
+            if giorni >= 30:
+                anno = _anno_credibile(istante.year, oggi.year)
+                if anno:
+                    tutte.append({"anno": anno, "fonte": "ultima-modifica",
+                                  "prova": "Last-Modified: %s"
+                                           % str(ultima_modifica)[:60]})
+
+    if certificato_dal:
+        trovato = RE_SOLO_ANNO.search(str(certificato_dal))
+        if trovato:
+            anno = _anno_credibile(trovato.group(1), oggi.year)
+            if anno:
+                tutte.append({"anno": anno, "fonte": "certificato",
+                              "prova": "certificato valido dal %s"
+                                       % str(certificato_dal)[:40]})
+
+    if not tutte:
+        return {}
+
+    # L'anno PIU' RECENTE: la domanda e' "da quanto nessuno tocca questa cosa".
+    migliore = max(tutte, key=lambda v: v["anno"])
+    return {
+        "anno": migliore["anno"],
+        "fonte": migliore["fonte"],
+        "prova": migliore["prova"],
+        "eta_anni": max(0, oggi.year - migliore["anno"]),
+        "anni": sorted({v["anno"] for v in tutte}),
+        "prove": tutte[:6],
+    }

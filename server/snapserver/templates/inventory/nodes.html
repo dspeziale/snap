@@ -412,7 +412,20 @@
                 {{ voce.valore }}
               </div>
               {% endfor %}
-              {% if not n.info_web %}
+              {# L'ETA' DICHIARATA, solo quando supera la soglia: un'interfaccia
+                 aggiornata quest'anno non e' una notizia, una ferma a dieci anni fa
+                 si'. Il titolo porta la spiegazione e il limite del dato, perche' un
+                 anno di copyright dice quando la pagina e' stata toccata l'ultima
+                 volta -- non l'eta' del software. #}
+              {% if n.eta_web %}
+              <div>
+                <span class="badge {{ 'text-bg-danger' if n.eta_web.grave else 'text-bg-warning' }}"
+                      title="{{ n.eta_web.spiegazione }}">
+                  <i class="bi bi-hourglass-bottom me-1"></i>{{ n.eta_web.testo }}
+                </span>
+              </div>
+              {% endif %}
+              {% if not n.info_web and not n.eta_web %}
               <span class="text-body-secondary"
                     title="Nessuna interfaccia web ha risposto, o non ha dichiarato nulla di se'">-</span>
               {% endif %}

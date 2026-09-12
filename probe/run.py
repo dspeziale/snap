@@ -55,6 +55,11 @@ def parse_arguments() -> argparse.Namespace:
         metavar="PACCHETTO",
         help="registra la sonda con il pacchetto SNAP1-... emesso dal server",
     )
+    parser.add_argument(
+        "--solo-interfaccia",
+        action="store_true",
+        help="avvia SOLO l'interfaccia web, senza l'agente di raccolta",
+    )
     parser.add_argument("--status", action="store_true", help="mostra lo stato locale ed esce")
     return parser.parse_args()
 
@@ -149,8 +154,27 @@ def main() -> int:
 
     from snapprobe import create_app
 
-    application = create_app()
-    print("snap probe %s" % application.config["APP_VERSION"])
+    # DUE PROCESSI, NON UNO, e va spiegato perche' e' una correzione e non una scelta
+    # di gusto.
+    #
+    # L'interfaccia web e i trentadue lavoratori di scansione vivevano nello stesso
+    # interprete Python. Un interprete esegue un thread per volta (GIL): mentre la
+    # scansione lavora, la pagina aspetta. MISURATO su questa installazione, sulla
+    # pagina di accesso -- che non tocca nemmeno l'archivio:
+    #
+    #     scansioni attive   3-6 secondi, e oltre i 120 s del proxy sotto il carico
+    #                        di un browser (decine di richieste in parallelo) -> 504
+    #     scansioni sospese  0,46-0,73 secondi
+    #
+    # Separare i due mestieri in due processi da a ciascuno il proprio interprete:
+    # la scansione non puo' piu' affamare l'interfaccia. I due processi condividono
+    # l'archivio PostgreSQL, che e' fatto per questo -- ed e' diventato possibile da
+    # quando l'archivio non ha piu' un lucchetto globale (vedi store.ProbeStore).
+    #
+    # `--solo-interfaccia` avvia la sola interfaccia; `--headless` il solo agente.
+    application = create_app(start_agent=not arguments.solo_interfaccia)
+    print("snap probe %s%s" % (application.config["APP_VERSION"],
+                               " (solo interfaccia)" if arguments.solo_interfaccia else ""))
     print("Interfaccia locale:  http://%s:%d/" % (arguments.host, arguments.port))
     print("Archivio:            %s" % _archivio_mostrabile())
     print(

@@ -1,5 +1,5 @@
 # -----------------------------------------------------------------
-# nginx.conf — terminazione TLS davanti all'interfaccia della SONDA
+# nginx.conf.template — terminazione TLS davanti all'interfaccia della SONDA
 # Autore: Daniele Speziale
 # Data creazione: 2026-09-09
 # Copyright (c) 2024-26 DS Consulting
@@ -8,19 +8,33 @@
 # La sonda ascolta solo sul proprio loopback, porta 5511, IN CHIARO -- non
 # raggiungibile dalla rete: tutto il traffico passa da qui, in HTTPS.
 #
-# L'INDIRIZZO DELLA SONDA E' IL NOME `sonda`, non un numero, e va spiegato perche'
-# altrimenti sembra un giro inutile. La sonda puo' stare in due posti:
+# DOVE STA LA SONDA lo dice una VARIABILE, `${SONDA_HOST}`, e va spiegato perche'
+# non e' un numero scritto qui e perche' non e' una voce in /etc/hosts.
+#
+# La sonda puo' stare in due posti:
 #
 #   * in contenitore (esercizio su Linux, e prova su Docker Desktop): condivide la
-#     rete con questo proxy, quindi e' sul loopback -> `sonda` = 127.0.0.1;
+#     rete con questo proxy, quindi e' sul loopback -> 127.0.0.1;
 #   * SULLA MACCHINA, fuori dal contenitore (variante nativa su Windows, dove un
 #     contenitore non vedrebbe la LAN): il loopback di questo proxy non e' quello
-#     della macchina -> `sonda` = il gateway dell'host.
+#     della macchina -> il gateway dell'host (host.docker.internal).
 #
-# Il nome viene risolto dal compose (`extra_hosts`), che sa in quale dei due casi si
-# trova. Cosi' questa configurazione e' UNA SOLA per tutte le varianti: nessuna
-# deriva fra prova, esercizio e sonda nativa. Il nome si risolve da /etc/hosts
-# all'avvio, non serve un resolver.
+# PRIMA si usava `extra_hosts` nel compose, ed era SBAGLIATO: Docker rifiuta
+# `extra_hosts` insieme a `network_mode: service:` -- proprio la variante per Docker
+# Desktop, dove il proxy condivide la rete della sonda. L'errore e' netto e arriva
+# solo all'avvio del contenitore, non da `docker compose config`:
+#
+#     Error response from daemon: conflicting options:
+#     custom host-to-IP mapping and the network mode
+#
+# Con una variabile il problema non esiste: l'immagine di nginx sostituisce i
+# `${...}` dei modelli in /etc/nginx/templates all'avvio (envsubst), ed e' lo stesso
+# meccanismo che gia' usa il proxy del server. Cosi' la configurazione resta UNA SOLA
+# per tutte le varianti -- nessuna deriva fra prova, esercizio e sonda nativa.
+#
+# `NGINX_ENVSUBST_FILTER=^SONDA_` nel compose limita la sostituzione alle sole
+# variabili SONDA_*: senza quel filtro, una variabile d'ambiente che si chiamasse
+# come una variabile di nginx la cancellerebbe.
 
 server {
     listen 5512;
@@ -42,6 +56,25 @@ server {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1h;
     ssl_session_tickets off;
+
+    # CHI ARRIVA IN CHIARO SULLA PORTA HTTPS VIENE RIMANDATO, non respinto.
+    #
+    # Il caso e' banale e capita a tutti: si digita `10.20.10.42:5510` nel browser,
+    # che davanti a una porta non standard assume `http://`. nginx riceve una
+    # richiesta in chiaro su una porta TLS e risponde
+    #
+    #     400 Bad Request
+    #     The plain HTTP request was sent to HTTPS port
+    #
+    # che e' esatto e inutile: chi legge non sa di avere sbagliato schema, e conclude
+    # che la sonda non risponde. Il 497 e' il codice interno con cui nginx segna
+    # proprio questa condizione, e intercettarlo permette di rimandare all'indirizzo
+    # giusto -- lo stesso servizio che gia' fa la 5512.
+    #
+    # `$host` e non un indirizzo fisso: la sonda si raggiunge dall'IP, da un nome, o
+    # dal loopback, e rimandare sempre allo stesso indirizzo manderebbe altrove chi
+    # arriva da una via diversa.
+    error_page 497 =308 https://$host:5510$request_uri;
 
     # Il pacchetto di registrazione si incolla in un campo: non serve altro spazio.
     client_max_body_size 4m;
@@ -69,7 +102,7 @@ server {
         include /etc/nginx/allow-primo-accesso.conf;
         deny all;
 
-        proxy_pass http://sonda:5511;
+        proxy_pass http://${SONDA_HOST}:5511;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
         proxy_set_header X-Forwarded-For   $remote_addr;
@@ -80,9 +113,10 @@ server {
     }
 
     location / {
-        # `sonda` la risolve il compose: loopback se la sonda e' in contenitore,
-        # gateway dell'host se gira sulla macchina. Vedi la nota in testa al file.
-        proxy_pass http://sonda:5511;
+        # `${SONDA_HOST}` lo fissa il compose: loopback se la sonda e' in
+        # contenitore, gateway dell'host se gira sulla macchina. Vedi la nota in
+        # testa al file.
+        proxy_pass http://${SONDA_HOST}:5511;
         proxy_http_version 1.1;
 
         proxy_set_header Host              $host;

@@ -216,6 +216,25 @@ class ProbeStore:
 
     def __init__(self, path: str = None):
         self.path = path
+        # IL LUCCHETTO SERVE A UNA COSA SOLA, e va detto perche' prima ne proteggeva
+        # quarantatre e non doveva.
+        #
+        # Con SQLite un solo scrittore per volta era un obbligo del formato: un
+        # lucchetto globale sull'archivio era la scelta giusta. Con PostgreSQL non lo
+        # e' piu' -- ogni operazione apre la PROPRIA transazione dal pool (vedi
+        # `_connect`), e il database gestisce la concorrenza. Il lucchetto era
+        # sopravvissuto al porting, e metteva in fila i trentadue thread di
+        # scansione, l'agente, i controlli e l'interfaccia web: uno per volta.
+        #
+        # MISURATO su questa installazione, ed e' il motivo per cui e' stato tolto:
+        # con il lucchetto la pagina di accesso della sonda impiegava cinque secondi
+        # e andava in timeout oltre i quindici, mentre la base dati aveva DUE query
+        # attive su un limite di cento connessioni e la CPU stava al 42% di un solo
+        # nucleo su dodici. Non era carico: era una coda.
+        #
+        # Resta qui perche' `importa_da_sqlite` -- l'importazione una tantum del
+        # vecchio archivio -- fa una lettura e poi una scrittura in DUE transazioni
+        # distinte, e quella sequenza va protetta davvero.
         self._lock = threading.Lock()
         self._attendi_archivio()
         # LO SCHEMA LO CREA IL PROPRIETARIO, i dati li scrive l'applicativo: l'utenza
@@ -534,14 +553,14 @@ class ProbeStore:
 
     # -- configurazione ------------------------------------------------------
     def get_setting(self, key: str, default=None):
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             row = connection.execute(
                 "SELECT value FROM settings WHERE key = ?", (key,)
             ).fetchone()
         return row["value"] if row else default
 
     def set_setting(self, key: str, value) -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)"
                 " ON CONFLICT(key) DO UPDATE SET value = excluded.value,"
@@ -551,7 +570,7 @@ class ProbeStore:
 
     def set_settings(self, values: dict) -> None:
         now = utc_now_str()
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             for key, value in values.items():
                 connection.execute(
                     "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)"
@@ -561,11 +580,11 @@ class ProbeStore:
                 )
 
     def delete_setting(self, key: str) -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute("DELETE FROM settings WHERE key = ?", (key,))
 
     def all_settings(self) -> dict:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             rows = connection.execute("SELECT key, value FROM settings").fetchall()
         return {row["key"]: row["value"] for row in rows}
 
@@ -584,7 +603,7 @@ class ProbeStore:
 
     # -- coda dati -----------------------------------------------------------
     def enqueue(self, kind: str, payload: dict) -> int:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             # `lastrowid` non esiste su PostgreSQL: l'identificativo si chiede
             # all'istruzione con RETURNING (vedi db.Connessione.inserisci).
             return connection.inserisci(
@@ -594,19 +613,19 @@ class ProbeStore:
             )
 
     def queue_size(self) -> int:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             row = connection.execute("SELECT COUNT(*) AS n FROM spool").fetchone()
         return int(row["n"]) if row else 0
 
     def queue_breakdown(self) -> dict:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             rows = connection.execute(
                 "SELECT kind, COUNT(*) AS n FROM spool GROUP BY kind"
             ).fetchall()
         return {row["kind"]: int(row["n"]) for row in rows}
 
     def oldest_queued_at(self) -> str | None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             row = connection.execute("SELECT MIN(created_at) AS oldest FROM spool").fetchone()
         return row["oldest"] if row and row["oldest"] else None
 
@@ -617,7 +636,7 @@ class ProbeStore:
         conferma, gli stessi record restano prenotati e vengono ritrasmessi con lo
         stesso batch_uid, che il server riconosce come duplicato.
         """
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             pending = connection.execute(
                 "SELECT COUNT(*) AS n FROM spool WHERE locked_batch IS NOT NULL"
             ).fetchone()
@@ -658,28 +677,28 @@ class ProbeStore:
 
     def commit_batch(self, batch_uid: str) -> int:
         """Elimina i record conferiti: e' lo svuotamento della coda locale."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             cursor = connection.execute("DELETE FROM spool WHERE locked_batch = ?", (batch_uid,))
             return int(cursor.rowcount or 0)
 
     def release_batch(self, batch_uid: str) -> None:
         """Sblocca un lotto non conferito (es. errore non ritentabile)."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "UPDATE spool SET locked_batch = NULL WHERE locked_batch = ?", (batch_uid,)
             )
 
     def discard(self, record_id: int) -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute("DELETE FROM spool WHERE id = ?", (record_id,))
 
     def clear_queue(self) -> int:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             cursor = connection.execute("DELETE FROM spool")
             return int(cursor.rowcount or 0)
 
     def queue_preview(self, limit: int = 50) -> list[Riga]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             return connection.execute(
                 "SELECT id, kind, created_at, locked_batch, length(payload_json) AS size"
                 " FROM spool ORDER BY id LIMIT ?",
@@ -688,7 +707,7 @@ class ProbeStore:
 
     # -- diario e storico ----------------------------------------------------
     def log(self, level: str, message: str) -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO events (level, message, created_at) VALUES (?, ?, ?)",
                 (level, message[:1000], utc_now_str()),
@@ -700,13 +719,13 @@ class ProbeStore:
             )
 
     def recent_events(self, limit: int = 100) -> list[Riga]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             return connection.execute(
                 "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
 
     def record_sync(self, batch_uid: str, records: int, status: str, detail: str = "") -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO sync_log (batch_uid, records, status, detail, created_at)"
                 " VALUES (?, ?, ?, ?, ?)",
@@ -718,7 +737,7 @@ class ProbeStore:
             )
 
     def recent_syncs(self, limit: int = 30) -> list[Riga]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             return connection.execute(
                 "SELECT * FROM sync_log ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
@@ -726,7 +745,7 @@ class ProbeStore:
     # -- stato di registrazione ---------------------------------------------
     # -- stato delle fasi di scansione --------------------------------------
     def scan_state(self, target: str, stage: str) -> dict | None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             riga = connection.execute(
                 "SELECT * FROM scan_state WHERE target = ? AND stage = ?",
                 (target, stage),
@@ -734,7 +753,7 @@ class ProbeStore:
         return dict(riga) if riga is not None else None
 
     def all_scan_states(self) -> list[dict]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             righe = connection.execute(
                 "SELECT * FROM scan_state ORDER BY last_run_at DESC"
             ).fetchall()
@@ -743,7 +762,7 @@ class ProbeStore:
     def record_scan(self, target: str, stage: str, status: str, detail: str = "") -> None:
         """Annota l'esecuzione di una fase. Chiamata prima del conferimento, cosi'
         che un arresto della sonda non faccia ripetere il lavoro gia' svolto."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO scan_state (target, stage, last_run_at, last_status,"
                 " last_detail, runs) VALUES (?, ?, ?, ?, ?, 1)"
@@ -757,7 +776,7 @@ class ProbeStore:
 
     # -- controlli periodici -------------------------------------------------
     def check_state(self, check_id: int) -> dict | None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             riga = connection.execute(
                 "SELECT * FROM check_state WHERE check_id = ?", (int(check_id),)
             ).fetchone()
@@ -773,7 +792,7 @@ class ProbeStore:
         Come per le fasi di scansione: se la sonda si arresta fra l'esecuzione e il
         conferimento, il controllo non viene ripetuto subito -- l'esito e' in coda.
         """
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO check_state (check_id, last_run_at, last_status,"
                 " last_detail, runs) VALUES (?, ?, ?, ?, 1)"
@@ -785,7 +804,7 @@ class ProbeStore:
 
     def forget_check_state(self, check_id: int = None) -> None:
         """Azzera lo stato dei controlli: la prossima passata riparte subito."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             if check_id is None:
                 connection.execute("DELETE FROM check_state")
             else:
@@ -794,7 +813,7 @@ class ProbeStore:
 
     def forget_scan_state(self, target: str = None) -> None:
         """Azzera lo stato delle fasi: la prossima passata riparte da capo."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             if target is None:
                 connection.execute("DELETE FROM scan_state")
             else:
@@ -807,7 +826,7 @@ class ProbeStore:
                    "profile_json", "stages_done", "conferred_at", "last_merge_at",
                    "discarded_at")
         valori = {k: v for k, v in campi.items() if k in ammessi and v is not None}
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute(
                 "INSERT INTO local_nodes (ip, first_seen_at, last_seen_at)"
                 " VALUES (?, ?, ?) ON CONFLICT(ip) DO UPDATE SET last_seen_at = excluded.last_seen_at",
@@ -822,7 +841,7 @@ class ProbeStore:
 
     def local_node(self, ip: str) -> dict | None:
         """Legge un solo nodo: e' la lettura usata dai thread di scansione."""
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             riga = connection.execute(
                 "SELECT * FROM local_nodes WHERE ip = ?", (ip,)
             ).fetchone()
@@ -838,7 +857,7 @@ class ProbeStore:
         """
         adesso = utc_now_str()
         ottenute = []
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             for chiave in keys:
                 # `ON CONFLICT DO NOTHING` al posto di `INSERT OR IGNORE`: e' la
                 # stessa cosa, e la semantica su cui si regge l'esclusione fra thread
@@ -857,7 +876,7 @@ class ProbeStore:
         if not keys:
             return 0
         segnaposto = ",".join("?" for _ in keys)
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             if owner is None:
                 cursore = connection.execute(
                     "DELETE FROM scan_claims WHERE key IN (%s)" % segnaposto, tuple(keys))
@@ -873,7 +892,7 @@ class ProbeStore:
         Serve al caso in cui un thread termini senza rilasciare: senza la scadenza
         il bersaglio resterebbe bloccato per sempre.
         """
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             # L'istante si calcola qui e si passa come parametro: `datetime('now')`
             # e' di SQLite, e un'espressione di data diversa per dialetto e'
             # esattamente cio' che questo strato serve a non avere.
@@ -884,14 +903,14 @@ class ProbeStore:
             return cursore.rowcount
 
     def active_claims(self) -> list[dict]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             righe = connection.execute(
                 "SELECT * FROM scan_claims ORDER BY claimed_at"
             ).fetchall()
         return [dict(r) for r in righe]
 
     def local_nodes(self, state: str = None) -> list[dict]:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             if state is None:
                 righe = connection.execute("SELECT * FROM local_nodes ORDER BY ip").fetchall()
             else:
@@ -910,13 +929,13 @@ class ProbeStore:
         if not elenco:
             return
         adesso = utc_now_str()
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.executemany(
                 "UPDATE local_nodes SET monitored_at = ? WHERE ip = ?",
                 [(adesso, ip) for ip in elenco])
 
     def local_node_count(self, state: str = None) -> int:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             if state is None:
                 return connection.execute("SELECT COUNT(*) FROM local_nodes").fetchone()[0]
             return connection.execute(
@@ -924,11 +943,11 @@ class ProbeStore:
             ).fetchone()[0]
 
     def drop_local_node(self, ip: str) -> None:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             connection.execute("DELETE FROM local_nodes WHERE ip = ?", (ip,))
 
     def clear_local_nodes(self) -> int:
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             cursore = connection.execute("DELETE FROM local_nodes")
             connection.execute("DELETE FROM scan_state")
             connection.execute("DELETE FROM scan_claims")
@@ -960,7 +979,7 @@ class ProbeStore:
         """
         conservate = dict(self.snapshot_enrollment()) if keep_enrollment else {}
         rimosse = {}
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             for tabella in self.DATA_TABLES:
                 quante = connection.execute(
                     "SELECT COUNT(*) AS n FROM %s" % tabella).fetchone()["n"]
@@ -997,7 +1016,7 @@ class ProbeStore:
         spazio non ancora restituito al sistema -- che e' esattamente cio' che
         interessa a chi guarda quanto occupa la sonda.
         """
-        with self._lock, self._connect() as connection:
+        with self._connect() as connection:
             riga = connection.execute(
                 "SELECT pg_database_size(current_database()) AS byte").fetchone()
         return int(riga["byte"]) if riga else 0

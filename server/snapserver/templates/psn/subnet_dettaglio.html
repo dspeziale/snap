@@ -1,0 +1,171 @@
+{#
+  snap server - PSN: una subnet, indirizzo per indirizzo.
+
+  La mappa degli indirizzi e' cio' che nel foglio si scorre con l'occhio su 254
+  righe. Qui i liberi sono distinguibili a colpo d'occhio e il primo utilizzabile e'
+  scritto in cima: e' la domanda con cui si apre questa pagina.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; {{ subnet['code'] }}{% endblock %}
+{% block page_icon %}bi-diagram-2{% endblock %}
+{% block page_title %}{{ subnet['code'] }} &mdash; {{ subnet['name'] }}{% endblock %}
+{% block page_subtitle %}
+  {{ subnet['cidr'] }}{% if subnet['netmask'] %} &middot; {{ subnet['netmask'] }}{% endif %}
+  {% if subnet['section_title'] %} &middot; {{ subnet['section_title'] }}{% endif %}
+{% endblock %}
+{% block page_actions %}
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('psn.subnets') }}">
+    <i class="bi bi-arrow-left me-1"></i> Tutte le subnet
+  </a>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-4">
+    <div class="card h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">PROSSIMO INDIRIZZO LIBERO</p>
+      <p class="fs-4 font-monospace mb-0">{{ prossimo_libero or '—' }}</p>
+      <p class="small text-body-secondary mb-0">
+        Indirizzo di rete, gateway e broadcast esclusi.
+      </p>
+    </div></div>
+  </div>
+  <div class="col-12 col-md-8">
+    <div class="card h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">PROVENIENZA</p>
+      <p class="mb-1 small">
+        Foglio <span class="font-monospace">{{ subnet['sheet_name'] or '—' }}</span>
+        del piano conferito.
+      </p>
+      <p class="small text-body-secondary mb-0">
+        {% if subnet['environment'] %}Ambiente: {{ subnet['environment'] }}.{% endif %}
+        {% if subnet['criticality'] %} Criticita': {{ subnet['criticality'] }}.{% endif %}
+        {% if subnet['supernet'] %} Supernet della sezione:
+          <span class="font-monospace">{{ subnet['supernet'] }}</span>.{% endif %}
+        {% if subnet['description'] %} {{ subnet['description'] }}{% endif %}
+      </p>
+    </div></div>
+  </div>
+</div>
+
+{% if riscontri %}
+<div class="alert alert-warning">
+  <h2 class="h6"><i class="bi bi-exclamation-triangle me-1"></i>
+    Riscontri su questa subnet</h2>
+  <ul class="mb-0 small">
+    {% for r in riscontri %}
+    <li><strong>{{ r['title'] }}</strong>
+      {% if r['detail'] %}<br>{{ r['detail'] }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-list-ol me-1"></i> Indirizzi</h2>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="100">
+        <thead><tr><th>INDIRIZZO</th><th>STATO</th><th>HOSTNAME</th>
+          <th>DESCRIZIONE</th><th>NOTE</th><th>NOME PRECEDENTE</th></tr></thead>
+        <tbody>
+          {% for a in indirizzi %}
+          <tr>
+            <td class="font-monospace">{{ a['ip'] }}</td>
+            <td>
+              {% if a['state'] == 'assegnato' %}
+                <span class="badge text-bg-primary">assegnato</span>
+              {% elif a['state'] == 'riservato' %}
+                <span class="badge text-bg-info">riservato</span>
+              {% elif a['state'] == 'libero' %}
+                <span class="badge text-bg-success">libero</span>
+              {% else %}
+                <span class="badge text-bg-secondary">{{ a['state'] }}</span>
+              {% endif %}
+            </td>
+            <td class="small fw-semibold">{{ a['hostname'] }}</td>
+            <td class="small">{{ a['description'] }}</td>
+            <td class="small text-body-secondary">{{ a['notes'] }}</td>
+            <td class="small text-body-secondary">{{ a['old_hostname'] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-body-secondary py-4">
+            Nessun indirizzo: il foglio di questa subnet non e' stato riconosciuto.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{# --- Il grafo: chi cita questa subnet, e chi essa cita ------------------ #}
+{% if uscenti or entranti %}
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-box-arrow-up-right me-1"></i>
+          Da qui si cita</h2>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush small">
+          {% for r in uscenti %}
+          <li class="list-group-item">
+            <span class="font-monospace">{{ r['target'] }}</span>
+            {% if r['address_id'] %}
+              <a class="ms-1" href="{{ url_for('psn.subnet', subnet_id=r['address_id']) }}"></a>
+              <span class="badge text-bg-light text-dark border">
+                {{ r['target_host'] or r['target_ip'] }}
+                {% if r['target_subnet'] %} &middot; subnet {{ r['target_subnet'] }}{% endif %}
+              </span>
+            {% else %}
+              <span class="badge text-bg-warning">non nel piano</span>
+            {% endif %}
+            <div class="text-body-secondary">{{ r['context'] }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="card-footer small text-body-secondary">
+        Riferimenti trovati nelle descrizioni: nel foglio sono prosa, qui sono
+        collegamenti.
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-box-arrow-in-down-left me-1"></i>
+          Chi cita questa subnet</h2>
+      </div>
+      <div class="card-body p-0">
+        <ul class="list-group list-group-flush small">
+          {% for r in entranti %}
+          <li class="list-group-item">
+            {% if r['from_ip'] %}
+              <span class="font-monospace">{{ r['from_ip'] }}</span>
+              {% if r['from_host'] %}<strong>{{ r['from_host'] }}</strong>{% endif %}
+              {% if r['from_subnet'] %}
+                <span class="badge text-bg-light text-dark border">subnet {{ r['from_subnet'] }}</span>
+              {% endif %}
+            {% else %}
+              <span class="badge text-bg-light text-dark border">servizio pubblicato</span>
+            {% endif %}
+            <div class="text-body-secondary">{{ r['context'] }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -103,7 +103,19 @@ class Config:
     # Versione del PRODOTTO, la stessa della console: un solo numero per la coppia
     # server+sonda (prima la sonda aveva una numerazione propria e l'immagine di
     # distribuzione un'altra, e in assistenza non si capiva quale contasse).
-    APP_VERSION = "1.5.0"
+    # LA SONDA HA UNA PROPRIA NUMERAZIONE, distinta da quella della console.
+    #
+    # Per un periodo ha seguito la versione del PRODOTTO, perche' con due numeri per
+    # la stessa cosa in assistenza non si capiva quale contasse. Ma sonda e console si
+    # aggiornano in momenti diversi -- la sonda sta in sede dal cliente, la console si
+    # aggiorna quando si vuole -- e un numero unico costringeva a inventare versioni
+    # della sonda per cambiamenti che non la riguardavano.
+    #
+    # Si riparte dalla 1.2.0: e' la prima versione di questa numerazione, e dichiara
+    # come base tutto cio' che la sonda sa fare oggi. Il protocollo fra le due parti
+    # non dipende da questi numeri: lo governa la versione dell'agente dichiarata nel
+    # battito (vedi client.py).
+    APP_VERSION = "1.2.0"
     APP_SUBTITLE = "Sonda di raccolta - canale cifrato SNAP-SEC/1"
     # Vedi la nota omonima nel server: distingue le due interfacce, che ora hanno la
     # stessa struttura. Un solo valore per il marchio e per il piede.

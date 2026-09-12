@@ -1,0 +1,152 @@
+{#
+  snap server - PSN: le versioni del piano conferite, e che cosa e' cambiato.
+
+  E' la domanda a cui un foglio non risponde mai: due file dall'aspetto identico e
+  diciottomila righe da confrontare a mano. Qui il confronto e' fra le due versioni
+  piu' recenti, riga per riga.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; conferimenti{% endblock %}
+{% block page_icon %}bi-clock-history{% endblock %}
+{% block page_title %}Versioni del piano{% endblock %}
+{% block page_subtitle %}
+  Ogni conferimento e' conservato: le versioni precedenti restano, e il confronto fra
+  le due piu' recenti dice che cosa e' cambiato.
+{% endblock %}
+{% block page_actions %}
+  {% if g.user and g.user['role'] == 'superadmin' %}
+  <a class="btn btn-sm btn-primary" href="{{ url_for('psn.import_form') }}">
+    <i class="bi bi-upload me-1"></i> Conferisci una versione
+  </a>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-files me-1"></i>
+      Conferimenti ({{ piani|length }})</h2>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25" data-no-sort="AZIONI">
+        <thead><tr><th>FILE</th><th>VERSIONE</th><th>QUANDO</th><th>CONTENUTO</th>
+          <th>AZIONI</th></tr></thead>
+        <tbody>
+          {% for p in piani %}
+          <tr>
+            <td class="small fw-semibold">{{ p['file_name'] }}</td>
+            <td class="small">{{ p['version'] or '—' }}</td>
+            <td class="small">{{ p['imported_at']|dt }}</td>
+            <td class="small text-body-secondary">
+              {% set c = conteggi[loop.index0] %}
+              {{ c.get('subnet', 0) }} subnet,
+              {{ c.get('indirizzi', 0) }} indirizzi,
+              {{ c.get('tenant', 0) }} tenant
+            </td>
+            <td class="text-nowrap">
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="{{ url_for('psn.index', piano=p['id']) }}">Apri</a>
+              {% if g.user and g.user['role'] == 'superadmin' %}
+              <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal"
+                      data-bs-target="#elimina-{{ p['id'] }}">
+                <i class="bi bi-trash"></i>
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-body-secondary py-4">
+            Nessun conferimento.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if piani|length >= 2 %}
+<div class="card">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-arrow-left-right me-1"></i>
+      Che cosa e' cambiato fra le due versioni piu' recenti
+      ({{ confronti|length }} differenze)</h2>
+  </div>
+  <div class="card-body p-0">
+    {% if confronti %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="50">
+        <thead><tr><th>TIPO</th><th>SUBNET</th><th>INDIRIZZO</th><th>PRIMA</th>
+          <th>DOPO</th></tr></thead>
+        <tbody>
+          {% for c in confronti %}
+          <tr>
+            <td>
+              <span class="badge text-bg-{{ 'success' if c.tipo == 'nuovo'
+                            else ('danger' if c.tipo == 'rimosso' else 'warning') }}">
+                {{ c.tipo }}</span>
+            </td>
+            <td class="small">{{ c.subnet }}</td>
+            <td class="font-monospace small">{{ c.ip }}</td>
+            <td class="small text-body-secondary">{{ c.prima or '—' }}</td>
+            <td class="small">{{ c.dopo or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 mb-0 text-body-secondary">
+      Nessuna differenza fra le due versioni sulle righe assegnate.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% for p in piani %}
+<div class="modal fade" id="elimina-{{ p['id'] }}" tabindex="-1"
+     aria-labelledby="elimina-titolo-{{ p['id'] }}" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-danger-subtle">
+        <h5 class="modal-title" id="elimina-titolo-{{ p['id'] }}">
+          <i class="bi bi-exclamation-octagon me-1"></i> Elimina il conferimento
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"
+                aria-label="Chiudi"></button>
+      </div>
+      <form method="post"
+            action="{{ url_for('psn.import_delete', import_id=p['id']) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-body">
+          <p class="mb-2">
+            Elimina questa versione del piano e tutto cio' che ne dipende: subnet,
+            indirizzi, tenant, database, servizi e riscontri. Le altre versioni non
+            vengono toccate.
+          </p>
+          <label class="form-label" for="conferma-{{ p['id'] }}">
+            Per procedere digitare il nome del file: <code>{{ p['file_name'] }}</code>
+          </label>
+          <input type="text" class="form-control" id="conferma-{{ p['id'] }}"
+                 name="conferma" autocomplete="off" placeholder="{{ p['file_name'] }}">
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary"
+                  data-bs-dismiss="modal">Annulla</button>
+          <button type="submit" class="btn btn-danger">
+            <i class="bi bi-trash me-1"></i> Elimina
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

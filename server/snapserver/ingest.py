@@ -819,10 +819,12 @@ def _apply_web(ctx, record: dict) -> None:
             " cert_selfsigned, tls_version, login_form, device_name, location,"
             " host_name, serial, firmware, contact, pages_read, facts_locked,"
             " facts_json, cert_json, body_hash, body_bytes, favicon_hash, favicon_bytes,"
-            " favicon_path, headers_hash, headers_names, error, details_json,"
+            " favicon_path, headers_hash, headers_names, web_year, web_year_source,"
+            " web_year_evidence, web_age_years, web_years, error, details_json,"
             " collected_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
-            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            " ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,"
+            " ?, ?)"
             " ON CONFLICT(tenant_id, node_id, port) DO UPDATE SET"
             " scheme = excluded.scheme, status_code = excluded.status_code,"
             " title = excluded.title, server_header = excluded.server_header,"
@@ -845,6 +847,11 @@ def _apply_web(ctx, record: dict) -> None:
             " favicon_path = excluded.favicon_path,"
             " headers_hash = excluded.headers_hash,"
             " headers_names = excluded.headers_names,"
+            " web_year = excluded.web_year,"
+            " web_year_source = excluded.web_year_source,"
+            " web_year_evidence = excluded.web_year_evidence,"
+            " web_age_years = excluded.web_age_years,"
+            " web_years = excluded.web_years,"
             " error = excluded.error, details_json = excluded.details_json,"
             " collected_at = excluded.collected_at",
             (ctx["tenant_id"], node_id, porta,
@@ -894,6 +901,15 @@ def _apply_web(ctx, record: dict) -> None:
              _clean(pagina.get("favicon_percorso"), maximum=200),
              _clean(pagina.get("intestazioni_impronta"), maximum=64),
              _clean(pagina.get("intestazioni_nomi"), maximum=400),
+             # L'ANNO DICHIARATO DALLA PAGINA e l'eta' che se ne deduce. La PROVA si
+             # conserva accanto al numero: un anno senza il frammento da cui viene non
+             # e' verificabile, e un indizio non verificabile non si puo' usare per
+             # decidere di sostituire un apparato.
+             _intero(pagina.get("anno")),
+             _clean(pagina.get("anno_fonte"), maximum=24),
+             _clean(pagina.get("anno_prova"), maximum=200),
+             _intero(pagina.get("eta_anni")),
+             _clean(pagina.get("anni_visti"), maximum=80),
              _clean(pagina.get("errore"), maximum=120),
              json.dumps(pagina, ensure_ascii=False)[:MAX_WEB_DETAILS],
              ctx["now"]))

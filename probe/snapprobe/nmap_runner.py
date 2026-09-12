@@ -193,6 +193,40 @@ def filtra_script(voci) -> tuple[list[str], list[str]]:
     return (tenuti, scartati)
 
 
+# --------------------------------------------------------------------------- #
+# Le cause che nmap dichiara solo su stderr
+# --------------------------------------------------------------------------- #
+# Un XML valido e VUOTO non dice perche' e' vuoto. La differenza fra "l'host non ha
+# risposto" e "non so nemmeno come arrivarci" e' tutta qui, e cambia il rimedio:
+# nel primo caso si alza il tempo per host, nel secondo si guarda la tabella di
+# instradamento -- o si toglie quella subnet dal perimetro di QUESTA sonda.
+#
+# Misurato in esercizio: trentasei nodi in tre subnet non instradabili tornavano in
+# ogni ciclo, occupavano i posti della frontiera e il conteggio "in lavorazione"
+# restava fermo. Nel diario si leggeva "nessun host restituito ... il tempo per host
+# e' troppo breve": la cura sbagliata, suggerita dal prodotto stesso.
+RE_SENZA_ROTTA = re.compile(
+    r"(?i)failed to determine route to\s+(\S+)|no route to host|network is unreachable")
+
+
+def bersagli_senza_rotta(diagnostica) -> list:
+    """Gli indirizzi che nmap non ha saputo raggiungere, dal suo stderr.
+
+    Restituisce la lista degli indirizzi nominati; vuota se la causa e' un'altra.
+    Non e' un'euristica sul silenzio: e' cio' che nmap ha scritto.
+    """
+    trovati = []
+    for testo in (diagnostica or ()):
+        for riga in str(testo).splitlines():
+            trovato = RE_SENZA_ROTTA.search(riga)
+            if not trovato:
+                continue
+            indirizzo = trovato.group(1)
+            if indirizzo and indirizzo not in trovati:
+                trovati.append(indirizzo.strip().rstrip(":,"))
+    return trovati
+
+
 class NmapError(Exception):
     """nmap non e' disponibile oppure ha terminato in modo anomalo."""
 
@@ -284,7 +318,7 @@ class NmapRunner:
         self._aborting = False
 
     def run(self, arguments: list, targets: list, timeout: int | None = None,
-            label: str = None) -> str:
+            label: str = None, diagnostica: list = None) -> str:
         """Esegue nmap e restituisce l'XML prodotto.
 
         L'XML e' scritto su file temporaneo invece di essere letto dallo standard
@@ -313,7 +347,15 @@ class NmapRunner:
 
             self._register(processo, label)
             try:
-                _, errori = processo.communicate(timeout=attesa)
+                # SI RACCOLGONO ENTRAMBI I FLUSSI, e non solo stderr.
+                #
+                # nmap scrive le proprie diagnostiche su STDOUT: "setup_target: failed
+                # to determine route to 10.54.243.12" arriva di la'. Con `-oX` l'XML va
+                # su file, quindi stdout resta libero proprio per questi messaggi.
+                # Guardando il solo stderr la causa non si vedeva, e il prodotto
+                # attribuiva lo "zero host" al tempo per host -- suggerendo nel diario
+                # una cura che non poteva funzionare.
+                uscita_standard, errori = processo.communicate(timeout=attesa)
             except subprocess.TimeoutExpired as errore:
                 processo.kill()
                 processo.communicate()
@@ -330,6 +372,14 @@ class NmapRunner:
                     xml = documento.read()
             except OSError as errore:
                 raise NmapError("uscita di nmap non leggibile: %s" % errore) from errore
+
+            # Cio' che nmap ha detto resta a disposizione del chiamante: e' l'unico
+            # modo di distinguere "l'host non ha risposto" da "non so come arrivarci".
+            if isinstance(diagnostica, list):
+                for flusso in (uscita_standard, errori):
+                    testo = (flusso or "").strip()
+                    if testo:
+                        diagnostica.append(testo[:2000])
 
             if not xml.strip():
                 dettaglio = (errori or "").strip()[:300]

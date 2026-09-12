@@ -37,6 +37,129 @@
   </div>
 </div>
 
+{# ------------------------------------------------------------------ #}
+{# In rete adesso. Sta PRIMA dello storico perche' e' la domanda che si fa chi   #}
+{# apre questa pagina mentre sta succedendo qualcosa: lo storico dice chi c'e'   #}
+{# stato, questo dice chi c'e'. La pagina si ricarica da sola, altrimenti        #}
+{# mostrerebbe con sicurezza uno stato vecchio.                                  #}
+{# ------------------------------------------------------------------ #}
+<div class="card mb-3" data-snap-refresh="60">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-broadcast me-1"></i>
+      In rete adesso
+      <span class="text-body-secondary fw-normal">
+        (visti negli ultimi {{ adesso.minuti }} minuti)
+      </span>
+    </h2>
+    <span class="text-body-secondary small">
+      {% if adesso.ultimo_avvistamento %}
+      ultimo avvistamento {{ adesso.ultimo_avvistamento|ago }} &middot;
+      {% endif %}
+      la pagina si aggiorna da sola ogni minuto
+    </span>
+  </div>
+
+  {% if adesso.ferma %}
+  {# Un elenco vuoto perche' non c'e' nessuno e un elenco vuoto perche' la      #}
+  {# ricognizione e' ferma si assomigliano sullo schermo, e significano cose     #}
+  {# opposte: qui si dichiara quale dei due e'.                                  #}
+  <div class="card-body pb-0">
+    <div class="alert alert-warning mb-3">
+      <h3 class="h6"><i class="bi bi-exclamation-triangle me-1"></i> Questo elenco non e' aggiornato</h3>
+      <p class="mb-0">
+        L'ultimo avvistamento risale a
+        {% if adesso.ultimo_avvistamento %}{{ adesso.ultimo_avvistamento|dt }}
+        ({{ adesso.ultimo_avvistamento|ago }}){% else %}mai{% endif %}:
+        la ricognizione delle presenze non sta conferendo. Finche' resta cosi',
+        "nessuno in rete" qui sotto significa "nessuno lo sta guardando", non
+        "nessuno c'e'".
+      </p>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card-body py-2 d-flex flex-wrap gap-4 border-bottom">
+    <div>
+      <p class="snap-stat-label mb-0">IN RETE</p>
+      <p class="h4 mb-0">{{ adesso.apparati }}</p>
+    </div>
+    <div>
+      <p class="snap-stat-label mb-0">MAI VISTI PRIMA</p>
+      <p class="h4 mb-0 {{ 'text-warning' if adesso.nuovi else '' }}">{{ adesso.nuovi }}</p>
+    </div>
+    <div>
+      <p class="snap-stat-label mb-0">SENZA IDENTITA' STABILE</p>
+      <p class="h4 mb-0">{{ adesso.senza_identita }}</p>
+    </div>
+  </div>
+
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead>
+          <tr><th>APPARATO</th><th>RICONOSCIUTO DA</th><th>INDIRIZZO</th>
+              <th>VISTO</th><th>QUI DALLE</th><th>STORICO</th></tr>
+        </thead>
+        <tbody>
+          {% for p in adesso.presenti %}
+          <tr>
+            <td class="small fw-semibold">
+              {% if p.node_id %}
+              <a href="{{ url_for('inventory.node', node_id=p.node_id) }}"
+                 class="text-decoration-none">
+                {{ p.device_label or p.node_label or 'Non identificato' }}
+              </a>
+              {% else %}
+              {{ p.device_label or 'Non identificato' }}
+              {% endif %}
+              {% if p.nuovo %}
+              <span class="badge text-bg-warning ms-1">mai visto prima</span>
+              {% endif %}
+              {% if p.hostname %}
+              <div class="fw-normal text-body-secondary">{{ p.hostname }}</div>
+              {% endif %}
+              {% if p.mac %}
+              <div class="fw-normal text-body-secondary font-monospace">{{ p.mac }}</div>
+              {% endif %}
+            </td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'success' if p.identity_certainty == 'certa'
+                                            else 'warning' if p.identity_certainty == 'probabile'
+                                            else 'secondary' }}"
+                    title="{{ p.identity_explained }}">
+                {{ p.identity_label }}
+              </span>
+            </td>
+            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small">{{ p.last_seen_at|ago }}</td>
+            <td class="small">{{ p.first_seen_at|dt }}</td>
+            {# Lo storico sulla stessa riga: senza, non si distingue l'apparato che #}
+            {# c'e' sempre stato da quello comparso adesso per la prima volta.      #}
+            <td class="small text-body-secondary">
+              {% if p.storia.permanenze %}
+              {{ p.storia.permanenze }} permanenz{{ 'a' if p.storia.permanenze == 1 else 'e' }}
+              su {{ p.storia.indirizzi }} indirizz{{ 'o' if p.storia.indirizzi == 1 else 'i' }},
+              dal {{ p.storia.dal|dt }}
+              {% else %}
+              &mdash;
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not adesso.presenti %}
+    <div class="p-3 text-body-secondary small">
+      Nessun apparato visto negli ultimi {{ adesso.minuti }} minuti
+      {%- if not adesso.ferma %}, e la ricognizione sta conferendo regolarmente: la
+      rete senza fili e' davvero vuota{% endif %}.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
 {% if not reti_wifi %}
 <div class="alert alert-info">
   <h2 class="h6"><i class="bi bi-info-circle me-1"></i> Nessuna rete dichiarata senza fili</h2>

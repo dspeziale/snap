@@ -345,9 +345,39 @@ if ($PrimaPassword) {
 Write-Host '  Ctrl+C per fermare' -ForegroundColor DarkGray
 Write-Host ''
 
+# DUE PROCESSI, NON UNO. L'interfaccia web e i trentadue lavoratori di scansione
+# vivevano nello stesso interprete Python, che esegue un thread per volta (GIL):
+# mentre la scansione lavorava, la pagina aspettava. Misurato sulla pagina di accesso,
+# che non tocca nemmeno l'archivio:
+#
+#     scansioni attive   3-6 secondi, e oltre i 120 s del proxy sotto il carico di un
+#                        browser (decine di richieste in parallelo) -> 504 Gateway Timeout
+#     scansioni sospese  0,46-0,73 secondi
+#
+# Ora l'AGENTE (scansioni, controlli, conferimento) gira in un processo suo e
+# l'INTERFACCIA in un altro. Condividono l'archivio PostgreSQL, che e' fatto per
+# questo. Fermando questa finestra si fermano entrambi.
 Push-Location (Join-Path $Radice 'probe')
 try {
-    & $python run.py --host '127.0.0.1' --port $Port
+    $agente = Start-Process -FilePath $python -ArgumentList 'run.py', '--headless' `
+                            -NoNewWindow -PassThru
+    Write-Host ("  agente di raccolta avviato (processo {0})" -f $agente.Id) `
+               -ForegroundColor DarkGray
+    Write-Host ''
+    try {
+        # L'interfaccia resta in primo piano: e' quella che si guarda, ed e' la sua
+        # uscita che si vuole vedere in questa finestra.
+        & $python run.py --host '127.0.0.1' --port $Port --solo-interfaccia
+    } finally {
+        # L'agente e' un processo figlio ma non muore da se': se restasse in vita
+        # dopo la chiusura di questa finestra, il prossimo avvio troverebbe DUE
+        # agenti sullo stesso archivio -- che si contendono le prenotazioni dei
+        # bersagli, esattamente il guasto che lo script verifica all'avvio.
+        if ($agente -and -not $agente.HasExited) {
+            Write-Host '  arresto dell''agente di raccolta...' -ForegroundColor DarkGray
+            Stop-Process -Id $agente.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
 } finally {
     Pop-Location
 }

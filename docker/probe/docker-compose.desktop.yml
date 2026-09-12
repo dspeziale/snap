@@ -63,7 +63,7 @@ services:
     # Stessa rete della sonda: `127.0.0.1:5511` continua a essere la sonda.
     network_mode: "service:snap-probe"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
       # La barriera del proxy va aperta insieme a quella della sonda: sono due
       # controlli indipendenti e in prova servono entrambi.
       - ./allow-primo-accesso.desktop.conf:/etc/nginx/allow-primo-accesso.conf:ro

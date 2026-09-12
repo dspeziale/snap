@@ -1,0 +1,63 @@
+{#
+  snap server - PSN: i servizi pubblicati, con la catena fino al backend.
+
+  E' la catena che spiega un guasto visto da fuori: l'URL non risponde, e la domanda
+  successiva e' sempre «quale indirizzo sta dietro». Nel foglio la catena e' scritta
+  in due schede diverse e in parte nelle note, in testo libero.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-11
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}PSN &mdash; servizi{% endblock %}
+{% block page_icon %}bi-globe2{% endblock %}
+{% block page_title %}Servizi pubblicati{% endblock %}
+{% block page_subtitle %}
+  URL, indirizzo virtuale e backend. Dove il backend e' un indirizzo del piano, la
+  riga lo collega alla propria subnet.
+{% endblock %}
+
+{% block content %}
+{% include 'psn/_selettore.html' %}
+<div class="card">
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="50">
+        <thead><tr><th>FONTE</th><th>ETICHETTA</th><th>URL</th><th>INDIRIZZO</th>
+          <th>DIETRO C'E'</th><th>DESCRIZIONE</th></tr></thead>
+        <tbody>
+          {% for s in servizi %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-light text-dark border">{{ s['source'] }}</span>
+            </td>
+            <td class="small fw-semibold">{{ s['label'] }}</td>
+            <td class="small text-break">{{ s['url'] }}</td>
+            <td class="font-monospace small">{{ s['vip'] }}</td>
+            <td class="small">
+              {% for b in catena.get(s['id'], []) %}
+              <div>
+                <a href="{{ url_for('psn.subnet', subnet_id=b['id']) }}"
+                   class="font-monospace">{{ b['ip'] }}</a>
+                {% if b['hostname'] %}<strong>{{ b['hostname'] }}</strong>{% endif %}
+                <span class="text-body-secondary">subnet {{ b['code'] }}</span>
+              </div>
+              {% endfor %}
+              {% if s['backends'] and not catena.get(s['id']) %}
+                <span class="badge text-bg-warning">{{ s['backends'] }} non nel piano</span>
+              {% endif %}
+            </td>
+            <td class="small text-body-secondary">{{ s['description'] }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-body-secondary py-4">
+            Nessun servizio nel piano conferito.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
