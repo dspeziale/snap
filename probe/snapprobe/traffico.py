@@ -48,7 +48,7 @@ import math
 import socket
 import struct
 import threading
-from collections import defaultdict
+from collections import defaultdict, deque
 
 # I tetti. Superati, si smette di aggiungere e si DICHIARA di aver troncato: un
 # riassunto parziale presentato come completo farebbe concludere il falso.
@@ -60,6 +60,14 @@ MAX_IP_PER_MAC = 64
 # Quanti istanti si conservano per flusso, per riconoscere un ritmo. Trenta bastano a
 # vedere una regolarita' e costano 240 byte per flusso.
 MAX_ISTANTI = 30
+
+# Quanti pacchetti gia' LETTI si tengono in memoria per poterli mostrare.
+#
+# E' un anello: il piu' vecchio esce quando entra il piu' nuovo. Duemila righe di
+# campi decodificati stanno in circa un megabyte e coprono qualche minuto su una rete
+# d'ufficio. Non sono i pacchetti: sono i loro campi -- i byte non si conservano da
+# nessuna parte, nemmeno qui.
+MAX_REGISTRO = 2000
 
 ETH_ARP = 0x0806
 ETH_IPV4 = 0x0800
@@ -75,12 +83,14 @@ def _ip(dati: bytes) -> str:
     return socket.inet_ntoa(dati)
 
 
-def _entropia(testo: str) -> float:
-    """Quanto e' "casuale" un nome.
+VOCALI = set("aeiouy")
 
-    Un dominio generato da un algoritmo (DGA) o un'etichetta che trasporta dati
-    dentro una query DNS hanno un'entropia molto piu' alta di `posta.comune.it`. Non
-    e' una prova: e' un indizio che vale insieme agli altri.
+
+def _entropia(testo: str) -> float:
+    """Quanti caratteri diversi, in scala logaritmica.
+
+    Si conserva perche' finisce nella PROVA di una rilevazione -- chi guarda una riga
+    vuole il numero -- ma NON decide piu' da sola: vedi `_pronunciabile`.
     """
     if not testo:
         return 0.0
@@ -90,6 +100,27 @@ def _entropia(testo: str) -> float:
     lunghezza = len(testo)
     return -sum((n / lunghezza) * math.log2(n / lunghezza)
                 for n in frequenze.values())
+
+
+def _pronunciabile(testo: str) -> float:
+    """La frazione di vocali: quanto quel nome somiglia a una parola.
+
+    PERCHE' NON L'ENTROPIA. Su un'etichetta corta l'entropia di Shannon misura in
+    pratica quanti caratteri distinti ci sono, che per una parola breve e' quasi la
+    lunghezza: misurato, `sharepoint` fa 3,32 e `xk4mz9qp7wv2` fa 3,58 -- due cose
+    completamente diverse a due decimi di distanza. Con le vocali si separano: 0,40
+    contro 0,00.
+
+    Non e' una prova. Esistono nomi legittimi senza vocali (sigle, nomi di CDN
+    generati), ed e' per questo che la regola che usa questa misura pretende ANCHE
+    una lunghezza minima.
+    """
+    if not testo:
+        return 0.0
+    lettere = [c for c in testo.lower() if c.isalpha()]
+    if not lettere:
+        return 0.0  # tutte cifre: non e' una parola
+    return sum(1 for c in lettere if c in VOCALI) / len(lettere)
 
 
 def _nome_dns(dati: bytes, inizio: int, limite: int = 8) -> str:
@@ -177,6 +208,19 @@ def _host_http(dati: bytes) -> str:
     return ""
 
 
+def _bandiere_tcp(valore: int) -> str:
+    """Le bandiere TCP come le scrive chiunque le legga: SYN, SYN-ACK, FIN...
+
+    Servono a capire a colpo d'occhio se un pacchetto apre, chiude o rifiuta una
+    connessione: un RST di ritorno da mille porte diverse e' una scansione respinta,
+    e si vede da qui.
+    """
+    nomi = (("FIN", 0x01), ("SYN", 0x02), ("RST", 0x04), ("PSH", 0x08),
+            ("ACK", 0x10), ("URG", 0x20))
+    accese = [nome for nome, bit in nomi if valore & bit]
+    return "-".join(accese) if accese else "-"
+
+
 class Osservatorio:
     """Il riassunto di cio' che e' passato sul filo, nella finestra corrente.
 
@@ -193,11 +237,16 @@ class Osservatorio:
         # genere di falso positivo che fa perdere fiducia a chi guarda.
         self.escludi_mac = {m.lower() for m in (escludi_mac or ())}
         self.escludi_ip = set(escludi_ip or ())
+        # L'anello dei pacchetti gia' letti, per la pagina che li mostra.
+        self.registro = deque(maxlen=MAX_REGISTRO)
         self.azzera()
 
     def azzera(self):
         self.pacchetti = 0
         self.troncato = set()
+        # L'anello NON si azzera qui: il riassunto lo legge il motore IDS ogni cinque
+        # minuti, e azzerare anche i pacchetti mostrati vorrebbe dire una pagina che
+        # si svuota da sola mentre la si guarda. Si svuota travasandolo (`preleva`).
         # MAC visto sul filo -> (primo, ultimo, quanti, {ip dichiarati})
         self.mac = {}
         # IP -> {mac che lo hanno dichiarato in ARP}
@@ -230,16 +279,25 @@ class Osservatorio:
         if len(dati) < 14:
             return
         sorgente_mac = _mac(dati[6:12])
-        if sorgente_mac in self.escludi_mac:
-            return
+        # UNA REGOLA SOLA: il traffico della sonda si LEGGE -- deve comparire
+        # nell'elenco, o la pagina mostra righe mezze vuote -- ma non diventa mai un
+        # FATTO per le regole. La sonda scansiona per mestiere e si denuncerebbe da
+        # sola. Vale per il MAC come per l'indirizzo.
+        mia = sorgente_mac in self.escludi_mac
         with self._lucchetto:
             self.pacchetti += 1
-            self._vedi_mac(sorgente_mac, quando)
+            if not mia:
+                self._vedi_mac(sorgente_mac, quando)
             tipo = struct.unpack("!H", dati[12:14])[0]
+            riga = {"at": quando, "mac_sorgente": sorgente_mac,
+                    "mac_destinazione": _mac(dati[0:6]), "byte": len(dati)}
             if tipo == ETH_ARP:
-                self._arp(dati, sorgente_mac)
+                self._arp(dati, sorgente_mac, riga, mia)
             elif tipo == ETH_IPV4:
-                self._ipv4(dati, sorgente_mac, quando)
+                self._ipv4(dati, sorgente_mac, quando, riga, mia)
+            else:
+                riga["protocollo"] = "0x%04x" % tipo
+            self.registro.append(riga)
 
     def _vedi_mac(self, indirizzo: str, quando: float) -> None:
         voce = self.mac.get(indirizzo)
@@ -251,15 +309,23 @@ class Osservatorio:
             voce[1] = quando
             voce[2] += 1
 
-    def _arp(self, dati: bytes, sorgente_mac: str) -> None:
+    def _arp(self, dati: bytes, sorgente_mac: str, riga: dict = None,
+             solo_lettura: bool = False) -> None:
+        riga = riga if riga is not None else {}
+        riga["protocollo"] = "ARP"
         if len(dati) < 42:
             return
         operazione = struct.unpack("!H", dati[20:22])[0]
         mittente_mac = _mac(dati[22:28])
         mittente_ip = _ip(dati[28:32])
         bersaglio_ip = _ip(dati[38:42])
-        if mittente_ip == "0.0.0.0":
-            return  # ARP probe di un host che sta prendendo un indirizzo: normale
+        riga["sorgente"] = mittente_ip
+        riga["destinazione"] = bersaglio_ip
+        riga["dettaglio"] = ("chi ha %s? lo chiede %s" % (bersaglio_ip, mittente_ip)
+                             if operazione == 1
+                             else "%s sta su %s" % (mittente_ip, mittente_mac))
+        if mittente_ip == "0.0.0.0" or solo_lettura:
+            return  # ARP probe di un host che prende un indirizzo, oppure la sonda
         if not self._tetto(self.arp_per_ip, MAX_MAC, "ARP"):
             self.arp_per_ip[mittente_ip].add(mittente_mac)
         voce = self.mac.get(sorgente_mac)
@@ -271,7 +337,9 @@ class Osservatorio:
         if operazione == 2 or mittente_ip == bersaglio_ip:
             self.arp_gratuiti[mittente_ip] += 1
 
-    def _ipv4(self, dati: bytes, sorgente_mac: str, quando: float) -> None:
+    def _ipv4(self, dati: bytes, sorgente_mac: str, quando: float,
+              riga: dict = None, mia: bool = False) -> None:
+        riga = riga if riga is not None else {}
         if len(dati) < 34:
             return
         lunghezza = (dati[14] & 0x0F) * 4
@@ -280,42 +348,81 @@ class Osservatorio:
         protocollo = dati[23]
         sorgente_ip = _ip(dati[26:30])
         destinazione_ip = _ip(dati[30:34])
-        if sorgente_ip in self.escludi_ip:
-            return
+        riga["sorgente"] = sorgente_ip
+        riga["destinazione"] = destinazione_ip
+        # L'ESCLUSIONE RIGUARDA I FATTI, NON LA LETTURA. La sonda va esclusa dalle
+        # regole -- scansiona per mestiere e si denuncerebbe da sola -- ma i suoi
+        # pacchetti vanno letti lo stesso, o nell'elenco compaiono righe mezze vuote
+        # con protocollo "?". Sulla rete di collaudo erano centotrentasette.
+        solo_lettura = mia or sorgente_ip in self.escludi_ip
         inizio = 14 + lunghezza
         if len(dati) < inizio + 4:
             return
         porta_sorgente, porta_destinazione = struct.unpack("!HH",
                                                            dati[inizio:inizio + 4])
+        riga["porta_sorgente"] = porta_sorgente
+        riga["porta"] = porta_destinazione
         if protocollo == 17:
+            riga["protocollo"] = "UDP"
             self._udp(dati, inizio, sorgente_mac, sorgente_ip, porta_sorgente,
-                      porta_destinazione)
+                      porta_destinazione, riga, solo_lettura)
         elif protocollo == 6:
+            riga["protocollo"] = "TCP"
             self._tcp(dati, inizio, sorgente_ip, destinazione_ip,
-                      porta_destinazione, quando)
+                      porta_destinazione, quando, riga, solo_lettura)
+        else:
+            riga["protocollo"] = "IP/%d" % protocollo
 
     def _udp(self, dati, inizio, sorgente_mac, sorgente_ip, porta_sorgente,
-             porta_destinazione) -> None:
+             porta_destinazione, riga: dict = None,
+             solo_lettura: bool = False) -> None:
+        riga = riga if riga is not None else {}
+        etichetta = PORTE_NOMI.get(porta_destinazione) or PORTE_NOMI.get(porta_sorgente)
+        if porta_destinazione == 53 or porta_sorgente == 53:
+            etichetta = "dns"
+        elif porta_sorgente in (67, 68) or porta_destinazione in (67, 68):
+            etichetta = "dhcp"
+        if etichetta:
+            riga["protocollo"] = "UDP/%s" % etichetta.upper()
         carico = inizio + 8
         if porta_sorgente == 67:
+            riga["dettaglio"] = "risponde da server DHCP"
             # Chi manda DA 67 si comporta da server DHCP. Che sia quello vero lo
             # decide chi conosce la rete: qui si contano i candidati.
-            self.dhcp_server[sorgente_mac] += 1
+            if not solo_lettura:
+                self.dhcp_server[sorgente_mac] += 1
             return
-        if porta_destinazione == 53 and len(dati) > carico + 12:
-            self._dns(dati, carico)
+        if 53 in (porta_destinazione, porta_sorgente) and len(dati) > carico + 12:
+            # IL NOME SI LEGGE ANCHE DALLE RISPOSTE. Prima si guardavano solo le
+            # domande, e con dodici pacchetti DNS visti la colonna dei nomi restava
+            # vuota: in una risposta la porta 53 e' quella di ORIGINE.
+            risposta = bool(len(dati) > carico + 3 and (dati[carico + 2] & 0x80))
+            nome = _nome_dns(dati, carico + 12)
+            if nome:
+                riga["nome"] = nome
+                riga["dettaglio"] = ("risponde per %s" if risposta
+                                     else "chiede %s") % nome
+            # Nelle statistiche del tunnel entra la DOMANDA: contare anche la
+            # risposta raddoppierebbe ogni conteggio.
+            if nome and not risposta and not solo_lettura:
+                self._conta_nome(nome)
             return
         nome_protocollo = PORTE_NOMI.get(porta_sorgente)
         if nome_protocollo and len(dati) > carico + 12:
             # Una RISPOSTA a una query di nome (il bit QR e' acceso). Chi risponde a
             # nomi sempre diversi sta facendo il lavoro di Responder.
             if len(dati) > carico + 3 and (dati[carico + 2] & 0x80):
-                nomi = self.risposte_nomi[sorgente_mac]
-                if len(nomi) < 256:
-                    nomi.add(_nome_dns(dati, carico + 12))
+                risposto = _nome_dns(dati, carico + 12)
+                if not solo_lettura:
+                    nomi = self.risposte_nomi[sorgente_mac]
+                    if len(nomi) < 256:
+                        nomi.add(risposto)
+                if risposto:
+                    riga["nome"] = risposto
+                    riga["dettaglio"] = "risponde per %s" % risposto
 
-    def _dns(self, dati, carico) -> None:
-        nome = _nome_dns(dati, carico + 12)
+    def _conta_nome(self, nome: str) -> None:
+        """Il nome entra nelle statistiche: quante volte, e sotto quale zona."""
         if not nome or self._tetto(self.nomi, MAX_NOMI, "nomi"):
             return
         self.nomi[nome] += 1
@@ -326,12 +433,18 @@ class Osservatorio:
             if len(sotto) < 512:
                 sotto.add(".".join(pezzi[:-2]))
 
-    def _tcp(self, dati, inizio, sorgente_ip, destinazione_ip, porta, quando) -> None:
+    def _tcp(self, dati, inizio, sorgente_ip, destinazione_ip, porta, quando,
+             riga: dict = None, solo_lettura: bool = False) -> None:
+        riga = riga if riga is not None else {}
         if len(dati) < inizio + 14:
             return
         bandiere = dati[inizio + 13]
+        riga["bandiere"] = _bandiere_tcp(bandiere)
         sin, ack = bool(bandiere & 0x02), bool(bandiere & 0x10)
         if sin and not ack:
+            riga["dettaglio"] = "apre verso %s:%d" % (destinazione_ip, porta)
+            if solo_lettura:
+                return
             # L'APERTURA di una connessione: e' l'unica parte del flusso che
             # interessa, e conta una volta sola per flusso.
             if not self._tetto(self.scansione_host, MAX_MAC, "scansioni"):
@@ -352,14 +465,38 @@ class Osservatorio:
         if carico >= len(dati):
             return
         corpo = dati[carico:]
-        if porta == 443:
-            nome = _sni(corpo)
-            if nome and not self._tetto(self.nomi, MAX_NOMI, "nomi"):
-                self.nomi[nome] += 1
-        elif porta == 80:
-            nome = _host_http(corpo)
-            if nome and not self._tetto(self.http_in_chiaro, MAX_NOMI, "nomi"):
+        # Si guardano ENTRAMBE le porte: in una risposta la porta nota e' quella di
+        # ORIGINE, e cercandola solo fra le destinazioni la meta' del traffico
+        # restava senza nome.
+        nome = _sni(corpo)
+        if nome:
+            riga["protocollo"] = "TLS"
+            riga["nome"] = nome
+            riga["dettaglio"] = "chiede il certificato di %s" % nome
+            if not solo_lettura:
+                self._conta_nome(nome)
+            return
+        nome = _host_http(corpo)
+        if nome:
+            riga["protocollo"] = "HTTP"
+            riga["nome"] = nome
+            riga["dettaglio"] = "richiesta in chiaro a %s" % nome
+            if not solo_lettura and not self._tetto(self.http_in_chiaro, MAX_NOMI,
+                                                    "nomi"):
                 self.http_in_chiaro[sorgente_ip].add(nome)
+
+    def preleva_registro(self, massimo: int = MAX_REGISTRO) -> list:
+        """I pacchetti letti da quando si e' prelevato l'ultima volta.
+
+        Si SVUOTA prelevando: l'anello vive nel processo dell'agente, e chi lo legge
+        (l'agente stesso, per travasarlo nell'archivio) deve prendere ogni riga una
+        volta sola. Lasciarle dentro significherebbe riscrivere ogni giro le stesse
+        righe nell'archivio.
+        """
+        with self._lucchetto:
+            quante = min(massimo, len(self.registro))
+            righe = [self.registro.popleft() for _ in range(quante)]
+        return righe
 
     # -- lettura (motore IDS) ----------------------------------------------- #
     def riassunto(self) -> dict:
@@ -424,24 +561,44 @@ def ritmo(istanti: list) -> dict:
     }
 
 
+# Una persona scrive `posta`, `outlook`, `sharepoint`: fra un quinto e meta' delle
+# lettere sono vocali. Sotto questa soglia il nome non si pronuncia, e i nomi che non
+# si pronunciano o sono sigle (corte) o sono dati (lunghi).
+VOCALI_MINIME = 0.15
+
+# Sotto questa lunghezza non si giudica: `srv`, `ns1`, `vpn` non hanno vocali e sono
+# perfettamente normali. Una sigla e' corta per definizione.
+LUNGHEZZA_GIUDICABILE = 12
+
+# Oltre questa, l'etichetta non e' piu' un nome: e' un contenitore. E' cosi' che si
+# infilano dati dentro una query DNS.
+LUNGHEZZA_SOSPETTA = 30
+
+
 def nome_anomalo(nome: str) -> dict:
     """Un nome che sembra generato, o che trasporta dati.
 
-    Due segnali, entrambi sulle ETICHETTE e non sul contenuto: la lunghezza (un
-    tunnel DNS infila i dati nel nome, e i nomi diventano lunghi) e l'entropia (un
-    dominio generato da un algoritmo non si pronuncia).
+    Due segnali, entrambi sull'ETICHETTA e mai sul contenuto:
+
+    * la **lunghezza** -- un tunnel DNS infila i dati nel nome, e i nomi diventano
+      lunghissimi;
+    * la **pronunciabilita'** -- un nome scritto da una persona ha vocali, una stringa
+      codificata no. Si guarda solo da `LUNGHEZZA_GIUDICABILE` in su, perche' le
+      sigle corte senza vocali sono normali.
     """
     pezzi = nome.split(".")
     if len(pezzi) < 2:
         return {"anomalo": False}
     prima = pezzi[0]
-    entropia = _entropia(prima)
-    lunga = len(prima) >= 30
-    casuale = entropia >= 3.8 and len(prima) >= 12
+    vocali = _pronunciabile(prima)
+    lunga = len(prima) >= LUNGHEZZA_SOSPETTA
+    illeggibile = (len(prima) >= LUNGHEZZA_GIUDICABILE and vocali < VOCALI_MINIME)
     return {
-        "anomalo": lunga or casuale,
+        "anomalo": lunga or illeggibile,
         "etichetta": prima[:60],
         "lunghezza": len(prima),
-        "entropia": round(entropia, 2),
-        "motivo": "etichetta lunga" if lunga else ("entropia alta" if casuale else ""),
+        "entropia": round(_entropia(prima), 2),
+        "vocali": round(vocali, 2),
+        "motivo": ("etichetta lunga" if lunga
+                   else ("nome non pronunciabile" if illeggibile else "")),
     }

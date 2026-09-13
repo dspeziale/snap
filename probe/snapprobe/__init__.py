@@ -103,8 +103,17 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
 
         app.logger.warning("Richiesta rifiutata per token non valido: %s", error.description)
         flash(
-            "La pagina era aperta da troppo tempo e il token di sicurezza e' scaduto:"
-            " nessuna modifica applicata, ripetere l'operazione.",
+            # NON si dichiara la causa che non si conosce. Il messaggio precedente
+            # diceva "la pagina era aperta da troppo tempo", ed e' stato smentito da
+            # chi lo leggeva un minuto dopo aver inserito la password: il token puo'
+            # mancare per almeno tre motivi diversi, e indicarne uno solo manda a
+            # cercare dalla parte sbagliata. Si dice che cosa e' successo -- niente e'
+            # stato applicato -- e si elencano i motivi possibili.
+            "Il token di sicurezza non e' stato accettato: nessuna modifica"
+            " applicata. Puo' succedere se la pagina e' rimasta aperta a lungo, se si"
+            " e' usciti e rientrati in un'altra scheda, oppure se il browser non"
+            " conserva i cookie di questo indirizzo. Ripetere l'operazione; se si"
+            " ripresenta, il diario ne riporta il motivo tecnico.",
             "warning",
         )
 

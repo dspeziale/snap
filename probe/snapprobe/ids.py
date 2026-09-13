@@ -69,6 +69,90 @@ PORTE_AMMINISTRAZIONE = {22, 23, 3389, 5900, 5901, 5985, 5986, 623}
 NOTTE_DA, NOTTE_A = 21, 6
 
 
+# --------------------------------------------------------------------------- #
+# La configurazione del sensore del traffico
+# --------------------------------------------------------------------------- #
+# Il sensore e' SPENTO finche' qualcuno non lo accende, e la scelta vive
+# nell'archivio della sonda come tutte le altre scelte locali.
+CHIAVE_TRAFFICO_ATTIVO = "traffico_attivo"
+CHIAVE_TRAFFICO_INTERFACCIA = "traffico_interfaccia"
+CHIAVE_TRAFFICO_FILTRO = "traffico_filtro"
+CHIAVE_TRAFFICO_ERRORE = "traffico_ultimo_errore"
+
+# La cattura vive nel processo dell'agente di raccolta, non in quello
+# dell'interfaccia: e' li' che gira il motore IDS che ne legge il riassunto. Questo
+# riferimento lo tiene il modulo perche' il sensore possa raggiungerlo senza che il
+# motore debba saperne niente.
+_CATTURA = {"presa": None}
+
+
+def imposta_cattura(presa) -> None:
+    _CATTURA["presa"] = presa
+
+
+def _cattura_in_corso():
+    return _CATTURA.get("presa")
+
+
+def _reti_dichiarate(archivio) -> list:
+    """Le reti del perimetro, per distinguere "dentro" da "fuori".
+
+    Si leggono dalla configurazione che il server ha consegnato: e' la stessa
+    dichiarazione su cui lavora la scansione, e usare due idee diverse di "la nostra
+    rete" nello stesso prodotto sarebbe un modo sicuro di litigare con se stessi.
+    """
+    import ipaddress
+
+    reti = []
+    for voce in (archivio.get_json("scan_subnets", []) or []):
+        cidr = voce.get("cidr") if isinstance(voce, dict) else voce
+        try:
+            reti.append(ipaddress.ip_network(str(cidr), strict=False))
+        except ValueError:
+            continue
+    return reti
+
+
+def _dentro_al_perimetro(indirizzo: str, reti: list) -> bool:
+    import ipaddress
+
+    try:
+        valore = ipaddress.ip_address(indirizzo)
+    except ValueError:
+        return True  # non si sa: non si segnala
+    if valore.is_private and not reti:
+        # Senza perimetro dichiarato, "privato" e' la migliore approssimazione di
+        # "dentro": meglio tacere che segnalare il backup notturno.
+        return True
+    return any(valore in rete for rete in reti)
+
+
+# --------------------------------------------------------------------------- #
+# Le soglie del sensore del traffico
+# --------------------------------------------------------------------------- #
+# Ogni numero qui sotto e' una scelta, non un valore "giusto": sono la linea fra
+# un'osservazione e un allarme, e si spostano quando una rete vera dice che sono
+# sbagliate. Stanno insieme perche' si leggano insieme.
+
+# Quanti annunci ARP non richiesti, per lo stesso indirizzo e nella stessa finestra,
+# smettono di sembrare un riavvio.
+ARP_GRATUITI_RAFFICA = 12
+
+# A quanti nomi DIVERSI deve rispondere una macchina perche' non stia semplicemente
+# annunciando i propri servizi. Una stampante o un televisore rispondono per se'
+# stessi -- due, tre nomi; Responder risponde a tutto.
+NOMI_RISPOSTI_SOSPETTI = 8
+
+# Quanti host distinti in una finestra fanno una scansione. Un client normale parla
+# con il proprio server, il gateway e poco altro.
+SCANSIONE_HOST = 15
+SCANSIONE_PORTE = 25
+
+# Quanti sottodomini diversi sotto una stessa zona prima di sospettare un tunnel.
+# I servizi cloud ne usano parecchi (telemetria, CDN): la soglia e' alta apposta.
+SOTTODOMINI_SOSPETTI = 60
+
+
 def _adesso() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -152,6 +236,90 @@ REGOLE = {
         "perche": "Un apparato mai visto compare sulla rete senza fili quando"
                   " l'ufficio e' chiuso. Da solo non prova nulla; insieme all'orario,"
                   " merita una domanda.",
+    },
+    # --- dal filo (sensore `traffico`) ------------------------------------ #
+    # Queste nove non guardano un archivio: guardano i pacchetti mentre passano. E'
+    # l'unico posto dove si vedono gli attacchi che non lasciano traccia su nessun
+    # host -- avvelenare una cache ARP non apre porte e non crea utenze.
+    "ARP-AVVELENAMENTO": {
+        "nome": "Un indirizzo rivendicato da due schede",
+        "gravita": "critica",
+        "tecnica": "T1557.002",
+        "perche": "Due schede di rete diverse dichiarano lo stesso indirizzo IP nello"
+                  " stesso momento. E' la forma che ha un attacco in mezzo alla"
+                  " comunicazione: da quel momento il traffico destinato a uno passa"
+                  " dall'altro. Puo' anche essere un indirizzo duplicato per errore,"
+                  " ma le due cose si distinguono guardando CHI sono le due schede.",
+    },
+    "ARP-RAFFICA": {
+        "nome": "Raffica di annunci ARP",
+        "gravita": "alta",
+        "tecnica": "T1557.002",
+        "perche": "Un annuncio ARP che nessuno ha chiesto e' normale dopo un riavvio."
+                  " Una raffica no: una cache avvelenata va tenuta avvelenata, e per"
+                  " tenerla cosi' bisogna ripetere l'annuncio di continuo.",
+    },
+    "DHCP-ABUSIVO": {
+        "nome": "Un server DHCP che non dovrebbe esserci",
+        "gravita": "critica",
+        "tecnica": "T1557",
+        "perche": "Una scheda risponde alle richieste DHCP e non e' quella che lo"
+                  " faceva prima. Chi assegna gli indirizzi assegna anche il gateway e"
+                  " il DNS: e' il modo piu' pulito per mettersi in mezzo a tutto il"
+                  " traffico di una rete senza toccare un solo host.",
+    },
+    "NOME-AVVELENATO": {
+        "nome": "Qualcuno risponde a nomi che non sono suoi",
+        "gravita": "alta",
+        "tecnica": "T1557.001",
+        "perche": "Una macchina risponde a molte query LLMNR/NBNS per nomi diversi."
+                  " Windows chiede in broadcast il nome che non sa risolvere, e chi"
+                  " risponde a tutto raccoglie le credenziali di chi ci casca: e'"
+                  " esattamente quello che fa Responder.",
+    },
+    "MAC-NUOVO-SUL-FILO": {
+        "nome": "Una scheda di rete mai vista sul segmento",
+        "gravita": "media",
+        "tecnica": "T1200",
+        "perche": "Un apparato che parla sul filo e che non si era mai visto. Conta"
+                  " piu' di un host nuovo trovato scansionando, perche' si vede anche"
+                  " se non risponde a niente: una macchina che ascolta e non risponde"
+                  " e' invisibile a una scansione, non a chi guarda il traffico.",
+    },
+    "SCANSIONE-INTERNA": {
+        "nome": "Qualcuno sta scansionando dall'interno",
+        "gravita": "alta",
+        "tecnica": "T1046",
+        "perche": "Un indirizzo apre connessioni verso molti host o molte porte in"
+                  " pochi minuti. E' la prima cosa che fa chi e' entrato e deve"
+                  " capire dove si trova. La sonda stessa e' esclusa: scansiona per"
+                  " mestiere.",
+    },
+    "BEACONING": {
+        "nome": "Qualcuno chiama casa a orologeria",
+        "gravita": "alta",
+        "tecnica": "T1071",
+        "perche": "Contatti verso la stessa destinazione a intervalli quasi fissi."
+                  " Una persona che naviga non e' regolare; un programma che aspetta"
+                  " ordini si'. Non si legge un byte del contenuto: si misura il"
+                  " RITMO, che il cifrato non nasconde.",
+    },
+    "DNS-ANOMALO": {
+        "nome": "Nomi che sembrano trasportare dati",
+        "gravita": "alta",
+        "tecnica": "T1071.004",
+        "perche": "Etichette lunghissime o casuali, o centinaia di sottodomini diversi"
+                  " sotto una stessa zona. Il DNS esce quasi sempre anche dove non"
+                  " esce nient'altro, ed e' per questo che ci si fanno passare i dati"
+                  " e i canali di comando.",
+    },
+    "HTTP-IN-CHIARO": {
+        "nome": "Traffico HTTP non cifrato",
+        "gravita": "bassa",
+        "tecnica": "T1040",
+        "perche": "Una richiesta HTTP in chiaro su una rete dove tutto il resto e'"
+                  " cifrato. Chiunque sia sul percorso legge tutto, credenziali"
+                  " comprese, e non lascia traccia sull'host.",
     },
     "ACCESSI-FALLITI": {
         "nome": "Tentativi di accesso falliti",
@@ -430,32 +598,212 @@ class SensoreAgenti(Sensore):
 
 
 class SensoreTraffico(Sensore):
-    """PREDISPOSTO, non attivo.
+    """Quello che passa sul filo, letto dalle sole intestazioni e dai nomi in chiaro.
 
-    Vedere i pacchetti richiede libpcap (Npcap su Windows), privilegi permanenti e --
-    per vedere traffico non diretto alla sonda -- una porta mirror sullo switch. Sono
-    tre condizioni che si concordano con chi gestisce la rete, non si danno per
-    scontate installando un prodotto.
+    SPENTO FINCHE' NON LO SI ACCENDE, e non per prudenza formale: la cattura vede il
+    traffico di chi lavora su quella rete. Si accende da *Configurazione*, dichiarando
+    su quale interfaccia, e la pagina dice che cosa legge e che cosa non legge mai.
 
-    Il posto pero' e' questo: quando quelle condizioni ci sono, si implementa
-    `osserva()` e il motore comincia a usarlo senza che nient'altro cambi. Le regole
-    che ne nascerebbero (ARP poisoning osservato sul filo, DNS anomalo, connessioni
-    verso indirizzi noti come malevoli) si aggiungono al catalogo come le altre.
+    CHE COSA VEDE SENZA UNA PORTA MIRROR
+    Su uno switch, alla sonda arriva il traffico diretto a lei piu' tutto il
+    BROADCAST. Sembra poco ed e' invece dove vivono gli attacchi di segmento: ARP,
+    DHCP, LLMNR/NBNS. Misurato su una rete vera, venti secondi bastano a vedere le
+    schede di rete di tutto il segmento -- comprese quelle che a una scansione non
+    rispondono.
+
+    CHE COSA SERVE UNA PORTA MIRROR PER VEDERE
+    Le conversazioni fra altri: scansioni interne, beaconing, nomi richiesti da altri.
+    La pagina dei sensori dichiara quale dei due casi si sta osservando, perche' le
+    regole che non possono scattare non devono sembrare regole che non hanno trovato
+    niente.
+
+    CHE COSA NON VEDE MAI
+    Il contenuto. Si catturano poche centinaia di byte per pacchetto e si estraggono
+    intestazioni e nomi (`traffico.py`): il payload non entra in memoria.
     """
 
     codice = "traffico"
     nome = "Osservazione del traffico"
-    descrizione = ("Ispezione dei pacchetti. Richiede libpcap/Npcap, privilegi di"
-                   " amministratore e una porta mirror: si abilita quando quelle"
-                   " condizioni esistono.")
+    descrizione = ("Intestazioni dei pacchetti e nomi dichiarati in chiaro (DNS, SNI,"
+                   " Host HTTP). Riconosce avvelenamento ARP, DHCP abusivo,"
+                   " avvelenamento dei nomi, scansioni interne, beaconing e tunnel"
+                   " DNS. Non legge il contenuto.")
 
     def disponibile(self, archivio) -> tuple:
-        return False, ("sensore predisposto e non attivo: senza cattura del traffico"
-                       " questo prodotto non vede exploit nel payload, canali di"
-                       " comando cifrati ne' esfiltrazioni")
+        from . import cattura as modulo_cattura
+
+        if archivio.get_setting(CHIAVE_TRAFFICO_ATTIVO, "0") != "1":
+            return False, ("spento: si accende da Configurazione, scegliendo"
+                           " l'interfaccia da ascoltare")
+        assenza = modulo_cattura.motivo_assenza()
+        if assenza:
+            return False, assenza
+        presa = _cattura_in_corso()
+        if presa is None or not presa.viva:
+            motivo = archivio.get_setting(CHIAVE_TRAFFICO_ERRORE, "")
+            return False, (motivo or "cattura non avviata")
+        stato = presa.stato()
+        return True, ("in ascolto su %s: %d pacchetti letti"
+                      % (stato["interfaccia"][-24:], stato["pacchetti"]))
 
     def osserva(self, archivio, adesso: datetime) -> list:
-        return []
+        presa = _cattura_in_corso()
+        if presa is None:
+            return []
+        osservatorio = getattr(presa, "osservatorio", None)
+        if osservatorio is None:
+            return []
+        finestra = osservatorio.riassunto()
+        if not finestra.get("pacchetti"):
+            return []
+
+        rilevazioni = []
+        rilevazioni.extend(self._arp(archivio, finestra, adesso))
+        rilevazioni.extend(self._dhcp(archivio, finestra, adesso))
+        rilevazioni.extend(self._nomi_risposti(finestra))
+        rilevazioni.extend(self._schede_nuove(archivio, finestra, adesso))
+        rilevazioni.extend(self._scansioni(finestra))
+        rilevazioni.extend(self._beaconing(archivio, finestra))
+        rilevazioni.extend(self._dns(finestra))
+        rilevazioni.extend(self._http(finestra))
+        return rilevazioni
+
+    # -- le regole ---------------------------------------------------------- #
+    def _arp(self, archivio, finestra, adesso) -> list:
+        trovate = []
+        for indirizzo, schede in (finestra.get("arp_per_ip") or {}).items():
+            trovate.append(Rilevazione(
+                "ARP-AVVELENAMENTO", self.codice, indirizzo,
+                "%s rivendicato da %d schede diverse" % (indirizzo, len(schede)),
+                "schede: %s" % ", ".join(schede[:6]),
+                {"ip": indirizzo, "mac": schede[:8]}))
+        for indirizzo, quanti in (finestra.get("arp_gratuiti") or {}).items():
+            if quanti >= ARP_GRATUITI_RAFFICA:
+                trovate.append(Rilevazione(
+                    "ARP-RAFFICA", self.codice, indirizzo,
+                    "%d annunci ARP non richiesti per %s" % (quanti, indirizzo),
+                    "in una sola finestra di osservazione",
+                    {"ip": indirizzo, "quanti": quanti}))
+        return trovate
+
+    def _dhcp(self, archivio, finestra, adesso) -> list:
+        """Un server DHCP nuovo. Il primo che si vede NON e' una rilevazione: e'
+        quello vero, e diventa la linea di base."""
+        trovate = []
+        for scheda, quanti in (finestra.get("dhcp_server") or {}).items():
+            memoria = archivio.ids_confronta("dhcp_server", scheda, "1", adesso)
+            if memoria and memoria["nuovo"] and archivio.ids_memoria_matura()["matura"]:
+                trovate.append(Rilevazione(
+                    "DHCP-ABUSIVO", self.codice, scheda,
+                    "la scheda %s risponde alle richieste DHCP" % scheda,
+                    "%d risposte osservate; non lo faceva prima" % quanti,
+                    {"mac": scheda, "risposte": quanti}))
+        return trovate
+
+    def _nomi_risposti(self, finestra) -> list:
+        trovate = []
+        for scheda, nomi in (finestra.get("risposte_nomi") or {}).items():
+            if len(nomi) >= NOMI_RISPOSTI_SOSPETTI:
+                trovate.append(Rilevazione(
+                    "NOME-AVVELENATO", self.codice, scheda,
+                    "%s risponde per %d nomi diversi" % (scheda, len(nomi)),
+                    "fra cui: %s" % ", ".join(nomi[:5]),
+                    {"mac": scheda, "nomi": nomi[:20]}))
+        return trovate
+
+    def _schede_nuove(self, archivio, finestra, adesso) -> list:
+        """Una scheda mai vista. Vale la regola del primo giro: finche' la memoria
+        e' giovane si impara e non si giudica."""
+        if not archivio.ids_memoria_matura()["matura"]:
+            return []
+        trovate = []
+        for scheda, (_primo, _ultimo, quanti, indirizzi) in (
+                finestra.get("mac") or {}).items():
+            memoria = archivio.ids_confronta("mac_sul_filo", scheda, "1", adesso)
+            if memoria and memoria["nuovo"]:
+                trovate.append(Rilevazione(
+                    "MAC-NUOVO-SUL-FILO", self.codice, scheda,
+                    "scheda di rete mai vista sul segmento: %s" % scheda,
+                    "%d pacchetti%s" % (quanti, (", indirizzi %s"
+                                                 % ", ".join(indirizzi[:3]))
+                                        if indirizzi else ""),
+                    {"mac": scheda, "ip": indirizzi[:8]}))
+        return trovate
+
+    def _scansioni(self, finestra) -> list:
+        trovate = []
+        porte = finestra.get("scansione_porte") or {}
+        for sorgente, host in (finestra.get("scansione_host") or {}).items():
+            quante_porte = porte.get(sorgente, 0)
+            if host >= SCANSIONE_HOST or quante_porte >= SCANSIONE_PORTE:
+                trovate.append(Rilevazione(
+                    "SCANSIONE-INTERNA", self.codice, sorgente,
+                    "%s ha contattato %d host su %d porte" % (sorgente, host,
+                                                              quante_porte),
+                    "in una sola finestra di osservazione",
+                    {"ip": sorgente, "host": host, "porte": quante_porte}))
+        return trovate
+
+    def _beaconing(self, archivio, finestra) -> list:
+        """Un ritmo regolare verso FUORI.
+
+        La condizione "fuori dal perimetro dichiarato" non e' un dettaglio: dentro la
+        rete tutto e' regolare -- il monitoraggio, i backup, la sonda stessa -- e
+        senza quel filtro questa regola segnalerebbe l'infrastruttura del cliente.
+        """
+        from .traffico import ritmo
+
+        dentro = _reti_dichiarate(archivio)
+        trovate = []
+        for chiave, istanti in (finestra.get("flussi") or {}).items():
+            sorgente, destinazione, porta = chiave
+            if _dentro_al_perimetro(destinazione, dentro):
+                continue
+            misura = ritmo(istanti)
+            if not misura.get("regolare"):
+                continue
+            trovate.append(Rilevazione(
+                "BEACONING", self.codice, "%s->%s:%s" % (sorgente, destinazione, porta),
+                "%s contatta %s:%s ogni %.0f secondi"
+                % (sorgente, destinazione, porta, misura["intervallo_sec"]),
+                "%d contatti, scarto %.0f%%: un ritmo da programma, non da persona"
+                % (misura["contatti"], misura["scarto_relativo"] * 100),
+                {"sorgente": sorgente, "destinazione": destinazione,
+                 "porta": porta, **misura}))
+        return trovate
+
+    def _dns(self, finestra) -> list:
+        from .traffico import nome_anomalo
+
+        trovate = []
+        for nome, quante in (finestra.get("nomi") or {}).items():
+            giudizio = nome_anomalo(nome)
+            if giudizio["anomalo"]:
+                trovate.append(Rilevazione(
+                    "DNS-ANOMALO", self.codice, nome[:120],
+                    "nome insolito richiesto %d volte: %s" % (quante, nome[:80]),
+                    "%s (%d caratteri, entropia %.1f)"
+                    % (giudizio["motivo"], giudizio["lunghezza"],
+                       giudizio["entropia"]),
+                    {"nome": nome[:200], **giudizio}))
+        for zona, quanti in (finestra.get("sottodomini") or {}).items():
+            if quanti >= SOTTODOMINI_SOSPETTI:
+                trovate.append(Rilevazione(
+                    "DNS-ANOMALO", self.codice, zona,
+                    "%d sottodomini diversi sotto %s" % (quanti, zona),
+                    "in una sola finestra: e' la forma di un tunnel DNS",
+                    {"zona": zona, "sottodomini": quanti}))
+        return trovate
+
+    def _http(self, finestra) -> list:
+        trovate = []
+        for sorgente, nomi in (finestra.get("http_in_chiaro") or {}).items():
+            trovate.append(Rilevazione(
+                "HTTP-IN-CHIARO", self.codice, sorgente,
+                "%s usa HTTP non cifrato verso %d siti" % (sorgente, len(nomi)),
+                "fra cui: %s" % ", ".join(nomi[:5]),
+                {"ip": sorgente, "siti": nomi[:16]}))
+        return trovate
 
 
 # L'ordine conta: i sensori piu' informati per ultimi, cosi' le loro rilevazioni

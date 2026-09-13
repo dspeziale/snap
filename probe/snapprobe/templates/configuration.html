@@ -301,6 +301,136 @@
   </div>
 
   {# ------------------------------------------------------------------------
+     OSSERVAZIONE DEL TRAFFICO.
+
+     E' l'unica impostazione della sonda che tocca il traffico di PERSONE, e per
+     questo la scheda dice per esteso che cosa viene letto e che cosa non lo e' mai,
+     prima dell'interruttore e non dopo. Chi la accende deve poterlo spiegare a chi
+     lavora su quella rete.
+     ------------------------------------------------------------------------ #}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-ethernet me-1"></i> Osservazione del traffico
+        </h2>
+        {% if traffico.stato and traffico.stato.viva %}
+        <span class="badge text-bg-success">
+          in ascolto &middot; {{ traffico.stato.pacchetti }} pacchetti
+        </span>
+        {% elif traffico.attiva %}
+        <span class="badge text-bg-warning">accesa ma non in ascolto</span>
+        {% else %}
+        <span class="badge text-bg-secondary">spenta</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+
+        <div class="row g-3 mb-3">
+          <div class="col-12 col-lg-6">
+            <p class="small mb-1"><strong>Che cosa legge</strong></p>
+            <ul class="small text-body-secondary mb-0">
+              <li>le <strong>intestazioni</strong>: chi parla con chi, con quale
+                protocollo, quando e quanto;</li>
+              <li>i <strong>nomi dichiarati in chiaro</strong>: il dominio di una
+                query DNS, il nome del server nel TLS (SNI), l'intestazione Host di
+                HTTP.</li>
+            </ul>
+          </div>
+          <div class="col-12 col-lg-6">
+            <p class="small mb-1"><strong>Che cosa non legge mai</strong></p>
+            <ul class="small text-body-secondary mb-0">
+              <li>il <strong>contenuto</strong> dei pacchetti: si catturano poche
+                centinaia di byte e se ne estraggono intestazioni e nomi, il resto
+                non entra in memoria;</li>
+              <li>nulla viene conservato: nell'archivio finiscono conteggi e fatti
+                derivati, mai i byte.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="alert alert-warning small">
+          <i class="bi bi-people me-1"></i>
+          Su una rete di lavoro questa osservazione riguarda anche il traffico delle
+          persone. Registrare quali nomi vengono richiesti e' un <strong>trattamento
+          di dati personali</strong>: va dichiarato nel registro dei trattamenti e
+          concordato con chi lavora su quella rete (GDPR art. 6(1)(f), art. 30; per i
+          lavoratori, art. 4 dello Statuto).
+        </div>
+
+        {% if not traffico.possibile %}
+        <div class="alert alert-secondary small mb-0">
+          <strong>Non disponibile su questa macchina.</strong> {{ traffico.motivo }}
+        </div>
+        {% else %}
+        <form method="post" action="{{ url_for('probe.save_traffico') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="traffico_attivo" name="traffico_attivo"
+                   {{ 'checked' if traffico.attiva }}>
+            <label class="form-check-label" for="traffico_attivo">
+              <strong>Osserva il traffico</strong>
+            </label>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small" for="traffico_interfaccia">
+              Interfaccia da ascoltare
+            </label>
+            <select class="form-select form-select-sm" id="traffico_interfaccia"
+                    name="traffico_interfaccia">
+              <option value="">— nessuna —</option>
+              {% for voce in traffico.interfacce %}
+              <option value="{{ voce.nome }}"
+                      {{ 'selected' if voce.nome == traffico.interfaccia }}>
+                {{ voce.descrizione or voce.nome }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">
+              Senza una porta mirror sullo switch si vede il traffico diretto alla
+              sonda piu' tutto il <strong>broadcast</strong>: basta per ARP, DHCP e
+              avvelenamento dei nomi, cioe' gli attacchi di segmento. Per scansioni
+              interne e beaconing fra altri serve la porta mirror.
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small" for="traffico_filtro">
+              Filtro (sintassi BPF, come tcpdump) &mdash; vuoto = quello predefinito
+            </label>
+            <input type="text" class="form-control form-control-sm font-monospace"
+                   id="traffico_filtro" name="traffico_filtro"
+                   value="{{ traffico.filtro }}"
+                   placeholder="{{ traffico.filtro_predefinito[:60] }}...">
+            <div class="form-text">
+              Il filtro gira <strong>dentro il kernel</strong>: cio' che esclude non
+              arriva nemmeno al processo. Quello predefinito prende ARP, DHCP, i
+              protocolli dei nomi, il DNS e l'apertura delle connessioni.
+            </div>
+          </div>
+
+          <button class="btn btn-primary btn-sm">Salva</button>
+          {% if traffico.errore %}
+          <span class="text-danger small ms-2">{{ traffico.errore }}</span>
+          {% endif %}
+        </form>
+
+        {% if traffico.stato and traffico.stato.viva %}
+        <hr>
+        <p class="small text-body-secondary mb-0">
+          In ascolto su <span class="font-monospace">{{ traffico.stato.interfaccia[-40:] }}</span>:
+          {{ traffico.stato.pacchetti }} pacchetti letti, {{ traffico.stato.scartati }}
+          scartati. Le rilevazioni compaiono nella pagina <strong>IDS</strong>.
+        </p>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------------------
      Raccolta dai NODI DI RETE.
 
      Perche' esiste questo riquadro: il MAC di un nodo si ottiene con ARP, che e'

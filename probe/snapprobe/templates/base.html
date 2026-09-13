@@ -183,6 +183,13 @@
             </a>
           </li>
           <li class="nav-item">
+            <a href="{{ url_for('probe.pacchetti') }}"
+               class="nav-link {% if request.endpoint == 'probe.pacchetti' %}active{% endif %}">
+              <i class="nav-icon bi bi-ethernet"></i>
+              <p>Pacchetti</p>
+            </a>
+          </li>
+          <li class="nav-item">
             <a href="{{ url_for('probe.ids') }}"
                class="nav-link {% if request.endpoint == 'probe.ids' %}active{% endif %}">
               <i class="nav-icon bi bi-radar"></i>

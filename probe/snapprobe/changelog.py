@@ -40,6 +40,73 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.4",
+        "date": "2026-09-13",
+        "abstract": "I pacchetti si possono GUARDARE. Una pagina nuova mostra che cosa"
+                    " sta passando sul filo, chi parla con chi e quali nomi vengono"
+                    " richiesti, con la ricerca dentro. Il sensore produceva"
+                    " rilevazioni senza far vedere su che cosa lavorava.",
+        "changes": [
+            "PAGINA *PACCHETTI*, con tre modi di guardare la stessa finestra perche'"
+            " sono tre domande diverse: i PACCHETTI dicono che cosa passa (con le"
+            " bandiere TCP e l'ARP tradotto -- \"chi ha 10.20.10.41? lo chiede"
+            " 10.20.10.1\"), le CONVERSAZIONI dicono chi sta parlando -- che e' quasi"
+            " sempre la domanda vera -- e i NOMI dicono dove si sta andando. Si cerca"
+            " per indirizzo, MAC o nome.",
+            "SEMPRE SOLO I CAMPI, MAI I BYTE. Nell'archivio finisce cio' che si legge"
+            " nell'intestazione piu' il nome dichiarato in chiaro: un test mette un"
+            " segreto dentro un payload e lo cerca in tutto cio' che viene conservato.",
+            "RITENZIONE STRETTA: venti minuti e ventimila pacchetti, i piu' recenti."
+            " Serve a guardare che cosa sta succedendo adesso, non a tenere un"
+            " registro di cio' che le persone fanno. Spegnendo l'osservazione la"
+            " tabella si svuota del tutto: chi spegne si aspetta questo.",
+            "TRE DIFETTI TROVATI GUARDANDO LA PAGINA con i pacchetti veri."
+            " Centotrentasette righe con protocollo \"?\": erano i pacchetti della"
+            " sonda stessa, che l'esclusione scartava PRIMA di decodificarli. Adesso"
+            " la regola e' una sola -- il traffico della sonda si VEDE ma non diventa"
+            " mai un fatto per le regole. E i nomi si leggono anche dalle RISPOSTE"
+            " DNS: con dodici pacchetti DNS visti, la colonna dei nomi restava vuota.",
+        ],
+    },
+    {
+        "version": "1.3.2",
+        "date": "2026-09-13",
+        "abstract": "La sonda sa osservare il TRAFFICO. Legge le intestazioni dei"
+                    " pacchetti e i nomi dichiarati in chiaro -- mai il contenuto --"
+                    " e ne ricava nove regole nuove: avvelenamento ARP, DHCP abusivo,"
+                    " avvelenamento dei nomi, scansioni interne, beaconing, tunnel"
+                    " DNS. Nasce SPENTA e si accende dalla Configurazione.",
+        "changes": [
+            "NOVE REGOLE NUOVE dal filo, che portano il catalogo da dodici a ventuno."
+            " Sono le uniche che vedono un attacco che non lascia traccia su nessun"
+            " host: avvelenare una cache ARP non apre porte e non crea utenze.",
+            "NESSUNA DIPENDENZA NUOVA. libpcap (Npcap su Windows) espone da vent'anni"
+            " una C API stabile di cinque funzioni, e `ctypes` e' nella libreria"
+            " standard: il collegamento sta in duecento righe. Scartate `scapy`"
+            " (GPLv2 su un prodotto MIT) e `pypcap`/`pcapy-ng` (da compilare, cioe'"
+            " una toolchain sulla macchina del cliente). Npcap di norma c'e' gia',"
+            " perche' lo installa nmap.",
+            "SI LEGGONO INTESTAZIONI E NOMI, MAI IL CONTENUTO. Si catturano 512 byte"
+            " per pacchetto e se ne estraggono chi parla con chi, con che ritmo, e i"
+            " nomi che i protocolli dichiarano in chiaro (DNS, SNI, Host HTTP):"
+            " nell'archivio finiscono conteggi e fatti derivati, mai i byte. Un test"
+            " mette un segreto dentro un payload e lo cerca in tutto il riassunto.",
+            "SPENTA FINCHE' NON LA SI ACCENDE, dichiarando l'interfaccia. La pagina di"
+            " Configurazione dice che cosa viene letto e che cosa no PRIMA"
+            " dell'interruttore, e ricorda che su una rete di lavoro questo e' un"
+            " trattamento di dati personali da mettere nel registro.",
+            "LA SONDA NON SI DENUNCIA DA SOLA: scansiona per mestiere, e i suoi SYN"
+            " verso mille indirizzi hanno la forma esatta di una scansione interna. I"
+            " suoi indirizzi sono esclusi dall'osservazione. Per la stessa ragione il"
+            " beaconing si segnala solo verso FUORI dal perimetro: dentro la rete"
+            " tutto e' regolare -- monitoraggio, backup, la sonda stessa.",
+            "Senza una porta mirror si vede il broadcast, e basta per gli attacchi di"
+            " segmento: misurato su una rete vera, venti secondi bastano a vedere le"
+            " schede di tutto il segmento, comprese quelle che a una scansione non"
+            " rispondono.",
+        ],
+    },
+    {
         "version": "1.3.0",
         "date": "2026-09-13",
         "abstract": "La pagina Agenti prepara un PACCHETTO DI INSTALLAZIONE pronto --"

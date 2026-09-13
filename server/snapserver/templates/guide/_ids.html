@@ -16,9 +16,10 @@
 </p>
 
 <div class="alert alert-secondary">
-  <strong>Che cosa questo IDS non vede.</strong> Confronta osservazioni, <strong>non
-  ispeziona il traffico</strong>: non riconosce un exploit nel payload, un canale di
-  comando cifrato o un'esfiltrazione. Zero rilevazioni significa &laquo;nessun
+  <strong>Che cosa questo IDS non vede.</strong> Vede anche il traffico (&sect; 22.1),
+  ma di esso legge <strong>le intestazioni e i nomi dichiarati in chiaro</strong> e
+  <strong>mai il contenuto</strong>: non riconosce un exploit dai byte che trasporta,
+  ne' legge dentro un canale cifrato. Zero rilevazioni significa &laquo;nessun
   cambiamento fra quelli che so riconoscere&raquo;, non &laquo;nessuna intrusione&raquo;.
   Il limite e' scritto in cima a ogni pagina che mostra rilevazioni, e non per modestia:
   un prodotto che lasciasse credere il contrario darebbe una sicurezza che non ha.
@@ -99,10 +100,10 @@
   <li><strong>agenti</strong> — attivo quando c'e' almeno una macchina con l'agente.
     Senza agenti, le regole su accessi falliti, utenze nuove, protezioni disattivate e
     processi in ascolto <em>non possono scattare</em>.</li>
-  <li><strong>traffico</strong> — <strong>predisposto e non attivo</strong>: richiede
-    libpcap/Npcap, privilegi di amministratore e una porta mirror sullo switch. Sono
-    condizioni che si concordano con chi gestisce la rete, non si danno per scontate
-    installando un prodotto.</li>
+  <li><strong>traffico</strong> &mdash; <strong>spento finche' non lo si accende</strong>
+    (&sect; 22.1): legge le intestazioni dei pacchetti e i nomi in chiaro. Non e' piu'
+    &laquo;predisposto&raquo; -- esiste e funziona -- ma nasce spento perche' riguarda
+    il traffico delle persone.</li>
 </ul>
 
 <h3>L'agente: che cosa aggiunge, e che cosa non porta via</h3>
@@ -137,6 +138,76 @@
   giuridica e' la stessa dell'inventario — sicurezza della rete, art. 6(1)(f) — e le
   pagine nominano <strong>macchine e utenze, non persone</strong>.
 </p>
+
+<h3 id="traffico">22.1 Osservare il traffico</h3>
+<p>
+  Si accende dalla <strong>Configurazione della sonda</strong>, scegliendo
+  l'interfaccia. Nasce spenta: la cattura vede il traffico di chi lavora su quella
+  rete, e un valore predefinito acceso avrebbe fatto cominciare un trattamento senza
+  che nessuno lo decidesse.
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Si legge</th><th>Non si legge mai</th></tr></thead>
+  <tbody>
+    <tr><td>intestazioni Ethernet, ARP, IP, TCP, UDP</td>
+      <td>il contenuto dei pacchetti</td></tr>
+    <tr><td>il dominio di una query DNS</td><td>il corpo delle risposte</td></tr>
+    <tr><td>il nome del server nel TLS (SNI)</td>
+      <td>nulla del flusso cifrato oltre quel nome</td></tr>
+    <tr><td>l'intestazione <code>Host</code> di HTTP</td>
+      <td>il resto della richiesta</td></tr>
+  </tbody>
+</table>
+<p>
+  Si catturano <strong>512 byte</strong> per pacchetto, non il pacchetto intero: il
+  resto non entra nella memoria del processo. E' la differenza fra osservare una rete e
+  intercettarla.
+</p>
+
+<h4>Serve una porta mirror?</h4>
+<p>
+  Per una parte no. Su uno switch alla sonda arriva il traffico diretto a lei
+  <strong>piu' tutto il broadcast</strong>, ed e' li' che vivono gli attacchi di
+  segmento. Misurato su una rete reale, venti secondi di ascolto senza alcuna porta
+  mirror: 2.577 pacchetti e <strong>16 schede di rete</strong> dell'intero segmento,
+  comprese quelle che a una scansione non rispondono.
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Senza porta mirror</th><th>Serve la porta mirror</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>avvelenamento ARP, raffica di annunci, DHCP abusivo, avvelenamento dei nomi,
+        schede di rete mai viste</td>
+      <td>scansioni interne fra altri, beaconing, nomi richiesti da altri</td>
+    </tr>
+  </tbody>
+</table>
+
+<h4>Guardare i pacchetti</h4>
+<p>
+  La console della sonda ha una pagina <strong>Pacchetti</strong> con tre schede,
+  perche' sono tre domande diverse: i <em>pacchetti</em> dicono che cosa passa (con le
+  bandiere TCP e l'ARP tradotto), le <em>conversazioni</em> dicono chi sta parlando
+  &mdash; ed e' quasi sempre la domanda vera &mdash; e i <em>nomi</em> dicono dove si
+  sta andando. Si cerca per indirizzo, MAC o nome.
+</p>
+<p>
+  Si conservano al massimo <strong>venti minuti</strong> e <strong>ventimila
+  pacchetti</strong>, e spegnendo l'osservazione la tabella <strong>si svuota del
+  tutto</strong>. Serve a guardare che cosa sta succedendo adesso, non a tenere un
+  registro di cio' che le persone fanno.
+</p>
+
+<div class="alert alert-warning">
+  <i class="bi bi-people me-1"></i>
+  <strong>Su una rete di lavoro questo riguarda anche le persone.</strong> Registrare
+  quali nomi vengono richiesti e' un trattamento di dati personali: va dichiarato nel
+  registro dei trattamenti e concordato con chi lavora su quella rete (GDPR art.
+  6(1)(f) e art. 30; per i lavoratori, art. 4 dello Statuto). La pagina di
+  Configurazione lo scrive prima dell'interruttore, non dopo.
+</div>
 
 <h3>Le rilevazioni finiscono anche nel SIEM</h3>
 <p>

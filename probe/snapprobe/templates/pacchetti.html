@@ -1,0 +1,273 @@
+{#
+  snap probe - Che cosa sta passando sul filo, adesso.
+
+  E' la pagina che mancava al sensore del traffico: produceva rilevazioni senza far
+  vedere su che cosa lavorava, e un sensore cosi' si accende una volta e poi non si
+  accende piu'.
+
+  Tre modi di guardare la stessa finestra, perche' sono tre domande diverse:
+  i PACCHETTI dicono che cosa passa, le CONVERSAZIONI dicono chi parla con chi (ed e'
+  quasi sempre la domanda vera), i NOMI dicono dove si sta andando.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Pacchetti{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="bi bi-ethernet me-2"></i>Pacchetti</h1>
+    <p class="text-body-secondary mb-0">
+      Le intestazioni di cio' che passa sul filo, e i nomi dichiarati in chiaro.
+      Il contenuto non viene letto.
+    </p>
+  </div>
+  {% if riepilogo.pacchetti %}
+  <span class="badge text-bg-light border">
+    {{ riepilogo.pacchetti }} pacchetti conservati
+  </span>
+  {% endif %}
+</div>
+
+{% if not attiva %}
+{# Il caso piu' importante da spiegare bene: la pagina e' vuota perche' nessuno ha
+   acceso l'osservazione, non perche' la rete sia silenziosa. #}
+<div class="alert alert-secondary">
+  <h2 class="h6"><i class="bi bi-toggle-off me-1"></i> Osservazione spenta</h2>
+  <p class="mb-2">
+    Questa pagina mostra i pacchetti che il sensore del traffico ha letto. Il sensore
+    e' <strong>spento</strong>, quindi non c'e' niente da mostrare: non e' una rete
+    silenziosa, e' un sensore che non sta guardando.
+  </p>
+  <a href="{{ url_for('probe.configuration') }}#traffico_attivo"
+     class="btn btn-sm btn-primary">
+    <i class="bi bi-sliders me-1"></i> Accendila dalla Configurazione
+  </a>
+</div>
+{% elif not traffico.stato or not traffico.stato.viva %}
+<div class="alert alert-warning">
+  <strong>Accesa, ma non in ascolto.</strong>
+  {{ traffico.errore or "la cattura non e' partita." }}
+</div>
+{% endif %}
+
+{% if riepilogo.pacchetti %}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-8">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <div class="d-flex flex-wrap gap-3 align-items-center">
+          <div>
+            <p class="small text-body-secondary mb-0">FINESTRA</p>
+            <p class="mb-0 fw-semibold">
+              {{ riepilogo.dal|dt }} &rarr; {{ riepilogo.al|dt }}
+            </p>
+          </div>
+          {% for voce in riepilogo.per_protocollo %}
+          <a class="text-decoration-none"
+             href="{{ url_for('probe.pacchetti', protocollo=voce.protocollo, cerca=cerca) }}">
+            <span class="badge text-bg-{{ 'primary' if voce.protocollo == protocollo
+                                          else 'light' }} border">
+              {{ voce.protocollo }} {{ voce.quanti }}
+            </span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body py-2">
+        <form method="get" action="{{ url_for('probe.pacchetti') }}"
+              class="d-flex gap-2">
+          <input type="hidden" name="protocollo" value="{{ protocollo }}">
+          <input type="search" class="form-control form-control-sm" name="cerca"
+                 value="{{ cerca }}"
+                 placeholder="indirizzo, MAC, nome...">
+          <button class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-search"></i>
+          </button>
+          {% if cerca or protocollo %}
+          <a class="btn btn-sm btn-outline-secondary"
+             href="{{ url_for('probe.pacchetti') }}">×</a>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#elenco"
+            type="button" role="tab">
+      Pacchetti ({{ pacchetti|length }})
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#conversazioni"
+            type="button" role="tab">
+      Chi parla con chi ({{ conversazioni|length }})
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#nomi"
+            type="button" role="tab">
+      Nomi richiesti ({{ nomi|length }})
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  {# --- i pacchetti --------------------------------------------------- #}
+  <div class="tab-pane fade show active" id="elenco" role="tabpanel">
+    <div class="card">
+      <div class="card-body p-0">
+        {% if pacchetti %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="50">
+            <thead>
+              <tr><th>QUANDO</th><th>PROTOCOLLO</th><th>DA</th><th>A</th>
+                  <th>PORTA</th><th>BANDIERE</th><th>BYTE</th><th>CHE COSA</th></tr>
+            </thead>
+            <tbody>
+              {% for voce in pacchetti %}
+              <tr>
+                <td class="small text-nowrap">{{ voce.visto_at[11:19] }}</td>
+                <td class="small">
+                  <span class="badge text-bg-light border">{{ voce.protocollo or '?' }}</span>
+                </td>
+                <td class="small font-monospace">
+                  {{ voce.sorgente or voce.mac_sorgente }}
+                  {% if voce.porta_sorgente %}<span class="text-body-secondary">:{{ voce.porta_sorgente }}</span>{% endif %}
+                </td>
+                <td class="small font-monospace">
+                  {{ voce.destinazione or voce.mac_destinazione }}
+                </td>
+                <td class="small">{{ voce.porta or '' }}</td>
+                <td class="small text-body-secondary">{{ voce.bandiere or '' }}</td>
+                <td class="small text-end">{{ voce.byte or '' }}</td>
+                <td class="small">
+                  {{ voce.dettaglio or '' }}
+                  {% if voce.nome %}
+                  <span class="badge text-bg-info-subtle text-info-emphasis border">{{ voce.nome }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="p-3 small text-body-secondary mb-0">
+          {% if attiva %}
+          Nessun pacchetto {{ 'con questi filtri' if (cerca or protocollo) else 'ancora letto' }}.
+          I pacchetti compaiono qui entro pochi secondi dall'accensione.
+          {% else %}
+          Nessun pacchetto: l'osservazione e' spenta.
+          {% endif %}
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# --- le conversazioni: chi parla con chi ---------------------------- #}
+  <div class="tab-pane fade" id="conversazioni" role="tabpanel">
+    <div class="card">
+      <div class="card-header">
+        <span class="small text-body-secondary">
+          L'elenco dei pacchetti dice che cosa passa; questo dice <strong>chi sta
+          parlando</strong>, ed e' quasi sempre la domanda vera.
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {% if conversazioni %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="25">
+            <thead>
+              <tr><th>DA</th><th>A</th><th>PORTA</th><th>PROTOCOLLO</th>
+                  <th class="text-end">PACCHETTI</th><th class="text-end">BYTE</th>
+                  <th>DURATA</th><th>NOME</th></tr>
+            </thead>
+            <tbody>
+              {% for voce in conversazioni %}
+              <tr>
+                <td class="small font-monospace">{{ voce.sorgente }}</td>
+                <td class="small font-monospace">{{ voce.destinazione }}</td>
+                <td class="small">{{ voce.porta or '' }}</td>
+                <td class="small">
+                  <span class="badge text-bg-light border">{{ voce.protocollo }}</span>
+                </td>
+                <td class="small text-end fw-semibold">{{ voce.pacchetti }}</td>
+                <td class="small text-end text-body-secondary">{{ voce.byte }}</td>
+                <td class="small text-body-secondary">
+                  {{ voce.dal[11:19] }} &rarr; {{ voce.al[11:19] }}
+                </td>
+                <td class="small">{{ voce.nome or '' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="p-3 small text-body-secondary mb-0">Nessuna conversazione osservata.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  {# --- i nomi --------------------------------------------------------- #}
+  <div class="tab-pane fade" id="nomi" role="tabpanel">
+    <div class="card">
+      <div class="card-header">
+        <span class="small text-body-secondary">
+          I nomi che i protocolli dichiarano in chiaro: query DNS, server del TLS
+          (SNI), Host di HTTP. Sono metadati, non contenuto.
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {% if nomi %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="25">
+            <thead>
+              <tr><th>NOME</th><th class="text-end">RICHIESTE</th>
+                  <th class="text-end">DA QUANTI</th><th>ULTIMA</th></tr>
+            </thead>
+            <tbody>
+              {% for voce in nomi %}
+              <tr>
+                <td class="small">{{ voce.nome }}</td>
+                <td class="small text-end fw-semibold">{{ voce.quante }}</td>
+                <td class="small text-end text-body-secondary">{{ voce.da_quanti }}</td>
+                <td class="small text-body-secondary">{{ voce.ultimo[11:19] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="p-3 small text-body-secondary mb-0">Nessun nome osservato.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="small text-body-secondary mt-3 mb-0">
+  <i class="bi bi-clock-history me-1"></i>
+  Si conservano al massimo <strong>{{ minuti }} minuti</strong> e
+  <strong>{{ righe_massime }} pacchetti</strong>, i piu' recenti. Serve a guardare che
+  cosa sta succedendo adesso, non a tenere un registro di cio' che le persone fanno:
+  spegnendo l'osservazione, questa tabella si svuota del tutto.
+</p>
+{% endblock %}

@@ -68,6 +68,42 @@ def record_type_of(kind: str) -> str | None:
     return tipo if tipo in RECORD_TYPES else None
 
 
+def _mac_locali() -> set:
+    """Gli indirizzi fisici di QUESTA macchina, per non osservare se stessi."""
+    import socket as _socket
+
+    trovati = set()
+    try:
+        import psutil  # non e' una dipendenza della sonda: se c'e', si usa
+    except ImportError:
+        psutil = None
+    if psutil is not None:
+        for indirizzi in psutil.net_if_addrs().values():
+            for voce in indirizzi:
+                if getattr(voce, "family", None) == getattr(psutil, "AF_LINK", None):
+                    trovati.add(str(voce.address).lower().replace("-", ":"))
+        return {m for m in trovati if m and m != "00:00:00:00:00:00"}
+    # Senza psutil resta l'esclusione per indirizzo IP, che copre il caso che conta
+    # (la sonda che scansiona): il MAC serve solo a togliere anche il suo rumore.
+    del _socket
+    return trovati
+
+
+def _ip_locali() -> set:
+    """Gli indirizzi IP di questa macchina."""
+    import socket as _socket
+
+    trovati = set()
+    try:
+        for informazioni in _socket.getaddrinfo(_socket.gethostname(), None):
+            indirizzo = informazioni[4][0]
+            if indirizzo and not indirizzo.startswith("127."):
+                trovati.add(indirizzo)
+    except OSError:
+        pass
+    return trovati
+
+
 class ProbeAgent:
     """Esecutore del ciclo di raccolta e conferimento in un thread dedicato."""
 
@@ -81,6 +117,8 @@ class ProbeAgent:
         # I controlli condividono il runner dello scanner: le esecuzioni di nmap
         # sono cosi' contate e interrompibili insieme alle altre.
         self.checker = CheckRunner(store, self.scanner.runner)
+        # L'osservazione del traffico, quando e' accesa. Si avvia con `start()`.
+        self._cattura = None
         # La ricognizione condivide l'esecutore di nmap dello scanner: le esecuzioni
         # restano contate e interrompibili insieme a tutte le altre.
         self.presence = PresenceWatcher(store, self.scanner)
@@ -137,10 +175,15 @@ class ProbeAgent:
         self._thread = threading.Thread(target=self._run, name="snap-probe-agent", daemon=True)
         self._thread.start()
         self.store.log("info", "Agente avviato (versione %s)" % self.agent_version)
+        # L'osservazione del traffico, se qualcuno l'ha accesa. Dopo il thread
+        # principale: una cattura che non parte non deve impedire alla sonda di
+        # scansionare, che e' il suo mestiere.
+        self.avvia_cattura()
 
     def stop(self) -> None:
         self._stop.set()
         self._wake.set()
+        self.ferma_cattura()
 
     def wake(self) -> None:
         """Sveglia immediatamente il ciclo (usato dai comandi dell'interfaccia)."""
@@ -354,6 +397,10 @@ class ProbeAgent:
         # L'IDS DOPO la scansione e PRIMA del conferimento: guarda cio' che la
         # passata ha appena scoperto, e quello che trova parte con lo stesso lotto.
         # All'inverso, ogni rilevazione arriverebbe al server con un giro di ritardo.
+        # Il travaso dei pacchetti letti PRIMA dell'IDS: cosi' la pagina che li
+        # mostra e' aggiornata anche nei giri in cui il motore non passa (gira ogni
+        # cinque minuti, il ciclo ogni quindici secondi).
+        outcome["traffico"] = self._travasa_traffico()
         outcome["ids"] = self._ids_step()
         outcome["agenti"] = self._accoda_agenti()
         outcome["synced"] = self.flush_queue()
@@ -362,6 +409,93 @@ class ProbeAgent:
     # ------------------------------------------------------------------ #
     # IDS e agenti di macchina
     # ------------------------------------------------------------------ #
+    # ------------------------------------------------------------------ #
+    # Osservazione del traffico
+    # ------------------------------------------------------------------ #
+    def avvia_cattura(self) -> dict:
+        """Accende la cattura, se qualcuno l'ha chiesta.
+
+        Vive nel processo dell'AGENTE e non in quello dell'interfaccia: il motore IDS
+        che ne legge il riassunto gira qui, e far viaggiare i pacchetti fra due
+        processi per poi analizzarli in un terzo posto sarebbe lavoro in piu' per lo
+        stesso risultato.
+
+        Non solleva: una cattura che non parte e' una condizione da DICHIARARE nella
+        pagina dei sensori, non un motivo per non avviare la sonda.
+        """
+        from . import cattura as modulo_cattura
+        from . import ids as modulo_ids
+        from .traffico import Osservatorio
+
+        if self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") != "1":
+            return {"attiva": False, "motivo": "spenta"}
+        interfaccia = (self.store.get_setting(
+            modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA, "") or "").strip()
+        if not interfaccia:
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE,
+                                   "nessuna interfaccia scelta")
+            return {"attiva": False, "motivo": "nessuna interfaccia scelta"}
+
+        # LA SONDA SCANSIONA: i suoi SYN verso mille indirizzi hanno la forma esatta
+        # di una scansione interna. Senza queste esclusioni la prima rilevazione del
+        # sensore sarebbe la sonda che denuncia se stessa.
+        osservatorio = Osservatorio(escludi_mac=_mac_locali(),
+                                    escludi_ip=_ip_locali())
+        filtro = self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_FILTRO, "") or None
+        presa = modulo_cattura.Cattura(interfaccia, osservatorio.osserva, filtro)
+        presa.osservatorio = osservatorio
+        try:
+            presa.avvia()
+        except modulo_cattura.ErroreCattura as errore:
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, str(errore)[:300])
+            self.store.log("warning", "Cattura del traffico non avviata: %s" % errore)
+            return {"attiva": False, "motivo": str(errore)}
+
+        modulo_ids.imposta_cattura(presa)
+        self._cattura = presa
+        self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, "")
+        self.store.log("info", "Osservazione del traffico avviata su %s" % interfaccia)
+        return {"attiva": True, "interfaccia": interfaccia}
+
+    def ferma_cattura(self) -> None:
+        from . import ids as modulo_ids
+
+        presa = getattr(self, "_cattura", None)
+        if presa is not None:
+            presa.ferma()
+            # NON RESTA NIENTE. Chi spegne un'osservazione sul traffico si aspetta
+            # questo, e sarebbe una sorpresa sgradevole trovare venti minuti di
+            # pacchetti ancora li' dentro.
+            self.store.traffico_svuota()
+            self.store.log("info", "Osservazione del traffico fermata,"
+                                   " pacchetti conservati cancellati")
+        self._cattura = None
+        modulo_ids.imposta_cattura(None)
+
+    def _travasa_traffico(self) -> int:
+        """Porta nell'archivio i pacchetti letti, perche' la pagina possa mostrarli.
+
+        L'anello vive qui, nel processo dell'agente; la pagina gira nell'altro. Senza
+        questo travaso non ci sarebbe modo di guardare che cosa passa -- e un sensore
+        che produce solo rilevazioni, senza far vedere su che cosa lavora, si usa una
+        volta e poi non si accende piu'.
+        """
+        presa = getattr(self, "_cattura", None)
+        osservatorio = getattr(presa, "osservatorio", None) if presa else None
+        if osservatorio is None:
+            return 0
+        righe = osservatorio.preleva_registro()
+        if not righe:
+            return 0
+        try:
+            return self.store.traffico_scrivi(righe)
+        except Exception as errore:  # noqa: BLE001 - non deve fermare il ciclo
+            # Se l'archivio non accetta le righe, si perde la VISTA, non la
+            # rilevazione: il motore IDS lavora sul riassunto, che passa da un'altra
+            # strada. Si dichiara e si va avanti.
+            self.store.log("warning", "Pacchetti non travasati: %s" % errore)
+            return 0
+
     def _ids_step(self) -> dict | None:
         """Esegue il motore di rilevazione, se e' scaduta la sua cadenza.
 

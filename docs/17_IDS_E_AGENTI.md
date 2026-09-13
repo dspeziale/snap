@@ -6,7 +6,7 @@
 | | |
 |---|---|
 | Documento | Rilevazione delle intrusioni (IDS) e agenti di macchina |
-| Versione documentata | console 1.8.0, sonda 1.3.0, agente 1.2.2 |
+| Versione documentata | console 1.8.6, sonda 1.3.4, agente 1.2.2 |
 | Conformità | ISO/IEC/IEEE 29148:2018 (§1 scopo, §2 riferimenti, §3 requisiti), NIS2 art. 21, CRA all. I |
 | Aggiornato | 2026-09-13 |
 
@@ -34,15 +34,19 @@ porta 4444 aperta vista dalla rete è una porta aperta; vista dall'agente è
 agenti vedono adesso con ciò che era normale prima, e applica un catalogo di regole
 dichiarate.
 
-**Non è** un NIDS che ispeziona il traffico: non vede i pacchetti, quindi non
-riconosce un exploit nel payload, un canale di comando cifrato o un'esfiltrazione.
+**Vede anche il traffico**, da quando esiste il sensore `traffico` (§4.3), ma di esso
+legge **le intestazioni e i nomi dichiarati in chiaro** — chi parla con chi, con quale
+protocollo, con che ritmo, verso quale dominio — e **mai il contenuto**: si catturano
+poche centinaia di byte per pacchetto e se ne estraggono quei campi.
+
+**Non è** quindi un sistema a firme sul payload: non riconosce un exploit dal suo
+contenuto, né legge dentro un canale cifrato. Riconosce invece cose che il payload non
+direbbe comunque — un avvelenamento ARP, un DHCP abusivo, un ritmo da orologio verso
+l'esterno — e lo fa senza aprire ciò che le persone scrivono.
 
 Questo limite è **dichiarato in ogni pagina** che mostra rilevazioni. Un prodotto che
 lasciasse credere il contrario sarebbe peggio di uno che non rileva niente: darebbe
 una sicurezza che non ha.
-
-**L'architettura però non lo esclude.** I sensori sono innestabili (§4.2): aggiungere
-un sensore di traffico domani significa scrivere una classe, non rifare il motore.
 
 ---
 
@@ -73,6 +77,12 @@ un sensore di traffico domani significa scrivere una classe, non rifare il motor
 | AG-09 | Gli **elenchi** stanno nell'inventario, i **numeri** nelle misure | Le porte in ascolto pesavano 4,4 kB al minuto per ripetere lo stesso elenco. Il conteggio resta nelle misure -- e' una serie, e costa quattro byte -- e l'elenco viaggia con l'inventario, che pero' parte **subito** se quell'elenco cambia: una porta nuova non aspetta l'ora |
 | AG-10 | L'agente si installa da un **pacchetto** generato dalla console della sonda, e il pacchetto e' **una credenziale per una macchina** | Le tre righe da copiare funzionano quando chi installa ha il repository sottomano; su venti macchine diventano un messaggio inoltrato con un token dentro. Il token resta a uso singolo: una credenziale condivisa fra venti macchine non si potrebbe revocare per una sola |
 | AG-11 | Dentro un container, un gruppo o legge la **macchina** o si **dichiara** | Trovato provando il container sul serio: `software` elencava gli 87 pacchetti dell'immagine Debian e `aggiornamenti` interrogava l'apt del container. Due dati esatti e falsi -- il modo peggiore di sbagliare, perche' nessuna pagina avrebbe mostrato un'anomalia |
+| IDS-07 | Il sensore del traffico usa libpcap/Npcap via `ctypes`, **senza dipendenze nuove** | `scapy` e' GPLv2 su un prodotto MIT; `pypcap` e `pcapy-ng` vanno compilate. La C API di libpcap e' stabile da vent'anni e il collegamento sta in duecento righe. Npcap di norma e' gia' installato, perche' lo porta nmap |
+| IDS-08 | Del traffico si leggono **intestazioni e nomi in chiaro**, mai il contenuto | I nomi (DNS, SNI, Host) sono cio' che permette di riconoscere un tunnel o un dominio di comando senza aprire un byte di payload. Leggere il contenuto sarebbe un'intercettazione: base giuridica diversa, informativa diversa, e verosimilmente accordo sindacale (art. 4 Stat. lav.) |
+| IDS-09 | Il sensore nasce **spento** e si accende dichiarando l'interfaccia | Riguarda il traffico di persone. Un valore predefinito acceso avrebbe fatto cominciare un trattamento senza che nessuno lo decidesse |
+| IDS-10 | La sonda **esclude se stessa** dall'osservazione | Scansiona per mestiere: i suoi SYN hanno la forma di una scansione interna, e la prima rilevazione sarebbe la sonda che denuncia se stessa |
+| IDS-11 | I pacchetti gia' letti si conservano per **venti minuti e ventimila righe**, e si cancellano spegnendo l'osservazione | Un sensore che non fa vedere su che cosa lavora si accende una volta e non si accende piu'. Ma conservare e' un passo diverso dal contare: la finestra e' di minuti, i limiti sono due (il tempo non basta su una rete attiva, il numero non basta su una rete quieta) e spegnendo non resta niente |
+| IDS-12 | Il traffico della sonda si **vede** nell'elenco ma non diventa mai un **fatto** per le regole | Le due cose erano confuse: l'esclusione scartava i pacchetti prima di decodificarli, e nell'elenco comparivano centotrentasette righe mezze vuote. Escludere serve a non far denunciare la sonda dalle regole, non a renderla illeggibile |
 | AG-01 | L'agente **apre lui** la connessione verso la sonda | Stessa regola della sonda verso il server: una macchina in una rete di utenza non è raggiungibile, e non deve esserlo |
 | AG-02 | L'agente si autentica con una **chiave propria**, emessa alla registrazione, e firma ogni invio (HMAC-SHA256 con marca temporale e nonce) | Senza firma, chiunque sulla rete potrebbe iniettare metriche false e far scattare o tacere le regole |
 | AG-03 | L'agente **non riceve comandi** in questa versione: riceve solo la propria configurazione nella risposta | Un agente che esegue comandi è un canale di esecuzione remota su ogni macchina sorvegliata: si aggiunge quando serve davvero, con la stessa cura del protocollo delle sonde |
@@ -144,11 +154,157 @@ ottenuta.
 |---|---|---|
 | `inventario` | attivo | nodi, porte, MAC, ARP letto in SNMP, presenze senza fili, letture SMB — tutto ciò che la sonda già raccoglie |
 | `agenti` | attivo | accessi, processi in ascolto, utenti, servizi, metriche fuori soglia riferiti dalle macchine |
-| `traffico` | **predisposto** | pacchetti (ARP, DNS, connessioni). Richiede libpcap/Npcap e privilegi: si abilita quando quella dipendenza viene accettata |
+| `traffico` | **spento finché non si accende** | intestazioni dei pacchetti e nomi in chiaro (DNS, SNI, Host). Nessuna dipendenza nuova: usa libpcap/Npcap via `ctypes` (§4.3) |
 
 Un sensore non disponibile **si dichiara nella pagina dei sensori**: chi guarda deve
 sapere che cosa non è stato guardato, e che lo zero di quel sensore non è un "tutto a
 posto".
+
+---
+
+### 4.3 Il sensore del traffico
+
+**Nasce spento.** Non per prudenza formale: la cattura vede il traffico di chi lavora
+su quella rete. Si accende dalla *Configurazione* della sonda, scegliendo
+l'interfaccia, e la pagina dichiara che cosa legge e che cosa non legge mai prima
+dell'interruttore, non dopo.
+
+#### Senza dipendenze nuove
+
+libpcap (Npcap su Windows) espone da vent'anni una C API stabile di cinque funzioni, e
+`ctypes` è nella libreria standard: il collegamento sta in duecento righe
+(`cattura.py`) e non aggiunge nulla al `requirements.txt`.
+
+| Alternativa | Perché no |
+|---|---|
+| `scapy` | GPLv2 su un prodotto MIT, e porta un dissezionatore universale dove servono quattro intestazioni |
+| `pypcap`, `pcapy-ng` | licenza buona, ma vanno compilate: su Windows significa una toolchain sulla macchina del cliente |
+| `dpkt` | ottimo per analizzare, non cattura |
+
+**Npcap di norma c'è già**: lo installa nmap, che la sonda richiede. Nel contenitore i
+privilegi ci sono già anche loro (`NET_RAW`, `NET_ADMIN`, concessi per nmap).
+
+#### Che cosa si legge, e che cosa no
+
+| Si legge | Non si legge mai |
+|---|---|
+| intestazioni Ethernet, ARP, IP, TCP, UDP | il contenuto dei pacchetti |
+| il dominio di una query DNS | il corpo delle risposte |
+| il nome del server nel TLS (SNI) | nulla del flusso cifrato oltre quel nome |
+| l'intestazione `Host` di HTTP | il resto della richiesta |
+
+Si catturano **512 byte** per pacchetto, non il pacchetto intero: il resto non entra
+nella memoria del processo. Nell'osservatorio finiscono **fatti derivati** — conteggi,
+insiemi di nomi, istanti — mai i byte. Un test lo verifica mettendo un segreto dentro
+un payload e cercandolo in tutto il riassunto.
+
+Il **filtro BPF** (la sintassi di tcpdump) gira dentro il kernel: ciò che esclude non
+arriva nemmeno al processo. Quello predefinito prende ARP, DHCP, i protocolli dei
+nomi, il DNS e l'apertura delle connessioni.
+
+#### Con e senza porta mirror
+
+Su uno switch alla sonda arriva il traffico diretto a lei più **tutto il broadcast**.
+Sembra poco ed è invece dove vivono gli attacchi di segmento. Misurato su una rete
+reale, venti secondi di ascolto senza alcuna porta mirror:
+
+```
+2577 pacchetti      16 schede di rete distinte sul segmento
+32 ARP broadcast    1 DHCP    2 mDNS
+```
+
+| Serve la porta mirror? | Regole |
+|---|---|
+| No, basta il broadcast | `ARP-AVVELENAMENTO`, `ARP-RAFFICA`, `DHCP-ABUSIVO`, `NOME-AVVELENATO`, `MAC-NUOVO-SUL-FILO` |
+| Sì | `SCANSIONE-INTERNA`, `BEACONING`, `DNS-ANOMALO`, `HTTP-IN-CHIARO` (per il traffico di altri) |
+
+La pagina dei sensori dichiara quale dei due casi si sta osservando: le regole che non
+possono scattare non devono sembrare regole che non hanno trovato niente.
+
+#### La sonda non si denuncia da sola
+
+La sonda scansiona per mestiere: i suoi SYN verso mille indirizzi hanno la forma
+esatta di una `SCANSIONE-INTERNA`. I suoi indirizzi — MAC e IP — sono **esclusi
+dall'osservatorio**, e un test lo verifica. Senza, la prima rilevazione del sensore
+sarebbe la sonda che segnala sé stessa: il genere di falso positivo che fa spegnere un
+prodotto.
+
+Per la stessa ragione `BEACONING` pretende che la destinazione sia **fuori dal
+perimetro dichiarato**: dentro la rete tutto è regolare — il monitoraggio, i backup,
+la sonda — e senza quel filtro la regola segnalerebbe l'infrastruttura del cliente.
+
+#### Riconoscere un nome che trasporta dati
+
+Il primo tentativo usava l'**entropia di Shannon**. Misurata su nomi veri, non
+distingue niente: su un'etichetta corta l'entropia conta in pratica quanti caratteri
+distinti ci sono, che per una parola breve è quasi la lunghezza.
+
+| Etichetta | Entropia | Vocali |
+|---|---|---|
+| `sharepoint` (vera) | 3,32 | 0,40 |
+| `xk4mz9qp7wv2` (generata) | 3,58 | 0,00 |
+
+Due cose completamente diverse a due decimi l'una dall'altra. La misura che le separa
+è la **pronunciabilità**: un nome scritto da una persona ha vocali, una stringa
+codificata no. Si giudica solo da dodici caratteri in su, perché le sigle corte senza
+vocali (`srv`, `ns1`, `vpn`) sono normali. Provata su dodici nomi veri presi dalla
+cattura: nessun falso positivo.
+
+#### I tetti
+
+Ogni contenitore dell'osservatorio ha un massimo, e superarlo si **dichiara**. Non è
+prudenza generica: un osservatorio che cresce con il traffico si riempie da solo
+quando qualcuno manda rumore, e riempire la memoria della sonda è un modo economico
+per farla smettere di guardare — la prima cosa che farebbe chi sa che c'è.
+
+### 4.4 Guardare i pacchetti
+
+Un sensore che produce rilevazioni senza far vedere su che cosa lavora si accende una
+volta e poi non si accende più. La console della sonda ha una pagina **Pacchetti** con
+tre modi di guardare la stessa finestra, perché sono tre domande diverse.
+
+| Scheda | Risponde a | Contiene |
+|---|---|---|
+| **Pacchetti** | che cosa passa | istante, protocollo, indirizzi, porte, bandiere TCP, byte, e il nome se il protocollo lo dichiara. L'ARP è tradotto: *«chi ha 10.20.10.41? lo chiede 10.20.10.1»* |
+| **Chi parla con chi** | chi sta parlando | le conversazioni aggregate: sorgente, destinazione, porta, quanti pacchetti, quanti byte, per quanto tempo |
+| **Nomi richiesti** | dove si sta andando | i domini, con quante volte e da quante macchine diverse |
+
+Si cerca per indirizzo, MAC o nome, e si filtra per protocollo.
+
+#### Perché i pacchetti passano dall'archivio
+
+La cattura vive nel processo dell'**agente di raccolta**; la pagina gira in quello
+dell'**interfaccia**. Sono due processi, e l'unica cosa che condividono è l'archivio:
+l'anello di memoria dei pacchetti già letti viene travasato lì a ogni giro del ciclo
+(quindici secondi), non a ogni passata dell'IDS — altrimenti la pagina si aggiornerebbe
+una volta ogni cinque minuti.
+
+#### La ritenzione più stretta di tutto il prodotto
+
+| | |
+|---|---|
+| Quanto a lungo | **20 minuti** |
+| Quanti pacchetti | **20.000**, i più recenti |
+| Allo spegnimento | la tabella si **svuota del tutto** |
+
+Due limiti e non uno: il tempo da solo non basta su una rete molto attiva (un minuto
+può valere centomila righe), il numero da solo non basta su una rete quieta (mille
+righe possono coprire un giorno, ed è esattamente ciò che non si vuole conservare).
+
+Serve a **guardare che cosa sta succedendo adesso**, non a tenere un registro di ciò
+che le persone fanno. E ciò che si conserva sono i **campi**, mai i byte: vale qui la
+stessa regola di §4.3, verificata da un test che mette un segreto dentro un payload e
+lo cerca in tutto ciò che finisce nell'archivio.
+
+#### Tre difetti trovati guardando la pagina
+
+Non ragionandoci sopra: aprendola con i pacchetti veri di una rete.
+
+| Cosa si vedeva | Perché | Come si è corretto |
+|---|---|---|
+| 137 righe con protocollo «?» | erano i pacchetti della sonda stessa: l'esclusione li scartava **prima** di decodificarli | una regola sola: il traffico della sonda **si vede** ma non diventa mai un fatto per le regole |
+| colonna dei nomi vuota, con 12 pacchetti DNS visti | si leggeva il nome solo dalle **domande**; in una risposta la porta 53 è quella di origine | il nome si legge da entrambe, e nelle statistiche del tunnel entra solo la domanda — contarle tutte e due raddoppierebbe ogni conteggio |
+| TLS e HTTP senza nome nelle risposte | il controllo era sulla porta di **destinazione**, che in una risposta è quella effimera del client | si guardano entrambe le porte |
 
 ---
 
@@ -312,6 +468,11 @@ rete, porte e processi. Per l'inventario completo l'installazione nativa vede tu
 | SR-311 | L'agente non deve accettare comandi dalla sonda |
 | SR-312 | L'agente deve accumulare e ritrasmettere quando la sonda non risponde |
 | SR-312-bis | Un evento che descrive una condizione persistente non deve essere ripetuto a ogni invio: si riferisce al cambiamento di stato e si riarma a intervallo dichiarato |
+| SR-305-bis | La console della sonda deve permettere di consultare i pacchetti gia' letti, le conversazioni e i nomi richiesti, con ricerca e filtro |
+| SR-306 | Il sensore del traffico deve essere disattivato per difetto e attivabile dichiarando l'interfaccia osservata |
+| SR-307 | Del traffico non deve essere conservato ne' trasmesso alcun byte di payload: solo fatti derivati dalle intestazioni e dai nomi in chiaro |
+| SR-308 | Il traffico generato dalla sonda stessa deve essere escluso dall'osservazione |
+| SR-309 | Ogni contenitore dell'osservatorio deve avere un limite superiore, e il superamento deve essere dichiarato |
 | SR-315 | La raccolta deve essere divisa in gruppi dichiarati, attivabili singolarmente, e i gruppi disattivati devono essere comunicati alla sonda |
 | SR-316 | L'interfaccia di scelta dell'agente non deve richiedere alcuna porta in ascolto sulla macchina sorvegliata |
 | SR-317 | Le misure e l'inventario devono viaggiare separati, con cadenze proprie; l'inventario deve essere conservato come stato e sovrascritto |
@@ -477,8 +638,11 @@ punto è. Dopo dodici ore l'avviso sparisce da solo.
 
 ## 10. Limiti dichiarati
 
-- Nessuna ispezione del traffico (§1.1): niente firme su payload, C2 cifrato,
-  esfiltrazione.
+- Nessuna ispezione del **contenuto** (§4.3): niente firme su payload. Un exploit
+  riconoscibile solo dai byte che trasporta non viene visto; un canale di comando si
+  riconosce dal ritmo e dal nome, non da ciò che dice.
+- Senza porta mirror si vede il broadcast e il traffico diretto alla sonda: bastano
+  per gli attacchi di segmento, non per le conversazioni fra altri.
 - Il sensore d'inventario vede quanto spesso la sonda guarda: fra due passate un
   cambiamento passa inosservato. Le cadenze sono dichiarate nella console.
 - L'agente vede una macchina sola: una compromissione che non tocca né i suoi processi

@@ -234,8 +234,8 @@ def _register_csrf(app: Flask) -> None:
         # utile e' riportare l'utente dove si trovava, con un token nuovo.
         if request.endpoint in {"auth.login", "auth.mfa_challenge"}:
             flash(
-                "La pagina era aperta da troppo tempo e il token di sicurezza e'"
-                " scaduto: ripetere l'inserimento delle credenziali.",
+                "Il token di sicurezza non e' stato accettato: ripetere"
+                " l'inserimento delle credenziali.",
                 "warning",
             )
             return redirect(url_for("auth.login")), 303
@@ -243,8 +243,14 @@ def _register_csrf(app: Flask) -> None:
         destinazione = _safe_referrer()
         if destinazione:
             flash(
-                "La pagina era aperta da troppo tempo e il token di sicurezza e'"
-                " scaduto: nessuna modifica applicata, ripetere l'operazione.",
+                # NON si dichiara la causa che non si conosce: il token puo'
+                # mancare per almeno tre motivi, e indicarne uno solo manda a
+                # cercare dalla parte sbagliata.
+                "Il token di sicurezza non e' stato accettato: nessuna modifica"
+                " applicata. Puo' succedere se la pagina e' rimasta aperta a lungo,"
+                " se si e' usciti e rientrati in un'altra scheda, oppure se il"
+                " browser non conserva i cookie di questo indirizzo. Ripetere"
+                " l'operazione.",
                 "warning",
             )
             return redirect(destinazione), 303

@@ -62,6 +62,20 @@ REGOLE = {
     "UTENTE-NUOVO": ("Utenza nuova o promossa", "alta", "T1136"),
     "SICUREZZA-FERMA": ("Protezione disattivata", "critica", "T1562"),
     "ASCOLTO-NUOVO": ("Processo nuovo in ascolto", "alta", "T1571"),
+    # Dal filo (sensore `traffico`): sono le uniche che vedono un attacco che non
+    # lascia traccia su nessun host.
+    "ARP-AVVELENAMENTO": ("Un indirizzo rivendicato da due schede", "critica",
+                          "T1557.002"),
+    "ARP-RAFFICA": ("Raffica di annunci ARP", "alta", "T1557.002"),
+    "DHCP-ABUSIVO": ("Un server DHCP che non dovrebbe esserci", "critica", "T1557"),
+    "NOME-AVVELENATO": ("Qualcuno risponde a nomi che non sono suoi", "alta",
+                        "T1557.001"),
+    "MAC-NUOVO-SUL-FILO": ("Una scheda di rete mai vista sul segmento", "media",
+                           "T1200"),
+    "SCANSIONE-INTERNA": ("Qualcuno sta scansionando dall'interno", "alta", "T1046"),
+    "BEACONING": ("Qualcuno chiama casa a orologeria", "alta", "T1071"),
+    "DNS-ANOMALO": ("Nomi che sembrano trasportare dati", "alta", "T1071.004"),
+    "HTTP-IN-CHIARO": ("Traffico HTTP non cifrato", "bassa", "T1040"),
 }
 
 SENSORI = (
@@ -71,11 +85,15 @@ SENSORI = (
     {"codice": "agenti", "nome": "Agenti di macchina",
      "descrizione": "Accessi, utenze, servizi di sicurezza e processi in ascolto"
                     " riferiti dalle macchine su cui l'agente e' installato."},
+    # NON piu' "predisposto": esiste e funziona, ma nasce SPENTO. La differenza
+    # conta per chi legge la pagina -- "predisposto" significa "non c'e' ancora",
+    # "spento" significa "c'e', e qualcuno deve decidere di accenderlo".
     {"codice": "traffico", "nome": "Osservazione del traffico",
-     "descrizione": "Ispezione dei pacchetti. Richiede libpcap/Npcap, privilegi di"
-                    " amministratore e una porta mirror: si abilita quando quelle"
-                    " condizioni esistono.",
-     "predisposto": True},
+     "descrizione": "Intestazioni dei pacchetti e nomi dichiarati in chiaro (DNS,"
+                    " SNI, Host HTTP). Riconosce avvelenamento ARP, DHCP abusivo,"
+                    " avvelenamento dei nomi, scansioni interne, beaconing e tunnel"
+                    " DNS. Non legge il contenuto. Si accende dalla Configurazione"
+                    " della sonda, scegliendo l'interfaccia."},
 )
 
 

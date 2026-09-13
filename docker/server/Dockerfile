@@ -10,7 +10,7 @@
 # prescrive l'architettura del progetto.
 #
 # Contesto di build: la RADICE del repository (serve `server/`), non questa cartella:
-#   docker build -f docker/server/Dockerfile -t snap-server:1.8.0 .
+#   docker build -f docker/server/Dockerfile -t snap-server:1.8.6 .
 
 # Stessa versione minore usata in sviluppo (3.13), per non scoprire in esercizio
 # differenze che in sviluppo non si vedono.

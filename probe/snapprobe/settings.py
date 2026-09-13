@@ -115,7 +115,7 @@ class Config:
     # come base tutto cio' che la sonda sa fare oggi. Il protocollo fra le due parti
     # non dipende da questi numeri: lo governa la versione dell'agente dichiarata nel
     # battito (vedi client.py).
-    APP_VERSION = "1.3.0"
+    APP_VERSION = "1.3.4"
     APP_SUBTITLE = "Sonda di raccolta - canale cifrato SNAP-SEC/1"
     # Vedi la nota omonima nel server: distingue le due interfacce, che ora hanno la
     # stessa struttura. Un solo valore per il marchio e per il piede.

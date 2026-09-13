@@ -258,6 +258,7 @@ def configuration():
     store = _store()
     return render_template(
         "configuration.html",
+        traffico=_stato_traffico(),
         status=_agent().status(),
         options=store.get_json("server_options", {}) or {},
         queue=store.queue_preview(40),
@@ -298,6 +299,138 @@ def save_configuration():
     )
     store.log("info", "Configurazione locale aggiornata (intervallo %d s)" % interval)
     flash("Configurazione locale salvata.", "success")
+    return redirect(url_for("probe.configuration"))
+
+
+@bp.get("/pacchetti")
+def pacchetti():
+    """Che cosa sta passando sul filo, adesso.
+
+    E' la pagina che mancava: il sensore produceva rilevazioni senza far vedere su che
+    cosa lavorava, e un sensore cosi' si accende una volta e non si accende piu'. Qui
+    si guardano i pacchetti gia' letti -- i loro campi -- si cerca dentro, e si vede
+    chi parla con chi.
+
+    Quello che NON c'e', e non perche' sia stato tolto: il contenuto. Non e' mai stato
+    letto (vedi `traffico.py`), quindi non c'e' niente da nascondere qui.
+    """
+    from . import ids as modulo_ids
+
+    store = _store()
+    cerca = (request.args.get("cerca") or "").strip()[:80]
+    protocollo = (request.args.get("protocollo") or "").strip()[:20]
+    return render_template(
+        "pacchetti.html",
+        attiva=store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") == "1",
+        traffico=_stato_traffico(),
+        riepilogo=store.traffico_riepilogo(),
+        pacchetti=store.traffico_pacchetti(limite=800, cerca=cerca,
+                                           protocollo=protocollo),
+        conversazioni=store.traffico_conversazioni(limite=120),
+        nomi=store.traffico_nomi(limite=120),
+        cerca=cerca,
+        protocollo=protocollo,
+        minuti=store.TRAFFICO_MINUTI,
+        righe_massime=store.TRAFFICO_RIGHE_MASSIME,
+    )
+
+
+@bp.get("/pacchetti.json")
+def pacchetti_json():
+    """Gli ultimi pacchetti, per l'aggiornamento della pagina senza ricaricarla.
+
+    Stessa forma della pagina: la verita' sta qui, il client la disegna soltanto.
+    """
+    store = _store()
+    cerca = (request.args.get("cerca") or "").strip()[:80]
+    protocollo = (request.args.get("protocollo") or "").strip()[:20]
+    return jsonify({
+        "riepilogo": store.traffico_riepilogo(),
+        "pacchetti": store.traffico_pacchetti(limite=200, cerca=cerca,
+                                              protocollo=protocollo),
+    })
+
+
+def _stato_traffico() -> dict:
+    """Che cosa mostrare nella scheda dell'osservazione del traffico.
+
+    Le interfacce si chiedono alla libreria a ogni apertura della pagina e non si
+    conservano: cambiano quando si attacca una scheda, e un elenco vecchio farebbe
+    scegliere un'interfaccia che non c'e' piu'.
+    """
+    from . import cattura as modulo_cattura
+    from . import ids as modulo_ids
+
+    store = _store()
+    assenza = modulo_cattura.motivo_assenza()
+    elenco = []
+    if not assenza:
+        try:
+            elenco = [i for i in modulo_cattura.interfacce() if not i["loopback"]]
+        except modulo_cattura.ErroreCattura as errore:
+            assenza = str(errore)
+
+    agente = current_app.extensions.get("snap_agent")
+    presa = getattr(agente, "_cattura", None) if agente is not None else None
+    return {
+        "possibile": not assenza,
+        "motivo": assenza,
+        "interfacce": elenco,
+        "attiva": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") == "1",
+        "interfaccia": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA, ""),
+        "filtro": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_FILTRO, ""),
+        "filtro_predefinito": modulo_cattura.FILTRO_PREDEFINITO,
+        "errore": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, ""),
+        "stato": presa.stato() if presa is not None else None,
+    }
+
+
+@bp.post("/traffico")
+def save_traffico():
+    """Accende o spegne l'osservazione del traffico, e dice su che cosa.
+
+    E' l'unica impostazione della sonda che riguarda il traffico di PERSONE, e per
+    questo non ha un valore predefinito acceso: chi la accende lo fa sapendo che cosa
+    viene letto (intestazioni e nomi in chiaro) e che cosa no (il contenuto). La
+    scelta finisce nel diario con l'interfaccia, perche' fra un mese si deve poter
+    sapere da quando quella rete e' osservata.
+    """
+    from . import ids as modulo_ids
+
+    store = _store()
+    attiva = bool(request.form.get("traffico_attivo"))
+    interfaccia = (request.form.get("traffico_interfaccia") or "").strip()
+    filtro = (request.form.get("traffico_filtro") or "").strip()
+
+    if attiva and not interfaccia:
+        flash("Per osservare il traffico serve scegliere un'interfaccia.", "warning")
+        return redirect(url_for("probe.configuration"))
+
+    store.set_settings({
+        modulo_ids.CHIAVE_TRAFFICO_ATTIVO: "1" if attiva else "0",
+        modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA: interfaccia,
+        modulo_ids.CHIAVE_TRAFFICO_FILTRO: filtro,
+    })
+
+    # Si applica SUBITO, non al riavvio: chi spegne un'osservazione sul traffico si
+    # aspetta che smetta adesso, non fra un'ora.
+    agente = current_app.extensions.get("snap_agent")
+    esito = {}
+    if agente is not None:
+        agente.ferma_cattura()
+        if attiva:
+            esito = agente.avvia_cattura()
+
+    store.log("info", "Osservazione del traffico %s%s"
+              % ("attivata su %s" % interfaccia if attiva else "disattivata",
+                 "" if esito.get("attiva", not attiva) else " (non avviata)"))
+    if attiva and not esito.get("attiva"):
+        flash("Osservazione salvata ma non avviata: %s"
+              % esito.get("motivo", "motivo non dichiarato"), "warning")
+    elif attiva:
+        flash("Osservazione del traffico attiva su %s." % interfaccia, "success")
+    else:
+        flash("Osservazione del traffico disattivata.", "success")
     return redirect(url_for("probe.configuration"))
 
 

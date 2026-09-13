@@ -62,6 +62,7 @@ python snap_agent.py servizio</code></pre>
            macchine con lo stesso pacchetto non funzionerebbero, e una credenziale
            condivisa fra venti macchine non si potrebbe revocare per una sola. #}
         <form method="post" action="{{ url_for('probe.agenti_pacchetto') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-2">
             <label class="form-label small" for="etichetta">
               Per quale macchina (facoltativo)
@@ -107,6 +108,7 @@ python snap_agent.py servizio</code></pre>
             Per chi ha gia' l'agente sulla macchina e vuole solo registrarla di nuovo.
           </p>
           <form method="post" action="{{ url_for('probe.agenti_token') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="etichetta" value="">
             <button class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-key me-1"></i> Emetti un token
@@ -157,6 +159,7 @@ python snap_agent.py servizio</code></pre>
                   <form method="post"
                         action="{{ url_for('probe.agenti_revoca', agent_uid=macchina.agent_uid) }}"
                         data-conferma="Revocare {{ macchina.hostname }}? I suoi invii verranno respinti.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-sm btn-outline-danger">revoca</button>
                   </form>
                   {% endif %}

@@ -21,6 +21,78 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.8.6",
+        "date": "2026-09-13",
+        "abstract": "La guida operativa dice la verita' sul traffico: il prodotto ora"
+                    " lo osserva, e la sezione 22.1 spiega che cosa legge, che cosa"
+                    " non legge mai, se serve una porta mirror e come guardare i"
+                    " pacchetti.",
+        "changes": [
+            "IL LIMITE DICHIARATO IN CIMA ALLA GUIDA ERA RIMASTO INDIETRO. Diceva"
+            " ancora \"non ispeziona il traffico\", e non era piu' vero: il prodotto"
+            " lo osserva, ma ne legge le intestazioni e i nomi in chiaro -- mai il"
+            " contenuto. Un limite dichiarato in modo sbagliato e' peggio di un limite"
+            " taciuto: chi legge si regola su quello.",
+            "Sezione 22.1 nuova: la tabella di cio' che si legge e di cio' che non si"
+            " legge mai, i 512 byte per pacchetto, la risposta alla domanda \"serve"
+            " una porta mirror?\" con i numeri misurati su una rete reale (venti"
+            " secondi, sedici schede viste senza alcuna mirror), le tre schede della"
+            " pagina Pacchetti e la ritenzione di venti minuti.",
+            "L'avviso sul trattamento di dati personali sta nella guida come sta nella"
+            " pagina di Configurazione: registrare quali nomi vengono richiesti va"
+            " dichiarato nel registro dei trattamenti e concordato con chi lavora su"
+            " quella rete.",
+            "La sonda resta alla 1.3.4: da quella versione non ha una riga di codice"
+            " diversa, e un numero che avanza senza niente dietro rende il changelog"
+            " inutile proprio a chi lo consulta per sapere quando una cosa e'"
+            " cambiata.",
+        ],
+    },
+    {
+        "version": "1.8.4",
+        "date": "2026-09-13",
+        "abstract": "Correzione: quattro moduli della console della sonda -- i tre"
+                    " della pagina Agenti e quello dell'osservazione del traffico --"
+                    " non avevano il token anti-CSRF e non potevano funzionare. E il"
+                    " messaggio di errore incolpava una causa che spesso non era"
+                    " quella.",
+        "changes": [
+            "IL MESSAGGIO NON DICHIARA PIU' UNA CAUSA CHE NON CONOSCE. Diceva \"la"
+            " pagina era aperta da troppo tempo e il token e' scaduto\" come se fosse"
+            " accertato; e' stato smentito da chi lo leggeva un minuto dopo aver"
+            " inserito la password. Adesso dice che cosa e' successo -- niente e'"
+            " stato applicato -- ed elenca i motivi possibili senza sceglierne uno.",
+            "Un test nuovo verifica che ogni modulo POST dei modelli, su ENTRAMBI gli"
+            " applicativi, porti il proprio token. Il controllo e' sui modelli e non"
+            " sulle risposte per una ragione precisa: nei test la protezione CSRF e'"
+            " disattivata -- giustamente -- e dodici prove sulle rotte passavano su"
+            " moduli che nel browser non funzionavano.",
+        ],
+    },
+    {
+        "version": "1.8.2",
+        "date": "2026-09-13",
+        "abstract": "Il sensore del traffico non e' piu' \"predisposto\": esiste,"
+                    " funziona e porta nove regole nuove. La pagina delle regole ne"
+                    " conta ventuno, e distingue un sensore SPENTO -- che qualcuno"
+                    " deve accendere -- da uno che non c'e' ancora.",
+        "changes": [
+            "NOVE REGOLE NUOVE nel catalogo, dal sensore del traffico: avvelenamento"
+            " ARP (T1557.002), raffica di annunci ARP, DHCP abusivo (T1557),"
+            " avvelenamento dei nomi LLMNR/NBNS (T1557.001), scheda di rete mai vista"
+            " sul segmento (T1200), scansione interna (T1046), beaconing (T1071),"
+            " nomi che trasportano dati (T1071.004), HTTP in chiaro (T1040).",
+            "IL SENSORE DEL TRAFFICO E' \"SPENTO\", NON PIU' \"PREDISPOSTO\". La"
+            " differenza conta per chi legge la pagina: predisposto significa \"non"
+            " c'e' ancora\", spento significa \"c'e', e qualcuno deve decidere di"
+            " accenderlo\". Si accende dalla Configurazione della sonda.",
+            "Il limite dichiarato in cima alle pagine e' cambiato di conseguenza: il"
+            " prodotto ora vede il traffico, ma ne legge le intestazioni e i nomi in"
+            " chiaro -- mai il contenuto. Un exploit riconoscibile solo dai byte che"
+            " trasporta continua a non essere visto, e la pagina continua a dirlo.",
+        ],
+    },
+    {
         "version": "1.8.0",
         "date": "2026-09-13",
         "abstract": "L'agente di macchina si installa da un PACCHETTO pronto -- Windows,"

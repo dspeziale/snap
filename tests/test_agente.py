@@ -357,6 +357,60 @@ def test_evento_senza_genere_o_messaggio_viene_scartato(probe_app, archivio):
 
 
 # --------------------------------------------------------------------------- #
+# La pagina dei pacchetti
+# --------------------------------------------------------------------------- #
+def test_la_pagina_dei_pacchetti_risponde(probe_app, archivio):
+    risposta = probe_app.test_client().get("/pacchetti")
+    assert risposta.status_code == 200
+    assert "Pacchetti" in risposta.get_data(as_text=True)
+
+
+def test_a_osservazione_spenta_la_pagina_dice_perche_e_vuota(probe_app, archivio):
+    """Non e' una rete silenziosa: e' un sensore che non sta guardando. Sono due
+    cose diverse e la pagina deve dire la seconda.
+
+    Si cerca una frase corta: quelle lunghe nei modelli vanno a capo, e il confronto
+    fallisce per l'impaginazione invece che per il contenuto.
+    """
+    testo = probe_app.test_client().get("/pacchetti").get_data(as_text=True)
+    assert "Osservazione spenta" in testo
+    assert "silenziosa" in testo
+    assert "Accendila dalla Configurazione" in testo
+
+
+def test_la_pagina_dichiara_quanto_conserva(probe_app, archivio):
+    """Chi guarda deve sapere che e' una finestra di minuti, non un registro."""
+    testo = probe_app.test_client().get("/pacchetti").get_data(as_text=True)
+    assert "minuti" in testo
+
+
+def test_i_pacchetti_conservati_compaiono_nella_pagina(probe_app, archivio):
+    """L'istante e' ADESSO, non una data fissa: la tabella pota tutto cio' che e'
+    piu' vecchio della finestra, e un pacchetto datato 2023 sparirebbe appena
+    scritto -- giustamente, ma il test misurerebbe la potatura invece della pagina.
+    """
+    import time as _time
+
+    from snapprobe.traffico import Osservatorio
+
+    osservatorio = Osservatorio()
+    osservatorio.osserva(
+        bytes.fromhex("ffffffffffff") + bytes.fromhex("aabbccddee31")
+        + bytes.fromhex("0800") + bytes.fromhex("450000280000000040110000")
+        + bytes([10, 0, 0, 5]) + bytes([10, 0, 0, 1])
+        + bytes.fromhex("c7380035000c0000"), _time.time())
+    assert archivio.traffico_scrivi(osservatorio.preleva_registro()) == 1
+    testo = probe_app.test_client().get("/pacchetti").get_data(as_text=True)
+    assert "10.0.0.5" in testo
+    assert "UDP/DNS" in testo
+
+
+def test_la_pagina_dei_pacchetti_richiede_l_accesso(probe_app):
+    risposta = probe_app.test_client(anonimo=True).get("/pacchetti")
+    assert risposta.status_code in (302, 401, 403)
+
+
+# --------------------------------------------------------------------------- #
 # I gruppi: il catalogo, la scelta, e cio' che si dichiara
 # --------------------------------------------------------------------------- #
 def _agente():
@@ -696,9 +750,15 @@ def test_la_pagina_ids_della_sonda_risponde(probe_app, archivio):
 
 
 def test_la_pagina_ids_dichiara_i_sensori_che_non_osservano(probe_app, archivio):
-    """Lo zero di un sensore spento non e' una buona notizia, e la pagina lo dice."""
+    """Lo zero di un sensore spento non e' una buona notizia, e la pagina lo dice.
+
+    Il sensore del traffico non e' piu' "predisposto" -- esiste e funziona -- ma nasce
+    SPENTO, e la pagina deve dire quale delle due cose e': "predisposto" significa
+    "non c'e' ancora", "spento" significa "c'e', e nessuno lo ha acceso".
+    """
     testo = probe_app.test_client().get("/ids").get_data(as_text=True)
-    assert "predisposto e non attivo" in testo
+    assert "si accende da Configurazione" in testo
+    assert "nessun agente installato" in testo
 
 
 def test_la_pagina_agenti_della_sonda_risponde(probe_app, archivio):
