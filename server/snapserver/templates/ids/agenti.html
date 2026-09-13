@@ -1,0 +1,177 @@
+{#
+  snap server - Le macchine che riferiscono di se'.
+
+  Dalla rete una porta aperta e' una porta aperta; da qui ha un nome, un utente e un
+  momento in cui e' comparsa. E' il sensore piu' informato che questo prodotto abbia.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Agenti di macchina{% endblock %}
+{% block page_icon %}bi-pc-display{% endblock %}
+{% block page_title %}Agenti di macchina{% endblock %}
+{% block page_subtitle %}
+  Le macchine su cui l'agente e' installato, con le misure che riferiscono.
+  L'agente parla alla sonda; la sonda non lo chiama mai.
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('ids.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-radar me-1"></i> Rilevazioni
+</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="row g-2 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">MACCHINE</p>
+        <p class="snap-stat-value mb-0">{{ macchine|length }}</p>
+        <p class="snap-stat-foot mb-0">con l'agente installato</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">MISURE RICEVUTE</p>
+        <p class="snap-stat-value mb-0">{{ misure_totali|intero }}</p>
+        <p class="snap-stat-foot mb-0">in tutto</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">EVENTI 24H</p>
+        <p class="snap-stat-value mb-0">
+          {{ macchine|sum(attribute='eventi_24h') if macchine else 0 }}
+        </p>
+        <p class="snap-stat-foot mb-0">accessi, utenze, servizi, porte</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-pc-display me-1"></i> Le macchine</h2>
+  </div>
+  <div class="card-body p-0">
+    {% if macchine %}
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>MACCHINA</th><th>SISTEMA</th><th>INDIRIZZO</th><th>CPU</th>
+              <th>MEMORIA</th><th>DISCO</th><th>ULTIMO INVIO</th><th>EVENTI 24H</th></tr>
+        </thead>
+        <tbody>
+          {% for macchina in macchine %}
+          <tr>
+            <td class="small fw-semibold">
+              <a href="{{ url_for('ids.agente', agent_uid=macchina.agent_uid) }}"
+                 class="text-decoration-none">{{ macchina.hostname }}</a>
+              {% if macchina.node_id %}
+              <div class="text-body-secondary">
+                <a href="{{ url_for('inventory.node', node_id=macchina.node_id) }}"
+                   class="text-decoration-none">{{ macchina.device_label or 'in inventario' }}</a>
+              </div>
+              {% else %}
+              {# Una macchina con l'agente che l'inventario non conosce e' essa stessa
+                 un'informazione: sta fuori dal perimetro dichiarato. #}
+              <div class="text-warning-emphasis">fuori dal perimetro dichiarato</div>
+              {% endif %}
+            </td>
+            <td class="small">{{ macchina.sistema or '-' }}</td>
+            <td class="small font-monospace">{{ macchina.ip or '-' }}</td>
+            <td class="small">{{ '%.0f%%'|format(macchina.cpu) if macchina.cpu is not none else '-' }}</td>
+            <td class="small">{{ '%.0f%%'|format(macchina.memoria) if macchina.memoria is not none else '-' }}</td>
+            <td class="small">
+              {% if macchina.disco is not none %}
+              <span class="{{ 'text-danger fw-semibold' if macchina.disco >= 90 }}">
+                {{ '%.0f%%'|format(macchina.disco) }}
+              </span>
+              {% else %}-{% endif %}
+            </td>
+            <td class="small">
+              {% if macchina.ultimo_invio %}
+              {{ macchina.ultimo_invio|ago }}
+              {% else %}
+              <span class="text-body-secondary">mai</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if macchina.eventi_24h %}
+              <span class="badge text-bg-warning">{{ macchina.eventi_24h }}</span>
+              {% else %}<span class="text-body-secondary">0</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-3 small">
+      <p class="text-body-secondary">
+        Nessuna macchina ha l'agente installato. Finche' e' cosi', le regole che
+        dipendono da quello che si vede da dentro -- accessi falliti, utenze nuove,
+        protezioni disattivate, processi in ascolto -- non possono scattare.
+      </p>
+      <p class="text-body-secondary mb-0">
+        L'agente si installa dalla <strong>console della sonda</strong>, che emette il
+        token di registrazione: e' li' che le macchine si rivolgono, non qui. La
+        procedura sta in <code>docs/17_IDS_E_AGENTI.md</code>.
+      </p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-journal-text me-1"></i> Ultimi eventi riferiti ({{ eventi|length }})
+    </h2>
+  </div>
+  <div class="card-body p-0">
+    {% if eventi %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>QUANDO</th><th>MACCHINA</th><th>GENERE</th><th>GRAVITA'</th>
+              <th>CHE COSA</th></tr>
+        </thead>
+        <tbody>
+          {% for evento in eventi %}
+          <tr>
+            <td class="small">{{ evento.ricevuto_at|dt }}</td>
+            <td class="small font-monospace">
+              <a href="{{ url_for('ids.agente', agent_uid=evento.agent_uid) }}"
+                 class="text-decoration-none">{{ evento.agent_uid }}</a>
+            </td>
+            <td class="small"><span class="badge text-bg-light border">{{ evento.genere }}</span></td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if evento.gravita in ('critica', 'alta')
+                                            else ('warning' if evento.gravita == 'media'
+                                                  else 'secondary') }}">
+                {{ evento.gravita }}
+              </span>
+            </td>
+            <td class="small">{{ evento.messaggio }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 small text-body-secondary mb-0">Nessun evento riferito finora.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

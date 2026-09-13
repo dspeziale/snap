@@ -1,0 +1,146 @@
+{#
+  snap server - Guida: l'IDS (rilevazioni, regole, sensori) e gli agenti di macchina.
+
+  Il limite sta all'inizio e non alla fine: chi legge deve sapere che cosa questo IDS
+  NON vede prima di concludere che "non e' successo niente".
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+#}
+<h2 id="ids">22. IDS e agenti di macchina</h2>
+<p>
+  L'<strong>IDS</strong> riconosce che qualcosa e' <strong>cambiato</strong> in un modo
+  che riguarda la sicurezza: un indirizzo che risponde con una scheda di rete diversa,
+  una porta di amministrazione comparsa dove non c'era, SMB 1.0 riacceso, un antivirus
+  fermo. Il motore gira <strong>sulla sonda</strong>, che e' l'unica a contatto con la
+  rete sorvegliata; la console mostra cio' che le e' stato conferito.
+</p>
+
+<div class="alert alert-secondary">
+  <strong>Che cosa questo IDS non vede.</strong> Confronta osservazioni, <strong>non
+  ispeziona il traffico</strong>: non riconosce un exploit nel payload, un canale di
+  comando cifrato o un'esfiltrazione. Zero rilevazioni significa &laquo;nessun
+  cambiamento fra quelli che so riconoscere&raquo;, non &laquo;nessuna intrusione&raquo;.
+  Il limite e' scritto in cima a ogni pagina che mostra rilevazioni, e non per modestia:
+  un prodotto che lasciasse credere il contrario darebbe una sicurezza che non ha.
+</div>
+
+<h3>Una rilevazione e' un cambiamento, non un fatto</h3>
+<p>
+  &laquo;La porta 3389 e' aperta&raquo; non e' una rilevazione: e' una configurazione, e
+  la relazione sull'esposizione la elenca gia'. &laquo;La 3389 e' aperta <em>dove non
+  c'era</em>&raquo; lo e'. Per questo ogni riga porta la <strong>prova</strong>: che cosa
+  si vedeva prima, e da quando.
+</p>
+<p>
+  La differenza conta quando si decide. La prima e' qualcosa da valutare; la seconda e'
+  qualcosa che <em>e' successo</em>, e ha una data.
+</p>
+
+<h3>Le tre pagine</h3>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Pagina</th><th>Risponde a</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Rilevazioni</strong></td>
+      <td>Che cosa e' cambiato. E' la pagina del turno: ordinata per <strong>gravita' e
+        non per tempo</strong> — una critica di ieri conta piu' di una media di
+        stamattina.</td>
+    </tr>
+    <tr>
+      <td><strong>Regole e sensori</strong></td>
+      <td>Che cosa si sa riconoscere (dodici regole, ciascuna con la tecnica MITRE
+        ATT&amp;CK) e, soprattutto, <strong>che cosa in questo momento nessuno sta
+        osservando</strong>.</td>
+    </tr>
+    <tr>
+      <td><strong>Agenti di macchina</strong></td>
+      <td>Le macchine su cui e' installato l'agente, con CPU, memoria, dischi e gli
+        eventi che riferiscono.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Archiviare non significa nascondere</h3>
+<p>
+  Si decide archiviando <strong>con una nota</strong>. Se la stessa cosa si ripresenta,
+  la rilevazione <strong>torna aperta</strong> al conferimento successivo: archiviare
+  significa &laquo;ho guardato allora, ed ecco che cosa ho concluso&raquo; — ed e' il
+  motivo per cui la nota si conserva e si rilegge accanto alla riga riaperta.
+</p>
+
+<h3>Perche' all'inizio non si vede niente</h3>
+<p>
+  Nelle prime <strong>dodici ore</strong> dalla prima osservazione, le regole che si
+  fondano sull'assenza di memoria (&laquo;dispositivo mai visto&raquo;, &laquo;apparato
+  senza fili mai visto&raquo;) <strong>non scattano</strong>: il motore costruisce la
+  linea di base e tace. La pagina delle rilevazioni lo dichiara in un avviso, e la
+  colonna <em>memoria</em> di <strong>Regole e sensori</strong> dice per ciascuna sonda a
+  che punto e'.
+</p>
+<p>
+  E' voluto, e per una ragione misurata: alla prima passata su una rete vera l'IDS ha
+  prodotto <strong>quattrocento</strong> rilevazioni &laquo;dispositivo mai visto&raquo;.
+  Erano tutte corrette — non aveva mai visto nessuno di quei nodi — ed erano tutte
+  inutili. Quattrocento allarmi il primo giorno sono il modo piu' rapido per far
+  disattivare un IDS.
+</p>
+
+<h3>Lo zero di un sensore spento non e' una buona notizia</h3>
+<p>
+  Una regola con zero rilevazioni puo' significare due cose opposte: che quella
+  condizione non si e' mai verificata, oppure che il sensore da cui dipende
+  <strong>non sta osservando</strong>. La tabella dei sensori dice quale delle due.
+</p>
+<ul>
+  <li><strong>inventario</strong> — attivo: nodi, porte, indirizzi fisici, presenze
+    senza fili, letture SMB gia' raccolti dalle passate di scansione. Non apre
+    connessioni e non aggiunge carico sulla rete.</li>
+  <li><strong>agenti</strong> — attivo quando c'e' almeno una macchina con l'agente.
+    Senza agenti, le regole su accessi falliti, utenze nuove, protezioni disattivate e
+    processi in ascolto <em>non possono scattare</em>.</li>
+  <li><strong>traffico</strong> — <strong>predisposto e non attivo</strong>: richiede
+    libpcap/Npcap, privilegi di amministratore e una porta mirror sullo switch. Sono
+    condizioni che si concordano con chi gestisce la rete, non si danno per scontate
+    installando un prodotto.</li>
+</ul>
+
+<h3>L'agente: che cosa aggiunge, e che cosa non porta via</h3>
+<p>
+  Dalla rete una porta 4444 aperta e' una porta aperta; dall'agente e' un processo con
+  un nome e un utente. E' il sensore piu' informato che questo prodotto abbia, ed e'
+  l'unico modo di sapere che un antivirus e' stato fermato: dalla rete, una macchina
+  senza protezione risponde esattamente come una protetta.
+</p>
+<p>
+  <strong>L'agente apre lui</strong> verso la sonda e non riceve comandi. Non apre porte,
+  non installa servizi in ascolto, non accetta connessioni: una macchina in rete di
+  utenza non deve essere raggiungibile da nessuno, nemmeno dal prodotto che la
+  sorveglia. Le macchine si aggiungono dalla <strong>console della sonda</strong>, non da
+  qui: il token va emesso dove la macchina puo' arrivare.
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Raccoglie</th><th>Non raccoglie, per scelta</th></tr></thead>
+  <tbody>
+    <tr><td>nome host, sistema, indirizzi, avvio</td><td>contenuto di file</td></tr>
+    <tr><td>CPU, memoria, swap, carico</td><td>righe di comando complete (possono
+      contenere una password passata come argomento)</td></tr>
+    <tr><td>spazio dei dischi per punto di mount</td><td>traffico, messaggi, cronologia</td></tr>
+    <tr><td>porte in ascolto con processo e utente</td><td>chiavi, certificati, credenziali</td></tr>
+    <tr><td>accessi falliti, utenze nuove, protezioni disattivate</td><td></td></tr>
+    <tr><td>aggiornamenti in attesa, quanti di sicurezza</td><td></td></tr>
+  </tbody>
+</table>
+<p>
+  Nomi utente e sessioni sono <strong>dati personali</strong> (GDPR art. 4): la base
+  giuridica e' la stessa dell'inventario — sicurezza della rete, art. 6(1)(f) — e le
+  pagine nominano <strong>macchine e utenze, non persone</strong>.
+</p>
+
+<h3>Le rilevazioni finiscono anche nel SIEM</h3>
+<p>
+  Ogni rilevazione conferita entra nel SIEM come evento di genere <code>ids</code>, con
+  la gravita' della regola: chi lavora sugli incidenti non deve guardare due pagine, e
+  una rilevazione che merita un incidente si apre da li' con il percorso di sempre.
+</p>

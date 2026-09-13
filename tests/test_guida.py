@@ -56,7 +56,7 @@ SEZIONI_CONSOLE = (
     "cose", "ruoli", "sonde", "perimetro", "scansione", "inventario",
     "monitoraggio", "controlli", "incidenti", "metriche", "dashboard",
     "regole", "canali", "report", "archivio", "threat", "sala", "zone",
-    "acn", "sicurezza", "diagnosi", "glossario",
+    "acn", "siem", "ids", "sicurezza", "diagnosi", "glossario",
 )
 SEZIONI_SONDA = (
     "cosa", "installazione", "registrazione", "interfaccia", "accesso", "scelte",
@@ -257,3 +257,50 @@ def test_la_guida_distingue_il_silenzio_dalla_mancata_interrogazione(logged_clie
     testo = logged_client.get("/guida/").get_data(as_text=True)
     assert "Non interrogati" in testo
     assert "manca la copertura" in testo
+
+
+# --------------------------------------------------------------------------- #
+# L'indice e il corpo devono dire lo stesso numero
+# --------------------------------------------------------------------------- #
+# L'indice si numera da se' (`loop.index` su un elenco); i titoli del corpo portano il
+# numero scritto a mano. Basta un capitolo senza numero -- o uno tolto e non
+# rinumerato -- perche' i due conti divergano, e chi clicca "22. IDS" atterri su un
+# titolo che dice 21. E' successo su entrambe le guide: qui si misura, invece di
+# ricontrollarlo a mano a ogni aggiunta.
+RE_VOCE_INDICE = re.compile(r"\(\s*'([a-z]+)'\s*,")
+RE_TITOLO = re.compile(r'<h2 id="([a-z]+)">\s*(\d+)\.')
+
+
+def _voci_dell_indice(testo_pagina: str) -> list:
+    """Le voci come le vede chi legge: numero e testo, gia' resi dal modello."""
+    return re.findall(r'href="#([a-z]+)"[^>]*>\s*(\d+)\.', testo_pagina)
+
+
+def _titoli_del_corpo(testo_pagina: str) -> dict:
+    return {chiave: int(numero)
+            for chiave, numero in re.findall(r'<h2 id="([a-z]+)">\s*(\d+)\.',
+                                             testo_pagina)}
+
+
+def test_i_numeri_dell_indice_e_del_corpo_coincidono_nella_guida_della_console(
+        logged_client):
+    testo = logged_client.get("/guida/").get_data(as_text=True)
+    titoli = _titoli_del_corpo(testo)
+    discordanti = []
+    for chiave, numero in _voci_dell_indice(testo):
+        if chiave in titoli and titoli[chiave] != int(numero):
+            discordanti.append("%s: indice %s, titolo %d"
+                               % (chiave, numero, titoli[chiave]))
+    assert not discordanti, "indice e corpo discordano -- %s" % "; ".join(discordanti)
+
+
+def test_i_numeri_dell_indice_e_del_corpo_coincidono_nella_guida_della_sonda(
+        probe_client):
+    testo = probe_client.get("/guida").get_data(as_text=True)
+    titoli = _titoli_del_corpo(testo)
+    discordanti = []
+    for chiave, numero in _voci_dell_indice(testo):
+        if chiave in titoli and titoli[chiave] != int(numero):
+            discordanti.append("%s: indice %s, titolo %d"
+                               % (chiave, numero, titoli[chiave]))
+    assert not discordanti, "indice e corpo discordano -- %s" % "; ".join(discordanti)

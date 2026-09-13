@@ -1292,21 +1292,47 @@ def presence_trend():
     tenant_id = current_tenant_id()
     # Allowlist sul periodo: la chiave arriva dall'URL, e `periodo()` scarta cio' che
     # non conosce invece di comporre un intervallo su un valore inventato.
+    from datetime import timedelta
+
+    from ..reports.windows import today_local, zone_of
+
     scelto = presenze.periodo(request.args.get("periodo"))
     subnet_id = request.args.get("subnet", type=int)
+    # La giornata si guarda nel fuso del TENANT: "dalle 9 alle 18" e' un'affermazione
+    # sull'ora locale di chi quella rete la usa, non su UTC.
+    zona = zone_of(g.tenant if hasattr(g, "tenant") else None)
+    giorno = presenze.giorno_valido(request.args.get("giorno"), zona)
+    oggi = today_local(zona)
     reti = query(
         "SELECT id, cidr FROM subnets WHERE tenant_id = ?"
         " AND COALESCE(is_wifi, 0) = 1 AND is_enabled = 1 ORDER BY cidr", (tenant_id,))
+    from ..tenancy import fmt_grafico
+
+    andamento = presenze.andamento(tenant_id, chiave_periodo=scelto["chiave"],
+                                   subnet_id=subnet_id, zona=zona, giorno=giorno)
+    # Le tacche delle fasce sono gia' nel fuso del tenant: l'asse del grafico deve
+    # dire la stessa ora, o la stessa pagina mostra due orologi diversi.
+    andamento = dict(andamento,
+                     punti=[[fmt_grafico(istante), valore]
+                            for istante, valore in andamento["punti"]],
+                     da=fmt_grafico(andamento["da"]),
+                     a=fmt_grafico(andamento["a"]))
     return render_template(
         "inventory/presence_trend.html",
-        andamento=presenze.andamento(tenant_id, chiave_periodo=scelto["chiave"],
-                                     subnet_id=subnet_id),
+        andamento=andamento,
         fasce=presenze.fasce(tenant_id, chiave_periodo=scelto["chiave"],
-                             subnet_id=subnet_id),
+                             subnet_id=subnet_id, zona=zona, giorno=giorno),
         periodo=scelto,
         periodi=presenze.PERIODI,
         reti_wifi=[dict(r) for r in reti],
         filtro_subnet=subnet_id,
+        giorno=giorno,
+        giorno_prima=(giorno - timedelta(days=1)).isoformat(),
+        # Non si va oltre oggi: una giornata futura e' un foglio bianco, e offrirla
+        # sarebbe un invito a interpretarlo come "non c'era nessuno".
+        giorno_dopo=((giorno + timedelta(days=1)).isoformat()
+                     if giorno < oggi else None),
+        e_oggi=(giorno == oggi),
     )
 
 

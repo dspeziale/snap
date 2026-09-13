@@ -1,31 +1,46 @@
 {#
-  snap server - Dashboard di controllo.
+  snap server - Dashboard: il quadro d'insieme di cio' che il prodotto ha raccolto.
 
-  Composizione: una striscia di riquadri sintetici sempre visibile, e tutto il
-  resto dentro schede. Con inventario, monitoraggio, sonde, conferimenti ed
-  eventi sulla stessa pagina, l'elenco verticale costringeva a scorrere per
-  metri: le schede tengono la pagina a un solo schermo e lasciano scegliere cosa
-  guardare.
+  CHE COSA RISPONDE. "Che cosa sappiamo della rete, e che cosa ci dice": mette sulla
+  stessa pagina numeri che vivono in otto pagine diverse -- inventario, esposizione,
+  vulnerabilita', certificati, vetusta', SMB, presenze, flotta -- e li fa precedere da
+  cio' che chiede un intervento adesso, cioe' gli incidenti aperti.
 
-  remarks: Autore: Daniele Speziale - Data: 2026-08-27
+  E' nata come seconda dashboard (Board2) ed e' diventata LA dashboard: due pagine che
+  si chiamano quasi allo stesso modo si guardano a turno senza sapere perche'.
+
+  COME E' COMPOSTA, dall'alto in basso: quattro semafori con la loro ragione, una
+  riga di numeri grandi, gli andamenti, poi una sezione per area. Ogni numero porta
+  al proprio elenco: un indicatore da cui non si puo' scendere e' una curiosita'.
+
+  SUI COLORI. Una sola tinta per le classifiche -- la lunghezza porta gia'
+  l'informazione, e colorare ogni barra brucerebbe l'unico canale libero. I colori di
+  stato (verde, giallo, rosso) restano riservati a cio' che uno stato ce l'ha
+  davvero, e non compaiono mai da soli: sempre con l'icona e la parola, perche' un
+  documento letto da chi non distingue i colori deve dire la stessa cosa.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-12
   copyright: (c) 2024-26 DS Consulting
   license: MIT
 #}
 {% extends 'base.html' %}
-{% block title %}Dashboard di Controllo{% endblock %}
+{% block title %}Dashboard{% endblock %}
 {% block page_icon %}bi-speedometer2{% endblock %}
-{% block page_title %}Dashboard di Controllo{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 {% block page_subtitle %}
-  Tenant {{ current_tenant['name'] }} &middot; fuso orario {{ current_tenant['timezone'] }}
-  &middot; ultimo conferimento {{ indicators.last_sync_at|ago }}
+  Tutto cio' che il prodotto ha raccolto su {{ current_tenant['name'] }}, su una
+  pagina sola. Ogni numero porta all'elenco da cui viene.
 {% endblock %}
 
 {% block page_actions %}
-<a href="{{ url_for('inventory.nodes') }}" class="btn btn-sm btn-primary">
+<a href="{{ url_for('inventory.nodes') }}" class="btn btn-sm btn-outline-secondary">
   <i class="bi bi-hdd-network me-1"></i> Inventario
 </a>
 <a href="{{ url_for('monitor.status') }}" class="btn btn-sm btn-outline-secondary">
   <i class="bi bi-activity me-1"></i> Stato della rete
+</a>
+<a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-primary">
+  <i class="bi bi-file-earmark-pdf me-1"></i> Relazioni
 </a>
 {% endblock %}
 
@@ -84,406 +99,799 @@
 </div>
 {% endif %}
 
-{# --- Striscia sintetica: sempre visibile, sei numeri e nulla piu' --------- #}
+{# ====================================================================== #}
+{# 1. La postura: quattro giudizi, ciascuno con il perche' accanto.       #}
+{#    Un semaforo senza la sua ragione e' un colore: si guarda, non si usa #}
+{# ====================================================================== #}
 <div class="row g-2 mb-3">
-  {% set riquadri = [
-      ('NODI', inventory.total, 'bi-hdd-network', 'primary',
-       url_for('inventory.nodes'), '%d attivi'|format(inventory.up)),
-      ('NON RAGGIUNGIBILI', inventory.down, 'bi-x-circle',
-       'danger' if inventory.down else 'secondary',
-       url_for('inventory.nodes', status='down'), 'nel perimetro dichiarato'),
-      ('DA IDENTIFICARE', inventory.uncertain, 'bi-question-circle',
-       'warning' if inventory.uncertain else 'success',
-       url_for('inventory.nodes'), 'tipo incerto'),
-      ('CAMBIAMENTI 24H', inventory.changes_24h, 'bi-arrow-left-right',
-       'warning' if inventory.changes_24h else 'success',
-       url_for('monitor.changes'), 'porte, servizi, stato'),
-      ('SONDE IN CONTATTO', '%d/%d'|format(probes.online, probes.total),
-       'bi-broadcast-pin', 'success' if probes.total and probes.online == probes.total else 'warning',
-       url_for('probes.index'), '%d in attesa'|format(probes.pending)),
-      ('CONFERIMENTI 24H', batches_24h, 'bi-cloud-arrow-down',
-       'info' if batches_24h else 'warning',
-       url_for('inventory.deliveries'), '%d record'|format(records_24h)),
-      ('CONTROLLI ATTIVI', checks.checks_enabled, 'bi-clipboard-check',
-       'info' if checks.checks_enabled else 'secondary',
-       url_for('checks.index'), '%d bersagli'|format(checks.targets)),
-      ('INCIDENTI APERTI', checks.incidents_open, 'bi-exclamation-triangle',
-       'danger' if checks.incidents_open else 'success',
-       url_for('checks.incident_list'),
-       '%d da prendere in carico'|format(checks.incidents_unclaimed)),
-      ('RIUSCITA CONTROLLI 24H',
-       (checks.success_rate_24h ~ '%') if checks.success_rate_24h is not none else '-',
-       'bi-graph-up',
-       'success' if (checks.success_rate_24h or 0) >= 99 else
-         ('warning' if checks.success_rate_24h is not none else 'secondary'),
-       url_for('checks.index'), '%d esiti, %d non superati'|format(
-         checks.results_24h, checks.failures_24h)),
-  ] %}
-  {% for etichetta, valore, icona, tono, collegamento, nota in riquadri %}
-  <div class="col-6 col-lg-4 col-xxl-2">
-    <a href="{{ collegamento }}" class="text-decoration-none">
-      <div class="card snap-stat h-100">
-        <div class="card-body py-2">
-          <div class="d-flex justify-content-between align-items-center">
-            <div>
-              <p class="snap-stat-label mb-0">{{ etichetta }}</p>
-              <p class="snap-stat-value mb-0">{{ valore }}</p>
-              <p class="snap-stat-foot mb-0">{{ nota }}</p>
-            </div>
-            <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
-          </div>
+  {% for voce in board.postura %}
+  <div class="col-12 col-sm-6 col-xl-3">
+    <div class="snap-postura border-{{ voce.stato }}">
+      <div class="d-flex align-items-start gap-2">
+        <i class="bi {{ voce.icona }} fs-4 text-{{ voce.stato }}"></i>
+        <div class="min-w-0">
+          <p class="snap-postura-titolo mb-0">{{ voce.titolo }}</p>
+          <p class="snap-postura-valore mb-1 text-{{ voce.stato }}-emphasis">{{ voce.valore }}</p>
+          <p class="snap-postura-motivo mb-0">{{ voce.motivo }}</p>
         </div>
-      </div>
-    </a>
-  </div>
-  {% endfor %}
-</div>
-
-{# --- Andamenti: quattro linee che dicono dove si sta andando ------------- #}
-<div class="row g-3 mb-3">
-  {% set andamenti = [
-      ('Riuscita dei controlli', 'per ora, ultime 24 ore', charts.riuscita,
-       'text-success', 'bi-graph-up',
-       'percentuale di esiti superati; le ore senza esecuzioni restano un vuoto',
-       'percentuale', '%', 'ora'),
-      ('Esiti non superati', 'per ora, ultime 24 ore', charts.falliti,
-       'text-danger', 'bi-x-octagon',
-       'quante esecuzioni non hanno superato la verifica', '', '', ''),
-      ('Incidenti aperti', 'per giorno, ultimi 14 giorni', charts.incidenti,
-       'text-warning', 'bi-exclamation-triangle',
-       'quanti incidenti sono stati aperti ogni giorno', '', '', ''),
-      ('Record conferiti', 'per ora, ultime 24 ore', charts.record,
-       'text-primary', 'bi-cloud-arrow-down',
-       'quanto le sonde hanno consegnato al server', '', '', ''),
-  ] %}
-  {% for titolo, periodo, punti, tono, icona, spiegazione, scala, unita, passo in andamenti %}
-  <div class="col-12 col-xl-6">
-    <div class="card h-100">
-      <div class="card-header d-flex justify-content-between align-items-baseline flex-wrap gap-1">
-        <h3 class="card-title mb-0"><i class="bi {{ icona }} me-1"></i> {{ titolo }}</h3>
-        <small class="text-body-secondary">{{ periodo }}</small>
-      </div>
-      <div class="card-body">
-        <div class="{{ tono }}" data-snap-grafico data-altezza="150"
-             data-etichetta="{{ titolo }}"
-             {% if scala %}data-scala="{{ scala }}"{% endif %}
-             {% if unita %}data-unita="{{ unita }}"{% endif %}
-             {% if passo %}data-passo="{{ passo }}"{% endif %}
-             data-punti='{{ punti|tojson }}'></div>
-        <p class="small text-body-secondary mb-0 mt-1">{{ spiegazione }}</p>
       </div>
     </div>
   </div>
   {% endfor %}
 </div>
 
-{# --- Schede: un solo schermo, si guarda cio' che serve ------------------- #}
-<div class="card">
-  <div class="card-header p-0 border-bottom-0">
-    <ul class="nav nav-tabs card-header-tabs m-0 px-2 pt-2" role="tablist">
-      {% set schede = [
-          ('indicatori', 'Indicatori', 'bi-activity', kpi|length),
-          ('rete', 'Rete', 'bi-diagram-3', distribution|length),
-          ('cambiamenti', 'Cambiamenti', 'bi-clock-history', changes|length),
-          ('sonde', 'Sonde', 'bi-broadcast-pin', fleet|length),
-          ('conferimenti', 'Conferimenti', 'bi-cloud-arrow-down', batches|length),
-          ('eventi', 'Eventi', 'bi-journal-text', events|length),
-      ] %}
-      {% for chiave, titolo, icona, quanti in schede %}
-      <li class="nav-item" role="presentation">
-        <button class="nav-link {% if loop.first %}active{% endif %}"
-                id="tab-{{ chiave }}" data-bs-toggle="tab" data-bs-target="#pane-{{ chiave }}"
-                type="button" role="tab" aria-controls="pane-{{ chiave }}"
-                aria-selected="{{ 'true' if loop.first else 'false' }}">
-          <i class="bi {{ icona }} me-1"></i>{{ titolo }}
-          {% if quanti %}<span class="badge text-bg-secondary ms-1">{{ quanti }}</span>{% endif %}
-        </button>
-      </li>
-      {% endfor %}
-    </ul>
+{# ====================================================================== #}
+{# 2. I numeri grandi: otto, non trenta. Quelli che si guardano per primi  #}
+{# ====================================================================== #}
+{% macro tessera(etichetta, valore, piede, icona, tono, collegamento) %}
+<div class="col-6 col-md-4 col-xl-3 col-xxl-2">
+  <a href="{{ collegamento }}" class="text-decoration-none text-reset d-block h-100">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2 d-flex justify-content-between align-items-center gap-2">
+        <div class="min-w-0">
+          <p class="snap-stat-label mb-1">{{ etichetta }}</p>
+          <p class="snap-stat-value mb-0">{{ valore }}</p>
+          <p class="snap-stat-foot mb-0 text-truncate">{{ piede }}</p>
+        </div>
+        <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+      </div>
+    </div>
+  </a>
+</div>
+{% endmacro %}
+
+<div class="row g-2 mb-3">
+  {{ tessera('DISPOSITIVI', board.inventario.totale|intero, '%d attivi, %d spenti'|format(
+       board.inventario.attivi, board.inventario.spenti), 'bi-hdd-network', 'primary',
+       url_for('inventory.nodes')) }}
+  {{ tessera('IDENTIFICATI', '%s%%'|format(board.inventario.identificati_percento),
+       '%d da riconoscere'|format(board.inventario.incerti), 'bi-patch-question',
+       'warning' if board.inventario.incerti else 'success', url_for('inventory.nodes')) }}
+  {{ tessera('PORTE APERTE', board.esposizione.aperte|intero,
+       'su %s dispositivi'|format(board.esposizione.nodi|intero), 'bi-door-open', 'info',
+       url_for('inventory.nodes')) }}
+  {{ tessera('AMMINISTRAZIONE ESPOSTA', board.esposizione.amministrazione.nodi|intero,
+       'dispositivi con SSH, RDP, VNC', 'bi-terminal',
+       'danger' if board.esposizione.amministrazione.nodi else 'success',
+       url_for('operations.search', pronta='desktop_remoto')) }}
+  {{ tessera('VULNERABILITA\' GRAVI', board.vulnerabilita.gravi|intero,
+       '%s riscontri su %s apparati'|format(board.vulnerabilita.totale|intero,
+       board.vulnerabilita.nodi|intero), 'bi-shield-exclamation',
+       'danger' if board.vulnerabilita.gravi else 'success', url_for('threat.index')) }}
+  {{ tessera('CERTIFICATI IN SCADENZA', board.certificati.scaduti + board.certificati.entro_30,
+       '%d gia\' scaduti'|format(board.certificati.scaduti), 'bi-patch-exclamation',
+       'danger' if board.certificati.scaduti else 'warning' if board.certificati.entro_30 else 'success',
+       url_for('inventory.certificates')) }}
+  {{ tessera('FERME DA 10+ ANNI', board.vetusta.gravi,
+       '%d fra cinque e dieci'|format(board.vetusta.preoccupanti), 'bi-hourglass-bottom',
+       'danger' if board.vetusta.gravi else 'success',
+       url_for('operations.search', pronta='vetusta_grave')) }}
+  {{ tessera('IN RETE ADESSO', board.presenze.adesso,
+       '%d nelle ultime 24 ore'|format(board.presenze.apparati_24h), 'bi-broadcast',
+       'info', url_for('inventory.presence')) }}
+  {{ tessera('SENZA FIRMA SMB', board.smb.senza_firma,
+       '%d con SMB 1.0'|format(board.smb.smb1), 'bi-file-lock2',
+       'danger' if board.smb.senza_firma else 'success',
+       url_for('operations.search', pronta='smb_senza_firma')) }}
+  {{ tessera('CAMBIAMENTI 24H', board.inventario.cambiamenti_24h|intero,
+       'porte, servizi, stato', 'bi-arrow-left-right',
+       'warning' if board.inventario.cambiamenti_24h else 'success',
+       url_for('monitor.changes')) }}
+  {{ tessera('RETI NEL PERIMETRO', board.inventario.subnet_attive,
+       '%d mai guardate'|format(board.inventario.reti_cieche), 'bi-bounding-box',
+       'warning' if board.inventario.reti_cieche else 'success',
+       url_for('inventory.subnets')) }}
+  {{ tessera('RECORD 24H', board.flotta.record|intero,
+       '%s lotti conferiti'|format(board.flotta.lotti|intero), 'bi-cloud-arrow-down',
+       'info' if board.flotta.lotti else 'danger', url_for('inventory.deliveries')) }}
+  {# I controlli parlano di SERVIZI, non di apparati: dicono se cio' che deve
+     rispondere sta rispondendo. #}
+  {{ tessera('CONTROLLI ATTIVI', board.controlli.sintesi.checks_enabled,
+       '%s bersagli sorvegliati'|format(board.controlli.sintesi.targets),
+       'bi-clipboard-check',
+       'info' if board.controlli.sintesi.checks_enabled else 'secondary',
+       url_for('checks.index')) }}
+  {{ tessera('INCIDENTI APERTI', board.controlli.sintesi.incidents_open,
+       '%s da prendere in carico'|format(board.controlli.sintesi.incidents_unclaimed),
+       'bi-exclamation-triangle',
+       'danger' if board.controlli.sintesi.incidents_open else 'success',
+       url_for('checks.incident_list')) }}
+  {{ tessera('RIUSCITA CONTROLLI 24H',
+       (board.controlli.sintesi.success_rate_24h ~ '%')
+         if board.controlli.sintesi.success_rate_24h is not none else '-',
+       '%s esiti, %s non superati'|format(board.controlli.sintesi.results_24h,
+       board.controlli.sintesi.failures_24h), 'bi-graph-up',
+       'success' if (board.controlli.sintesi.success_rate_24h or 0) >= 99 else
+         ('warning' if board.controlli.sintesi.success_rate_24h is not none else 'secondary'),
+       url_for('checks.index')) }}
+</div>
+
+{# ====================================================================== #}
+{# 3. Gli andamenti: quattro spezzate, una per ciascuna cosa che si muove  #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  {% macro andamento(titolo, icona, punti, etichetta, unita, passo, nota) %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0"><i class="bi {{ icona }} me-1"></i> {{ titolo }}</h3>
+        <span class="text-body-secondary small">{{ nota }}</span>
+      </div>
+      <div class="card-body">
+        {% if punti %}
+        <div class="text-primary" data-snap-grafico
+             data-punti='{{ punti|tojson }}'
+             data-etichetta="{{ etichetta }}"
+             data-unita="{{ unita }}"
+             data-passo="{{ passo }}"
+             data-altezza="150"></div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna misura nel periodo: non e' uno zero, e' un intervallo in cui non si
+          e' raccolto nulla.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endmacro %}
+
+  {{ andamento('Record conferiti', 'bi-cloud-arrow-down', board.grafici.record,
+     'record per ora', '', 'ora', 'ultime 24 ore') }}
+  {{ andamento('Apparati sulle reti senza fili', 'bi-wifi', board.grafici.presenze,
+     'apparati per ora', '', 'ora', 'ultime 24 ore') }}
+  {{ andamento('Cambiamenti rilevati', 'bi-arrow-left-right', board.grafici.cambiamenti,
+     'cambiamenti al giorno', '', 'giorno', 'ultimi 14 giorni') }}
+  {{ andamento('Dispositivi nuovi', 'bi-plus-square', board.grafici.nodi,
+     'nuovi al giorno', '', 'giorno', 'ultimi 14 giorni') }}
+</div>
+
+{# ====================================================================== #}
+{# 3-bis. I controlli: l'unica parte della pagina che parla di SERVIZI.    #}
+{#    La riuscita si disegna su una scala 0-100: una serie fra 98 e 100 su  #}
+{#    un asse che si stringe sui dati sembrerebbe una montagna russa.       #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0"><i class="bi bi-graph-up me-1"></i> Riuscita dei controlli</h3>
+        <span class="text-body-secondary small">ultime 24 ore</span>
+      </div>
+      <div class="card-body">
+        {% if board.controlli.riuscita %}
+        <div class="text-success" data-snap-grafico data-altezza="150"
+             data-etichetta="riuscita" data-unita="%" data-scala="percentuale"
+             data-soglia="99" data-passo="ora"
+             data-punti='{{ board.controlli.riuscita|tojson }}'></div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessun esito nelle ultime 24 ore: non e' una riuscita a zero, e' assenza di
+          misure.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0"><i class="bi bi-x-octagon me-1"></i> Esiti non superati</h3>
+        <span class="text-body-secondary small">ultime 24 ore</span>
+      </div>
+      <div class="card-body">
+        {% if board.controlli.falliti %}
+        <div class="text-danger" data-snap-grafico data-altezza="150"
+             data-etichetta="esiti non superati" data-passo="ora"
+             data-punti='{{ board.controlli.falliti|tojson }}'></div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">Nessun esito registrato.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h3 class="card-title mb-0"><i class="bi bi-exclamation-triangle me-1"></i> Incidenti aperti</h3>
+        <span class="text-body-secondary small">per giorno</span>
+      </div>
+      <div class="card-body">
+        {% if board.controlli.incidenti %}
+        <div class="text-warning" data-snap-grafico data-altezza="150"
+             data-etichetta="incidenti aperti" data-passo="giorno"
+             data-punti='{{ board.controlli.incidenti|tojson }}'></div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">Nessun incidente nel periodo.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ====================================================================== #}
+{# 4. Sicurezza: vulnerabilita' e superficie                               #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-shield-exclamation me-1"></i> Vulnerabilita' per gravita'
+        </h3>
+        {% if board.vulnerabilita.kev %}
+        <span class="badge text-bg-danger">
+          <i class="bi bi-fire me-1"></i>{{ board.vulnerabilita.kev }} sfruttate in attacchi reali
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if board.vulnerabilita.misurato %}
+        {% set massimo_vuln = board.vulnerabilita.per_gravita|map(attribute='quanti')|max %}
+        {% for voce in board.vulnerabilita.per_gravita %}
+        <div class="snap-barra-riga">
+          <div>
+            <div class="snap-barra-nome d-flex justify-content-between">
+              <span>
+                {% if voce.chiave in ('critical', 'high') %}
+                <i class="bi bi-exclamation-octagon-fill me-1 text-danger"></i>
+                {% elif voce.chiave == 'medium' %}
+                <i class="bi bi-exclamation-triangle-fill me-1 text-warning"></i>
+                {% else %}
+                <i class="bi bi-info-circle me-1 text-body-secondary"></i>
+                {% endif %}
+                {{ voce.nome }}
+              </span>
+              <span class="text-body-secondary">{{ voce.nodi }} apparati</span>
+            </div>
+            <div class="snap-barra-traccia">
+              <div class="snap-barra snap-barra-{{ voce.chiave }}"
+                   style="width: {{ (100.0 * voce.quanti / massimo_vuln)|round(1) if massimo_vuln else 0 }}%"></div>
+            </div>
+          </div>
+          <div class="snap-barra-valore">{{ voce.quanti }}</div>
+        </div>
+        {% endfor %}
+        <p class="small text-body-secondary mb-0 mt-2">
+          {{ board.vulnerabilita.totale|intero }} riscontri in tutto, {{ board.vulnerabilita.nuovi_7g|intero }}
+          comparsi negli ultimi sette giorni. Un riscontro e' una corrispondenza fra un
+          prodotto dichiarato e un catalogo: va accertato, non e' una prova.
+        </p>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna correlazione eseguita. Non e' un parco senza vulnerabilita': e' un
+          parco che non e' stato confrontato con i cataloghi.
+        </p>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
-  <div class="tab-content">
-    {# --- Indicatori ---------------------------------------------------- #}
-    <div class="tab-pane fade show active p-3" id="pane-indicatori" role="tabpanel"
-         aria-labelledby="tab-indicatori">
-      <div class="row g-2">
-        {% for item in kpi %}
-        <div class="col-6 col-md-4 col-xxl-2">
-          <div class="snap-kpi snap-kpi-{{ item.tone }}">
-            {# La crocetta compare al passaggio del puntatore e resta raggiungibile
-               da tastiera: un comando visibile sempre su dodici riquadri sarebbe
-               dodici volte lo stesso invito a togliere qualcosa. #}
-            <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
-                  class="snap-kpi-chiudi">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="hidden" name="nascondi" value="{{ item.key }}">
-              <button type="submit" class="btn btn-sm btn-link p-0 text-body-secondary"
-                      title="Nascondi {{ item.label }}"
-                      aria-label="Nascondi l'indicatore {{ item.label }}">
-                <i class="bi bi-x-lg"></i>
-              </button>
-            </form>
-            <div class="d-flex align-items-center gap-2">
-              <i class="bi {{ item.icon }}"></i>
-              <span class="snap-kpi-value">{{ item.value }}</span>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-bullseye me-1"></i> Da dove cominciare
+        </h3>
+      </div>
+      <div class="card-body p-0">
+        {% if board.nodi_esposti %}
+        <div class="table-responsive">
+          {# Poche righe, ma attrezzata come ogni altra tabella del prodotto: chi
+             ordina per KEV qui deve poterlo fare come altrove. La ricerca no: su sei
+             righe sarebbe un campo per non cercare niente. #}
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead>
+              <tr><th>APPARATO</th><th>INDIRIZZO</th><th class="text-end">GRAVI</th>
+                  <th class="text-end">KEV</th><th class="text-end">RISCONTRI</th></tr>
+            </thead>
+            <tbody>
+              {% for nodo in board.nodi_esposti %}
+              <tr>
+                <td class="small fw-semibold text-truncate" style="max-width: 14rem">
+                  <a class="text-decoration-none"
+                     href="{{ url_for('inventory.node', node_id=nodo.id) }}">
+                    {{ nodo.hostname or nodo.device_label or 'non identificato' }}
+                  </a>
+                </td>
+                <td class="small font-monospace">{{ nodo.ip }}</td>
+                <td class="small text-end">
+                  <span class="badge text-bg-{{ 'danger' if nodo.gravi else 'secondary' }}">{{ nodo.gravi }}</span>
+                </td>
+                <td class="small text-end">
+                  {% if nodo.kev %}
+                  <span class="badge text-bg-danger"><i class="bi bi-fire me-1"></i>{{ nodo.kev }}</span>
+                  {% else %}
+                  <span class="text-body-secondary">-</span>
+                  {% endif %}
+                </td>
+                <td class="small text-end">{{ nodo.riscontri }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="p-3 small text-body-secondary mb-0">Nessun riscontro registrato.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ====================================================================== #}
+{# 5. Superficie esposta                                                   #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-door-open me-1"></i> Che cosa risponde</h3>
+      </div>
+      <div class="card-body">
+        {% macro esposta(nome, quanti, nodi, spiegazione, tono, icona, ricerca) %}
+        <a class="d-flex justify-content-between align-items-center text-decoration-none text-reset py-2 border-bottom"
+           href="{{ url_for('operations.search', pronta=ricerca) }}">
+          <span class="d-flex align-items-start gap-2">
+            <i class="bi {{ icona }} text-{{ tono }} mt-1"></i>
+            <span>
+              <span class="fw-semibold small d-block">{{ nome }}</span>
+              <span class="small text-body-secondary">{{ spiegazione }}</span>
+            </span>
+          </span>
+          <span class="text-end ms-2">
+            <span class="fs-5 fw-bold text-{{ tono }}-emphasis">{{ nodi }}</span>
+            <span class="small text-body-secondary d-block">{{ quanti }} porte</span>
+          </span>
+        </a>
+        {% endmacro %}
+        {{ esposta('Amministrazione', board.esposizione.amministrazione.porte,
+           board.esposizione.amministrazione.nodi,
+           'SSH, Telnet, RDP, VNC, WinRM, IPMI: con queste si prende il controllo',
+           'danger' if board.esposizione.amministrazione.nodi else 'success',
+           'bi-terminal', 'desktop_remoto') }}
+        {{ esposta('In chiaro', board.esposizione.in_chiaro.porte,
+           board.esposizione.in_chiaro.nodi,
+           'credenziali leggibili da chi sta sul percorso',
+           'danger' if board.esposizione.in_chiaro.nodi else 'success',
+           'bi-unlock', 'in_chiaro') }}
+        {{ esposta('Banche dati', board.esposizione.banche_dati.porte,
+           board.esposizione.banche_dati.nodi,
+           'raggiungibili da una rete di utenza non hanno ragione di esserlo',
+           'warning' if board.esposizione.banche_dati.nodi else 'success',
+           'bi-database', 'banche_dati') }}
+        <p class="small text-body-secondary mb-0 mt-2">
+          {{ board.esposizione.con_versione|intero }} porte dichiarano la versione del
+          prodotto: sono le sole su cui una vulnerabilita' si puo' confermare.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-ethernet me-1"></i> Porte piu' diffuse</h3>
+      </div>
+      <div class="card-body">
+        {% set massimo_porte = board.porte|map(attribute='nodi')|max if board.porte else 0 %}
+        {% for voce in board.porte %}
+        <div class="snap-barra-riga">
+          <div>
+            <div class="snap-barra-nome">
+              <span class="font-monospace">{{ voce.porta }}</span>
+              <span class="text-body-secondary">{{ voce.servizio }}</span>
+              {% if voce.amministrazione %}
+              <i class="bi bi-terminal text-danger ms-1" title="porta di amministrazione"></i>
+              {% elif voce.in_chiaro %}
+              <i class="bi bi-unlock text-danger ms-1" title="protocollo in chiaro"></i>
+              {% endif %}
             </div>
-            <p class="snap-kpi-label mb-0">{{ item.label }}</p>
-            <p class="snap-kpi-hint mb-0">{{ item.hint }}</p>
+            <div class="snap-barra-traccia">
+              <div class="snap-barra"
+                   style="width: {{ (100.0 * voce.nodi / massimo_porte)|round(1) if massimo_porte else 0 }}%"></div>
+            </div>
+          </div>
+          <div class="snap-barra-valore">{{ voce.nodi }}</div>
+        </div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">Nessuna porta aperta registrata.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-diagram-3 me-1"></i> Dispositivi per zona</h3>
+      </div>
+      <div class="card-body">
+        {% set massimo_zone = board.zone|map(attribute='nodi')|max if board.zone else 0 %}
+        {% for voce in board.zone %}
+        <div class="snap-barra-riga">
+          <div>
+            <div class="snap-barra-nome d-flex justify-content-between">
+              <span>{{ voce.zona }}</span>
+              <span class="text-body-secondary">{{ voce.attivi }} attivi</span>
+            </div>
+            <div class="snap-barra-traccia">
+              <div class="snap-barra"
+                   style="width: {{ (100.0 * voce.nodi / massimo_zone)|round(1) if massimo_zone else 0 }}%"></div>
+            </div>
+          </div>
+          <div class="snap-barra-valore">{{ voce.nodi }}</div>
+        </div>
+        {% else %}
+        <p class="text-body-secondary small mb-0">Nessun dispositivo censito.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ====================================================================== #}
+{# 6. Igiene del parco: vetusta', certificati, SMB                         #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0">
+          <i class="bi bi-hourglass-split me-1"></i> Vetusta' delle interfacce
+        </h3>
+        <span class="text-body-secondary small">
+          per anno dichiarato &middot; {{ board.vetusta.senza_anno }} interfacce mute
+        </span>
+      </div>
+      <div class="card-body">
+        {% if board.vetusta.distribuzione %}
+        {% set massimo_anni = board.vetusta.distribuzione|map(attribute='nodi')|max %}
+        <div class="snap-colonne mb-1">
+          {% for voce in board.vetusta.distribuzione %}
+          <div class="snap-colonna" title="{{ voce.anno }}: {{ voce.nodi }} dispositivi">
+            <div class="snap-colonna-barra {{ 'snap-vecchia' if voce.eta >= 10 else ('snap-attempata' if voce.eta >= 5 else '') }}"
+                 style="height: {{ (100.0 * voce.nodi / massimo_anni)|round(1) if massimo_anni else 0 }}%"></div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="d-flex justify-content-between small text-body-secondary">
+          <span>{{ board.vetusta.distribuzione[0].anno }}</span>
+          <span>{{ board.vetusta.distribuzione[-1].anno }}</span>
+        </div>
+        <div class="d-flex gap-3 flex-wrap mt-2 small">
+          <span><i class="bi bi-square-fill text-danger me-1"></i>ferme da 10+ anni:
+            <strong>{{ board.vetusta.gravi }}</strong></span>
+          <span><i class="bi bi-square-fill text-warning me-1"></i>da 5 a 10 anni:
+            <strong>{{ board.vetusta.preoccupanti }}</strong></span>
+          <span><i class="bi bi-square-fill text-primary me-1"></i>piu' recenti</span>
+        </div>
+        <p class="small text-body-secondary mb-0 mt-2">
+          L'anno e' quello che la pagina dichiara di se'. Un "&copy; 2014" non dimostra
+          che il software sia del 2014: dimostra che nessuno l'ha piu' toccata da
+          allora. E' un limite inferiore all'eta', non una misura.
+        </p>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna interfaccia dichiara un anno: la lettura web non e' ancora passata.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-3">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-patch-check me-1"></i> Certificati TLS</h3>
+      </div>
+      <div class="card-body">
+        {% if board.certificati.misurato %}
+        {% macro conto(nome, valore, tono, icona) %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small"><i class="bi {{ icona }} text-{{ tono }} me-1"></i>{{ nome }}</span>
+          <span class="fw-bold text-{{ tono }}-emphasis">{{ valore }}</span>
+        </div>
+        {% endmacro %}
+        {{ conto('gia\' scaduti', board.certificati.scaduti,
+           'danger' if board.certificati.scaduti else 'success', 'bi-x-octagon') }}
+        {{ conto('entro 30 giorni', board.certificati.entro_30,
+           'warning' if board.certificati.entro_30 else 'success', 'bi-clock-history') }}
+        {{ conto('entro 90 giorni', board.certificati.entro_90, 'info', 'bi-calendar-event') }}
+        {{ conto('autofirmati', board.certificati.autofirmati, 'secondary', 'bi-pen') }}
+        <p class="small text-body-secondary mb-0 mt-2">
+          {{ board.certificati.totale|intero }} certificati letti su
+          {{ board.certificati.nodi }} dispositivi.
+        </p>
+        <a class="btn btn-sm btn-outline-secondary mt-2 w-100"
+           href="{{ url_for('inventory.certificates') }}">Elenco completo</a>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessun certificato letto. Un servizio che la sonda non raggiunge non
+          compare, e la sua assenza non e' una conferma.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-3">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-file-lock2 me-1"></i> Esposizione SMB</h3>
+      </div>
+      <div class="card-body">
+        {% if board.smb.misurato %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small">
+            <i class="bi bi-shield-slash text-{{ 'danger' if board.smb.senza_firma else 'success' }} me-1"></i>
+            firma non richiesta
+          </span>
+          <span class="fw-bold text-{{ 'danger' if board.smb.senza_firma else 'success' }}-emphasis">
+            {{ board.smb.senza_firma }}
+          </span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small">
+            <i class="bi bi-exclamation-diamond text-{{ 'danger' if board.smb.smb1 else 'success' }} me-1"></i>
+            SMB 1.0 attivo
+          </span>
+          <span class="fw-bold text-{{ 'danger' if board.smb.smb1 else 'success' }}-emphasis">
+            {{ board.smb.smb1 }}
+          </span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small"><i class="bi bi-shield-check text-success me-1"></i>firma richiesta</span>
+          <span class="fw-bold">{{ board.smb.firma_richiesta }}</span>
+        </div>
+        <p class="small text-body-secondary mb-0 mt-2">
+          Letto su {{ board.smb.nodi|intero }} dispositivi, in sola lettura: e' cio' che
+          ciascuno dichiara quando gli si chiede come parla.
+        </p>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna lettura SMB: la fase non e' ancora passata, oppure nessun
+          dispositivo risponde sulla 139 o sulla 445.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ====================================================================== #}
+{# 7. Lo strumento: flotta, fasi, attivita'                                #}
+{# ====================================================================== #}
+<div class="row g-3 mb-3">
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h3 class="card-title mb-0"><i class="bi bi-hdd-rack me-1"></i> Le fasi di scansione</h3>
+        <span class="text-body-secondary small">ultime 24 ore</span>
+      </div>
+      <div class="card-body">
+        {% if board.fasi %}
+        {% for voce in board.fasi %}
+        <div class="snap-barra-riga">
+          <div>
+            <div class="snap-barra-nome d-flex justify-content-between">
+              <span class="font-monospace">{{ voce.fase }}</span>
+              <span class="text-body-secondary">
+                {{ voce.passate|intero }} passate &middot; {{ voce.secondi }} s in media
+              </span>
+            </div>
+            {% if voce.conta_host %}
+            <div class="snap-barra-traccia">
+              <div class="snap-barra" style="width: {{ voce.resa }}%"></div>
+            </div>
+            {% else %}
+            <div class="small text-body-secondary">
+              lavora su nodi gia' noti: non dichiara bersagli, e una quota calcolata
+              sugli host direbbe zero per costruzione
+            </div>
+            {% endif %}
+          </div>
+          <div class="snap-barra-valore">
+            {%- if voce.conta_host %}{{ voce.resa }}%{% else %}&mdash;{% endif -%}
           </div>
         </div>
         {% endfor %}
-      </div>
-
-      {# --- indicatori messi via ------------------------------------------ #}
-      {% if kpi_nascosti %}
-      <div class="border-top mt-3 pt-3">
-        <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
-              class="d-flex flex-wrap align-items-center gap-2">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <span class="small text-body-secondary me-1">
-            <i class="bi bi-eye-slash me-1"></i>
-            Nascosti da te ({{ kpi_nascosti|length }}):
-          </span>
-          {# Le caselle spuntate sono quelle che RESTANO nascoste: togliendo la
-             spunta e salvando, l'indicatore torna. #}
-          {% for item in kpi_nascosti %}
-          <div class="form-check form-check-inline me-2">
-            <input class="form-check-input" type="checkbox" name="nascosti"
-                   value="{{ item.key }}" id="kpi-{{ item.key }}" checked>
-            <label class="form-check-label small" for="kpi-{{ item.key }}">
-              <i class="bi {{ item.icon }} me-1"></i>{{ item.label }}
-            </label>
-          </div>
-          {% endfor %}
-          <button type="submit" class="btn btn-sm btn-outline-primary">
-            Applica
-          </button>
-          <button type="submit" name="azione" value="mostra_tutti"
-                  class="btn btn-sm btn-link">
-            Mostra tutti
-          </button>
-        </form>
         <p class="small text-body-secondary mb-0 mt-2">
-          La scelta e' tua e resta: vale per il tuo utente, su qualunque postazione,
-          e non scade con la sessione. Un indicatore aggiunto da una versione
-          successiva compare comunque.
+          La percentuale e' la quota di passate che hanno visto ALMENO UN host, e
+          compare solo per le fasi che gli host li cercano. Le altre lavorano su nodi
+          gia' noti: misurarle cosi' direbbe zero per costruzione, come il contatore
+          dei record -- che per la stessa ragione qui non si usa.
         </p>
-      </div>
-      {% endif %}
-    </div>
-
-    {# --- Rete ---------------------------------------------------------- #}
-    <div class="tab-pane fade p-0" id="pane-rete" role="tabpanel" aria-labelledby="tab-rete">
-      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
-        <span class="small text-body-secondary">
-          {{ inventory.subnets }} subnet dichiarate, {{ inventory.perimeter_addresses }} indirizzi
-          &middot; copertura {{ inventory.coverage_pct }}%
-        </span>
-        <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-outline-secondary">
-          Perimetro
-        </a>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10"
-               data-no-search="true">
-          <thead><tr><th>TIPO DI DISPOSITIVO</th><th>NODI</th><th>CONFIDENZA MEDIA</th></tr></thead>
-          <tbody>
-            {% for d in distribution %}
-            <tr>
-              <td class="small">
-                <a href="{{ url_for('inventory.nodes', type=d.type) }}"
-                   class="text-decoration-none">{{ d.label }}</a>
-              </td>
-              <td class="small">{{ d.count }}</td>
-              <td class="small">{{ d.avg_confidence }}%</td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="3" class="text-center text-body-secondary py-4">
-                Nessun nodo in inventario.
-                <a href="{{ url_for('inventory.subnets') }}">Dichiarare il perimetro</a>.
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+        {% else %}
+        <p class="text-body-secondary small mb-0">
+          Nessuna passata nelle ultime 24 ore: la raccolta e' ferma.
+        </p>
+        {% endif %}
       </div>
     </div>
+  </div>
 
-    {# --- Cambiamenti --------------------------------------------------- #}
-    <div class="tab-pane fade p-0" id="pane-cambiamenti" role="tabpanel"
-         aria-labelledby="tab-cambiamenti">
-      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
-        <a href="{{ url_for('monitor.changes') }}" class="btn btn-sm btn-outline-secondary">
-          Tutti i cambiamenti
-        </a>
+  <div class="col-12 col-xl-4">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-broadcast-pin me-1"></i> Flotta e raccolta</h3>
       </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
-          <thead><tr><th>QUANDO</th><th>NODO</th><th>CAMBIAMENTO</th><th>OGGETTO</th></tr></thead>
-          <tbody>
-            {% for c in changes %}
-            <tr>
-              <td class="small">{{ c.created_at|dt }}</td>
-              <td class="small">
-                {% if c.node_id %}
-                <a href="{{ url_for('inventory.node', node_id=c.node_id) }}"
-                   class="text-decoration-none">{{ c.ip or c.node_id }}</a>
-                {% else %}-{% endif %}
-              </td>
-              <td class="small">
-                <span class="badge text-bg-{{ 'danger' if c.severity == 'critical' else 'warning' if c.severity == 'warning' else 'secondary' }}">
-                  {{ c.kind }}
-                </span>
-              </td>
-              <td class="small">{{ c.subject or '-' }}</td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="4" class="text-center text-body-secondary py-4">
-                Nessun cambiamento registrato: la rete e' stabile.
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="card-body">
+        {% macro riga_flotta(nome, valore, piede, tono) %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small">{{ nome }}<span class="text-body-secondary d-block">{{ piede }}</span></span>
+          <span class="fs-6 fw-bold text-{{ tono }}-emphasis">{{ valore }}</span>
+        </div>
+        {% endmacro %}
+        {{ riga_flotta('Sonde attive', '%d/%d'|format(board.flotta.attive, board.flotta.sonde),
+           '%d in contatto nell\'ultima ora'|format(board.flotta.in_contatto),
+           'success' if board.flotta.attive else 'danger') }}
+        {{ riga_flotta('Passate 24h', board.flotta.passate|intero,
+           '%s a vuoto, %s host visti'|format(board.flotta.a_vuoto|intero, board.flotta.host|intero),
+           'info') }}
+        {{ riga_flotta('Conferimenti 24h', board.flotta.lotti|intero,
+           '%s record, %s rifiutati'|format(board.flotta.record|intero, board.flotta.rifiutati|intero),
+           'danger' if board.flotta.rifiutati else 'info') }}
+        {{ riga_flotta('Scansioni sospese', board.flotta.sospese,
+           'sonde con la raccolta in pausa',
+           'warning' if board.flotta.sospese else 'success') }}
+        <a class="btn btn-sm btn-outline-secondary mt-2 w-100"
+           href="{{ url_for('probes.index') }}">Le sonde</a>
       </div>
     </div>
+  </div>
 
-    {# --- Sonde --------------------------------------------------------- #}
-    <div class="tab-pane fade p-0" id="pane-sonde" role="tabpanel" aria-labelledby="tab-sonde">
-      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom">
-        <span class="small text-body-secondary">
-          Il server non contatta le sonde: ogni scambio e' iniziato dalla sonda.
-        </span>
-        <a href="{{ url_for('probes.index') }}" class="btn btn-sm btn-outline-secondary">
-          Flotta sonde
-        </a>
+  <div class="col-12 col-xl-3">
+    <div class="card h-100">
+      <div class="card-header">
+        <h3 class="card-title mb-0"><i class="bi bi-activity me-1"></i> Attivita'</h3>
       </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
-          <thead>
-            <tr><th>STATO</th><th>CODICE</th><th>NOME</th><th>VERSIONE</th>
-                <th>ULTIMO CONTATTO</th><th>ULTIMO CONFERIMENTO</th></tr>
-          </thead>
-          <tbody>
-            {% for probe in fleet %}
-            <tr>
-              <td class="small">
-                <span class="snap-dot snap-dot-{{ probe.health }}"></span>
-                {% if probe.health == 'online' %}Attiva
-                {% elif probe.health == 'pending' %}In attesa
-                {% elif probe.health == 'revoked' %}Revocata
-                {% else %}Non raggiungibile{% endif %}
-              </td>
-              <td class="small fw-semibold">
-                <a href="{{ url_for('probes.detail', probe_id=probe.id) }}"
-                   class="text-decoration-none">{{ probe.code }}</a>
-              </td>
-              <td class="small">{{ probe.name }}</td>
-              <td class="small">{{ probe.agent_version or '-' }}</td>
-              <td class="small">{{ probe.last_seen_at|dt }}
-                <div class="text-body-secondary">{{ probe.last_seen_at|ago }}</div>
-              </td>
-              <td class="small">{{ probe.last_sync_at|dt }}
-                <div class="text-body-secondary">{{ probe.last_sync_at|ago }}</div>
-              </td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="6" class="text-center text-body-secondary py-4">
-                Nessuna sonda censita per questo tenant.
-                {% if has_role('tenant_admin') %}
-                <a href="{{ url_for('probes.create') }}">Registrare la prima sonda</a>.
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {# --- Conferimenti -------------------------------------------------- #}
-    <div class="tab-pane fade p-0" id="pane-conferimenti" role="tabpanel"
-         aria-labelledby="tab-conferimenti">
-      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
-        <a href="{{ url_for('inventory.deliveries') }}" class="btn btn-sm btn-outline-secondary">
-          Tutti i dati dalle sonde
-        </a>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
-          <thead>
-            <tr><th>RICEVUTO</th><th>SONDA</th><th>RECORD</th><th>BYTE</th>
-                <th>CONTENUTO</th><th></th></tr>
-          </thead>
-          <tbody>
-            {% for b in batches %}
-            <tr>
-              <td class="small">{{ b.received_at|dt }}
-                <div class="text-body-secondary">{{ b.received_at|ago }}</div>
-              </td>
-              <td class="small">{{ b.probe_code or '-' }}</td>
-              <td class="small">{{ b.record_count }}</td>
-              <td class="small text-end">{{ b.payload_bytes|bytes }}</td>
-              <td class="small">{{ b.detail or '-' }}</td>
-              <td class="text-end">
-                <a href="{{ url_for('inventory.delivery', batch_id=b.id) }}"
-                   class="btn btn-sm btn-outline-secondary" title="Vedere il contenuto">
-                  <i class="bi bi-eye"></i>
-                </a>
-              </td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="6" class="text-center text-body-secondary py-4">
-                Nessun conferimento ricevuto.
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    {# --- Eventi -------------------------------------------------------- #}
-    <div class="tab-pane fade p-0" id="pane-eventi" role="tabpanel" aria-labelledby="tab-eventi">
-      <div class="d-flex justify-content-end px-3 py-2 border-bottom">
-        <a href="{{ url_for('audit.index') }}" class="btn btn-sm btn-outline-secondary">
-          Audit &amp; Eventi
-        </a>
-      </div>
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" data-snap-table data-page-size="10">
-          <thead>
-            <tr><th>QUANDO</th><th>GRAVITA'</th><th>TIPO</th><th>ATTORE</th><th>DESCRIZIONE</th></tr>
-          </thead>
-          <tbody>
-            {% for e in events %}
-            <tr>
-              <td class="small">{{ e.created_at|dt }}</td>
-              <td class="small">
-                <span class="badge text-bg-{{ 'danger' if e.severity == 'critical' else 'warning' if e.severity == 'warning' else 'secondary' }}">
-                  {{ e.severity }}
-                </span>
-              </td>
-              <td class="small">{{ e.event_type }}</td>
-              <td class="small">{{ e.actor }}</td>
-              <td class="small">{{ e.description }}</td>
-            </tr>
-            {% else %}
-            <tr>
-              <td colspan="5" class="text-center text-body-secondary py-4">
-                Nessun evento registrato.
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+      <div class="card-body">
+        {% macro riga_attivita(nome, valore, tono, icona) %}
+        <div class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span class="small"><i class="bi {{ icona }} text-{{ tono }} me-1"></i>{{ nome }}</span>
+          <span class="fw-bold">{{ valore }}</span>
+        </div>
+        {% endmacro %}
+        {{ riga_attivita('Eventi 24h', board.attivita.eventi_24h|intero, 'info', 'bi-journal-text') }}
+        {{ riga_attivita('Eventi gravi 7g', board.attivita.eventi_gravi_7g,
+           'warning' if board.attivita.eventi_gravi_7g else 'success', 'bi-exclamation-triangle') }}
+        {{ riga_attivita('Notifiche 24h', board.attivita.notifiche_24h, 'info', 'bi-bell') }}
+        {{ riga_attivita('Invii falliti 7g', board.attivita.notifiche_fallite_7g,
+           'danger' if board.attivita.notifiche_fallite_7g else 'success', 'bi-bell-slash') }}
+        {{ riga_attivita('Relazioni 30g', board.attivita.relazioni_30g, 'info', 'bi-file-earmark-pdf') }}
+        {{ riga_attivita('Comandi in attesa', board.attivita.comandi_in_attesa,
+           'warning' if board.attivita.comandi_in_attesa else 'secondary', 'bi-hourglass') }}
       </div>
     </div>
   </div>
 </div>
+
+{# ====================================================================== #}
+{# 8. Composizione del parco                                               #}
+{# ====================================================================== #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0"><i class="bi bi-pc-display me-1"></i> Composizione del parco</h3>
+    <span class="text-body-secondary small">
+      {{ board.inventario.con_os|intero }} con sistema operativo riconosciuto &middot;
+      {{ board.inventario.con_mac|intero }} con indirizzo fisico noto
+    </span>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% set massimo_tipi = board.tipi|map(attribute='quanti')|max if board.tipi else 0 %}
+      {% for voce in board.tipi %}
+      <div class="col-12 col-md-6 col-xl-4">
+        <div class="snap-barra-riga mb-0">
+          <div>
+            <div class="snap-barra-nome">{{ voce.tipo }}</div>
+            <div class="snap-barra-traccia">
+              <div class="snap-barra"
+                   style="width: {{ (100.0 * voce.quanti / massimo_tipi)|round(1) if massimo_tipi else 0 }}%"></div>
+            </div>
+          </div>
+          <div class="snap-barra-valore">{{ voce.quanti }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="col-12">
+        <p class="text-body-secondary small mb-0">Nessun dispositivo censito.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+
+{# ====================================================================== #}
+{# 9. Gli indicatori che ciascuno tiene sott'occhio.                      #}
+{#    Si mettono via con la crocetta e si riattivano da qui: la scelta e'  #}
+{#    dell'utente e resta sul suo profilo, non nella sessione.            #}
+{# ====================================================================== #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-sliders me-1"></i> I tuoi indicatori
+      <span class="badge text-bg-secondary ms-1">{{ kpi|length }}</span>
+    </h3>
+    <span class="text-body-secondary small">
+      la crocetta ne mette via uno; qui sotto si riattivano
+    </span>
+  </div>
+  <div class="card-body">
+  <div class="row g-2">
+      {% for item in kpi %}
+      <div class="col-6 col-md-4 col-xxl-2">
+        <div class="snap-kpi snap-kpi-{{ item.tone }}">
+          {# La crocetta compare al passaggio del puntatore e resta raggiungibile
+             da tastiera: un comando visibile sempre su dodici riquadri sarebbe
+             dodici volte lo stesso invito a togliere qualcosa. #}
+          <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
+                class="snap-kpi-chiudi">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="nascondi" value="{{ item.key }}">
+            <button type="submit" class="btn btn-sm btn-link p-0 text-body-secondary"
+                    title="Nascondi {{ item.label }}"
+                    aria-label="Nascondi l'indicatore {{ item.label }}">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </form>
+          <div class="d-flex align-items-center gap-2">
+            <i class="bi {{ item.icon }}"></i>
+            <span class="snap-kpi-value">{{ item.value }}</span>
+          </div>
+          <p class="snap-kpi-label mb-0">{{ item.label }}</p>
+          <p class="snap-kpi-hint mb-0">{{ item.hint }}</p>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    {# --- indicatori messi via ------------------------------------------ #}
+    {% if kpi_nascosti %}
+    <div class="border-top mt-3 pt-3">
+      <form method="post" action="{{ url_for('auth.kpi_preferences') }}"
+            class="d-flex flex-wrap align-items-center gap-2">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <span class="small text-body-secondary me-1">
+          <i class="bi bi-eye-slash me-1"></i>
+          Nascosti da te ({{ kpi_nascosti|length }}):
+        </span>
+        {# Le caselle spuntate sono quelle che RESTANO nascoste: togliendo la
+           spunta e salvando, l'indicatore torna. #}
+        {% for item in kpi_nascosti %}
+        <div class="form-check form-check-inline me-2">
+          <input class="form-check-input" type="checkbox" name="nascosti"
+                 value="{{ item.key }}" id="kpi-{{ item.key }}" checked>
+          <label class="form-check-label small" for="kpi-{{ item.key }}">
+            <i class="bi {{ item.icon }} me-1"></i>{{ item.label }}
+          </label>
+        </div>
+        {% endfor %}
+        <button type="submit" class="btn btn-sm btn-outline-primary">
+          Applica
+        </button>
+        <button type="submit" name="azione" value="mostra_tutti"
+                class="btn btn-sm btn-link">
+          Mostra tutti
+        </button>
+      </form>
+      <p class="small text-body-secondary mb-0 mt-2">
+        La scelta e' tua e resta: vale per il tuo utente, su qualunque postazione,
+        e non scade con la sessione. Un indicatore aggiunto da una versione
+        successiva compare comunque.
+      </p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<p class="small text-body-secondary">
+  <i class="bi bi-info-circle me-1"></i>
+  Tutti i numeri vengono dai dati gia' conferiti dalle sonde: aprire questa pagina non
+  avvia nessuna scansione. Dove una fonte non ha ancora prodotto nulla, la pagina lo
+  dichiara invece di mostrare uno zero: zero e "non misurato" non sono la stessa cosa.
+</p>
 {% endblock %}

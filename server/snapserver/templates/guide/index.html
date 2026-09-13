@@ -108,6 +108,7 @@
               ('zone', 'Zone di rete'),
               ('acn', "Comunicazioni all'autorita' (ACN)"),
               ('siem', 'SIEM: i log come fonte di sicurezza'),
+              ('ids', 'IDS e agenti di macchina'),
               ('sicurezza', 'Sicurezza e conformita'),
               ('diagnosi', 'Quando qualcosa non torna'),
               ('glossario', 'Glossario')] %}
@@ -1046,7 +1047,7 @@
         </p>
 
         <!-- ============================================================= -->
-        <h2 id="riscontri">I riscontri di sicurezza</h2>
+        <h2 id="riscontri">7. I riscontri di sicurezza</h2>
         <p>
           <strong>Riscontro</strong> e' la parola che ricorre in tutta la console e su
           tutte le mappe. Un riscontro e' un <strong>problema di sicurezza rilevato su un
@@ -1127,7 +1128,7 @@
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="monitoraggio">7. Monitoraggio e scostamenti</h2>
+        <h2 id="monitoraggio">8. Monitoraggio e scostamenti</h2>
         <p>
           <em>Stato della rete</em> (menu <em>Stato della rete</em>) risponde a "cosa risponde adesso": raggiungibilita', latenza
           e disponibilita' calcolata sulle ultime 24 ore. <em>Cambiamenti</em> risponde a "cosa
@@ -1153,7 +1154,7 @@
         </p>
 
         <!-- ============================================================= -->
-        <h2 id="controlli">8. Controlli periodici</h2>
+        <h2 id="controlli">9. Controlli periodici</h2>
         <p>
           I controlli rispondono a una domanda che l'inventario non copre: <strong>i servizi che
           ci interessano stanno funzionando?</strong> Si dichiara un <em>bersaglio</em> (indirizzo
@@ -1246,7 +1247,7 @@ Verifiche: status            uguale a      ok
         </p>
 
         <!-- ============================================================= -->
-        <h2 id="incidenti">9. Workflow degli incidenti</h2>
+        <h2 id="incidenti">10. Workflow degli incidenti</h2>
         <p>
           Il workflow e' <strong>sempre automatico</strong>: nessuna scelta da fare quando si
           definisce il controllo. Due soglie governano tutto.
@@ -1327,7 +1328,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="metriche">10. Metriche e andamenti</h2>
+        <h2 id="metriche">11. Metriche e andamenti</h2>
         <p>
           Ogni esito viene scomposto in <strong>punti di misura</strong> conservati come serie
           storica: i numeri della risposta (<code>metrics.cpu_percent</code>), i valori testuali
@@ -1387,7 +1388,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="dashboard">11. Leggere la dashboard</h2>
+        <h2 id="dashboard">12. Leggere la dashboard</h2>
         <p>
           In testa compare, <strong>solo se ce ne sono</strong>, il riquadro rosso degli
           incidenti aperti: cio' che richiede un intervento non deve essere cercato. Poi la
@@ -1428,7 +1429,9 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
 
         {% include 'guide/_siem.html' %}
 
-<h2 id="sicurezza">21. Sicurezza e conformita'</h2>
+        {% include 'guide/_ids.html' %}
+
+<h2 id="sicurezza">23. Sicurezza e conformita'</h2>
         <ul>
           <li>
             <strong>Canale cifrato.</strong> Ogni scambio fra sonda e server e' cifrato
@@ -1462,7 +1465,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="diagnosi">22. Quando qualcosa non torna</h2>
+        <h2 id="diagnosi">24. Quando qualcosa non torna</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">
@@ -1518,7 +1521,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </div>
 
         <!-- ============================================================= -->
-        <h2 id="glossario">23. Glossario</h2>
+        <h2 id="glossario">25. Glossario</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">

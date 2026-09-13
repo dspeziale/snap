@@ -452,6 +452,12 @@ MIGRATIONS = [
     # Ogni allarme SIEM e' anche un incidente in Controlli -> Incidenti (vedi
     # siem/incident.py): qui il legame verso quell'incidente.
     ("siem_alerts", "incident_id", "INTEGER"),
+    # L'inventario della macchina con l'agente: uno STATO che si sovrascrive, tenuto
+    # accanto alla macchina invece che nella serie delle misure. Vedi
+    # `Raccolta.inventario` nell'agente per il perche' non viaggia con le misure.
+    ("agent_hosts", "inventario_json", "TEXT"),
+    ("agent_hosts", "inventario_at", "TEXT"),
+    ("agent_hosts", "gruppi_spenti", "TEXT"),
 ]
 
 

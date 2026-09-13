@@ -34,6 +34,12 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY probe/ /app/
 
+# L'AGENTE DI MACCHINA viaggia con la sonda: la console della sonda ne costruisce il
+# pacchetto di installazione, e per costruirlo servono i file veri (vedi
+# `snapprobe/pacchetto_agente.py`). Non e' una copia del codice -- e' lo stesso file,
+# portato dove serve.
+COPY agent/ /app/agente/
+
 # Socket raw senza root. La scansione SYN (-sS) e il rilevamento del sistema
 # operativo (-O) hanno bisogno di CAP_NET_RAW/CAP_NET_ADMIN. Con `cap_add` nel compose
 # la capacita' entra nel container, ma un processo non-root la usa solo se e' scritta

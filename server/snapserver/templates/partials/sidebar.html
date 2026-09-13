@@ -41,6 +41,7 @@
 {% set in_sonde = endpoint.startswith('probes.') %}
 {% set in_admin = endpoint.startswith('admin.') %}
 {% set in_sala = endpoint.startswith('operations.') %}
+{% set in_ids = endpoint.startswith('ids.') %}
 
 {# L'Operatore SIEM ha un menu su misura: lavora il SIEM e gli incidenti, non
    l'inventario ne' l'amministrazione. Le sezioni non pertinenti si nascondono per
@@ -53,6 +54,7 @@
 {% set minacce = (indicators.threat_confirmed if indicators else 0) or 0 %}
 {% set minacce_aperte = (indicators.threat_open if indicators else 0) or 0 %}
 {% set allarmi_siem = (indicators.siem_alerts_open if indicators else 0) or 0 %}
+{% set rilevazioni_aperte = (indicators.ids_open if indicators else 0) or 0 %}
 
 {# Nessun data-bs-theme qui: il menu deve seguire il tema scelto dall'utente,
    che e' dichiarato sulla radice del documento. #}
@@ -92,6 +94,7 @@
             <p>Dashboard</p>
           </a>
         </li>
+
 
         {# All'Operatore SIEM non servono sala operativa, rete, controlli e sicurezza:
            il suo lavoro sta nel SIEM e negli incidenti, appena sotto. #}
@@ -349,6 +352,46 @@
           </ul>
         </li>
         {% endif %}{# fine sezioni non pertinenti all'Operatore SIEM #}
+
+        {# --- IDS: rilevazione delle intrusioni e agenti di macchina.
+               Gruppo proprio e non una voce dentro Sicurezza: risponde a una domanda
+               diversa -- non "che vulnerabilita' abbiamo" ma "che cosa e' cambiato
+               adesso" -- e chi lo cerca lo cerca per nome. #}
+        <li class="nav-item {% if in_ids %}menu-open{% endif %}" data-snap-gruppo="ids">
+          <a href="#" class="nav-link {% if in_ids %}active{% endif %}">
+            <i class="nav-icon bi bi-radar"></i>
+            <p>
+              IDS
+              {% if rilevazioni_aperte %}
+              <span class="badge text-bg-danger snap-badge-gruppo">{{ rilevazioni_aperte }}</span>
+              {% endif %}
+              <i class="nav-arrow bi bi-chevron-right"></i>
+            </p>
+          </a>
+          <ul class="nav nav-treeview">
+            <li class="nav-item">
+              <a href="{{ url_for('ids.index') }}"
+                 class="nav-link {% if endpoint == 'ids.index' %}active{% endif %}">
+                <i class="nav-icon bi bi-radar"></i>
+                <p>Rilevazioni</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('ids.regole') }}"
+                 class="nav-link {% if endpoint == 'ids.regole' %}active{% endif %}">
+                <i class="nav-icon bi bi-list-check"></i>
+                <p>Regole e sensori</p>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{{ url_for('ids.agenti') }}"
+                 class="nav-link {% if endpoint in ('ids.agenti', 'ids.agente') %}active{% endif %}">
+                <i class="nav-icon bi bi-pc-display"></i>
+                <p>Agenti di macchina</p>
+              </a>
+            </li>
+          </ul>
+        </li>
 
         <li class="nav-header">SIEM</li>
 

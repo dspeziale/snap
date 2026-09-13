@@ -24,7 +24,8 @@ segue la versione del PRODOTTO, la stessa della console.
 
 Numerazione
 -----------
-Dalla 1.2.0 la sonda ha una numerazione PROPRIA, distinta da quella della console:
+Dalla 1.2.0 la sonda ha una numerazione PROPRIA, distinta da quella della console, e
+dalla 1.2.2 avanza a due centesimi per rilascio:
 le due parti si aggiornano in momenti diversi -- la sonda sta in sede dal cliente, la
 console si aggiorna quando si vuole -- e un numero unico costringeva a inventare
 versioni della sonda per cambiamenti che non la riguardavano. Le voci del periodo in cui
@@ -38,6 +39,96 @@ from __future__ import annotations
 
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
+    {
+        "version": "1.2.6",
+        "date": "2026-09-13",
+        "abstract": "La sonda riconosce le intrusioni e accoglie gli agenti di"
+                    " macchina. Il motore gira QUI perche' la sonda e' l'unica a"
+                    " contatto con la rete sorvegliata: rilevare sul server"
+                    " significherebbe rilevare in ritardo, su dati gia' conferiti.",
+        "changes": [
+            "MOTORE DI RILEVAZIONE su osservazione, con dodici regole e tre sensori"
+            " innestabili. Legge l'archivio locale che le passate di scansione hanno"
+            " gia' riempito: non apre connessioni, non scansiona, non aggiunge carico"
+            " sulla rete. Gira ogni cinque minuti dentro il ciclo principale.",
+            "LA LINEA DI BASE decide tutto: una rilevazione non e' un fatto assoluto"
+            " (\"la 3389 e' aperta\") ma un cambiamento (\"la 3389 e' aperta dove non"
+            " c'era\"). Finche' la memoria di un soggetto e' piu' giovane di dodici"
+            " ore il cambiamento si registra e non si segnala, e finche' l'INTERO"
+            " archivio e' giovane le regole \"mai visto\" tacciono: senza questa"
+            " seconda condizione la prima passata su una rete vera ha segnalato"
+            " quattrocento nodi in un colpo, che e' il modo piu' rapido per far"
+            " disattivare un IDS.",
+            "CANALE PER GLI AGENTI DI MACCHINA (`/api/agent`). L'agente APRE verso la"
+            " sonda e non riceve comandi: una macchina in rete di utenza non deve"
+            " essere raggiungibile da nessuno, nemmeno dal prodotto che la sorveglia."
+            " Registrazione con un token che vale una volta sola e scade in un'ora;"
+            " ogni invio porta una firma HMAC-SHA256 sul corpo esatto, con identita',"
+            " marca temporale e nonce -- non si puo' rigiocare altrove, ne' piu'"
+            " tardi, ne' per conto di un altro.",
+            "L'AGENTE (1.0.2) NON RIPETE CIO' CHE DURA. Un evento che descrive una"
+            " condizione -- disco pieno, protezione ferma, accessi falliti -- si"
+            " riferisce quando lo stato cambia di fascia e si riarma dopo sei ore."
+            " Alla prima prova su una macchina vera erano arrivati centootto eventi"
+            " \"disco quasi pieno\" identici in ventiquattr'ore: una riga nuova sarebbe"
+            " finita sepolta. Mille volte lo stesso fatto e' un fatto che dura, non"
+            " mille fatti. Se la condizione rientra, l'agente se ne dimentica subito:"
+            " quando risale lo ridice senza aspettare il riarmo.",
+            "Due pagine nuove nella console locale: *IDS* e *Agenti*. Si vedono anche"
+            " quando il collegamento con la sede e' interrotto -- chi e' davanti alla"
+            " sonda deve poter capire che cosa sta succedendo senza dipendere dalla"
+            " rete geografica.",
+            "LE TABELLE PROPRIE DELLA SONDA PORTANO IL PREFISSO `local_`, come"
+            " `local_nodes` gia' faceva. Tre di quelle nuove si chiamavano come"
+            " tabelle della console pur avendo colonne diverse: sonda e console hanno"
+            " due basi dati e in esercizio non si incontrano, ma chi le mette sullo"
+            " stesso PostgreSQL trova un \"CREATE TABLE IF NOT EXISTS\" che non crea"
+            " niente e un indice che fallisce su una colonna inesistente -- un guasto"
+            " che non somiglia alla propria causa. L'archivio gia' in esercizio si"
+            " rinomina da se' al primo avvio, conservando i dati.",
+            "LO STATO DELL'IDS VIAGGIA COL BATTITO: quando il motore ha girato, quali"
+            " sensori hanno saltato il turno e da quanto esiste la memoria. Il server"
+            " non puo' chiedere niente alla sonda, quindi cio' che non viaggia col"
+            " battito per la console non esiste.",
+        ],
+    },
+    {
+        "version": "1.2.4",
+        "date": "2026-09-13",
+        "abstract": "L'avvio sulla macchina registra i propri processi, e l'arresto"
+                    " li legge: senza, un agente vecchio poteva sopravvivere a due"
+                    " tentativi di arresto e continuare a battere accanto a quello"
+                    " nuovo.",
+        "changes": [
+            "I PROCESSI SI REGISTRANO ALL'AVVIO. `start-nativa.ps1` scrive i PID in"
+            " `probe\\sonda-nativa.pid` e `stop-nativa.ps1` parte da li'. Prima"
+            " l'arresto riconosceva i processi dalla sola riga di comando, che su"
+            " Windows non e' sempre leggibile -- basta che il processo appartenga a"
+            " una sessione chiusa -- e quelli che non vedeva restavano in vita. E'"
+            " successo: un agente della versione precedente ha continuato a battere"
+            " accanto a quello nuovo, e la versione dichiarata alla console"
+            " oscillava fra le due a ogni battito. Due agenti sullo stesso archivio"
+            " si contendono le prenotazioni dei bersagli.",
+            "L'ARRESTO VERIFICA invece di fidarsi: se un processo sopravvive lo dice"
+            " con il suo PID e spiega che va fermato da una finestra amministratore"
+            " prima di riavviare. Un \"fatto\" stampato su un processo ancora vivo"
+            " sarebbe peggio dell'errore.",
+        ],
+    },
+    {
+        "version": "1.2.2",
+        "date": "2026-09-12",
+        "abstract": "Numerazione a due centesimi: da questa versione ogni rilascio"
+                    " della sonda avanza di due centesimi, come la console. Nessun"
+                    " cambiamento di funzionamento rispetto alla 1.2.0.",
+        "changes": [
+            "NUMERAZIONE A DUE CENTESIMI (1.2.0 -> 1.2.2). La sonda conserva la"
+            " propria numerazione, distinta da quella della console, e ne segue il"
+            " passo: due centesimi per rilascio. Il protocollo fra le due parti non"
+            " dipende da questi numeri -- lo governa la versione dell'agente"
+            " dichiarata nel battito.",
+        ],
+    },
     {
         "version": "1.2.0",
         "date": "2026-09-12",

@@ -1611,6 +1611,36 @@ l'avvistamento nel futuro. Un dato imperfetto non e' un apparato inesistente.
 
 ### 14-bis.8 Dove si vede
 
+### L'asse della giornata (00:00-24:00)
+
+Nella pagina *Storico dell'andamento* il periodo **giornata** disegna le presenze su un
+asse fisso da mezzanotte a mezzanotte, nel fuso del tenant, con le tacche ogni tre ore
+e le frecce per sfogliare i giorni.
+
+**Perche' non bastano le "ultime 24 ore".** Quella e' una finestra mobile: finisce
+adesso, quindi la mezzanotte cade a meta' grafico e si sposta di ora in ora. Due giorni
+non si possono confrontare, e la frase piu' comune su una rete di utenza -- "questo
+apparato c'e' dalle nove alle diciotto" -- non si legge. Con l'asse di calendario le
+nove del mattino stanno sempre nello stesso punto.
+
+L'asse arriva a mezzanotte anche quando sono le dieci del mattino; i **punti** del
+grafico no. Disegnare zero fino a fine giornata direbbe "non c'era nessuno" dove la
+verita' e' "non e' ancora successo".
+
+**Tre casi che si riconoscono a colpo d'occhio:**
+
+| Che cosa si vede | Che cosa significa |
+|---|---|
+| Una fascia continua da circa 08:00 a 18:00, tutti i giorni | Una postazione o una stampante: l'arredamento della rete. Serve come termine di paragone |
+| Fasce brevi e sparse, mai due giorni uguali | Un apparato che passa: un telefono di chi entra in una stanza. Su una rete di ospiti e' la normalita' |
+| Una fascia lunga **di notte**, quando l'ufficio e' chiuso | La riga da guardare per prima. Puo' essere un apparato lasciato acceso, un servizio di manutenzione notturna -- oppure qualcosa che non dovrebbe esserci |
+
+**Un caso reale, misurato su questa installazione.** Il giorno in cui la ricognizione e'
+stata accesa, le fasce cominciavano tutte intorno al 48% dell'asse: nessuno era arrivato
+a mezzogiorno: era la sonda ad aver cominciato a guardare in quel momento. E' il motivo
+per cui l'asse porta sempre la giornata intera anche quando i dati coprono mezza
+giornata: la parte vuota a sinistra e' un'informazione.
+
 ### In rete adesso
 
 In cima alla pagina delle presenze c'e' una domanda diversa da quella dello storico:

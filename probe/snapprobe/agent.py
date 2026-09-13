@@ -55,7 +55,10 @@ RECORD_TYPES = ("events", "nodes", "ports", "os", "scripts", "snmp", "smb", "vul
                 # non compare viene SCARTATO dalla coda con un errore nel diario --
                 # cioe' i dati si raccolgono, si accodano e si perdono, senza che
                 # nessuna pagina lo dica. E' esattamente quello che e' successo.
-                "presence")
+                "presence",
+                # IDS e agenti di macchina: rilevazioni, misure ed eventi riferiti
+                # dalle macchine sorvegliate.
+                "ids_findings", "agent_hosts", "agent_metrics", "agent_events")
 QUEUE_KIND_ALIASES = {"event": "events"}
 
 
@@ -348,8 +351,132 @@ class ProbeAgent:
         # lo trova la'. Invertendo l'ordine, l'apparato aspetterebbe il giro dopo.
         outcome["presence"] = self._presence_step(scan_in_background)
         outcome["scanned"] = self._scan_step(scan_in_background)
+        # L'IDS DOPO la scansione e PRIMA del conferimento: guarda cio' che la
+        # passata ha appena scoperto, e quello che trova parte con lo stesso lotto.
+        # All'inverso, ogni rilevazione arriverebbe al server con un giro di ritardo.
+        outcome["ids"] = self._ids_step()
+        outcome["agenti"] = self._accoda_agenti()
         outcome["synced"] = self.flush_queue()
         return outcome
+
+    # ------------------------------------------------------------------ #
+    # IDS e agenti di macchina
+    # ------------------------------------------------------------------ #
+    def _ids_step(self) -> dict | None:
+        """Esegue il motore di rilevazione, se e' scaduta la sua cadenza.
+
+        Non e' una fase di scansione: non apre connessioni e non tocca la rete. Legge
+        l'archivio locale dopo che le passate lo hanno riempito, e per questo puo'
+        girare nel ciclo principale senza un thread proprio.
+        """
+        from .ids import CADENZA_SEC, MotoreIDS
+
+        ultima = self.store.get_setting("ids_last_run_at", "")
+        if ultima:
+            try:
+                trascorsi = (datetime.now(timezone.utc)
+                             - datetime.strptime(ultima, "%Y-%m-%d %H:%M:%S")
+                             .replace(tzinfo=timezone.utc)).total_seconds()
+            except ValueError:
+                trascorsi = CADENZA_SEC
+            if trascorsi < CADENZA_SEC:
+                return None
+
+        esito = MotoreIDS(self.store).esegui()
+        self.store.set_setting("ids_last_run_at", esito["eseguito_at"])
+        self.store.set_json("ids_last_result", esito)
+
+        # Le rilevazioni non ancora conferite entrano nella coda come qualunque altro
+        # record: da qui in poi seguono la strada di tutti gli altri.
+        da_conferire = self.store.ids_rilevazioni(limite=200, solo_da_conferire=True)
+        for rilevazione in da_conferire:
+            self.store.enqueue("ids_findings", {
+                "regola": rilevazione["regola"],
+                "gravita": rilevazione["gravita"],
+                "sensore": rilevazione["sensore"],
+                "soggetto": rilevazione["soggetto"],
+                "titolo": rilevazione["titolo"],
+                "prova": rilevazione["prova"],
+                "tecnica": rilevazione["tecnica"],
+                "dati": rilevazione["dati_json"],
+                "conteggio": rilevazione["conteggio"],
+                "prima_at": rilevazione["prima_at"],
+                "ultima_at": rilevazione["ultima_at"],
+            })
+        if da_conferire:
+            self.store.ids_segna_conferite(
+                [r["id"] for r in da_conferire], esito["eseguito_at"])
+        return esito
+
+    def _accoda_agenti(self) -> dict:
+        """Porta verso il server cio' che le macchine hanno riferito.
+
+        Le misure si accodano a blocchi: una macchina che manda ogni minuto produce
+        1.440 righe al giorno, e spedirle una per una riempirebbe la coda di lotti
+        minuscoli. Gli eventi no: sono pochi e contano uno per uno.
+        """
+        adesso = utc_now_str()
+        # SOLO CIO' CHE E' CAMBIATO. Prima si riaccodava ogni macchina a ogni battito
+        # -- ogni quindici secondi, lo stesso record -- e con l'inventario dentro
+        # sarebbero stati 345 MB al giorno per una macchina sola.
+        macchine = self.store.agenti_da_conferire(limite=200)
+        for macchina in macchine:
+            record = {
+                "agent_uid": macchina["agent_uid"],
+                "hostname": macchina["hostname"],
+                "ip": macchina["ip"],
+                "sistema": macchina["sistema"],
+                "versione": macchina["versione"],
+                "stato": macchina["stato"],
+                "ultimo_invio": macchina["ultimo_invio"],
+                "invii": macchina["invii"],
+                "registrato_at": macchina["registrato_at"],
+                "gruppi_spenti": macchina.get("gruppi_spenti") or "",
+            }
+            # L'inventario viaggia SOLO quando ne e' arrivato uno nuovo: e' l'unica
+            # parte pesante del record, ed e' anche quella che cambia meno spesso.
+            if (macchina.get("inventario_at")
+                    and macchina.get("inventario_at")
+                    != macchina.get("inventario_conferito_at")):
+                record["inventario"] = macchina.get("inventario_json")
+                record["inventario_at"] = macchina.get("inventario_at")
+            self.store.enqueue("agent_hosts", record)
+        self.store.agenti_segna_conferiti(macchine)
+
+        misure = self.store.agent_metriche_da_conferire(limite=200)
+        for misura in misure:
+            self.store.enqueue("agent_metrics", {
+                "agent_uid": misura["agent_uid"],
+                "rilevato_at": misura["rilevato_at"],
+                "cpu": misura["cpu"],
+                "memoria": misura["memoria"],
+                "disco_max": misura["disco_max"],
+                "processi": misura["processi"],
+                "in_ascolto": misura["in_ascolto"],
+                "utenti": misura["utenti"],
+                "dati": misura["dati_json"],
+            })
+        if misure:
+            self.store.agent_segna_conferiti(
+                "local_agent_metrics", [m["id"] for m in misure], adesso)
+
+        eventi = self.store.agent_eventi_da_conferire(limite=200)
+        for evento in eventi:
+            self.store.enqueue("agent_events", {
+                "agent_uid": evento["agent_uid"],
+                "genere": evento["genere"],
+                "gravita": evento["gravita"],
+                "soggetto": evento["soggetto"],
+                "messaggio": evento["messaggio"],
+                "dati": evento["dati_json"],
+                "avvenuto_at": evento["avvenuto_at"],
+            })
+        if eventi:
+            self.store.agent_segna_conferiti(
+                "local_agent_events", [e["id"] for e in eventi], adesso)
+
+        return {"macchine": len(macchine), "misure": len(misure),
+                "eventi": len(eventi)}
 
     def _run_due_scan(self) -> dict | None:
         """Esegue la fase di scansione scaduta, se ce n'e' una.
@@ -821,6 +948,12 @@ class ProbeAgent:
                  "status": r["status"], "detail": r["detail"]}
                 for r in self.store.recent_syncs(self.CONSOLE_RIGHE_PASSATE)
             ],
+            # LO STATO DELL'IDS VIAGGIA COL BATTITO, come tutto il resto: il server non
+            # puo' chiedere alla sonda se il motore ha girato, quali sensori hanno
+            # saltato il turno e da quanto esiste la memoria di cio' che e' normale.
+            # Sono poche decine di byte, e senza di essi la console mostrerebbe uno
+            # zero senza sapere se e' "niente di anomalo" o "non ho ancora guardato".
+            "ids": self._ids_console(),
         }
         # IL PERIMETRO NON VIAGGIA: lo ha mandato il server, quindi rimandarglielo e'
         # traffico a vuoto -- ed era 30 dei 37 kilobyte della prima istantanea, con
@@ -852,6 +985,19 @@ class ProbeAgent:
             for e in esecuzioni[:8]
         ] if esecuzioni else []
         return istantanea
+
+    def _ids_console(self) -> dict:
+        """Il poco che serve al server per spiegare uno zero di rilevazioni."""
+        esito = self.store.get_json("ids_last_result", {}) or {}
+        return {
+            "eseguito_at": esito.get("eseguito_at"),
+            "rilevazioni": esito.get("rilevazioni", 0),
+            "nuove": esito.get("nuove", 0),
+            "aggiornate": esito.get("aggiornate", 0),
+            "sensori_saltati": esito.get("sensori_saltati") or [],
+            "memoria": esito.get("memoria") or self.store.ids_memoria_matura(),
+            "agenti": self.store.agenti_attivi(),
+        }
 
     def status(self) -> dict:
         return {

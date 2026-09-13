@@ -1118,3 +1118,116 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
   border-color: #c25c00;
   color: #fff;
 }
+
+/* --- Board2: barre di classifica e semafori di postura ------------------ *
+
+   Le barre si disegnano in HTML e CSS, non in un grafico: una classifica di otto
+   voci e' un elenco ordinato con una lunghezza accanto, e disegnarla in SVG
+   costerebbe un modulo in piu' senza aggiungere niente a chi legge. La larghezza
+   arriva calcolata dal server, come per le fasce delle presenze.
+
+   Una sola tinta per serie: colorare ogni barra di un colore diverso raddoppierebbe
+   con la tinta l'informazione che la lunghezza gia' porta, e brucerebbe l'unico
+   canale libero. I colori di stato restano riservati a cio' che uno stato ce l'ha
+   davvero, e non compaiono mai da soli: sempre con l'icona e la parola. */
+.snap-barra-traccia {
+  position: relative;
+  height: .5rem;
+  border-radius: .25rem;
+  background-color: var(--bs-tertiary-bg);
+  overflow: hidden;
+}
+
+.snap-barra {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  min-width: 2px;
+  border-radius: .25rem;
+  background-color: var(--bs-primary);
+}
+
+/* Le barre di gravita': la scala e' ordinata (critica -> non classificata), quindi
+   la tinta segue l'ordine e non l'identita'. */
+.snap-barra-critical { background-color: var(--bs-danger); }
+.snap-barra-high     { background-color: var(--bs-orange, #fd7e14); }
+.snap-barra-medium   { background-color: var(--bs-warning); }
+.snap-barra-low      { background-color: var(--bs-info); }
+.snap-barra-none     { background-color: var(--bs-secondary); }
+
+.snap-barra-riga {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) 3.2rem;
+  gap: .5rem;
+  align-items: center;
+  margin-bottom: .45rem;
+}
+
+.snap-barra-nome {
+  font-size: .82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snap-barra-valore {
+  font-size: .82rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--bs-secondary-color);
+}
+
+/* Semafori della postura: quattro giudizi in cima alla pagina, ciascuno con la
+   propria ragione scritta accanto. Il bordo spesso a sinistra porta il colore, cosi'
+   il fondo resta quello della pagina e il testo mantiene il contrasto. */
+.snap-postura {
+  border: 1px solid var(--bs-border-color);
+  border-left-width: 5px;
+  border-radius: .5rem;
+  padding: .75rem .9rem;
+  height: 100%;
+  background: var(--bs-body-bg);
+}
+.snap-postura-titolo {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--bs-secondary-color);
+}
+.snap-postura-valore { font-size: 1.15rem; font-weight: 700; line-height: 1.25; }
+.snap-postura-motivo { font-size: .78rem; color: var(--bs-secondary-color); }
+
+/* Colonne della distribuzione per anno: una sola tinta, altezza proporzionale.
+   L'anno sotto ogni colonna e' l'etichetta diretta che evita la legenda. */
+.snap-colonne {
+  display: flex;
+  align-items: flex-end;
+  gap: .25rem;
+  height: 7rem;
+}
+.snap-colonna {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  height: 100%;
+  min-width: 0;
+}
+.snap-colonna-barra {
+  width: 100%;
+  min-height: 2px;
+  border-radius: .2rem .2rem 0 0;
+  background-color: var(--bs-primary);
+}
+.snap-colonna-barra.snap-vecchia { background-color: var(--bs-danger); }
+.snap-colonna-barra.snap-attempata { background-color: var(--bs-warning); }
+.snap-colonna-etichetta {
+  font-size: .62rem;
+  color: var(--bs-secondary-color);
+  margin-top: .2rem;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}

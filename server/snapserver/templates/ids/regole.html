@@ -1,0 +1,187 @@
+{#
+  snap server - Che cosa il prodotto sa riconoscere, e che cosa NON sta guardando.
+
+  La seconda meta' e' la piu' importante: un sensore non disponibile non produce
+  rilevazioni, e il suo zero si legge come "tutto a posto" se nessuno dice che quel
+  sensore e' spento.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Regole e sensori{% endblock %}
+{% block page_icon %}bi-list-check{% endblock %}
+{% block page_title %}Regole e sensori{% endblock %}
+{% block page_subtitle %}
+  Che cosa si sa riconoscere, con quale sensore, e che cosa in questo momento nessuno
+  sta osservando.
+{% endblock %}
+
+{% block page_actions %}
+<a href="{{ url_for('ids.index') }}" class="btn btn-sm btn-outline-secondary">
+  <i class="bi bi-radar me-1"></i> Rilevazioni
+</a>
+{% endblock %}
+
+{% block content %}
+
+{# --- I sensori: prima quelli che NON guardano ---------------------------- #}
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-broadcast me-1"></i> I sensori</h2>
+  </div>
+  <div class="card-body">
+    <div class="row g-3">
+      {% for sensore in sensori %}
+      <div class="col-12 col-lg-4">
+        <div class="snap-postura border-{{ 'secondary' if sensore.predisposto else 'success' }} h-100">
+          <div class="d-flex align-items-start gap-2">
+            <i class="bi {{ 'bi-slash-circle' if sensore.predisposto else 'bi-check-circle' }} fs-5
+                      text-{{ 'secondary' if sensore.predisposto else 'success' }}"></i>
+            <div>
+              <p class="snap-postura-titolo mb-0">{{ sensore.codice }}</p>
+              <p class="snap-postura-valore mb-1">{{ sensore.nome }}</p>
+              <p class="snap-postura-motivo mb-0">{{ sensore.descrizione }}</p>
+              {% if sensore.predisposto %}
+              <p class="snap-postura-motivo mb-0 mt-2 fw-semibold">
+                Predisposto e non attivo: le regole che ne dipenderebbero non possono
+                scattare.
+              </p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{# --- Lo stato riferito da ciascuna sonda --------------------------------- #}
+<div class="card mb-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-hdd-network me-1"></i> Che cosa dicono le sonde</h2>
+  </div>
+  <div class="card-body p-0">
+    {% if sonde %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table
+             data-page-size="10" data-no-search="true">
+        <thead>
+          <tr><th>SONDA</th><th>AGENTE</th><th>ULTIMA PASSATA IDS</th>
+              <th>RILEVAZIONI</th><th>MEMORIA</th><th>SENSORI</th></tr>
+        </thead>
+        <tbody>
+          {% for sonda in sonde %}
+          <tr>
+            <td class="small font-monospace">{{ sonda.code }}</td>
+            <td class="small">{{ sonda.agent_version or '-' }}</td>
+            <td class="small">
+              {% if sonda.ids.eseguito_at %}
+              {{ sonda.ids.eseguito_at|dt }}
+              <div class="text-body-secondary">{{ sonda.ids.eseguito_at|ago }}</div>
+              {% else %}
+              <span class="text-body-secondary">non ancora eseguita</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if sonda.ids %}
+              {{ sonda.ids.nuove or 0 }} nuove, {{ sonda.ids.aggiornate or 0 }} aggiornate
+              {% else %}-{% endif %}
+            </td>
+            {# LA MEMORIA E' LA COLONNA CHE SPIEGA GLI ZERI. Finche' l'archivio di
+               cio' che era normale e' piu' giovane della soglia, le regole che si
+               fondano sull'assenza di memoria non possono scattare: senza questa
+               riga uno zero di rilevazioni si leggerebbe come "nessuna anomalia"
+               mentre significa "sto ancora imparando". #}
+            <td class="small">
+              {% if sonda.ids.memoria %}
+              {% if sonda.ids.memoria.matura %}
+              <span class="badge text-bg-success">matura</span>
+              <div class="text-body-secondary">
+                {{ sonda.ids.memoria.soggetti|intero }} soggetti, da {{ sonda.ids.memoria.ore }} ore
+              </div>
+              {% else %}
+              <span class="badge text-bg-warning">in apprendimento</span>
+              <div class="text-body-secondary">
+                {{ sonda.ids.memoria.soggetti|intero }} soggetti, da {{ sonda.ids.memoria.ore }} ore
+              </div>
+              {% endif %}
+              {% else %}<span class="text-body-secondary">non dichiarata</span>{% endif %}
+            </td>
+            <td class="small text-body-secondary">
+              {% if sonda.ids.sensori_saltati %}
+              {% for saltato in sonda.ids.sensori_saltati %}
+              <div><span class="badge text-bg-light border">{{ saltato.sensore }}</span>
+                {{ saltato.motivo }}</div>
+              {% endfor %}
+              {% elif sonda.ids.eseguito_at %}
+              tutti i sensori disponibili hanno osservato
+              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 small text-body-secondary mb-0">Nessuna sonda registrata.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# --- Il catalogo --------------------------------------------------------- #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-list-check me-1"></i> Che cosa si sa riconoscere ({{ catalogo|length }})
+    </h2>
+    <span class="text-body-secondary small">
+      ogni regola dichiara la tecnica ATT&amp;CK che riconosce
+    </span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>CODICE</th><th>RICONOSCE</th><th>GRAVITA'</th><th>ATT&amp;CK</th>
+              <th class="text-end">RILEVAZIONI</th></tr>
+        </thead>
+        <tbody>
+          {% for regola in catalogo %}
+          <tr>
+            <td class="small font-monospace">{{ regola.codice }}</td>
+            <td class="small">{{ regola.nome }}</td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if regola.gravita in ('critica', 'alta')
+                                            else ('warning' if regola.gravita == 'media'
+                                                  else 'secondary') }}">
+                {{ regola.gravita }}
+              </span>
+            </td>
+            <td class="small font-monospace">{{ regola.tecnica }}</td>
+            <td class="small text-end">
+              {% if regola.rilevazioni %}
+              <a href="{{ url_for('ids.index', stato='tutte') }}"
+                 class="text-decoration-none">{{ regola.rilevazioni }}</a>
+              {% else %}
+              <span class="text-body-secondary">0</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<p class="small text-body-secondary mt-3">
+  <i class="bi bi-info-circle me-1"></i>
+  Una regola con zero rilevazioni puo' significare due cose opposte: che quella
+  condizione non si e' mai verificata, oppure che il sensore da cui dipende non sta
+  osservando. La tabella dei sensori, qui sopra, dice quale delle due.
+</p>
+{% endblock %}

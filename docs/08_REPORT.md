@@ -531,6 +531,61 @@ organizzazione, e il documento lo dice in prima pagina.
 * La segmentazione si dimostra per dichiarazione e per servizi osservati; la
   raggiungibilita' effettiva fra zone richiede una sonda per zona.
 
+## 4-ter. Tre relazioni lette davvero
+
+Le schede dei capitoli precedenti dicono che cosa contiene ciascuna relazione. Questi
+tre casi dicono come si arriva a una decisione, con i numeri di un'installazione vera:
+una rete di circa 4.900 dispositivi in una pubblica amministrazione.
+
+### Caso A -- "Abbiamo un problema di vulnerabilita'?"
+
+Si apre la **sintesi esecutiva** (R1) e si legge: 21.353 riscontri. Il numero da solo
+non serve a decidere: un riscontro e' una corrispondenza fra un prodotto dichiarato e
+un catalogo, e va accertato.
+
+Si passa a **Vulnerabilita' ed esposizioni** (R8) e si guardano due colonne:
+
+* **183 sfruttate in attacchi reali** (KEV). Fra due riscontri con lo stesso punteggio,
+  questi vanno prima: non e' un giudizio teorico, e' l'elenco di cio' che qualcuno sta
+  usando.
+* i **dispositivi** su cui si concentrano: 6 apparati raccolgono da soli piu' di
+  ottanta riscontri gravi ciascuno.
+
+La decisione non e' "correggere 21.353 cose": e' "cominciare da sei apparati". La
+relazione li ordina proprio cosi', ed e' il motivo per cui la sezione si chiama *Da
+dove cominciare*.
+
+### Caso B -- "Il fornitore dice che la rete e' sotto controllo"
+
+Si apre **Salute della flotta e copertura** (R15), che e' l'unica relazione che non
+parla della rete ma dello strumento. Due numeri, in ordine:
+
+1. **reti dichiarate e mai guardate**: 2. Sono nel perimetro, sono attive, e nessuna
+   passata le ha mai prese come bersaglio. Ogni altra relazione, per quelle reti, e'
+   muta -- e una tabella vuota si legge come "niente da segnalare".
+2. **reti guardate che non hanno prodotto nulla**: 68. Possono essere vuote davvero
+   oppure non raggiungibili: la differenza sta nel diario della sonda, che dichiara
+   quando nmap non sa come arrivare a un bersaglio.
+
+Solo dopo aver sistemato questi due numeri le altre relazioni valgono quello che
+dicono. E' il motivo per cui questa si legge **per prima**.
+
+### Caso C -- "Quali macchine sostituiamo quest'anno?"
+
+La domanda non e' "quali hanno una vulnerabilita'" ma "quali non le aggiorna piu'
+nessuno". Si apre **Vetusta' del parco** (R13):
+
+* 55 interfacce ferme da **oltre dieci anni**, la piu' vecchia da ventuno;
+* 197 fra cinque e dieci anni;
+* 6.003 interfacce che **non dichiarano alcun anno**: non sono recenti, sono mute, e la
+  relazione le conta a parte invece di farle sparire nel silenzio.
+
+Accanto a ogni riga c'e' la **prova**: il frammento da cui l'anno viene. Serve a
+distinguere i due casi che il numero da solo confonde -- un copyright fermo al 2011 su
+una console di gestione (apparato uscito dal ciclo di manutenzione) e un certificato TLS
+emesso nel 2017 su un nginx aggiornato la settimana scorsa (l'anno e' del certificato,
+non del software). La prova permette a chi legge di dare un giudizio invece di fidarsi.
+
 ## 5. Il resoconto quotidiano delle 07:00
 
 ### 5.1 Forma

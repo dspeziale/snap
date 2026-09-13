@@ -139,10 +139,10 @@
     <div class="card snap-stat h-100">
       <div class="card-body py-2">
         <p class="snap-stat-label mb-1">NODI IN INVENTARIO</p>
-        <p class="snap-stat-value mb-0">{{ (consolle.scan.nodes_confirmed or 0) + (consolle.scan.nodes_candidate or 0) }}</p>
+        <p class="snap-stat-value mb-0">{{ ((consolle.scan or {}).nodes_confirmed or 0) + ((consolle.scan or {}).nodes_candidate or 0) }}</p>
         <p class="snap-stat-foot mb-0">
-          {{ consolle.scan.nodes_conferred or 0 }} conferiti &middot;
-          {{ consolle.scan.profiles_pending or 0 }} in lavorazione
+          {{ (consolle.scan or {}).nodes_conferred or 0 }} conferiti &middot;
+          {{ (consolle.scan or {}).profiles_pending or 0 }} in lavorazione
         </p>
       </div>
     </div>
@@ -151,9 +151,9 @@
     <div class="card snap-stat h-100">
       <div class="card-body py-2">
         <p class="snap-stat-label mb-1">PERIMETRO</p>
-        <p class="snap-stat-value mb-0">{{ consolle.scan.perimeter_count or consolle.scan.subnets_total or 0 }}</p>
+        <p class="snap-stat-value mb-0">{{ (consolle.scan or {}).perimeter_count or (consolle.scan or {}).subnets_total or 0 }}</p>
         <p class="snap-stat-foot mb-0">
-          {{ consolle.scan.subnets_scanned or 0 }} censite almeno una volta
+          {{ (consolle.scan or {}).subnets_scanned or 0 }} censite almeno una volta
         </p>
       </div>
     </div>
@@ -162,10 +162,10 @@
     <div class="card snap-stat h-100">
       <div class="card-body py-2">
         <p class="snap-stat-label mb-1">CODA DA CONFERIRE</p>
-        <p class="snap-stat-value mb-0">{{ consolle.agent.queue_size or 0 }}</p>
+        <p class="snap-stat-value mb-0">{{ (consolle.agent or {}).queue_size or 0 }}</p>
         <p class="snap-stat-foot mb-0">
-          {% if consolle.agent.get('oldest_queued_at') %}
-          il piu' vecchio: {{ consolle.agent.get('oldest_queued_at')|ago }}
+          {% if (consolle.agent or {}).get('oldest_queued_at') %}
+          il piu' vecchio: {{ (consolle.agent or {}).get('oldest_queued_at')|ago }}
           {% else %}nulla in attesa{% endif %}
         </p>
       </div>
@@ -175,21 +175,21 @@
     <div class="card snap-stat h-100">
       <div class="card-body py-2">
         <p class="snap-stat-label mb-1">SCANSIONI IN CORSO</p>
-        <p class="snap-stat-value mb-0">{{ consolle.scan.running_scans or 0 }}</p>
+        <p class="snap-stat-value mb-0">{{ (consolle.scan or {}).running_scans or 0 }}</p>
         <p class="snap-stat-foot mb-0">
-          {{ consolle.scan.workers or 0 }} thread su {{ consolle.scan.max_workers or 0 }}
+          {{ (consolle.scan or {}).workers or 0 }} thread su {{ (consolle.scan or {}).max_workers or 0 }}
         </p>
       </div>
     </div>
   </div>
 </div>
 
-{% if not consolle.scan.get('scanning_allowed') %}
+{% if not (consolle.scan or {}).get('scanning_allowed') %}
 <div class="alert alert-warning">
   <i class="bi bi-pause-circle me-1"></i>
-  <strong>Scansioni sospese</strong>{% if consolle.scan.get('suspended_reason') %}:
-  {{ consolle.scan.get('suspended_reason') }}{% endif %}.
-  {% if consolle.scan.get('paused_locally') %}
+  <strong>Scansioni sospese</strong>{% if (consolle.scan or {}).get('suspended_reason') %}:
+  {{ (consolle.scan or {}).get('suspended_reason') }}{% endif %}.
+  {% if (consolle.scan or {}).get('paused_locally') %}
   La sospensione e' stata decisa <strong>sulla sonda</strong>: il server puo' riprenderle
   con il comando "riprendi scansioni", ma una pausa locale vale finche' il tecnico non
   la revoca in sede.
@@ -197,10 +197,10 @@
 </div>
 {% endif %}
 
-{% if consolle.agent.get('last_error') %}
+{% if (consolle.agent or {}).get('last_error') %}
 <div class="alert alert-danger">
   <i class="bi bi-exclamation-octagon me-1"></i>
-  <strong>Ultimo errore della sonda:</strong> {{ consolle.agent.get('last_error') }}
+  <strong>Ultimo errore della sonda:</strong> {{ (consolle.agent or {}).get('last_error') }}
 </div>
 {% endif %}
 
@@ -213,26 +213,26 @@
       <div class="card-body">
         <dl class="row mb-0 small">
           <dt class="col-6 fw-normal text-body-secondary">Sforzo</dt>
-          <dd class="col-6 mb-1">{{ consolle.scan.effort_label or consolle.scan.effort }}</dd>
+          <dd class="col-6 mb-1">{{ (consolle.scan or {}).effort_label or (consolle.scan or {}).effort }}</dd>
           <dt class="col-6 fw-normal text-body-secondary">Tempo per host</dt>
           <dd class="col-6 mb-1">
-            {{ consolle.scan.host_timeout }}
-            {% if not consolle.scan.get('host_timeout_chosen') %}
+            {{ (consolle.scan or {}).host_timeout }}
+            {% if not (consolle.scan or {}).get('host_timeout_chosen') %}
             <span class="text-body-secondary">(dal profilo)</span>
             {% endif %}
           </dd>
           <dt class="col-6 fw-normal text-body-secondary">Censimento del perimetro</dt>
-          <dd class="col-6 mb-1">ogni {{ consolle.scan.discovery_days }} giorni</dd>
+          <dd class="col-6 mb-1">ogni {{ (consolle.scan or {}).discovery_days }} giorni</dd>
           <dt class="col-6 fw-normal text-body-secondary">Scansioni</dt>
           <dd class="col-6 mb-1">
-            {% if consolle.scan.get('enabled_by_server') %}abilitate dal server
+            {% if (consolle.scan or {}).get('enabled_by_server') %}abilitate dal server
             {% else %}disabilitate dal server{% endif %}
           </dd>
           <dt class="col-6 fw-normal text-body-secondary">nmap</dt>
           <dd class="col-6 mb-1">
-            {{ consolle.scan.get('capabilities', {}).get('nmap_version')
+            {{ (consolle.scan or {}).get('capabilities', {}).get('nmap_version')
                or 'non rilevato' }}
-            {% if consolle.scan.get('capabilities', {}).get('raw_sockets') %}
+            {% if (consolle.scan or {}).get('capabilities', {}).get('raw_sockets') %}
             &middot; <span class="text-success">accesso raw</span>
             {% else %}
             &middot; <span class="text-warning">senza accesso raw</span>
@@ -240,8 +240,8 @@
           </dd>
           <dt class="col-6 fw-normal text-body-secondary">Fasi in corso</dt>
           <dd class="col-6 mb-0">
-            {% if consolle.scan.get('phases_in_flight') %}
-            {% for fase in consolle.scan.get('phases_in_flight') or [] %}
+            {% if (consolle.scan or {}).get('phases_in_flight') %}
+            {% for fase in (consolle.scan or {}).get('phases_in_flight') or [] %}
             <span class="badge text-bg-primary">{{ fase }}</span>
             {% endfor %}
             {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
@@ -259,7 +259,7 @@
         <h2 class="h6 mb-0"><i class="bi bi-wifi me-1"></i> Presenze sulle reti senza fili</h2>
       </div>
       <div class="card-body">
-        {% set presenze = consolle.agent.get('presence') or {} %}
+        {% set presenze = (consolle.agent or {}).get('presence') or {} %}
         {% if presenze.get('subnets_wifi') %}
         <dl class="row mb-0 small">
           <dt class="col-5 fw-normal text-body-secondary">Reti osservate</dt>
@@ -341,7 +341,7 @@
                  data-page-size="10">
             <thead><tr><th>QUANDO</th><th>FASE</th><th>BERSAGLIO</th><th>ESITO</th></tr></thead>
             <tbody>
-              {% for riga in consolle.scan.get('states_recent') or [] %}
+              {% for riga in (consolle.scan or {}).get('states_recent') or [] %}
               <tr>
                 <td class="small text-nowrap">{{ riga.at|dt }}</td>
                 <td class="small"><span class="badge text-bg-light text-dark border">{{ riga.stage }}</span></td>

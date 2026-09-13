@@ -1,0 +1,167 @@
+{#
+  snap probe - Quello che il motore di rilevazione ha notato su questa rete.
+
+  E' la stessa informazione della console del server, ma LOCALE: si vede anche quando
+  il collegamento con la sede e' interrotto. Chi e' davanti alla sonda deve poter
+  capire che cosa sta succedendo senza dipendere dalla rete geografica.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}IDS{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="bi bi-radar me-2"></i>Rilevazione delle intrusioni</h1>
+    <p class="text-body-secondary mb-0">
+      Che cosa e' cambiato rispetto a quello che era normale, su questa rete.
+    </p>
+  </div>
+  {% if ultima_passata.eseguito_at %}
+  <span class="badge text-bg-light border">
+    ultima passata {{ ultima_passata.eseguito_at }}
+  </span>
+  {% endif %}
+</div>
+
+{# Il limite in cima: chi guarda deve saperlo PRIMA di concludere che non e' successo
+   niente. #}
+<div class="alert alert-secondary d-flex gap-2 align-items-start">
+  <i class="bi bi-info-circle mt-1"></i>
+  <div>
+    <strong>Che cosa vede.</strong> Confronta le osservazioni con la memoria di cio'
+    che era normale. <strong>Non ispeziona il traffico</strong>: nessuna firma su
+    payload, nessun canale di comando cifrato, nessuna esfiltrazione. Zero rilevazioni
+    significa "nessun cambiamento fra quelli che so riconoscere".
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header"><strong>I sensori</strong></div>
+      <div class="card-body">
+        {% for sensore in sensori %}
+        <div class="d-flex gap-2 align-items-start py-2 border-bottom">
+          <i class="bi {{ 'bi-check-circle text-success' if sensore.disponibile
+                          else 'bi-slash-circle text-secondary' }} mt-1"></i>
+          <div>
+            <div class="fw-semibold small">{{ sensore.nome }}</div>
+            <div class="small text-body-secondary">{{ sensore.descrizione }}</div>
+            {% if sensore.motivo %}
+            <div class="small {{ 'text-warning-emphasis' if not sensore.disponibile }}">
+              {{ sensore.motivo }}
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header"><strong>La memoria</strong></div>
+      <div class="card-body">
+        <div class="d-flex justify-content-between py-1 border-bottom">
+          <span class="small">soggetti conosciuti</span>
+          <span class="fw-bold">{{ riepilogo.soggetti_noti }}</span>
+        </div>
+        <div class="d-flex justify-content-between py-1 border-bottom">
+          <span class="small">memoria dal</span>
+          <span class="fw-bold">{{ riepilogo.memoria_dal or '—' }}</span>
+        </div>
+        <div class="d-flex justify-content-between py-1 border-bottom">
+          <span class="small">rilevazioni in tutto</span>
+          <span class="fw-bold">{{ riepilogo.totale }}</span>
+        </div>
+        <div class="d-flex justify-content-between py-1 border-bottom">
+          <span class="small">stato della memoria</span>
+          {% if ultima_passata.memoria %}
+          <span class="badge text-bg-{{ 'success' if ultima_passata.memoria.matura
+                                        else 'warning' }}">
+            {{ 'matura' if ultima_passata.memoria.matura else 'in apprendimento' }}
+          </span>
+          {% else %}
+          <span class="text-body-secondary small">non ancora valutata</span>
+          {% endif %}
+        </div>
+        <p class="small text-body-secondary mb-0 mt-2">
+          Una rilevazione e' un <strong>cambiamento</strong>: finche' la memoria di un
+          soggetto e' giovane, il cambiamento si registra ma non si segnala. Non si
+          puo' dire "e' cambiato" di qualcosa visto una volta sola.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <strong>Rilevazioni ({{ rilevazioni|length }})</strong>
+    {% if ultima_passata.per_sensore %}
+    <span class="small text-body-secondary">
+      ultima passata:
+      {% for sensore, quante in ultima_passata.per_sensore.items() %}
+      {{ sensore }} {{ quante }}{% if not loop.last %}, {% endif %}
+      {% endfor %}
+    </span>
+    {% endif %}
+  </div>
+  <div class="card-body p-0">
+    {% if rilevazioni %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr><th>GRAVITA'</th><th>CHE COSA</th><th>SOGGETTO</th><th>PROVA</th>
+              <th>ULTIMA VOLTA</th><th>CONFERITA</th></tr>
+        </thead>
+        <tbody>
+          {% for voce in rilevazioni %}
+          <tr>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if voce.gravita in ('critica', 'alta')
+                                            else ('warning' if voce.gravita == 'media'
+                                                  else 'secondary') }}">
+                {{ voce.gravita }}
+              </span>
+            </td>
+            <td class="small">
+              <span class="fw-semibold">{{ voce.titolo }}</span>
+              <div class="text-body-secondary">{{ voce.perche }}</div>
+            </td>
+            <td class="small font-monospace">{{ voce.soggetto }}</td>
+            <td class="small text-body-secondary">{{ voce.prova }}</td>
+            <td class="small">
+              {{ voce.ultima_at }}
+              {% if voce.conteggio > 1 %}
+              <span class="badge text-bg-secondary">×{{ voce.conteggio }}</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if voce.conferita_at %}
+              <i class="bi bi-check2 text-success"></i>
+              {% else %}
+              <span class="text-body-secondary">in coda</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 small text-body-secondary mb-0">
+      Nessuna rilevazione. Se la sonda e' stata installata da poco e' quello che ci si
+      aspetta: la memoria di cio' che e' normale si costruisce nelle prime ore, e
+      finche' non e' matura un cambiamento non si puo' nemmeno riconoscere.
+    </p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

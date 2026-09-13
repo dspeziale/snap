@@ -165,9 +165,15 @@ def test_una_tabella_nuova_deve_essere_dichiarata_esplicitamente(probe_store):
             "SELECT table_name FROM information_schema.tables"
             " WHERE table_schema = current_schema()").fetchall()}
 
-    dichiarate = set(probe_store.DATA_TABLES) | {"settings"}
+    # Due elenchi, non uno: cio' che si svuota e cio' che si conserva. Una meta' sola
+    # non si puo' controllare -- una tabella dimenticata sopravvivrebbe in silenzio, e
+    # nessuno saprebbe dire se e' una scelta o una svista.
+    dichiarate = (set(probe_store.DATA_TABLES) | set(probe_store.KEPT_TABLES)
+                  | {"settings"})
     assert presenti == dichiarate, (
         "tabelle non dichiarate nell'azzeramento: %s" % (presenti - dichiarate))
+    assert not (set(probe_store.DATA_TABLES) & set(probe_store.KEPT_TABLES)), (
+        "una tabella non puo' essere insieme svuotata e conservata")
 
 
 # --------------------------------------------------------------------------- #

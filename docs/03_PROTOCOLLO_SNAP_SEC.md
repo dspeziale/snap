@@ -38,6 +38,40 @@
 | Riservatezza del token di registrazione | Il server conserva solo impronta SHA-256 e chiave derivata |
 | Revocabilita' | Azzeramento della chiave di sessione lato server |
 
+### 1.2-bis Conseguenze pratiche della direzione unica
+
+L'assunzione "il server non conosce l'indirizzo della sonda" non e' una nota di
+contorno: decide come si scrive ogni funzione che riguarda una sonda. **Tutte** le
+connessioni partono dalla sonda; il server risponde e basta. Da qui discendono due
+regole che valgono per qualunque sviluppo futuro.
+
+| Il server vuole... | Come si fa | Come NON si fa |
+|---|---|---|
+| far fare qualcosa alla sonda (conferire subito, ricaricare la configurazione, sospendere la raccolta) | si **accoda** in `probe_commands` e la sonda lo ritira al contatto successivo; all'operatore si dice "verra' consegnato al prossimo contatto" | una chiamata verso la sonda: non arriverebbe mai, perche' la sonda sta dietro un NAT e un firewall che non lascia entrare nulla |
+| sapere qualcosa della sonda (stato, coda, diario, perimetro) | la sonda lo **consegna con il battito**; la console del server ne mostra l'ultima istantanea **dichiarando l'istante** in cui e' arrivata | interrogare la sonda al momento dell'apertura della pagina: sarebbe una fotografia presentata come diretta, cioe' una bugia |
+
+La pagina *Sonde > Console* e' il caso esemplare: mostra quello che si vedrebbe
+aprendo l'interfaccia della sonda, ma e' un **rispecchiamento**, e lo dichiara nel
+proprio sottotitolo e con il tempo trascorso accanto a ogni dato.
+
+Un test lo impedisce a chi verra' dopo: `tests/test_direzione_connessioni.py` boccia
+qualunque modulo del server che apra connessioni senza essere nell'elenco dichiarato,
+e qualunque URL costruito su un campo della tabella `probes`.
+
+**La stessa regola, un piano piu' sotto.** Dalla versione 1.2.6 le macchine
+sorvegliate ospitano un agente, e l'agente **apre lui** verso la sonda: la sonda non
+lo chiama mai e non ha modo di farlo. Chi sta piu' in basso apre verso chi sta piu'
+in alto, e nessuno dei tre chiama indietro. La conseguenza pratica e' la stessa di
+sopra -- l'agente non riceve comandi, riceve la propria configurazione nella risposta
+a un invio e la applica al giro successivo.
+
+Il protocollo di quel canale **non e' SNAP-SEC/1** ed e' descritto altrove
+(`17_IDS_E_AGENTI.md`): li' non si attraversa Internet ma la rete locale del cliente,
+sotto il TLS del proxy della sonda, e cio' che serve e' sapere *chi* parla e che il
+messaggio non sia stato ripetuto -- firma HMAC-SHA256 sul corpo esatto, con identita',
+marca temporale e nonce. Una cifratura applicativa in piu' sarebbe complessita' senza
+un rischio corrispondente, e complessita' inutile, in sicurezza, e' un difetto.
+
 ### 1.3 Non obiettivi
 Anonimato della sonda rispetto all'osservatore di rete; segretezza in avanti
 (forward secrecy) per sessione: la chiave e' a lunga durata e si rinnova con una

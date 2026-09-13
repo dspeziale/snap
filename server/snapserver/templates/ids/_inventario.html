@@ -1,0 +1,366 @@
+{#
+  snap server - L'inventario di una macchina: quello che si vede solo da dentro.
+
+  Arriva una volta all'ora, non a ogni misura: e' uno STATO, non una serie. Per questo
+  ogni blocco dichiara QUANDO e' stato raccolto -- un inventario di un'ora fa
+  presentato come adesso sarebbe una bugia piccola e continua.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% if inventario %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <h2 class="h6 mb-0 text-body-secondary">
+    <i class="bi bi-clipboard-data me-1"></i> VISTO DA DENTRO LA MACCHINA
+  </h2>
+  <span class="small text-body-secondary">
+    {% if macchina.inventario_at %}
+    raccolto {{ macchina.inventario_at|ago }} &middot; si aggiorna ogni ora, o appena
+    cambia qualcosa
+    {% endif %}
+  </span>
+</div>
+
+<div class="row g-3 mb-3">
+
+  {# --- La macchina: il ferro e il sistema -------------------------------- #}
+  {% set identita = inventario.get('identita') or {} %}
+  {% if identita %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-pc me-1"></i> La macchina</h2>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            {% macro riga(etichetta, valore, monospazio=False) %}
+            {% if valore is not none and valore != '' %}
+            <tr>
+              <td class="small text-body-secondary" style="width: 40%">{{ etichetta }}</td>
+              <td class="small {{ 'font-monospace' if monospazio }}">{{ valore }}</td>
+            </tr>
+            {% endif %}
+            {% endmacro %}
+            {{ riga('Sistema', identita.edizione) }}
+            {{ riga('Build', identita.build, True) }}
+            {{ riga('Dominio', identita.dominio) }}
+            {{ riga('Produttore', identita.produttore) }}
+            {{ riga('Modello', identita.modello) }}
+            {{ riga('Numero di serie', identita.seriale, True) }}
+            {{ riga('BIOS', (identita.bios_versione ~ ' del ' ~ identita.bios_data)
+                            if identita.bios_versione else None) }}
+            {{ riga('Virtualizzazione', identita.virtualizzazione) }}
+            {{ riga('Processore', identita.cpu_modello) }}
+            {{ riga('Core', (identita.cpu_fisiche ~ ' fisici, ' ~ identita.cpu_logiche ~ ' logici')
+                            if identita.cpu_logiche else None) }}
+            {{ riga('Memoria', (identita.memoria_totale_gb ~ ' GB')
+                               if identita.memoria_totale_gb else None) }}
+            {{ riga('Accesa da', (identita.acceso_da_ore ~ ' ore')
+                                 if identita.acceso_da_ore is not none else None) }}
+            {{ riga('Gateway', identita.gateway, True) }}
+            {{ riga('DNS', (identita.dns or [])|join(', '), True) }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- La postura: quello che dalla rete non si vede --------------------- #}
+  {% set sicurezza = inventario.get('sicurezza') or {} %}
+  {% set aggiornamenti = inventario.get('aggiornamenti') or {} %}
+  {% if sicurezza or aggiornamenti %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-shield-check me-1"></i> Postura</h2>
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm mb-0">
+          <tbody>
+            {#
+              UNA BANDIERA HA TRE STATI, non due: acceso, spento, e "non l'ho
+              chiesto". Il terzo si vede come un trattino e non come un "no": la
+              differenza fra una macchina senza avvio protetto e una macchina di cui
+              non si sa e' esattamente il genere di cosa che questo prodotto non
+              deve confondere.
+            #}
+            {% macro bandiera(etichetta, valore, buono_se_vero=True, nota='') %}
+            {# La riga si mostra solo se il sistema ha quella cosa. `undefined`
+               significa "su questa macchina non esiste" -- SELinux su Windows, il
+               controllo account su Linux -- e una riga vuota li' direbbe che il dato
+               manca, mentre non c'e' proprio nulla da misurare. #}
+            {% if valore is not undefined %}
+            <tr>
+              <td class="small text-body-secondary" style="width: 55%">{{ etichetta }}</td>
+              <td class="small">
+                {% if valore is none or valore == '' %}
+                {# Ce l'ha, ma non si e' potuto leggere. La nota non si stampa:
+                   "— giorni fa" e' una nota appesa a un valore che non esiste. #}
+                <span class="text-body-secondary" title="non misurato">&mdash;</span>
+                {% else %}
+                {% if valore is sameas true or valore is sameas false %}
+                {% set bene = (valore == buono_se_vero) %}
+                <span class="badge text-bg-{{ 'success' if bene else 'danger' }}">
+                  {{ 'si' if valore else 'no' }}
+                </span>
+                {% else %}
+                {{ valore }}
+                {% endif %}
+                {% if nota %}<span class="text-body-secondary">{{ nota }}</span>{% endif %}
+                {% endif %}
+              </td>
+            </tr>
+            {% endif %}
+            {% endmacro %}
+
+            {% if sicurezza.antivirus is not none %}
+            <tr>
+              <td class="small text-body-secondary">Antivirus</td>
+              <td class="small">
+                {% for prodotto in sicurezza.antivirus %}
+                <span class="badge text-bg-{{ 'success' if prodotto.attivo else 'danger' }}">
+                  {{ prodotto.nome }}{{ '' if prodotto.attivo else ' (fermo)' }}
+                </span>
+                {% else %}
+                <span class="badge text-bg-danger">nessuno registrato</span>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endif %}
+            {{ bandiera('Profili firewall spenti', sicurezza.firewall_profili_spenti) }}
+            {{ bandiera('SMB 1.0', sicurezza.smb1, False) }}
+            {{ bandiera('Desktop remoto', sicurezza.rdp_attivo, False) }}
+            {{ bandiera('Desktop remoto con NLA', sicurezza.rdp_nla) }}
+            {{ bandiera('Controllo account (UAC)', sicurezza.uac) }}
+            {{ bandiera('Avvio protetto', sicurezza.avvio_protetto) }}
+            {{ bandiera('Firme antivirus', sicurezza.firme_antivirus_giorni,
+                        nota='giorni fa') }}
+            {% if sicurezza.firewall %}
+            <tr>
+              <td class="small text-body-secondary">Firewall</td>
+              <td class="small">
+                {% for nome, stato in sicurezza.firewall.items() %}
+                {% if stato %}
+                <span class="badge text-bg-{{ 'success' if stato == 'active' else 'secondary' }}">
+                  {{ nome }}: {{ stato }}
+                </span>
+                {% endif %}
+                {% endfor %}
+              </td>
+            </tr>
+            {% endif %}
+            {{ bandiera('SELinux', sicurezza.selinux) }}
+            {{ bandiera('AppArmor', sicurezza.apparmor) }}
+            {% if sicurezza.ssh %}
+            {{ bandiera('SSH accesso root', sicurezza.ssh.PermitRootLogin) }}
+            {{ bandiera('SSH password', sicurezza.ssh.PasswordAuthentication) }}
+            {% endif %}
+            {{ bandiera('Aggiornamenti in attesa', aggiornamenti.in_attesa) }}
+            {{ bandiera('di cui di sicurezza', aggiornamenti.di_sicurezza) }}
+            {{ bandiera('Ultimo aggiornamento', aggiornamenti.ultimo_installato) }}
+            {{ bandiera('Riavvio in attesa', aggiornamenti.riavvio_in_attesa, False) }}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- Le utenze: chi puo' amministrare questa macchina ------------------ #}
+  {% set utenze = inventario.get('utenze') or {} %}
+  {% if utenze %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0"><i class="bi bi-people me-1"></i> Utenze locali</h2>
+        <span class="small text-body-secondary">
+          {{ (utenze.utenze or [])|length }} utenze,
+          {{ (utenze.amministratori or [])|length }} amministratori
+        </span>
+      </div>
+      <div class="card-body p-0">
+        {% if utenze.amministratori %}
+        <p class="small px-3 pt-3 mb-2">
+          <strong>Amministratori:</strong>
+          {% for nome in utenze.amministratori %}
+          <span class="badge text-bg-warning">{{ nome }}</span>
+          {% endfor %}
+        </p>
+        {% endif %}
+        {% if utenze.utenze %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead><tr><th>UTENZA</th><th>STATO</th><th>NOTE</th></tr></thead>
+            <tbody>
+              {% for utente in utenze.utenze %}
+              <tr>
+                <td class="small font-monospace">{{ utente.utente }}</td>
+                <td class="small">
+                  {% if utente.di_servizio %}
+                  <span class="badge text-bg-light border">di servizio</span>
+                  {% elif utente.attiva is sameas false %}
+                  <span class="badge text-bg-secondary">disattivata</span>
+                  {% else %}
+                  <span class="badge text-bg-success">attiva</span>
+                  {% endif %}
+                </td>
+                <td class="small text-body-secondary">
+                  {% if utente.password_non_scade %}password che non scade{% endif %}
+                  {% if utente.ultimo_accesso %}
+                  ultimo accesso {{ utente.ultimo_accesso }}
+                  {% endif %}
+                  {% if utente.shell %}<span class="font-monospace">{{ utente.shell }}</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- I servizi e i container ------------------------------------------- #}
+  {% set servizi = inventario.get('servizi') or {} %}
+  {% set container = inventario.get('container') or {} %}
+  {% if servizi or container %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0"><i class="bi bi-gear me-1"></i> Servizi</h2>
+        {% if servizi.in_esecuzione is not none %}
+        <span class="small text-body-secondary">
+          {{ servizi.in_esecuzione }} in esecuzione su {{ servizi.totale }}
+        </span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        {% if servizi.automatici_fermi %}
+        {# Un servizio che DOVEVA partire e non e' partito: e' l'unico sottoinsieme
+           che vale la pena guardare, e per questo e' in cima e in giallo. #}
+        <div class="alert alert-warning small m-3 mb-2">
+          <strong>Automatici ma fermi:</strong>
+          {{ servizi.automatici_fermi|join(', ') }}
+        </div>
+        {% endif %}
+        {% if servizi.falliti %}
+        <div class="alert alert-danger small m-3 mb-2">
+          <strong>Falliti:</strong> {{ servizi.falliti|join(', ') }}
+        </div>
+        {% endif %}
+        {% if container.voci %}
+        <div class="px-3 pb-2">
+          <p class="small mb-1">
+            <strong>Container</strong> ({{ container.strumento }}):
+            {{ container.totale }} in esecuzione
+          </p>
+          <ul class="small mb-0">
+            {% for voce in container.voci[:10] %}
+            <li><span class="font-monospace">{{ voce.nome }}</span>
+              &middot; {{ voce.immagine }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if servizi.voci %}
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10">
+            <thead><tr><th>SERVIZIO</th><th>AVVIO</th></tr></thead>
+            <tbody>
+              {% for servizio in servizi.voci %}
+              <tr>
+                <td class="small font-monospace">{{ servizio.nome }}</td>
+                <td class="small text-body-secondary">{{ servizio.avvio or servizio.stato }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- Il software installato -------------------------------------------- #}
+  {% set software = inventario.get('software') or [] %}
+  {% if software %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-box me-1"></i> Software installato ({{ software|length }})
+        </h2>
+        <span class="small text-body-secondary">
+          e' cio' che permette di sapere dove vive una vulnerabilita' senza scansionare
+        </span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="15">
+            <thead><tr><th>PROGRAMMA</th><th>VERSIONE</th><th>PRODUTTORE</th></tr></thead>
+            <tbody>
+              {% for programma in software %}
+              <tr>
+                <td class="small">{{ programma.nome }}</td>
+                <td class="small font-monospace">{{ programma.versione or '-' }}</td>
+                <td class="small text-body-secondary">{{ programma.produttore or '' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- Le attivita' pianificate ------------------------------------------ #}
+  {% set pianificate = inventario.get('pianificate') or {} %}
+  {% if pianificate.voci %}
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-calendar-check me-1"></i>
+          Attivita' pianificate ({{ pianificate.totale }})
+        </h2>
+        <span class="small text-body-secondary">
+          {% if pianificate.completo is sameas false %}
+          elenco PARZIALE: manca {{ pianificate.manca }}
+          {% else %}
+          solo i nomi: il corpo di un'attivita' e' una riga di comando
+          {% endif %}
+        </span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0" data-snap-table
+                 data-page-size="10">
+            <thead><tr><th>ATTIVITA'</th><th>STATO</th></tr></thead>
+            <tbody>
+              {% for voce in pianificate.voci %}
+              <tr>
+                <td class="small font-monospace">{{ voce.nome }}</td>
+                <td class="small text-body-secondary">{{ voce.stato }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endif %}

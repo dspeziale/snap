@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Prodotto | snap — Secure Network Assessment Platform |
-| Versione documentata | console 1.7.0, sonda 1.2.0 |
+| Versione documentata | console 1.7.6, sonda 1.2.6, agente 1.0.2 |
 | Conformità documentale | ISO/IEC/IEEE 29148:2018 (§ scopo, riferimenti, istruzioni) |
 | Destinatari | chi installa il sistema e chi lo assiste |
 
@@ -22,10 +22,16 @@ Due componenti distinti, che si parlano in **una sola direzione**.
 |---|---|---|
 | **Console** (server) | sulla rete di gestione | raccoglie l'inventario, lo presenta, invia notifiche e report |
 | **Sonda** (probe) | dentro la rete da esaminare | esegue le scansioni e **conferisce** i risultati alla console |
+| **Agente** (facoltativo) | sulle macchine da sorvegliare da dentro | riferisce alla sonda ciò che dalla rete non si vede: accessi falliti, utenze nuove, protezioni disattivate, processi in ascolto, dischi che finiscono (capitolo 8-bis) |
 
 **La console non raggiunge mai la sonda.** È la sonda che apre la comunicazione, ogni
 quindici secondi, e nella risposta riceve configurazione e comandi. È una scelta di
 progetto: nella rete di un cliente non si apre un canale in ingresso.
+
+La stessa regola vale un piano più sotto: **l'agente apre lui** verso la sonda, e la
+sonda non lo chiama mai. Chi sta più in basso apre verso chi sta più in alto, e
+nessuno dei tre chiama indietro: una macchina in rete di utenza non deve essere
+raggiungibile da nessuno, nemmeno dal prodotto che la sorveglia.
 
 Conseguenza pratica da conoscere subito: i comandi dalla console arrivano alla sonda
 **entro un minuto**, non istantaneamente, e la console mostra l'ultima *istantanea*
@@ -228,10 +234,30 @@ Senza finestra non c'è più un Ctrl+C da premere, e per fermarla c'è un comand
 .\stop-nativa.ps1 -ConIContenitori   # ferma anche proxy TLS e archivio
 ```
 
-`stop-nativa.ps1` riconosce i processi dalla riga di comando -- sono i soli `run.py` di
-questo prodotto -- e ferma **prima l'agente, poi l'interfaccia**: all'inverso resterebbe
-un agente che continua a prenotare bersagli senza che nessuno possa vedere che cosa sta
+`stop-nativa.ps1` ferma **prima l'agente, poi l'interfaccia**: all'inverso resterebbe un
+agente che continua a prenotare bersagli senza che nessuno possa vedere che cosa sta
 facendo.
+
+Per sapere che cosa fermare guarda due cose, in quest'ordine:
+
+1. il **registro dei processi** `probe\sonda-nativa.pid`, che l'avvio scrive con i PID
+   che ha creato;
+2. la **riga di comando**, come rete di sicurezza per ciò che è stato avviato a mano.
+
+Il registro non è un vezzo: su Windows la riga di comando di un processo non è sempre
+leggibile — basta che appartenga a una sessione chiusa — e un arresto che cercasse solo
+lì lascerebbe in vita un agente vecchio. Due agenti sullo stesso archivio si contendono
+le prenotazioni dei bersagli, ed è il guasto che l'avvio verifica.
+
+Alla fine lo script **controlla** che i processi siano davvero spariti e, se qualcuno è
+sopravvissuto, lo dice con il suo PID: succede quando il processo appartiene a una
+sessione chiusa, e in quel caso va fermato da una finestra **amministratore**
+
+```powershell
+Stop-Process -Id <i PID elencati> -Force
+```
+
+prima di riavviare, o si avranno due agenti sullo stesso archivio.
 
 > **Privilegi.** Aperta come utente normale, la sonda non può usare la scansione SYN
 > (`-sS`) né il rilevamento del sistema operativo (`-O`): ricade sulla scansione per
@@ -337,6 +363,41 @@ vanno letti insieme.
 
 ---
 
+## 8-bis. L'agente sulle macchine (facoltativo)
+
+Si fa **dopo** che la sonda scansiona e conferisce: l'agente aggiunge una vista, non
+la sostituisce. Va installato solo dove serve davvero — server, macchine critiche,
+postazioni sensibili — non ovunque per abitudine.
+
+**Sulla console della sonda**, pagina *Agenti*: si scrive a che cosa serve il token e
+si preme *Emetti un token*. Il token si vede **una volta sola** e vale **un'ora**.
+
+**Sulla macchina da sorvegliare:**
+
+```
+pip install psutil
+python snap_agent.py registra https://<sonda>:5510 <token>
+python snap_agent.py prova        # mostra che cosa manderebbe, senza mandarlo
+python snap_agent.py servizio     # a regime, sotto systemd o attività pianificata
+```
+
+| Verifica | Esito atteso |
+|---|---|
+| `https://<sonda>:5510/api/agent/ping` | `{"protocollo": "SNAP-AGENT/1", "pronto": true}` |
+| Console della sonda, *Agenti* | la macchina compare con stato *attivo* e un invio recente |
+| Console del server, *IDS → Agenti di macchina* | la stessa macchina, con CPU, memoria e dischi |
+
+Se la macchina compare sulla sonda ma non sul server, il problema non è l'agente: è il
+conferimento della sonda, e si guarda in *Sonde → Console*.
+
+**Una cosa da sapere prima di guardare le rilevazioni.** Le regole dell'IDS che si
+fondano sull'assenza di memoria non scattano nelle prime **dodici ore** dalla prima
+osservazione: il motore costruisce la linea di base e tace. La pagina lo dichiara in
+un avviso. È voluto — un IDS che al primo avvio segnala l'intera rete viene
+disattivato il giorno dopo.
+
+---
+
 ## 9. Guasti che si incontrano davvero
 
 | Sintomo | Causa | Rimedio |
@@ -349,6 +410,9 @@ vanno letti insieme.
 | La subnet mostra **tutti** gli indirizzi attivi | sonda dietro il NAT di Docker Desktop | eseguire la sonda fuori dal contenitore (capitolo 5) |
 | La sonda è attiva ma non scansiona | perimetro vuoto, subnet disattivate, o scansioni sospese | capitolo 7; la pagina *Perimetro* mostra il numero di subnet attive |
 | Nodi «in lavorazione» fermi per ore | una fase monopolizza il ciclo | verificare nel diario che le fasi si alternino |
+| L'agente riceve `403` alla registrazione | il token è scaduto (vale un'ora), è già stato usato, o è stato ricopiato male | emetterne un altro dalla pagina *Agenti* della sonda |
+| L'agente riceve `401` a ogni invio | firma, marca temporale o nonce non accettati. Il rifiuto non dice quale: il motivo per esteso è nel **diario della sonda** | se dice «marca temporale fuori finestra», l'orologio della macchina è sfasato di più di cinque minuti: sincronizzarlo |
+| La pagina *IDS* mostra zero rilevazioni | nelle prime dodici ore è l'esito atteso (memoria in apprendimento); dopo, si guarda **Regole e sensori** | un sensore non disponibile non produce rilevazioni, e il suo zero non è una buona notizia |
 
 ---
 
@@ -360,4 +424,5 @@ vanno letti insieme.
 | `docs/05_MANUALE_OPERATIVO.md` | uso quotidiano di console e sonda |
 | `docs/14_MOTORE_DI_SCANSIONE.md` | come lavora la scansione, con le misure |
 | `docs/09_REGOLE_CANALI_MANUTENZIONE.md` | notifiche, conservazione, copie |
+| `docs/17_IDS_E_AGENTI.md` | IDS e agenti: decisioni, regole, casi d'uso commentati |
 | Guida in applicazione (`/guida/`) | la stessa materia, dentro la console |

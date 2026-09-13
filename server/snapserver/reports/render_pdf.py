@@ -99,6 +99,14 @@ TEMI = {
         "banda": HexColor("#23313d"), "accento": HexColor("#31708f"),
         "chiaro": HexColor("#eaf1f6"), "etichetta": "INSTALLAZIONE",
     },
+    # Documentazione che NON e' una procedura di installazione (specifiche, manuali
+    # di funzionamento). Stessa famiglia di colori -- e' sempre documentazione di
+    # prodotto -- ma l'etichetta non deve promettere una procedura: chi cerca come si
+    # installa e trova una specifica ha perso tempo per colpa della copertina.
+    "documentazione": {
+        "banda": HexColor("#23313d"), "accento": HexColor("#31708f"),
+        "chiaro": HexColor("#eaf1f6"), "etichetta": "DOCUMENTAZIONE",
+    },
     # Vetusta': il colore della ruggine. Chi riceve questo documento deve capire
     # dalla copertina che non parla di un attacco, ma di abbandono.
     "vetusta": {
@@ -347,8 +355,15 @@ class Foglio:
         # tiene il piu' grande fra quello e la proporzione voluta.
         righe_titolo = simpleSplit(self.titolo, self.font["titolo"], 34,
                                    self.larghezza - 2 * MARGINE)
+        # Al massimo tre righe: oltre, la fascia perde l'equilibrio e il titolo smette
+        # di essere la cosa piu' visibile. Se si taglia si DICHIARA con i puntini --
+        # una frase interrotta a meta' su una copertina si legge come un difetto, non
+        # come una sintesi.
         righe_sottotitolo = simpleSplit(self.sottotitolo, self.font["sottotitolo"], 13,
-                                        self.larghezza - 2 * MARGINE)[:2]
+                                        self.larghezza - 2 * MARGINE)
+        if len(righe_sottotitolo) > 3:
+            righe_sottotitolo = righe_sottotitolo[:3]
+            righe_sottotitolo[-1] = righe_sottotitolo[-1].rstrip(" ,;:") + "…"
         necessaria = (ALTEZZA_INTESTAZIONE_BANDA + ALTEZZA_MAIUSCOLE_TITOLO
                       + 38 * len(righe_titolo) + 17 * len(righe_sottotitolo)
                       + PIEDE_BANDA)
@@ -391,8 +406,7 @@ class Foglio:
         c.setFont(self.font["sottotitolo"], 13)
         c.setFillColor(Color(1, 1, 1, alpha=.82))
         # A CAPO, non troncato: un sottotitolo lungo usciva dal foglio a destra e la
-        # frase finiva fuori pagina. Al massimo due righe: oltre, la fascia perde
-        # l'equilibrio e il titolo smette di essere la cosa piu' visibile.
+        # frase finiva fuori pagina.
         for riga in righe_sottotitolo:
             c.drawString(MARGINE, y - 2, riga)
             y -= 17

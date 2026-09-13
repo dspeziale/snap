@@ -235,10 +235,11 @@ si registra cio' che l'utente chiude e non cio' che apre.
 
 | Gruppo | Contenuto |
 |---|---|
-| Dashboard | Riquadri di sintesi, indicatori operativi, stato della flotta, ultimi conferimenti, attivita' recente |
+| Dashboard | Il **quadro d'insieme**: incidenti da prendere in carico, quattro semafori di postura, i numeri di inventario, esposizione, vulnerabilita', certificati, vetusta', SMB e presenze, gli andamenti, lo stato della flotta e gli indicatori che ciascuno tiene sott'occhio |
 | Sala operativa | **Quadro NOC** (che cosa non funziona adesso), **quadro SOC** (che cosa e' cambiato nella superficie esposta), **Ricerca** nella base dati con le domande gia' scritte. E' il primo gruppo perche' e' da li' che comincia il turno; specifica in `11_SALA_OPERATIVA.md` |
 | Rete | Nodi, **mappa della rete** ad albero, stato della rete, cambiamenti, perimetro, dati conferiti dalle sonde. Pastiglia **verde** con i nodi in inventario |
 | Controlli | Bersagli e controlli, incidenti, notifiche, regole di notifica. Pastiglia **blu** con i controlli attivi e, a gruppo chiuso, pastiglia rossa con gli incidenti aperti |
+| IDS | **Rilevazioni** (che cosa e' cambiato in un modo che riguarda la sicurezza), **Regole e sensori** (che cosa si sa riconoscere e che cosa in questo momento nessuno sta osservando), **Agenti di macchina** (le macchine su cui e' installato l'agente, con le misure e gli eventi che riferiscono). Il motore gira sulla sonda: la console mostra cio' che le e' stato conferito (capitolo 5.9; specifica in `17_IDS_E_AGENTI.md`) |
 | Sicurezza | Threat Intelligence e registro Audit & Eventi. Pastiglia rossa con i riscontri confermati, gialla con quelli aperti |
 | Report e resoconti | Catalogo dei quattordici generi di report, archivio di quelli prodotti (scaricabili e eliminabili) e resoconto quotidiano |
 | Sonde | Flotta sonde (stato, configurazione, comandi, revoca) e registrazione di una nuova sonda |
@@ -290,7 +291,78 @@ I contenuti conferiti dalle sonde sono, in questa versione, annotazioni
 diagnostiche sul loro funzionamento: confluiscono nel registro *Audit & Eventi*
 del tenant e alimentano gli indicatori della dashboard.
 
-### 5.1 Preferenze di visualizzazione
+### 5.0 La dashboard: che cosa dice, e come si legge
+
+La dashboard risponde a una domanda sola: **che cosa sappiamo di questa rete, e che
+cosa ci dice**. Non descrive il prodotto (quello lo fa la relazione sulla flotta):
+descrive il parco, e mette su una pagina numeri che altrimenti stanno in otto pagine
+diverse.
+
+Si legge dall'alto in basso, e l'ordine non e' estetico:
+
+| Fascia | Che cosa contiene | Perche' sta li' |
+|---|---|---|
+| Incidenti aperti | I controlli che stanno fallendo adesso | E' l'unica cosa della pagina che chiede un intervento *oggi*: viene prima di qualunque numero |
+| Quattro semafori | Raccolta, copertura, vulnerabilita', certificati | Ciascuno porta il **perche'** accanto al colore: un semaforo senza la sua ragione e' un colore, si guarda ma non si usa |
+| Dodici numeri | Dispositivi, identificati, porte, amministrazione esposta, vulnerabilita' gravi, certificati in scadenza, vetusta', presenze, SMB, cambiamenti, reti, record | Ognuno e' cliccabile e porta all'elenco da cui viene: un indicatore da cui non si puo' scendere e' una curiosita' |
+| Quattro andamenti | Record conferiti, apparati senza fili, cambiamenti, dispositivi nuovi | Dicono se cio' che si vede sopra sta crescendo o calando |
+| Controlli e disponibilita' | Riuscita dei controlli, esiti non superati, incidenti aperti per giorno | E' l'unica parte della pagina che parla di SERVIZI invece che di apparati: dice se cio' che deve rispondere sta rispondendo. La riuscita si disegna su una scala 0-100, altrimenti una serie fra 98 e 100 sembrerebbe una montagna russa |
+| Sezioni per area | Vulnerabilita', esposizione, igiene del parco, strumento | Il dettaglio, per chi al numero non si ferma |
+| I tuoi indicatori | Gli undici riquadri personalizzabili | La scelta e' di chi la compie, e resta sul suo utente |
+
+**La regola che governa tutta la pagina**: zero e "non misurato" non sono la stessa
+cosa. Un conteggio a zero perche' nessuno ha ancora guardato si legge come "nessun
+problema", ed e' il modo in cui una dashboard mente senza dire una parola falsa. Dove
+una fonte non ha prodotto nulla la pagina lo scrive -- *"nessuna correlazione
+eseguita: non e' un parco senza vulnerabilita', e' un parco che non e' stato
+confrontato con i cataloghi"* -- invece di mostrare uno zero rassicurante.
+
+### 5.0.1 Quattro casi, come si presentano davvero
+
+**Caso 1 -- Il semaforo della raccolta e' rosso.**
+Si legge *"nessun conferimento nelle ultime 24 ore: i numeri qui sotto sono vecchi"*.
+Prima di guardare qualunque altra cosa: la sonda e' in contatto? Si va in *Sonde* e si
+guarda l'ultimo battito. Le cause piu' frequenti, in ordine di probabilita': la sonda
+e' ferma (riavviarla), le scansioni sono sospese (riquadro *Flotta e raccolta*, riga
+"Scansioni sospese"), il canale verso la console non si apre (diario della sonda). Fino
+ad allora ogni numero della pagina descrive ieri.
+
+**Caso 2 -- "2 reti mai guardate" nel semaforo della copertura.**
+Sono subnet dichiarate nel perimetro e attive, che nessuna passata ha mai preso come
+bersaglio. Non producono righe da nessuna parte: in ogni altro elenco la loro assenza
+si legge come "niente da segnalare" invece che come "non guardato". Si aprono da
+*Rete > Perimetro*, e le cause sono due: nessuna sonda le raggiunge (manca una rotta:
+lo dice il diario della sonda, con il messaggio sui bersagli senza rotta), oppure la
+scoperta non e' ancora arrivata al loro turno -- il perimetro si ricensisce ogni tre
+giorni, valore configurabile sulla singola sonda.
+
+**Caso 3 -- "129 gia' scaduti" sotto i certificati.**
+Un certificato scaduto non e' un rischio teorico: e' un servizio che smette di
+funzionare a una data nota. Dal numero si scende all'elenco (*Rete > Certificati TLS*),
+si filtra per scadenza e si manda la comunicazione a chi rinnova, dalla stessa pagina:
+il messaggio porta il certificato per intero -- soggetto e emittente in DN completo,
+validita', numero di serie, algoritmo di firma, chiave, impronte, nomi alternativi --
+perche' chi lo rinnova deve poterlo rifare senza aprire la console.
+
+**Caso 5 -- "Riuscita controlli 24h: 92%".**
+La percentuale da sola non dice dove guardare: novantadue su cento puo' essere un
+bersaglio sempre rotto fra dieci sani, oppure dieci bersagli che sbandano insieme. Si
+guarda l'andamento *Esiti non superati* accanto: se i fallimenti sono concentrati in
+una fascia oraria, la causa e' quasi sempre una finestra di manutenzione o un lavoro
+programmato; se sono distribuiti, e' il bersaglio. Da li' si scende a *Controlli >
+Incidenti* per vedere chi ha gia' preso in carico che cosa.
+
+**Caso 4 -- Una fase di scansione al 5%.**
+Nella sezione *Le fasi di scansione* la percentuale e' la quota di passate che hanno
+visto **almeno un host**. Un valore basso su una fase sola indica bersagli che non
+rispondono (rete spenta, filtro in mezzo); basso su tutte indica un problema di
+raggiungibilita' generale. Attenzione a non leggere quello che non c'e': per `monitor`,
+`deep` e `os` la percentuale **non compare**, e al suo posto si legge che quelle fasi
+lavorano su nodi gia' noti e non dichiarano bersagli. Misurarle sugli host darebbe zero
+per costruzione -- lo stesso allarme falso che darebbe il contatore dei record, che
+infatti qui non si usa.
+
+## 5.1 Preferenze di visualizzazione
 Icona con i cursori nella barra superiore: tema chiaro/scuro, dimensione del
 carattere (piccolo, normale, grande, extra grande), larghezza della pagina
 (stretta, larga). Le preferenze sono salvate nel profilo utente e valide su
@@ -357,7 +429,7 @@ dimensione.
 
 ### 5.1.2-bis Indicatori della dashboard
 
-L'area indicatori mostra undici riquadri. Chi tiene il turno ne guarda tre o quattro:
+L'area indicatori sta **in fondo alla dashboard**, sotto il quadro d'insieme, e mostra undici riquadri. Chi tiene il turno ne guarda tre o quattro:
 gli altri si nascondono con la crocetta che compare passando sopra al riquadro (ed e'
 raggiungibile da tastiera). In fondo all'area compare l'elenco di cio' che si e' messo
 via, con le caselle spuntate: togliendo la spunta e salvando, l'indicatore torna;
@@ -622,7 +694,60 @@ configurazione e la sonda li ritira al battito successivo, entro un minuto. E' u
 ritardo dichiarato, non un difetto nascosto: e' il prezzo di non aprire un canale
 permanente dall'interno della rete del cliente verso l'esterno.
 
-### 5.9 Azzerare le informazioni raccolte di un tenant
+### 5.9 IDS: rilevazioni, regole e agenti
+
+Menu **IDS**. Tre pagine, tre domande diverse.
+
+**Rilevazioni** -- che cosa e' cambiato in un modo che riguarda la sicurezza. E' la
+pagina del turno. L'ordine e' la **gravita', non il tempo**: una rilevazione critica
+di ieri conta piu' di una media di stamattina. Ogni riga porta la regola che l'ha
+prodotta, la tecnica MITRE ATT&CK corrispondente e la **prova**: che cosa si vedeva
+prima, e da quando.
+
+Una rilevazione e' un **cambiamento**, non un fatto assoluto: «la porta 3389 e'
+aperta» non e' una rilevazione, «la 3389 e' aperta dove non c'era» lo e'. La
+differenza conta quando si decide: la prima e' una configurazione da valutare (e la
+relazione sull'esposizione la elenca gia'), la seconda e' qualcosa che e' successo.
+
+Si decide archiviando **con una nota**. Archiviare non significa «non mostrarmela
+piu'»: se la stessa cosa si ripresenta, la rilevazione torna aperta al conferimento
+successivo. Significa «ho guardato allora, ed ecco che cosa ho concluso» -- ed e' il
+motivo per cui la nota si conserva e si legge accanto alla riga riaperta.
+
+**Regole e sensori** -- che cosa il prodotto sa riconoscere, e soprattutto **che cosa
+non sta guardando**. Dodici regole, ciascuna con la propria gravita' e la tecnica
+ATT&CK. Sotto, lo stato di ogni sensore riferito da ciascuna sonda.
+
+> Una regola con zero rilevazioni puo' significare due cose opposte: che quella
+> condizione non si e' mai verificata, oppure che il sensore da cui dipende non sta
+> osservando. La tabella dei sensori dice quale delle due.
+
+La colonna **memoria** dice a che punto e' la linea di base di ogni sonda. Finche'
+risulta *in apprendimento*, le regole che si fondano sull'assenza di memoria
+(«dispositivo mai visto», «apparato senza fili mai visto») non scattano: il motore
+costruisce e tace, e la pagina delle rilevazioni lo dichiara in cima. Sono dodici ore
+dalla prima osservazione. E' voluto: senza quell'attesa la prima passata segnalerebbe
+l'intera rete come «mai vista» -- su una rete di collaudo sono state quattrocento
+rilevazioni in un colpo.
+
+**Agenti di macchina** -- le macchine su cui e' installato l'agente, con l'ultima
+misura di CPU, memoria e disco, e gli eventi che riferiscono. Dalla rete una porta
+4444 aperta e' una porta aperta; da dentro e' un processo con un nome e un utente: e'
+per questo che l'agente esiste. Le macchine si aggiungono dalla **console della
+sonda**, non da qui (capitolo 6.2): il token va emesso dove la macchina puo'
+arrivare.
+
+**Che cosa questo IDS non vede.** Non ispeziona il traffico: niente firme sul
+payload, nessun canale di comando cifrato, nessuna esfiltrazione riconosciuta. Il
+limite e' scritto in cima a ogni pagina che mostra rilevazioni. Zero rilevazioni
+significa «nessun cambiamento fra quelli che so riconoscere», non «nessuna
+intrusione».
+
+Le rilevazioni conferite entrano anche nel **SIEM** come eventi di genere `ids`, con
+la gravita' della regola: chi lavora sugli incidenti non deve guardare due pagine.
+Casi d'uso ed esempi commentati in `17_IDS_E_AGENTI.md`, capitolo 9.
+
+### 5.10 Azzerare le informazioni raccolte di un tenant
 
 Menu **Amministrazione > Tenant**, icona **gomma** sulla riga del tenant. Riservato
 all'**amministratore di sistema**.
@@ -719,9 +844,13 @@ cifrato e autenticato dalle chiavi della registrazione.
 | Stato | Stato del canale, coda locale, ultimi conferimenti, diario recente; azioni *Verifica server*, *Raccogli ora*, *Conferisci ora* |
 | Configurazione | Intervallo di raccolta, sospensione, indirizzo del server, configurazione ricevuta, contenuto della coda, manutenzione |
 | Diario locale | Eventi e conferimenti registrati sul dispositivo |
+| IDS | Le rilevazioni prodotte su questa rete, lo stato dei sensori e la maturita' della memoria. E' la stessa informazione della console, ma **locale**: si vede anche quando il collegamento con la sede e' interrotto |
+| Agenti | Le macchine che riferiscono a questa sonda, con l'emissione dei token di registrazione e la revoca (capitolo 6.2) |
 
 L'interfaccia non consente la consultazione dei dati raccolti: la loro sede e' il
-server.
+server. Le due pagine IDS e Agenti sono l'eccezione, e per un motivo preciso: chi e'
+davanti alla sonda deve poter capire che cosa sta succedendo **senza dipendere dalla
+rete geografica**, che e' proprio cio' che potrebbe mancare nel momento in cui serve.
 
 **Operazioni di manutenzione**:
 - *Azzera il contatore dei cicli*: riporta a zero la numerazione delle raccolte;
@@ -729,6 +858,73 @@ server.
 - *Azzera la registrazione* (digitare `AZZERA`): rimuove chiavi e credenziali
   mantenendo la coda. Per registrare la sonda su un nuovo pacchetto non serve
   azzerare: si usa la voce *Registrazione*.
+
+### 6.2 Installare un agente su una macchina
+
+L'agente e' un unico file Python (`agent/snap_agent.py`) da copiare sulla macchina da
+sorvegliare. **Parla lui verso la sonda** e non riceve comandi: una macchina in rete
+di utenza non deve essere raggiungibile da nessuno, nemmeno dal prodotto che la
+sorveglia. Non apre porte, non installa servizi in ascolto, non accetta connessioni.
+
+**Passo 1 -- emettere il token.** Nella console della sonda, pagina **Agenti**, si
+scrive a che cosa serve il token (*«server di posta»*, *«postazione reception»*: fra
+un mese si deve poter capire a chi era stato dato) e si preme *Emetti un token*.
+
+Il token **si vede una volta sola** e vale **un'ora**, una sola volta. Dopo quella
+pagina resta soltanto la sua impronta: se si perde, se ne emette un altro -- costa
+meno che conservare in giro una credenziale che nessuno ricorda di aver lasciato.
+
+**Passo 2 -- sulla macchina:**
+
+```
+pip install psutil
+python snap_agent.py registra https://<sonda>:5510 <token>
+python snap_agent.py servizio
+```
+
+La registrazione restituisce una chiave, che l'agente conserva in un file con permessi
+ristretti accanto a se'. Da quel momento firma ogni invio.
+
+**Passo 3 -- avviare a regime.** Il comando `servizio` va messo sotto il gestore di
+servizi del sistema: su Linux una unit systemd, su Windows un'attivita' pianificata
+all'avvio. L'agente non si demonizza da solo, di proposito: cio' che tiene in piedi un
+processo su una macchina lo decide chi amministra quella macchina.
+
+**Prima di installarlo, la domanda che tutti fanno.** *Che cosa mi porta via da qui?*
+La risposta si ottiene senza fidarsi:
+
+```
+python snap_agent.py prova
+```
+
+raccoglie una volta e **stampa** cio' che manderebbe, senza mandarlo.
+
+| Raccoglie | Non raccoglie |
+|---|---|
+| Nome host, sistema, indirizzi, avvio | Contenuto di file |
+| CPU, memoria, swap, carico | Righe di comando complete (possono contenere password) |
+| Spazio dei dischi per punto di mount | Traffico, messaggi, cronologia |
+| Byte e pacchetti per interfaccia | Chiavi, certificati, credenziali |
+| Nomi dei processi, primi per CPU e memoria | |
+| Porte in ascolto con processo e utente | |
+| Accessi falliti, utenze nuove, protezioni disattivate | |
+| Aggiornamenti in attesa, quanti di sicurezza | |
+
+Nomi utente e sessioni sono **dati personali** (GDPR art. 4): la base giuridica e' la
+stessa dell'inventario -- sicurezza della rete, art. 6(1)(f) -- e le pagine nominano
+macchine e utenze, non persone.
+
+**Revocare.** Dalla stessa pagina, bottone *revoca*: da quel momento gli invii di
+quella macchina vengono **respinti**. La revoca e' definitiva per quella chiave; per
+rimettere la macchina in servizio si emette un token nuovo e si ripete la
+registrazione.
+
+**Se non entra.** Il rifiuto che l'agente riceve non dice quale verifica non e'
+passata -- spiegarlo aiuterebbe solo chi sta provando. Il motivo per esteso e' nel
+**diario della sonda**: «firma non valida», «marca temporale fuori finestra»,
+«agente sconosciuto o revocato», «invio ripetuto». Prima di tutto il resto si prova
+`https://<sonda>:5510/api/agent/ping`: se non risponde, il problema e' la rete o il
+proxy, non la chiave.
 
 ---
 

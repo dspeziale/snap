@@ -67,6 +67,15 @@ from .db import execute, query
 # il contesto che le spiega (una presenza senza il nodo, un avviso senza l'incidente).
 TABELLE_RACCOLTE = (
     # (tabella, etichetta, radice)
+    # IDS e agenti prima dei nodi: le rilevazioni e le macchine puntano a `nodes` con
+    # `ON DELETE SET NULL`, e cancellare i nodi per primi lascerebbe righe vive senza
+    # il contesto che le spiega -- una rilevazione su un indirizzo che non esiste piu'.
+    # Le misure e gli eventi non hanno un vincolo verso `agent_hosts` (si legano per
+    # `agent_uid`, che e' un testo): vanno cancellati a mano, non per cascata.
+    ("agent_events", "Eventi riferiti dagli agenti", True),
+    ("agent_metrics", "Misure riferite dagli agenti", True),
+    ("agent_hosts", "Macchine con l'agente installato", True),
+    ("ids_findings", "Rilevazioni dell'IDS", True),
     ("presence_sessions", "Presenze sulle reti senza fili", True),
     ("ti_findings", "Correlazioni con la threat intelligence", True),
     ("siem_alerts", "Avvisi SIEM", True),

@@ -91,7 +91,7 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
 
     from flask_wtf.csrf import CSRFError, CSRFProtect
 
-    CSRFProtect(app)
+    protezione_csrf = CSRFProtect(app)
 
     @app.errorhandler(CSRFError)
     def _csrf_error(error):
@@ -120,10 +120,26 @@ def create_app(config_object=Config, start_agent: bool | None = None) -> Flask:
     register_template_filters(app, store)
 
     from .auth import bp as auth_bp
+    from .agent_api import bp as agent_api_bp
     from .views import bp as views_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(views_bp)
+    # Il canale delle macchine sorvegliate. Non e' protetto dalla guardia di accesso
+    # dell'interfaccia -- gli agenti non hanno una sessione, hanno una chiave -- ed e'
+    # per questo che ogni sua rotta verifica la firma da se'.
+    app.register_blueprint(agent_api_bp)
+    # IL CANALE DEGLI AGENTI E' FUORI DAL CSRF, e deve esserlo.
+    #
+    # Il token CSRF difende un BROWSER autenticato dal fargli inviare richieste a sua
+    # insaputa: presuppone una sessione e un modulo. Una macchina che invia misure non
+    # ha ne' l'una ne' l'altro -- ha una chiave, e firma ogni invio con marca temporale
+    # e nonce (agent_api.py), che protegge da cose che il CSRF non copre nemmeno: la
+    # ripetizione e l'invio per conto di un altro.
+    #
+    # Senza questa esenzione ogni invio riceveva un 303 verso la pagina iniziale, e
+    # l'agente leggeva una pagina HTML dove si aspettava una risposta.
+    protezione_csrf.exempt(agent_api_bp)
 
     # La guardia si installa DOPO le rotte: protegge tutto cio' che e' registrato,
     # e cio' che verra' registrato in futuro, tranne l'elenco dichiarato in auth.py.

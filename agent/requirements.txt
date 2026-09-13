@@ -1,0 +1,9 @@
+# snap agent - Dipendenze dell'agente di macchina.
+# Autore: Daniele Speziale - Data: 2026-09-13 - licenza MIT
+#
+# Una sola, e dichiarata: psutil da' CPU, memoria, dischi, processi e connessioni in
+# modo identico su Windows, Linux e macOS. Scriverlo a mano avrebbe voluto dire due
+# implementazioni diverse -- una per /proc e una per WMI -- con due modi di sbagliare.
+# La versione e' fissata: un agente che si aggiorna da solo, su macchine altrui, non
+# e' un agente ma una sorpresa.
+psutil==6.1.0

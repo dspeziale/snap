@@ -31,11 +31,33 @@ Write-Host ''
 Write-Host 'Sonda snap - arresto della sonda sulla macchina'
 Write-Host '----------------------------------------------'
 
-# I processi si riconoscono dalla riga di comando: sono i soli `run.py` di questo
-# prodotto. Cercarli per nome ("python") fermerebbe qualunque altra cosa l'utente
-# stia eseguendo, ed e' un modo di rompere il lavoro di qualcun altro.
+# PRIMA IL REGISTRO, POI LA RIGA DI COMANDO.
+#
+# L'avvio scrive in `probe\sonda-nativa.pid` i processi che ha creato. Serve perche'
+# la riga di comando di un processo Windows non e' sempre leggibile -- una sessione
+# chiusa basta a nasconderla -- e un arresto che cerca solo li' lascerebbe in vita
+# cio' che non riesce a vedere: un agente vecchio che continua a battere, e due
+# agenti sullo stesso archivio si contendono le prenotazioni dei bersagli.
+#
+# La ricerca per riga di comando resta come rete: prende anche cio' che e' stato
+# avviato a mano, fuori dallo script. Cercare per nome ("python") no: fermerebbe
+# qualunque altra cosa stia girando sulla macchina.
+$Radice = Resolve-Path (Join-Path $Qui '..\..')
+$registro = Join-Path $Radice 'probe\sonda-nativa.pid'
+$daRegistro = @()
+if (Test-Path $registro) {
+    $daRegistro = @(Get-Content $registro | Where-Object { $_ -match '^\d+$' } |
+        ForEach-Object { [int]$_ })
+    Write-Host ("  registro dei processi: {0}" -f ($daRegistro -join ', ')) `
+               -ForegroundColor DarkGray
+}
+
 $processi = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match 'run\.py' })
+    Where-Object {
+        ($_.CommandLine -and $_.CommandLine -match 'run\.py') -or
+        ($daRegistro -contains $_.ProcessId) -or
+        ($daRegistro -contains $_.ParentProcessId)
+    })
 
 if (-not $processi) {
     Write-Host '  nessuna sonda in esecuzione su questa macchina' -ForegroundColor DarkGray
@@ -61,10 +83,14 @@ if (-not $processi) {
 }
 
 # Anche la finestra nascosta che li ospitava: se restasse, il prossimo avvio
-# troverebbe due padri sullo stesso archivio.
+# troverebbe due padri sullo stesso archivio. Si riconosce dal registro o dalla
+# propria riga di comando.
 $ospiti = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match 'start-nativa\.ps1' -and
-                   $_.CommandLine -match 'SonoIlProcessoNascosto' })
+    Where-Object {
+        ($daRegistro -contains $_.ProcessId) -or
+        ($_.CommandLine -and $_.CommandLine -match 'start-nativa\.ps1' -and
+         $_.CommandLine -match 'SonoIlProcessoNascosto')
+    })
 foreach ($ospite in $ospiti) {
     try {
         Stop-Process -Id $ospite.ProcessId -Force -ErrorAction Stop
@@ -85,6 +111,26 @@ if ($ConIContenitori) {
     } finally {
         Pop-Location
     }
+}
+
+if (Test-Path $registro) { Remove-Item $registro -Force -ErrorAction SilentlyContinue }
+
+# VERIFICA, non fiducia: se qualcosa e' sopravvissuto va detto, perche' al prossimo
+# avvio ci sarebbero due agenti sullo stesso archivio.
+Start-Sleep -Milliseconds 800
+$rimasti = @(Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+    Where-Object {
+        ($_.CommandLine -and $_.CommandLine -match 'run\.py') -or
+        ($daRegistro -contains $_.ProcessId)
+    })
+if ($rimasti) {
+    Write-Host ''
+    Write-Host ("  ATTENZIONE: {0} processi non si sono fermati ({1})." -f `
+                $rimasti.Count, (($rimasti | ForEach-Object { $_.ProcessId }) -join ', ')) `
+               -ForegroundColor Yellow
+    Write-Host '  Succede quando appartengono a una sessione chiusa: fermarli da una' -ForegroundColor Yellow
+    Write-Host '  finestra AMMINISTRATORE prima di riavviare, o si avranno due agenti' -ForegroundColor Yellow
+    Write-Host '  sullo stesso archivio.' -ForegroundColor Yellow
 }
 
 Write-Host ''

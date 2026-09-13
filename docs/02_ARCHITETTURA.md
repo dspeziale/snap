@@ -49,8 +49,9 @@
 ```mermaid
 graph LR
     subgraph "Rete osservata (tenant)"
-        P["snap probe<br/>agente + interfaccia locale<br/>porta 5510"]
+        P["snap probe<br/>agente + interfaccia locale<br/>motore IDS<br/>porta 5510"]
         LAN[("Rete osservata")]
+        AG["snap agent<br/>sulle macchine sorvegliate<br/>nessuna porta in ascolto"]
     end
     subgraph "Infrastruttura di raccolta"
         S["snap server<br/>console web + canale sonde<br/>porta 5500"]
@@ -60,11 +61,13 @@ graph LR
     TEC["Tecnico di campo<br/>(browser locale)"]
 
     LAN -. "raccolta (da definire)" .-> P
+    AG == "SNAP-AGENT/1 - solo in uscita<br/>enroll / report" ==> P
     P == "SNAP-SEC/1 - solo in uscita<br/>enroll / heartbeat / ingest" ==> S
     S --- DB
     OP --> S
     TEC --> P
     S -. "nessuna connessione verso la sonda" .-x P
+    P -. "nessuna connessione verso la macchina" .-x AG
 ```
 
 ---
@@ -474,6 +477,7 @@ graph TB
 | AD-14 | Nome del cookie di sessione distinto per applicativo (`snap_server_session`, `snap_probe_session`) | Nome predefinito di Flask (`session`) per entrambi; percorso del cookie distinto; nomi host distinti | I cookie sono definiti per dominio e **non distinguono la porta**: con lo stesso nome su `127.0.0.1` la risposta della sonda sovrascrive il cookie del server (e viceversa), invalidando la sessione dell'altra interfaccia. Il nome resta configurabile con `SNAP_SERVER_COOKIE_NAME` e `SNAP_PROBE_COOKIE_NAME` |
 | AD-15a | Il contesto di rete e' un **dato del tenant** (`network_zones`), con il catalogo del prodotto come seme; il *significato* dei giudizi resta nel codice (`zones.py`, `threat.EXPOSURE_RULES`) | Catalogo chiuso nel codice (AD-15, superata); zone completamente libere, famiglie comprese | Le zone sono un fatto della rete del cliente e vanno dichiarate da lui; le famiglie di esposizione sono regole di prodotto, e una famiglia inventata sembrerebbe attiva senza fare nulla. La riga sotto resta come storia della decisione |
 | AD-15 | ~~Il contesto di rete e' un catalogo nel codice~~ (superata da AD-15a) | Zone definite dall'utente con regole proprie; nessun contesto | Le regole di giudizio sono codice: una zona creata a mano sarebbe una stringa senza regole, e sembrerebbe funzionare. La sola cosa che il cliente dichiara e' *quale* zona vale per quale subnet, che e' un dato; il *significato* di ciascuna zona e' prodotto, ed e' versionato con esso |
+| AD-16 | Il motore di rilevazione (IDS) gira **sulla sonda**, e gli agenti di macchina riferiscono **alla sonda**, non al server | Motore sul server, sui dati gia' conferiti; agenti che parlano direttamente alla console | La sonda e' l'unica a contatto con la rete sorvegliata, e il server non la raggiunge nemmeno: rilevare sul server significherebbe rilevare in ritardo e con la cadenza del conferimento invece che quella dell'osservazione. Gli agenti seguono la stessa regola un piano piu' sotto -- chi sta piu' in basso apre verso chi sta piu' in alto, e nessuno dei tre chiama indietro. Dettagli in `17_IDS_E_AGENTI.md` |
 | AD-12 | Contratto di conferimento con un registro di tipi di record estensibile (`_APPLICATORI`) | Schema fisso per ciascun tipo di dato | I tipi di dato raccolti verranno definiti successivamente: il trasporto cifrato resta invariato e l'aggiunta di un tipo richiede un solo applicatore sul server e un generatore sulla sonda |
 | AD-10 | Tabelle interattive realizzate con DataTables 3 applicato alla tabella HTML prodotta dal server | Griglia alimentata via JSON; altre librerie di tabella | Il contenuto resta leggibile anche senza JavaScript; DataTables 3 non richiede jQuery, si integra con Bootstrap 5 tramite il tema ufficiale ed e' la libreria richiesta dal committente |
 | AD-11 | Impaginazione lato client con finestra ampia servita dal server e navigazione server-side residua | Impaginazione, ordinamento e ricerca interamente remoti | Ordinamento e ricerca operano sull'insieme completo dei dati, senza andirivieni verso il server; la navigazione remota resta come argine sui volumi elevati |

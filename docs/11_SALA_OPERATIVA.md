@@ -204,6 +204,54 @@ perche' un foglio di calcolo le regge e una pagina no. Il separatore e' il punto
 virgola e il file porta il segno d'ordine UTF-8, cosi' i fogli di calcolo italiani lo
 aprono in colonne senza chiedere nulla.
 
+## 6-bis. Un turno, in sequenza
+
+Le pagine si possono descrivere una per una; chi tiene il turno pero' le usa in
+un ordine. Questo e' quello, con il perche' di ogni passo.
+
+**1. La dashboard, per trenta secondi.** Non per i numeri: per i quattro semafori. Se
+quello della *raccolta* e' rosso, tutto il resto della giornata descrive ieri, e il
+primo lavoro e' rimettere in piedi la sonda. Se e' verde si passa oltre senza leggere
+altro.
+
+**2. Gli incidenti aperti**, che stanno in cima alla stessa pagina. Sono l'unica cosa
+che chiede un intervento adesso. Si prendono in carico prima di aprire qualunque
+elenco: un incidente non preso in carico e' un incidente che due persone guardano e
+nessuna risolve.
+
+**3. Il quadro NOC**, per la disponibilita' della notte. Qui il numero da guardare non
+e' la media ma il **giorno peggiore**: una media del 99,2% con una notte al 91%
+descrive un guasto, non un servizio degradato.
+
+**4. Il quadro SOC**, per che cosa e' cambiato nella superficie esposta. Una porta di
+amministrazione comparsa ieri su un apparato che non l'aveva e' la riga che vale il
+turno intero.
+
+**4-bis. Le rilevazioni dell'IDS**, che dicono la stessa cosa del quadro SOC da
+un'altra parte e con un'altra unita' di misura. Il quadro SOC descrive la
+**superficie**: quante porte, quali servizi, quanto e' cresciuta. L'IDS descrive i
+**cambiamenti**, uno per uno, con la prova di che cosa si vedeva prima. Chi guarda
+solo il primo vede una rete che si allarga; chi guarda solo il secondo vede singoli
+fatti senza la forma d'insieme.
+
+Due cose vanno sapute prima di concluderne qualcosa. La prima: l'IDS non ispeziona
+il traffico, quindi zero rilevazioni significa «nessun cambiamento fra quelli che so
+riconoscere». La seconda: nelle prime dodici ore dopo l'installazione di una sonda le
+regole fondate sull'assenza di memoria tacciono, e la pagina lo dichiara. In entrambi
+i casi si guarda *Regole e sensori* prima di archiviare il turno come tranquillo
+(`17_IDS_E_AGENTI.md`).
+
+**5. Le domande gia' scritte**, quando c'e' un sospetto da verificare. Esempio reale:
+dal quadro SOC risulta una porta 445 nuova su tre indirizzi. Si apre *Dove la firma SMB
+non e' richiesta*: se i tre indirizzi ci sono, non e' una curiosita' ma il presupposto
+di un attacco di inoltro NTLM, e si apre un incidente. Se non ci sono, la porta e'
+aperta ma la sessione e' firmata, e la fretta cala.
+
+**6. L'esportazione, solo quando serve a qualcun altro.** Il CSV esce con il punto e
+virgola e il segno d'ordine UTF-8 perche' si apre in colonne su un foglio di calcolo
+italiano senza chiedere nulla, e l'esportazione e' tracciata nel registro: chi ha
+portato fuori un elenco di indirizzi deve restare scritto.
+
 ---
 
 ## 7. Riservatezza e conformita'

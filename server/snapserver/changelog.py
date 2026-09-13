@@ -21,6 +21,126 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.7.6",
+        "date": "2026-09-13",
+        "abstract": "Arriva l'IDS: una voce di menu nuova con le rilevazioni, il"
+                    " catalogo delle regole con la tecnica ATT&CK che ciascuna"
+                    " riconosce, e le macchine su cui e' installato l'agente. Il"
+                    " motore gira sulla SONDA, che e' l'unica a contatto con la rete"
+                    " sorvegliata; la console mostra cio' che le e' stato conferito.",
+        "changes": [
+            "NUOVA SEZIONE IDS, tre pagine. *Rilevazioni*: che cosa e' cambiato in un"
+            " modo che riguarda la sicurezza, ordinato per gravita' e non per tempo --"
+            " una critica di ieri conta piu' di una media di stamattina. Ogni riga"
+            " porta la regola che l'ha prodotta e la PROVA su cui si basa (che cosa si"
+            " vedeva prima, e da quando). Si archivia con una nota, e archiviare non"
+            " significa nascondere: se la stessa cosa si ripresenta, la rilevazione"
+            " torna aperta al conferimento successivo.",
+            "*Regole e sensori*: dodici regole dichiarate, ognuna con la tecnica"
+            " MITRE ATT&CK che riconosce, e -- soprattutto -- lo stato di ogni"
+            " sensore. Un sensore che non sta osservando non produce rilevazioni, e"
+            " il suo zero si legge come \"tutto a posto\" se nessuno dice che e'"
+            " spento. La pagina lo dice.",
+            "*Agenti di macchina*: le macchine su cui e' installato l'agente, con CPU,"
+            " memoria, dischi, aggiornamenti in attesa e gli eventi che riferiscono"
+            " (accessi falliti, utenze nuove, protezioni disattivate, processi nuovi"
+            " in ascolto). Dalla rete una porta 4444 aperta e' una porta aperta; da"
+            " dentro e' un processo con un nome e un utente.",
+            "IL LIMITE E' SCRITTO IN CIMA A OGNI PAGINA: questo IDS confronta"
+            " osservazioni, NON ispeziona il traffico. Non riconosce un exploit nel"
+            " payload, un canale di comando cifrato o un'esfiltrazione. Zero"
+            " rilevazioni significa \"nessun cambiamento fra quelli che so"
+            " riconoscere\", non \"nessuna intrusione\". Il sensore del traffico e'"
+            " predisposto e dichiarato non attivo.",
+            "LA MEMORIA GIOVANE SI DICHIARA. Finche' l'archivio di cio' che era"
+            " normale e' piu' giovane di dodici ore, le regole che si fondano"
+            " sull'assenza di memoria non scattano: il motore impara e tace. La"
+            " pagina delle rilevazioni lo scrive in un avviso, e quella dei sensori"
+            " ha una colonna apposta -- altrimenti uno zero si leggerebbe come una"
+            " buona notizia mentre significa \"sto ancora imparando\".",
+            "Le rilevazioni confluiscono anche nel SIEM come eventi di genere"
+            " \"ids\", con la gravita' della regola: chi lavora sugli incidenti non"
+            " deve guardare due pagine.",
+        ],
+    },
+    {
+        "version": "1.7.4",
+        "date": "2026-09-13",
+        "abstract": "La regola che tiene in piedi il rapporto fra console e sonda --"
+                    " tutte le connessioni partono dalla sonda, il server risponde e"
+                    " basta -- adesso e' protetta da un test, non solo scritta in una"
+                    " pagina di specifica. E la console della sonda non si rompe piu'"
+                    " se l'istantanea arriva incompleta.",
+        "changes": [
+            "LA DIREZIONE DELLE CONNESSIONI E' VERIFICATA, non solo dichiarata. La"
+            " sonda vive dietro un NAT e un firewall che non lascia entrare nulla: il"
+            " server non puo' raggiungerla e non ne conosce l'indirizzo. Un test"
+            " nuovo boccia qualunque modulo del server che apra connessioni senza"
+            " essere nell'elenco dichiarato (bot Telegram, posta, cataloghi di"
+            " vulnerabilita') e qualunque indirizzo di sonda usato per costruire un"
+            " URL. Una chiamata diretta non fallirebbe in prova: fallirebbe in"
+            " esercizio, da un cliente, mesi dopo, e sembrerebbe un problema di rete.",
+            "LA CONSOLE DELLA SONDA REGGE UN'ISTANTANEA PARZIALE. La pagina legge"
+            " quello che la sonda ha consegnato con il battito; se una chiave"
+            " mancava -- una sonda di versione diversa, una consegna incompleta --"
+            " rispondeva con un errore 500. Trenta letture sono state rese tolleranti:"
+            " una pagina di sola lettura che si rompe per un campo mancante e' peggio"
+            " del campo mancante.",
+            "Nella specifica del protocollo ci sono ora le CONSEGUENZE PRATICHE della"
+            " direzione unica, in tabella: cio' che il server vuole far fare alla"
+            " sonda si accoda e viene ritirato al contatto successivo; cio' che vuole"
+            " sapere arriva con il battito e si mostra dichiarando l'istante in cui e'"
+            " arrivato. Una fotografia presentata come diretta sarebbe una bugia.",
+        ],
+    },
+    {
+        "version": "1.7.2",
+        "date": "2026-09-12",
+        "abstract": "La dashboard non parla piu' del prodotto ma della RETE: su una"
+                    " pagina sola arriva tutto cio' che le sonde hanno raccolto --"
+                    " inventario, esposizione, vulnerabilita', certificati, vetusta',"
+                    " SMB, presenze, flotta -- preceduto da cio' che chiede un"
+                    " intervento adesso. E le presenze senza fili si leggono su un"
+                    " asse di ventiquattro ore, da mezzanotte a mezzanotte.",
+        "changes": [
+            "LA DASHBOARD E' IL QUADRO D'INSIEME. Prima rispondeva a \"il servizio sta"
+            " funzionando\": sonde, conferimenti, lotti, eventi. Ora risponde a \"che"
+            " cosa sappiamo della rete, e che cosa ci dice\", e riunisce numeri che"
+            " vivevano in otto pagine diverse. In cima restano gli incidenti aperti,"
+            " che sono l'unica cosa a chiedere un intervento adesso, e in fondo gli"
+            " indicatori che ciascuno tiene sott'occhio -- con la scelta di chi li ha"
+            " messi via, che non si cancella.",
+            "QUATTRO SEMAFORI CON LA LORO RAGIONE: raccolta, copertura,"
+            " vulnerabilita', certificati. Un semaforo senza il perche' e' un colore:"
+            " si puo' guardare, non si puo' usare -- accanto a ciascuno c'e' il"
+            " numero da cui viene e che cosa significa.",
+            "ZERO E \"NON MISURATO\" NON SONO LA STESSA COSA, e la pagina lo dice."
+            " Un conteggio a zero perche' nessuno ha ancora guardato si legge come"
+            " \"nessun problema\": e' il modo in cui una dashboard mente senza dire"
+            " una parola falsa. Dove una fonte non ha prodotto nulla -- nessuna"
+            " correlazione eseguita, nessun certificato letto, nessuna lettura SMB --"
+            " compare la frase, non lo zero.",
+            "LE FASI DI SCANSIONE NON SI GIUDICANO TUTTE ALLO STESSO MODO: `monitor`,"
+            " `deep` e `os` lavorano su nodi gia' noti e non dichiarano bersagli, e"
+            " una percentuale calcolata sugli host direbbe zero per costruzione. Per"
+            " quelle la quota non compare, e il documento spiega perche'.",
+            "PRESENZE SENZA FILI SU UN ASSE DI GIORNATA (00:00-24:00), nel fuso del"
+            " tenant, con le frecce per sfogliare i giorni. Le finestre \"ultime N"
+            " ore\" sono mobili: la mezzanotte cade a meta' grafico e due giorni non"
+            " si confrontano. Con l'asse di calendario le nove del mattino stanno"
+            " sempre nello stesso punto, ed e' l'unico modo di leggere \"questo"
+            " apparato c'e' dalle 9 alle 18\".",
+            "L'andamento delle presenze contava gli apparati sull'ORA DELL'ULTIMO"
+            " avvistamento: una permanenza di sei ore compariva in un'ora sola, e il"
+            " grafico disegnava una rete vuota per cinque ore su sei. Ora un apparato"
+            " conta in ogni ora che la sua permanenza tocca.",
+            "I numeri grandi hanno il punto delle migliaia: \"137820\" si conta,"
+            " \"137.820\" si legge.",
+            "NUMERAZIONE A DUE CENTESIMI: da questa versione ogni rilascio avanza di"
+            " due centesimi (1.7.0 -> 1.7.2), su console e sonda.",
+        ],
+    },
+    {
         "version": "1.7.0",
         "date": "2026-09-12",
         "abstract": "Quattro relazioni nuove -- vetusta' del parco, presenze senza"

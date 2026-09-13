@@ -784,3 +784,141 @@ def test_la_pagina_mostra_chi_e_in_rete_adesso(server_app, logged_client):
     # La pagina si aggiorna da sola: senza, mostrerebbe con sicurezza uno stato
     # vecchio di mezz'ora.
     assert 'data-snap-refresh' in testo
+
+
+# --------------------------------------------------------------------------- #
+# L'asse della giornata, 00:00-24:00
+#
+# Le finestre "ultime N ore" sono mobili: la mezzanotte cade a meta' grafico e due
+# giorni non si confrontano. Con l'asse di calendario la stessa ora sta sempre nello
+# stesso punto -- ed e' l'unico modo di leggere "questo apparato c'e' dalle 9 alle 18".
+# --------------------------------------------------------------------------- #
+def _zona(nome="Europe/Rome"):
+    from zoneinfo import ZoneInfo
+
+    return ZoneInfo(nome)
+
+
+def test_la_giornata_va_da_mezzanotte_a_mezzanotte_nel_fuso_del_tenant(server_app):
+    from datetime import date
+
+    tenant_id = _tenant(server_app)
+    with server_app.app_context():
+        from snapserver.presence import andamento
+
+        dati = andamento(tenant_id, chiave_periodo="giornata", zona=_zona(),
+                         giorno=date(2026, 7, 15))
+
+    # Il 15 luglio in Italia e' UTC+2: la giornata locale comincia alle 22:00 del 14.
+    assert dati["da"] == "2026-07-14 22:00:00"
+    assert dati["a"] == "2026-07-15 22:00:00"
+    assert dati["giorno"] == "2026-07-15"
+
+
+def test_l_asse_della_giornata_finisce_con_le_24(server_app):
+    """Scritta 00:00, l'ultima tacca ripeterebbe la prima e non si capirebbe piu'
+    in che direzione si legge l'asse."""
+    from datetime import date
+
+    tenant_id = _tenant(server_app)
+    with server_app.app_context():
+        from snapserver.presence import fasce
+
+        dati = fasce(tenant_id, chiave_periodo="giornata", zona=_zona(),
+                     giorno=date(2026, 7, 15))
+
+    etichette = [t["etichetta"] for t in dati["tacche"]]
+    assert etichette[0] == "00:00"
+    assert etichette[-1] == "24:00"
+    # Ore intere e riconoscibili, non numeri venuti per caso da una divisione.
+    assert etichette == ["00:00", "03:00", "06:00", "09:00", "12:00", "15:00",
+                         "18:00", "21:00", "24:00"]
+
+
+def test_una_permanenza_si_colloca_all_ora_giusta_della_giornata(server_app):
+    """Mezzogiorno sta a meta' asse: e' la proprieta' per cui questo asse esiste."""
+    from datetime import date
+
+    tenant_id = _tenant(server_app)
+    # 12:00-12:40 ora italiana = 10:00-10:40 UTC. Gli avvistamenti stanno dentro
+    # GAP_SESSIONE_SEC (mezz'ora): prolungano la stessa permanenza invece di aprirne
+    # una nuova, che e' la condizione per misurarne la durata sull'asse.
+    for minuti in (0, 20, 40):
+        _vedi(server_app, tenant_id, {"ip": "10.2.70.1", "mac": "AA:BB:CC:0D:00:01"},
+              visto_a="2026-07-15 10:%02d:00" % minuti)
+
+    with server_app.app_context():
+        from snapserver.presence import fasce
+
+        dati = fasce(tenant_id, chiave_periodo="giornata", zona=_zona(),
+                     giorno=date(2026, 7, 15))
+
+    riga = [r for r in dati["righe"] if r["identity_key"] == "mac:aa:bb:cc:0d:00:01"][0]
+    fascia = riga["fasce"][0]
+    assert 49.5 <= fascia["sinistra"] <= 50.5, "mezzogiorno deve stare a meta' asse"
+    assert 2.4 <= fascia["larghezza"] <= 3.2, (
+        "quaranta minuti su ventiquattro ore sono circa il 2,8%")
+
+
+def test_la_giornata_non_si_porta_dentro_i_giorni_vicini(server_app):
+    """Una finestra che finisce a mezzanotte deve chiudersi davvero: senza il limite
+    a destra, una giornata passata mostrerebbe anche chi e' arrivato dopo."""
+    from datetime import date
+
+    tenant_id = _tenant(server_app)
+    _vedi(server_app, tenant_id, {"ip": "10.2.71.1", "mac": "AA:BB:CC:0E:00:01"},
+          visto_a="2026-07-15 10:00:00")
+    _vedi(server_app, tenant_id, {"ip": "10.2.71.2", "mac": "AA:BB:CC:0E:00:02"},
+          visto_a="2026-07-17 10:00:00")
+
+    with server_app.app_context():
+        from snapserver.presence import fasce
+
+        dati = fasce(tenant_id, chiave_periodo="giornata", zona=_zona(),
+                     giorno=date(2026, 7, 15))
+
+    chiavi = {r["identity_key"] for r in dati["righe"]}
+    assert "mac:aa:bb:cc:0e:00:01" in chiavi
+    assert "mac:aa:bb:cc:0e:00:02" not in chiavi
+
+
+def test_la_giornata_in_corso_e_dichiarata(server_app):
+    """L'asse arriva a mezzanotte anche se sono le dieci del mattino: i punti no, o
+    direbbero "nessuno" dove la verita' e' "non e' ancora successo"."""
+    tenant_id = _tenant(server_app)
+    with server_app.app_context():
+        from snapserver.presence import andamento
+
+        dati = andamento(tenant_id, chiave_periodo="giornata", zona=_zona())
+
+    assert dati["in_corso"] in (True, False)
+    assert dati["fino_a"] <= dati["a"]
+
+
+def test_la_pagina_dell_andamento_offre_la_giornata(logged_client):
+    testo = logged_client.get(
+        "/inventory/presenze/andamento?periodo=giornata").get_data(as_text=True)
+
+    assert "00:00-24:00" in testo
+    assert "24:00" in testo
+    # La giornata si sfoglia: senza le frecce si potrebbe guardare soltanto oggi.
+    assert "Giorno precedente" in testo
+
+
+def test_non_si_puo_chiedere_una_giornata_futura(logged_client):
+    """Un domani vuoto si leggerebbe come "non c'era nessuno"."""
+    from datetime import date, timedelta
+
+    domani = (date.today() + timedelta(days=1)).isoformat()
+    testo = logged_client.get(
+        "/inventory/presenze/andamento?periodo=giornata").get_data(as_text=True)
+
+    assert "giorno=%s" % domani not in testo
+
+
+def test_una_data_illeggibile_mostra_oggi(logged_client):
+    """Il valore arriva dall'URL: non si indovina e non si risponde con un errore."""
+    risposta = logged_client.get(
+        "/inventory/presenze/andamento?periodo=giornata&giorno=domani-mattina")
+
+    assert risposta.status_code == 200

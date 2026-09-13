@@ -1,0 +1,76 @@
+# -----------------------------------------------------------------
+# docker-compose.yml — l'agente snap in un container
+# Autore: Daniele Speziale
+# Data creazione: 2026-09-13
+# Copyright (c) 2024-26 DS Consulting
+# Licenza: MIT
+# -----------------------------------------------------------------
+#
+# COME SI USA
+#   1. copiare .env.example in .env e metterci indirizzo della sonda e token
+#      (il token si emette dalla console della sonda, pagina Agenti: vale un'ora e
+#      una volta sola)
+#   2. docker compose up -d --build
+#   3. docker compose logs -f          per vedere il primo invio
+#   4. togliere il token da .env: e' stato speso
+#
+# PERCHE' TUTTI QUESTI PERMESSI
+# Un container e' isolato dalla macchina per disegno, e un agente che deve MISURARE la
+# macchina ha bisogno che quell'isolamento sia aperto in tre punti precisi -- e in
+# nessun altro. Ogni riga qui sotto dice quale e perche'. Se una di queste righe
+# sembra troppo, la risposta giusta non e' toglierla e sperare: e' installare
+# l'agente nativamente (installa.sh), dove quei permessi sono quelli del processo.
+
+services:
+  snap-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: snap-agent:${SNAP_AGENT_VERSIONE:-1.2.0}
+    container_name: snap-agent
+    restart: unless-stopped
+
+    # I PROCESSI DELLA MACCHINA, non quelli del container. Senza, l'agente vedrebbe
+    # due processi (se stesso) e direbbe che la macchina e' vuota.
+    pid: host
+
+    # LA RETE DELLA MACCHINA. Serve due volte: per vedere le porte davvero in ascolto
+    # e le interfacce vere, e per raggiungere la sonda, che sta sulla rete locale.
+    network_mode: host
+
+    # Nessuna capacita' oltre a quelle che servono. `SYS_PTRACE` e' l'unica aggiunta:
+    # senza, leggere /proc di un processo di un altro utente -- cioe' sapere CHI
+    # tiene aperta una porta -- non e' permesso.
+    cap_drop: ["ALL"]
+    cap_add: ["SYS_PTRACE", "DAC_READ_SEARCH"]
+    security_opt: ["no-new-privileges:true"]
+
+    environment:
+      SNAP_AGENT_HOSTFS: /hostfs
+      SNAP_AGENT_CONFIG: /stato/snap-agent.json
+      SNAP_AGENT_SONDA: ${SNAP_AGENT_SONDA:?indirizzo della sonda, es. https://10.0.0.5:5510}
+      SNAP_AGENT_TOKEN: ${SNAP_AGENT_TOKEN:-}
+      # 0 per accettare il certificato della sonda senza verificarlo (sonde con
+      # certificato proprio). Si dichiara qui, non si subisce.
+      SNAP_AGENT_VERIFICA_TLS: ${SNAP_AGENT_VERIFICA_TLS:-1}
+      # Che cosa inviare: elenco separato da virgole, oppure tutti | consigliato |
+      # minimo. Vuoto = tutti. Vale solo alla prima registrazione; dopo si cambia con
+      #   docker compose exec snap-agent python /app/snap_agent.py \
+      #     --configurazione /stato/snap-agent.json configura --gruppi <elenco>
+      SNAP_AGENT_GRUPPI: ${SNAP_AGENT_GRUPPI:-}
+
+    volumes:
+      # LA MACCHINA IN SOLA LETTURA. `:ro` non e' una precauzione di forma: questo
+      # container puo' leggere ogni file della macchina e non puo' cambiarne nessuno.
+      - /:/hostfs:ro
+      # Lo stato dell'agente: dentro c'e' la CHIAVE con cui firma. Volume dedicato e
+      # non l'immagine, perche' un'immagine che contenesse una credenziale sarebbe
+      # una credenziale pubblicata.
+      - snap-agent-stato:/stato
+
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  snap-agent-stato:

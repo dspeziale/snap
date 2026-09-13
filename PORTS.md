@@ -72,6 +72,17 @@ si rimappano: sono quelle che i processi legano direttamente.
 La 5511 è legata al loopback per costruzione: non esiste un canale in chiaro
 raggiungibile dalla rete.
 
+### Gli agenti di macchina non aggiungono porte
+
+Dalla versione 1.2.6 la sonda accoglie gli **agenti** installati sulle macchine
+sorvegliate. Non c'è una porta nuova: gli agenti arrivano sulla **5510**, la stessa
+interfaccia, sotto il percorso `/api/agent` e dietro lo stesso TLS.
+
+Ed è la macchina ad aprire: **nessuna porta si apre sulle macchine sorvegliate**. Un
+servizio in ascolto su ogni postazione sarebbe una superficie in più offerta a chi
+attacca, per giunta identica su tutte — e andrebbe elencata qui. Non c'è niente da
+elencare, ed è il risultato voluto.
+
 ### Perché il Postgres della sonda ha una porta e quello del server no
 
 Sul server la base dati sta su una rete interna del compose e **non lega alcuna porta

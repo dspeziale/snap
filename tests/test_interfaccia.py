@@ -24,7 +24,10 @@ RADICE = Path(__file__).resolve().parent.parent
 
 # Pagine del server che devono presentare almeno una tabella attrezzata.
 PAGINE_CON_TABELLA = [
-    "/",
+    # La dashboard non c'e': le sue tabelle (incidenti aperti, apparati piu' esposti)
+    # compaiono solo quando hanno righe, e su un impianto tranquillo non ce n'e'
+    # nessuna. Che siano attrezzate quando ci sono lo verifica
+    # test_interfaccia_stato.test_le_tabelle_della_dashboard_sono_attrezzate.
     "/probes/",
     "/audit/",
     "/admin/tenants",

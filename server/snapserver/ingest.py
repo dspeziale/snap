@@ -1027,6 +1027,231 @@ def _impronta_debole(tenant_id: int, node_id: int, nodo) -> str | None:
                                      famiglia_os=nodo["os_family"])
 
 
+
+# --------------------------------------------------------------------------- #
+# IDS e agenti di macchina
+# --------------------------------------------------------------------------- #
+# Le rilevazioni e gli eventi degli agenti finiscono in DUE posti, e non e' una
+# duplicazione: nella loro tabella con il dettaglio completo (e' cio' che si consegna
+# a chi deve decidere), e nel SIEM come eventi normalizzati (e' cio' su cui lavorano
+# le regole a soglia e la correlazione gia' scritte). Un secondo impianto di allarmi
+# avrebbe voluto dire due posti in cui guardare e due verita' sullo stesso fatto.
+GRAVITA_IDS = {"critica": "critical", "alta": "high", "media": "medium",
+               "bassa": "low", "info": "info"}
+
+
+def _siem_da_ids(ctx, kind: str, host: str, messaggio: str, gravita: str,
+                 dati: dict) -> None:
+    """Scrive l'evento normalizzato nel SIEM, se la tabella c'e'.
+
+    Non fallisce il lotto se il SIEM non e' disponibile: una rilevazione conservata
+    senza il proprio evento e' meglio di un conferimento respinto.
+    """
+    try:
+        execute(
+            "INSERT INTO siem_events (tenant_id, received_at, event_time, host, app,"
+            " severity, event_kind, src_ip, username, action, outcome, message,"
+            " extra_json) VALUES (?, ?, ?, ?, 'snap-ids', ?, ?, ?, ?, ?, ?, ?, ?)",
+            # `app` e' letterale nella query: passarlo anche qui sfalsava di uno
+            # tutto cio' che segue -- la gravita' finiva in `event_kind`, e gli eventi
+            # arrivavano classificati "medium" invece che "ids".
+            (ctx["tenant_id"], utc_now_str(), utc_now_str(), host or None,
+             GRAVITA_IDS.get(gravita, "medium"), kind,
+             _clean(dati.get("ip"), maximum=64) or None,
+             _clean(dati.get("utente"), maximum=120) or None,
+             _clean(dati.get("regola") or kind, maximum=64),
+             "detected", messaggio[:1000],
+             json.dumps(dati, separators=(",", ":"), ensure_ascii=False)[:4000]))
+    except Exception as errore:  # noqa: BLE001 - il SIEM non deve far cadere il lotto
+        current_app.logger.warning(
+            "Evento SIEM non registrato per una rilevazione IDS: %s", errore)
+
+
+def _apply_ids_finding(ctx, record: dict) -> None:
+    """Una rilevazione dell'IDS della sonda.
+
+    Si AGGIORNA invece di duplicarsi, come sulla sonda: la stessa regola sullo stesso
+    soggetto e' un fatto che dura. Se era stata archiviata e torna a manifestarsi,
+    riapre -- perche' "l'avevo gia' vista" non e' la stessa cosa di "sta succedendo
+    di nuovo".
+    """
+    regola = _clean(record.get("regola"), maximum=64)
+    soggetto = _clean(record.get("soggetto"), maximum=200)
+    if not regola or not soggetto:
+        ctx["orphans"].append("ids:senza regola o soggetto")
+        return
+
+    dati = record.get("dati")
+    if isinstance(dati, str):
+        try:
+            dati = json.loads(dati or "{}")
+        except (TypeError, ValueError):
+            dati = {}
+    if not isinstance(dati, dict):
+        dati = {}
+
+    gravita = _clean(record.get("gravita"), "media", 20)
+    titolo = _clean(record.get("titolo"), maximum=500)
+    prova = _clean(record.get("prova"), maximum=2000)
+    adesso = utc_now_str()
+
+    # Il nodo, se l'indirizzo corrisponde a qualcosa che l'inventario conosce: dalla
+    # rilevazione si deve poter arrivare al dispositivo senza cercarlo a mano.
+    node_id = None
+    indirizzo = _clean(dati.get("ip"), maximum=64)
+    if indirizzo:
+        nodo = _node_by_ip(ctx["tenant_id"], indirizzo)
+        node_id = nodo["id"] if nodo is not None else None
+
+    esistente = query(
+        "SELECT id, stato FROM ids_findings WHERE tenant_id = ? AND regola = ?"
+        " AND soggetto = ?", (ctx["tenant_id"], regola, soggetto), one=True)
+    if esistente is not None:
+        execute(
+            "UPDATE ids_findings SET conteggio = ?, ultima_at = ?, prova = ?,"
+            " dati_json = ?, ricevuta_at = ?, gravita = ?, node_id = COALESCE(?, node_id),"
+            # Una rilevazione archiviata che si ripresenta torna aperta: archiviare
+            # significa "ho guardato allora", non "non guardarla piu'".
+            " stato = CASE WHEN stato = 'archiviata' THEN 'aperta' ELSE stato END"
+            " WHERE id = ?",
+            (int(record.get("conteggio") or 1),
+             _clean(record.get("ultima_at"), adesso, 32), prova,
+             json.dumps(dati, separators=(",", ":"), ensure_ascii=False),
+             adesso, gravita, node_id, esistente["id"]))
+    else:
+        execute(
+            "INSERT INTO ids_findings (tenant_id, probe_id, regola, gravita, sensore,"
+            " soggetto, titolo, prova, tecnica, dati_json, conteggio, node_id,"
+            " prima_at, ultima_at, ricevuta_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ctx["tenant_id"], ctx.get("probe_id"), regola, gravita,
+             _clean(record.get("sensore"), "inventario", 40), soggetto, titolo, prova,
+             _clean(record.get("tecnica"), maximum=32) or None,
+             json.dumps(dati, separators=(",", ":"), ensure_ascii=False),
+             int(record.get("conteggio") or 1), node_id,
+             _clean(record.get("prima_at"), adesso, 32),
+             _clean(record.get("ultima_at"), adesso, 32), adesso))
+
+    _siem_da_ids(ctx, "ids", indirizzo or soggetto, titolo, gravita,
+                 dict(dati, regola=regola, tecnica=record.get("tecnica") or ""))
+
+
+def _apply_agent_host(ctx, record: dict) -> None:
+    """Una macchina con l'agente installato."""
+    agent_uid = _clean(record.get("agent_uid"), maximum=120)
+    if not agent_uid:
+        ctx["orphans"].append("agent_host:senza identificativo")
+        return
+
+    hostname = _clean(record.get("hostname"), maximum=200)
+    indirizzo = _clean(record.get("ip"), maximum=64)
+    node_id = None
+    if indirizzo:
+        nodo = _node_by_ip(ctx["tenant_id"], indirizzo)
+        node_id = nodo["id"] if nodo is not None else None
+
+    # L'INVENTARIO ARRIVA SOLO QUANDO CAMBIA: la sonda lo accoda una volta all'ora o
+    # quando le porte in ascolto cambiano, non a ogni battito. Quando non c'e' si
+    # CONSERVA quello che c'era -- `COALESCE` -- altrimenti ogni aggiornamento di
+    # routine cancellerebbe l'inventario della macchina.
+    inventario = record.get("inventario")
+    if isinstance(inventario, (dict, list)):
+        inventario = json.dumps(inventario, separators=(",", ":"), default=str)
+    inventario = _clean(inventario, maximum=2_000_000) or None
+
+    execute(
+        "INSERT INTO agent_hosts (tenant_id, probe_id, agent_uid, hostname, ip,"
+        " sistema, versione, stato, node_id, invii, registrato_at, ultimo_invio,"
+        " inventario_json, inventario_at, gruppi_spenti, aggiornato_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT (tenant_id, agent_uid) DO UPDATE SET"
+        " hostname = excluded.hostname, ip = excluded.ip, sistema = excluded.sistema,"
+        " versione = excluded.versione, stato = excluded.stato,"
+        " node_id = COALESCE(excluded.node_id, agent_hosts.node_id),"
+        " invii = excluded.invii, ultimo_invio = excluded.ultimo_invio,"
+        " inventario_json = COALESCE(excluded.inventario_json,"
+        "                            agent_hosts.inventario_json),"
+        " inventario_at = COALESCE(excluded.inventario_at, agent_hosts.inventario_at),"
+        " gruppi_spenti = COALESCE(excluded.gruppi_spenti, agent_hosts.gruppi_spenti),"
+        " aggiornato_at = excluded.aggiornato_at",
+        (ctx["tenant_id"], ctx.get("probe_id"), agent_uid, hostname, indirizzo or None,
+         _clean(record.get("sistema"), maximum=200) or None,
+         _clean(record.get("versione"), maximum=40) or None,
+         _clean(record.get("stato"), "attivo", 20), node_id,
+         int(record.get("invii") or 0),
+         _clean(record.get("registrato_at"), maximum=32) or None,
+         _clean(record.get("ultimo_invio"), maximum=32) or None,
+         inventario,
+         _clean(record.get("inventario_at"), maximum=32) or None,
+         _clean(record.get("gruppi_spenti"), maximum=400) or None,
+         utc_now_str()))
+
+
+def _apply_agent_metric(ctx, record: dict) -> None:
+    """Una misura riferita da una macchina."""
+    agent_uid = _clean(record.get("agent_uid"), maximum=120)
+    if not agent_uid:
+        ctx["orphans"].append("agent_metric:senza identificativo")
+        return
+
+    dati = record.get("dati")
+    if isinstance(dati, str):
+        try:
+            dati = json.loads(dati or "{}")
+        except (TypeError, ValueError):
+            dati = {}
+    execute(
+        "INSERT INTO agent_metrics (tenant_id, agent_uid, rilevato_at, cpu, memoria,"
+        " disco_max, processi, in_ascolto, utenti, dati_json, ricevuta_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ctx["tenant_id"], agent_uid,
+         _clean(record.get("rilevato_at"), utc_now_str(), 32),
+         _numero(record.get("cpu")), _numero(record.get("memoria")),
+         _numero(record.get("disco_max")), _integer(record.get("processi"), None),
+         _integer(record.get("in_ascolto"), None), _integer(record.get("utenti"), None),
+         json.dumps(dati if isinstance(dati, dict) else {},
+                    separators=(",", ":"), ensure_ascii=False),
+         utc_now_str()))
+
+
+def _apply_agent_event(ctx, record: dict) -> None:
+    """Un evento di sicurezza riferito da una macchina: qui e nel SIEM."""
+    agent_uid = _clean(record.get("agent_uid"), maximum=120)
+    messaggio = _clean(record.get("messaggio"), maximum=1000)
+    if not agent_uid or not messaggio:
+        ctx["orphans"].append("agent_event:senza identificativo o messaggio")
+        return
+
+    dati = record.get("dati")
+    if isinstance(dati, str):
+        try:
+            dati = json.loads(dati or "{}")
+        except (TypeError, ValueError):
+            dati = {}
+    if not isinstance(dati, dict):
+        dati = {}
+    gravita = _clean(record.get("gravita"), "info", 20)
+    genere = _clean(record.get("genere"), "altro", 60)
+
+    execute(
+        "INSERT INTO agent_events (tenant_id, agent_uid, genere, gravita, soggetto,"
+        " messaggio, dati_json, avvenuto_at, ricevuto_at)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (ctx["tenant_id"], agent_uid, genere, gravita,
+         _clean(record.get("soggetto"), maximum=200) or None, messaggio,
+         json.dumps(dati, separators=(",", ":"), ensure_ascii=False),
+         _clean(record.get("avvenuto_at"), utc_now_str(), 32), utc_now_str()))
+
+    _siem_da_ids(ctx, "agent", agent_uid, messaggio, gravita,
+                 dict(dati, regola=genere))
+
+
+def _numero(valore):
+    try:
+        return float(valore)
+    except (TypeError, ValueError):
+        return None
+
 _APPLICATORI = {
     "check_results": _apply_check_result,
     "nodes": _apply_node,
@@ -1043,6 +1268,13 @@ _APPLICATORI = {
     "monitor": _apply_monitor,
     "scan_runs": _apply_scan_run,
     "events": _record_probe_event,
+    # IDS e agenti di macchina. Vanno dichiarati QUI e in RECORD_TYPES della sonda:
+    # un genere che compare in uno solo dei due elenchi si raccoglie, si accoda e si
+    # perde in silenzio.
+    "ids_findings": _apply_ids_finding,
+    "agent_hosts": _apply_agent_host,
+    "agent_metrics": _apply_agent_metric,
+    "agent_events": _apply_agent_event,
     # Le rimozioni si applicano per ultime: un nodo va valutato con tutte le
     # prove dello stesso lotto, non prima che siano state applicate.
     "removals": _apply_removal,

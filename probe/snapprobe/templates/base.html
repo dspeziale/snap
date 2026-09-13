@@ -183,6 +183,20 @@
             </a>
           </li>
           <li class="nav-item">
+            <a href="{{ url_for('probe.ids') }}"
+               class="nav-link {% if request.endpoint == 'probe.ids' %}active{% endif %}">
+              <i class="nav-icon bi bi-radar"></i>
+              <p>IDS</p>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="{{ url_for('probe.agenti') }}"
+               class="nav-link {% if request.endpoint in ['probe.agenti', 'probe.agenti_token'] %}active{% endif %}">
+              <i class="nav-icon bi bi-pc-display"></i>
+              <p>Agenti</p>
+            </a>
+          </li>
+          <li class="nav-item">
             <a href="{{ url_for('probe.diary') }}"
                class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}">
               <i class="nav-icon bi bi-journal-text"></i>

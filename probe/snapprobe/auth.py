@@ -69,7 +69,12 @@ INDIRIZZI_LOCALI = {"127.0.0.1", "::1", "localhost"}
 # Rotte raggiungibili senza sessione: quelle dell'accesso stesso e i file statici.
 # Elenco chiuso (allowlist): una rotta nuova e' protetta per difetto, che e' il
 # verso giusto dell'errore.
-LIBERE = {"auth.login", "auth.primo_accesso", "static"}
+LIBERE = {"auth.login", "auth.primo_accesso", "static",
+          # Il canale delle macchine sorvegliate: si autentica con una chiave e una
+          # firma per ogni invio (agent_api.py), non con la sessione dell'interfaccia.
+          # Senza questa esenzione un agente riceverebbe la pagina di accesso al posto
+          # della risposta, e non avrebbe modo di accorgersene.
+          "agent_api.enroll", "agent_api.report", "agent_api.ping"}
 
 
 # --------------------------------------------------------------------------- #

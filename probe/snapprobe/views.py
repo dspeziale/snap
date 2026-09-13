@@ -19,9 +19,11 @@ from flask import (
     Blueprint,
     current_app,
     flash,
+    make_response,
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 
@@ -707,3 +709,132 @@ def diary():
         events=store.recent_events(200),
         syncs=store.recent_syncs(50),
     )
+
+
+# --------------------------------------------------------------------------- #
+# IDS e agenti di macchina
+# --------------------------------------------------------------------------- #
+@bp.get("/ids")
+def ids():
+    """Quello che il motore di rilevazione ha notato su questa rete.
+
+    E' la stessa informazione che la console del server mostra, ma qui e' LOCALE:
+    si vede anche quando il collegamento con la sede e' interrotto, ed e' il posto
+    dove guardare quando si e' davanti alla sonda per capire che cosa sta succedendo.
+    """
+    from .ids import REGOLE, sensori_dichiarati
+
+    store = _store()
+    rilevazioni = store.ids_rilevazioni(limite=200)
+    for voce in rilevazioni:
+        voce["regola_nome"] = REGOLE.get(voce["regola"], {}).get("nome", voce["regola"])
+        voce["perche"] = REGOLE.get(voce["regola"], {}).get("perche", "")
+    return render_template(
+        "ids.html",
+        rilevazioni=rilevazioni,
+        riepilogo=store.ids_riepilogo(),
+        sensori=sensori_dichiarati(store),
+        ultima_passata=store.get_json("ids_last_result", {}),
+    )
+
+
+@bp.get("/agenti")
+def agenti():
+    """Le macchine che riferiscono a questa sonda, e come aggiungerne una."""
+    store = _store()
+    return render_template(
+        "agenti.html",
+        agenti=store.agenti(limite=200),
+        eventi=store.agent_eventi_recenti(limite=50),
+        token=session.pop("agent_token", None),
+        token_scade=session.pop("agent_token_scade", None),
+    )
+
+
+@bp.post("/agenti/token")
+def agenti_token():
+    """Emette un token di registrazione per una macchina nuova.
+
+    Il token si vede UNA VOLTA SOLA, subito dopo averlo chiesto: dopo resta soltanto
+    la sua impronta. Se si perde, se ne emette un altro -- costa meno che conservare
+    in giro una credenziale che nessuno ricorda di aver lasciato.
+    """
+    from .agent_api import emetti_token
+
+    store = _store()
+    etichetta = (request.form.get("etichetta") or "").strip()[:120]
+    esito = emetti_token(store, etichetta)
+    # Nella sessione e non nel modello: un token in un URL finirebbe nella cronologia
+    # del browser e nei log del proxy.
+    session["agent_token"] = esito["token"]
+    session["agent_token_scade"] = esito["scade_at"]
+    store.log("info", "Token di registrazione agente emesso%s"
+              % ((" per %s" % etichetta) if etichetta else ""))
+    flash("Token emesso: vale %d ora e una volta sola." % esito["valido_ore"], "success")
+    return redirect(url_for("probe.agenti"))
+
+
+@bp.post("/agenti/pacchetto")
+def agenti_pacchetto():
+    """Consegna un pacchetto di installazione pronto, con dentro un token nuovo.
+
+    IL PACCHETTO E' UNA CREDENZIALE. Contiene un token valido un'ora e una volta sola:
+    per quell'ora, chiunque lo abbia puo' registrare una macchina. Gli installatori lo
+    cancellano appena speso, e l'emissione resta nel diario -- fra un mese si deve
+    poter sapere chi ha chiesto che cosa.
+
+    Non passa dalla sessione come il token in chiaro: qui il token esce dentro un file
+    che il browser salva, e un file salvato non finisce nei log del proxy.
+    """
+    from .agent_api import emetti_token
+    from .pacchetto_agente import costruisci, nome_file
+
+    store = _store()
+    etichetta = (request.form.get("etichetta") or "").strip()[:120]
+    # Se la sonda ha un certificato proprio, chi installa non deve scoprirlo sulla
+    # macchina del cliente: la scelta si fa qui e viaggia dentro il pacchetto.
+    verifica_tls = request.form.get("verifica_tls", "1") != "0"
+
+    # L'indirizzo che l'agente dovra' chiamare e' quello con cui si sta guardando
+    # questa pagina: e' l'unico che si sa raggiungibile davvero, perche' ci si e'
+    # appena arrivati. Un indirizzo scritto in configurazione sarebbe quello giusto
+    # solo finche' nessuno sposta la sonda.
+    sonda = request.url_root.rstrip("/")
+
+    esito = emetti_token(store, etichetta)
+    try:
+        archivio = costruisci(
+            sonda=sonda, token=esito["token"], scade_at=esito["scade_at"],
+            adesso=utc_now_str(), verifica_tls=verifica_tls, etichetta=etichetta)
+    except FileNotFoundError as errore:
+        # Il token e' gia' stato emesso: scadra' da solo fra un'ora senza essere
+        # usato. Si dichiara il guasto invece di consegnare un archivio incompleto.
+        store.log("error", "Pacchetto agente non costruito: %s" % errore)
+        flash("Pacchetto non disponibile su questa installazione: %s" % errore,
+              "danger")
+        return redirect(url_for("probe.agenti"))
+
+    store.log("info", "Pacchetto di installazione agente scaricato%s (scade %s)"
+              % ((" per %s" % etichetta) if etichetta else "", esito["scade_at"]))
+    risposta = make_response(archivio)
+    risposta.headers["Content-Type"] = "application/zip"
+    risposta.headers["Content-Disposition"] = (
+        'attachment; filename="%s"' % nome_file(etichetta, utc_now_str()))
+    # Un pacchetto con dentro una credenziale non si mette in nessuna cache.
+    risposta.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return risposta
+
+
+@bp.post("/agenti/<agent_uid>/revoca")
+def agenti_revoca(agent_uid: str):
+    """Revoca una macchina: da quel momento i suoi invii vengono respinti."""
+    store = _store()
+    macchina = store.agent(agent_uid)
+    if macchina is None:
+        flash("Macchina non trovata.", "warning")
+        return redirect(url_for("probe.agenti"))
+    store.agent_revoca(agent_uid)
+    store.log("warning", "Agente revocato: %s (%s)"
+              % (macchina.get("hostname"), agent_uid))
+    flash("Agente revocato: i suoi invii verranno respinti.", "success")
+    return redirect(url_for("probe.agenti"))

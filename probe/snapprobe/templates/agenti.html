@@ -1,0 +1,223 @@
+{#
+  snap probe - Le macchine che riferiscono a questa sonda.
+
+  E' qui che si emette il token di registrazione, e qui che le macchine si rivolgono:
+  la console del server non c'entra, perche' l'agente parla alla SONDA -- che e'
+  l'unica cosa che puo' raggiungere dalla propria rete.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Agenti{% endblock %}
+{% block content %}
+
+<div class="mb-3">
+  <h1 class="h4 mb-1"><i class="bi bi-pc-display me-2"></i>Agenti di macchina</h1>
+  <p class="text-body-secondary mb-0">
+    Le macchine su cui e' installato l'agente, e che riferiscono a questa sonda quello
+    che dalla rete non si puo' vedere.
+  </p>
+</div>
+
+{% if token %}
+{# IL TOKEN SI VEDE UNA VOLTA SOLA. Non e' un vezzo: dopo questa pagina resta solo la
+   sua impronta, e se si perde se ne emette un altro -- costa meno che conservare in
+   giro una credenziale che nessuno ricorda di aver lasciato. #}
+<div class="alert alert-success">
+  <h2 class="h6"><i class="bi bi-key me-1"></i> Token di registrazione</h2>
+  <p class="mb-2">
+    Vale <strong>una volta sola</strong> e scade il <strong>{{ token_scade }}</strong>.
+    Si vede adesso e non si potra' rivedere: se serve di nuovo, se ne emette un altro.
+  </p>
+  <div class="input-group mb-2">
+    <input type="text" class="form-control font-monospace" readonly value="{{ token }}"
+           id="token-agente" aria-label="Token di registrazione">
+    <button class="btn btn-outline-secondary" data-copia="#token-agente" type="button">
+      <i class="bi bi-clipboard me-1"></i> copia
+    </button>
+  </div>
+  <p class="small mb-1">
+    Sulla macchina da sorvegliare, con l'agente gia' copiato li':
+  </p>
+  <pre class="small mb-0 p-2 bg-body-tertiary rounded"><code>pip install psutil
+python snap_agent.py registra {{ request.url_root.rstrip('/') }} {{ token }}
+python snap_agent.py configura     <span class="text-body-secondary"># che cosa inviare</span>
+python snap_agent.py servizio</code></pre>
+  <p class="small mb-0 mt-2">
+    Se l'agente sulla macchina non c'e' ancora, e' piu' semplice il
+    <strong>pacchetto</strong>: porta agente, installatori e istruzioni, e fa tutto
+    questo da se'.
+  </p>
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-header"><strong>Aggiungere una macchina</strong></div>
+      <div class="card-body">
+        {# UN PACCHETTO PER MACCHINA. Il token dentro vale una volta sola: due
+           macchine con lo stesso pacchetto non funzionerebbero, e una credenziale
+           condivisa fra venti macchine non si potrebbe revocare per una sola. #}
+        <form method="post" action="{{ url_for('probe.agenti_pacchetto') }}">
+          <div class="mb-2">
+            <label class="form-label small" for="etichetta">
+              Per quale macchina (facoltativo)
+            </label>
+            <input type="text" class="form-control form-control-sm" id="etichetta"
+                   name="etichetta" maxlength="120"
+                   placeholder="es. server di posta, postazione reception">
+            <div class="form-text">
+              Finisce nel nome del file e resta scritto nel diario: fra un mese si
+              deve poter capire a chi era stato dato.
+            </div>
+          </div>
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="verifica_tls" name="verifica_tls" value="1" checked>
+            <label class="form-check-label small" for="verifica_tls">
+              La macchina deve verificare il certificato di questa sonda
+            </label>
+            <div class="form-text">
+              Da togliere solo se questa sonda ha un certificato proprio, non firmato
+              da un'autorita': l'agente lo accettera' senza verificarlo.
+            </div>
+          </div>
+          <button class="btn btn-primary">
+            <i class="bi bi-box-seam me-1"></i> Scarica il pacchetto
+          </button>
+          <div class="form-text mt-2">
+            Windows, Linux e Docker in un archivio solo, con il token gia' dentro.
+          </div>
+        </form>
+
+        <div class="alert alert-warning small mt-3 mb-3">
+          <i class="bi bi-key me-1"></i>
+          <strong>Il pacchetto e' una credenziale.</strong> Contiene un token valido
+          <strong>un'ora</strong> e <strong>una volta sola</strong>: per quell'ora,
+          chiunque lo abbia puo' registrare una macchina. Gli installatori lo
+          cancellano appena speso. Serve una macchina in piu'? Un pacchetto in piu'.
+        </div>
+
+        <details class="small">
+          <summary class="text-body-secondary">Solo il token, senza pacchetto</summary>
+          <p class="text-body-secondary mt-2">
+            Per chi ha gia' l'agente sulla macchina e vuole solo registrarla di nuovo.
+          </p>
+          <form method="post" action="{{ url_for('probe.agenti_token') }}">
+            <input type="hidden" name="etichetta" value="">
+            <button class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-key me-1"></i> Emetti un token
+            </button>
+          </form>
+        </details>
+
+        <hr>
+        <p class="small text-body-secondary mb-0">
+          L'agente <strong>apre lui</strong> verso questa sonda e non riceve comandi:
+          una macchina in rete di utenza non deve essere raggiungibile da nessuno,
+          nemmeno dal prodotto che la sorveglia.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-header"><strong>Macchine registrate ({{ agenti|length }})</strong></div>
+      <div class="card-body p-0">
+        {% if agenti %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+                 data-page-size="10" data-no-search="true">
+            <thead>
+              <tr><th>MACCHINA</th><th>SISTEMA</th><th>ULTIMO INVIO</th><th>INVII</th>
+                  <th>STATO</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for macchina in agenti %}
+              <tr>
+                <td class="small fw-semibold">
+                  {{ macchina.hostname }}
+                  <div class="text-body-secondary font-monospace">{{ macchina.ip or '' }}</div>
+                </td>
+                <td class="small">{{ macchina.sistema or '-' }}</td>
+                <td class="small">{{ macchina.ultimo_invio or 'mai' }}</td>
+                <td class="small">{{ macchina.invii }}</td>
+                <td class="small">
+                  <span class="badge text-bg-{{ 'success' if macchina.stato == 'attivo'
+                                                 else 'secondary' }}">
+                    {{ macchina.stato }}
+                  </span>
+                </td>
+                <td class="small text-end">
+                  {% if macchina.stato == 'attivo' %}
+                  <form method="post"
+                        action="{{ url_for('probe.agenti_revoca', agent_uid=macchina.agent_uid) }}"
+                        data-conferma="Revocare {{ macchina.hostname }}? I suoi invii verranno respinti.">
+                    <button class="btn btn-sm btn-outline-danger">revoca</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="p-3 small text-body-secondary mb-0">
+          Nessuna macchina registrata. Finche' e' cosi', le regole dell'IDS che
+          dipendono da quello che si vede da dentro -- accessi falliti, utenze nuove,
+          protezioni disattivate, processi in ascolto -- non possono scattare.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header"><strong>Ultimi eventi riferiti ({{ eventi|length }})</strong></div>
+  <div class="card-body p-0">
+    {% if eventi %}
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0" data-snap-table
+             data-page-size="15">
+        <thead>
+          <tr><th>QUANDO</th><th>MACCHINA</th><th>GENERE</th><th>GRAVITA'</th>
+              <th>CHE COSA</th><th>ESAMINATO</th></tr>
+        </thead>
+        <tbody>
+          {% for evento in eventi %}
+          <tr>
+            <td class="small">{{ evento.ricevuto_at }}</td>
+            <td class="small font-monospace">{{ evento.agent_uid }}</td>
+            <td class="small"><span class="badge text-bg-light border">{{ evento.genere }}</span></td>
+            <td class="small">
+              <span class="badge text-bg-{{ 'danger' if evento.gravita in ('critica', 'alta')
+                                            else ('warning' if evento.gravita == 'media'
+                                                  else 'secondary') }}">
+                {{ evento.gravita }}
+              </span>
+            </td>
+            <td class="small">{{ evento.messaggio }}</td>
+            <td class="small">
+              {% if evento.esaminato_at %}
+              <i class="bi bi-check2 text-success" title="l'IDS lo ha gia' esaminato"></i>
+              {% else %}
+              <span class="text-body-secondary">in attesa</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="p-3 small text-body-secondary mb-0">Nessun evento riferito finora.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

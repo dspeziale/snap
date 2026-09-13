@@ -367,10 +367,41 @@ def test_una_nuova_password_debole_non_passa(sonda_protetta):
 # --------------------------------------------------------------------------- #
 def test_le_rotte_libere_sono_un_elenco_chiuso():
     """Una rotta nuova deve essere protetta per difetto: e' il verso giusto
-    dell'errore. Con una lista di esclusioni sarebbe il contrario."""
+    dell'errore. Con una lista di esclusioni sarebbe il contrario.
+
+    L'elenco si allunga soltanto con una decisione scritta. Le tre rotte degli agenti
+    sono esenti dalla SESSIONE, non dall'autenticazione: si autenticano con una chiave
+    propria e una firma su ogni invio (`agent_api.py`), e senza l'esenzione un agente
+    riceverebbe la pagina di accesso al posto della risposta -- senza modo di
+    accorgersene. Ogni voce aggiunta qui deve poter essere giustificata in una riga
+    come questa; se non si riesce, non va aggiunta.
+    """
     from snapprobe.auth import LIBERE
 
-    assert LIBERE == {"auth.login", "auth.primo_accesso", "static"}
+    assert LIBERE == {"auth.login", "auth.primo_accesso", "static",
+                      "agent_api.enroll", "agent_api.report", "agent_api.ping"}
+
+
+def test_le_rotte_degli_agenti_si_autenticano_da_se():
+    """Esenti dalla sessione non vuol dire aperte.
+
+    Se un giorno qualcuno aggiungesse una rotta al canale degli agenti senza la
+    verifica della firma, l'esenzione dalla sessione la renderebbe raggiungibile da
+    chiunque sulla rete del cliente. Le rotte esenti e quelle che il modulo dichiara
+    devono corrispondere.
+    """
+    import inspect
+
+    from snapprobe import agent_api
+    from snapprobe.auth import LIBERE
+
+    esenti = {nome for nome in LIBERE if nome.startswith("agent_api.")}
+    assert esenti == {"agent_api.enroll", "agent_api.report", "agent_api.ping"}
+
+    # `report` accetta dati e li scrive nell'archivio: deve passare dalla verifica
+    # della firma. `enroll` spende un token a uso singolo, `ping` non dice nulla.
+    assert "_autentica(store)" in inspect.getsource(agent_api.report)
+    assert "agent_token_consuma" in inspect.getsource(agent_api.enroll)
 
 
 def test_la_provenienza_si_giudica_sull_indirizzo_non_su_un_intestazione(sonda):

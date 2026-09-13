@@ -29,9 +29,38 @@
       {% for voce in periodi %}
       <a class="btn btn-{{ 'primary' if voce.chiave == periodo.chiave else 'outline-secondary' }}"
          href="{{ url_for('inventory.presence_trend', periodo=voce.chiave,
-                          subnet=filtro_subnet or None) }}">{{ voce.nome }}</a>
+                          subnet=filtro_subnet or None,
+                          giorno=giorno.isoformat() if voce.calendario else None) }}">{{ voce.nome }}</a>
       {% endfor %}
     </div>
+
+    {# La giornata si sfoglia: l'asse fisso serve proprio a confrontare due giorni,
+       e senza queste frecce si potrebbe guardare soltanto oggi. #}
+    {% if periodo.calendario %}
+    <div class="btn-group btn-group-sm" role="group" aria-label="Giorno osservato">
+      <a class="btn btn-outline-secondary"
+         href="{{ url_for('inventory.presence_trend', periodo=periodo.chiave,
+                          subnet=filtro_subnet or None, giorno=giorno_prima) }}"
+         title="Giorno precedente">
+        <i class="bi bi-chevron-left"></i>
+      </a>
+      <span class="btn btn-outline-secondary disabled text-body">
+        {{ giorno.strftime('%d/%m/%Y') }}{% if e_oggi %} &middot; oggi{% endif %}
+      </span>
+      {% if giorno_dopo %}
+      <a class="btn btn-outline-secondary"
+         href="{{ url_for('inventory.presence_trend', periodo=periodo.chiave,
+                          subnet=filtro_subnet or None, giorno=giorno_dopo) }}"
+         title="Giorno successivo">
+        <i class="bi bi-chevron-right"></i>
+      </a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled" title="Oggi e' l'ultimo giorno osservabile">
+        <i class="bi bi-chevron-right"></i>
+      </span>
+      {% endif %}
+    </div>
+    {% endif %}
     {% if reti_wifi %}
     <div class="btn-group btn-group-sm" role="group" aria-label="Rete osservata">
       <a class="btn btn-{{ 'primary' if not filtro_subnet else 'outline-secondary' }}"
@@ -99,11 +128,23 @@
     </span>
   </div>
   <div class="card-body">
-    {% if andamento.punti %}
+    {# Un solo intervallo non e' una spezzata: subito dopo la mezzanotte la giornata
+       ha un punto solo, e il disegno direbbe "nessuna misura" proprio mentre la
+       misura c'e'. Si dichiara che cosa sta succedendo, invece di far credere a un
+       guasto. #}
+    {% if periodo.calendario and andamento.in_corso and andamento.punti|length < 2 %}
+    <p class="text-body-secondary small mb-0">
+      <i class="bi bi-hourglass-top me-1"></i>
+      La giornata e' appena cominciata: il grafico si disegna dal secondo intervallo,
+      cioe' dopo le
+      {{ '%02d:%02d'|format((periodo.passo_min * 2) // 60, (periodo.passo_min * 2) % 60) }}.
+      Le fasce qui sotto mostrano gia' chi c'e'.
+    </p>
+    {% elif andamento.punti %}
     <div class="text-primary" data-snap-grafico data-altezza="200"
          data-etichetta="apparati presenti"
          data-da="{{ andamento.da }}" data-a="{{ andamento.a }}"
-         data-punti="{{ andamento.punti|tojson }}"></div>
+         data-punti='{{ andamento.punti|tojson }}'></div>
     {% else %}
     <p class="text-body-secondary small mb-0">
       Nessuna presenza registrata in questo periodo.

@@ -401,6 +401,13 @@ try {
                             -NoNewWindow -PassThru
     Write-Host ("  agente di raccolta avviato (processo {0})" -f $agente.Id) `
                -ForegroundColor DarkGray
+
+    # I PROCESSI SI REGISTRANO. La riga di comando di un processo Windows non e'
+    # sempre leggibile -- una sessione chiusa basta a nasconderla -- e un arresto che
+    # cerca solo per riga di comando lascerebbe in vita cio' che non riesce a vedere.
+    # Con i PID scritti, `stop-nativa.ps1` sa esattamente che cosa fermare.
+    $registro = Join-Path $Radice 'probe\sonda-nativa.pid'
+    @($PID, $agente.Id) | Set-Content -Path $registro -Encoding ascii
     Write-Host ''
     try {
         # L'interfaccia resta in primo piano: e' quella che si guarda, ed e' la sua
@@ -415,6 +422,8 @@ try {
             Write-Host '  arresto dell''agente di raccolta...' -ForegroundColor DarkGray
             Stop-Process -Id $agente.Id -Force -ErrorAction SilentlyContinue
         }
+        $registro = Join-Path $Radice 'probe\sonda-nativa.pid'
+        if (Test-Path $registro) { Remove-Item $registro -Force -ErrorAction SilentlyContinue }
     }
 } finally {
     Pop-Location

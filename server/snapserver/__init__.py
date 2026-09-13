@@ -150,6 +150,7 @@ def _register_blueprints(app: Flask) -> None:
     from .blueprints.guide import bp as guide_bp
     from .blueprints.inventory import bp as inventory_bp
     from .blueprints.monitor import bp as monitor_bp
+    from .blueprints.ids_views import bp as ids_bp
     from .blueprints.operations import bp as operations_bp
     from .blueprints.probes import bp as probes_bp
     from .blueprints.reports import bp as reports_bp
@@ -170,6 +171,7 @@ def _register_blueprints(app: Flask) -> None:
     app.register_blueprint(siem_bp)
     app.register_blueprint(api_siem_bp)
     app.register_blueprint(operations_bp)
+    app.register_blueprint(ids_bp)
     app.register_blueprint(guide_bp)
     app.register_blueprint(audit_bp)
     app.register_blueprint(admin_bp)

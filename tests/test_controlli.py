@@ -1133,6 +1133,16 @@ def test_il_riquadro_degli_incidenti_compare_solo_se_ce_ne_sono(logged_client, s
 
 
 def test_gli_andamenti_sono_nella_dashboard(logged_client, server_app):
+    """I quattro andamenti ci sono, e ciascuno o disegna o dice perche' non disegna.
+
+    Prima si contavano i contenitori `data-snap-grafico`, che il vecchio modello
+    emetteva sempre -- anche senza misure, lasciando al disegno il compito di
+    scrivere "nessuna misura". Contarli non diceva se l'andamento fosse nella pagina:
+    diceva solo che il contenitore c'era. Adesso un andamento senza dati dichiara
+    che cosa manca ("non e' uno zero, e' un intervallo in cui non si e' raccolto
+    nulla"), che e' cio' che serve a chi guarda; il contenitore compare quando i
+    punti ci sono davvero.
+    """
     tenant_id, check_id, _ = _prepara(server_app)
     with server_app.app_context():
         from snapserver.checks import record_result
@@ -1147,7 +1157,14 @@ def test_gli_andamenti_sono_nella_dashboard(logged_client, server_app):
     for titolo in ("Riuscita dei controlli", "Esiti non superati", "Incidenti aperti",
                    "Record conferiti"):
         assert titolo in pagina, "manca l'andamento %r" % titolo
-    assert pagina.count("data-snap-grafico") >= 4
+    # Gli esiti appena registrati devono essere disegnati: la riuscita e gli esiti
+    # non superati hanno misure, e un contenitore per ciascuno.
+    assert pagina.count("data-snap-grafico") >= 2
+    # E dove le misure non ci sono, la pagina lo dice invece di tacere.
+    assert ("non e' uno zero" in pagina or "Nessun esito" in pagina
+            or "Nessuna presenza" in pagina), (
+        "un andamento senza misure deve dichiararlo: uno spazio vuoto si legge come"
+        " un guasto del disegno")
     assert "snap-grafici.js" in pagina
 
 

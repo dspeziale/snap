@@ -168,6 +168,12 @@ def navbar_indicators() -> dict:
             "SELECT COUNT(*) FROM siem_alerts WHERE tenant_id = ?"
             " AND status IN ('open', 'ack')", (tenant_id,),
         ),
+        # Rilevazioni dell'IDS ancora aperte: nel menu dicono se c'e' qualcosa che e'
+        # cambiato e nessuno ha ancora guardato.
+        "ids_open": scalar(
+            "SELECT COUNT(*) FROM ids_findings WHERE tenant_id = ? AND stato = 'aperta'",
+            (tenant_id,),
+        ),
     }
 
 

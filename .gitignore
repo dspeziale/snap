@@ -35,3 +35,6 @@ screenshot.png
 # e' la sessione corrente, non un archivio.
 probe/sonda-nativa.log
 probe/sonda-nativa.log.err
+
+# Registro dei processi della sonda avviata sulla macchina: e' locale, non storia.
+probe/sonda-nativa.pid

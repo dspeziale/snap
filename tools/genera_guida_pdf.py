@@ -241,9 +241,17 @@ def leggi_blocchi(sorgente: Path) -> tuple:
 
     chiudi_tutto()
 
-    # Il sottotitolo: la prima citazione del documento, che per convenzione dice a che
-    # cosa serve. Si toglie dai blocchi, perche' in copertina ci sta gia'.
+    # Il sottotitolo: la citazione d'APERTURA, quella che sta prima di ogni titolo e
+    # che per convenzione dice a che cosa serve il documento. Si toglie dai blocchi,
+    # perche' in copertina ci sta gia'.
+    #
+    # "Prima di ogni titolo" non e' un dettaglio: cercando la prima citazione ovunque,
+    # un documento senza apertura si prendeva in copertina una citazione qualunque del
+    # corpo -- ed e' successo, con l'esempio di una rilevazione IDS finito a fare da
+    # sottotitolo -- e per giunta quel blocco spariva dal testo.
     for indice, (genere, contenuto) in enumerate(blocchi):
+        if genere in ("titolo1", "titolo2", "titolo3"):
+            break
         if genere == "nota":
             sottotitolo = contenuto
             blocchi.pop(indice)
@@ -262,14 +270,19 @@ def genera(sorgente: Path, destinazione: Path) -> Path:
     # sorgente darebbe "1. 1. Che cosa si sta installando".
     sezioni = [c for g, c in blocchi if g in ("titolo1", "titolo2")]
 
+    # Che cosa dichiara la copertina. Un documento che non e' una procedura non deve
+    # portare la fascia "INSTALLAZIONE": chi cerca come si installa e apre una
+    # specifica ha perso tempo per colpa di un'etichetta sbagliata.
+    procedura = "INSTALLAZIONE" in sorgente.stem.upper()
     foglio = render_pdf.Foglio(
         destinazione,
-        kind="installazione",
+        kind="installazione" if procedura else "documentazione",
         titolo=titolo,
         # NESSUN TENANT: non e' il report di una rete, e l'impaginatore omette la
         # riga "Tenant ..." quando e' vuota (vedi render_pdf._riferimento_documento).
         tenant="",
-        intervallo="procedura di installazione",
+        intervallo=("procedura di installazione" if procedura
+                    else "documentazione di prodotto"),
         generato=adesso,
         sottotitolo=sottotitolo,
         scopo=(sottotitolo,) if sottotitolo else (),
@@ -278,7 +291,7 @@ def genera(sorgente: Path, destinazione: Path) -> Path:
             ("Sorgente", sorgente.name),
             ("Prodotto", "snap - Secure Network Assessment Platform"),
         ],
-        nota="Documento generato dal sorgente in docs/: se la procedura cambia, cambia"
+        nota="Documento generato dal sorgente in docs/: se il contenuto cambia, cambia"
              " il sorgente e questo PDF si rigenera. Una copia modificata a mano"
              " sarebbe una seconda verita'.",
     )

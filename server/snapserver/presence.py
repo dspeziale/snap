@@ -411,6 +411,12 @@ def riepilogo(tenant_id: int, *, subnet_id: int = None) -> dict:
 # una spezzata larga mille pixel -- un rumore, non un andamento -- e contare per GIORNO
 # su ventiquattro ore darebbe un punto solo.
 PERIODI = (
+    # LA GIORNATA, non le ultime ventiquattro ore: l'asse va da mezzanotte a
+    # mezzanotte nel fuso del tenant, quindi le nove del mattino stanno sempre nello
+    # stesso punto e due giorni si confrontano guardandoli. Con una finestra mobile
+    # la mezzanotte cade a meta' grafico e "dalle 9 alle 18" non si legge.
+    {"chiave": "giornata", "nome": "giornata (00:00-24:00)", "ore": 24,
+     "passo_min": 30, "con_ora": True, "calendario": True},
     {"chiave": "24h", "nome": "ultime 24 ore", "ore": 24, "passo_min": 60,
      "con_ora": True},
     {"chiave": "48h", "nome": "ultime 48 ore", "ore": 48, "passo_min": 60,
@@ -435,6 +441,39 @@ def periodo(chiave: str | None) -> dict:
     return next(v for v in PERIODI if v["chiave"] == PERIODO_PREDEFINITO)
 
 
+def giorno_valido(valore, zona=None):
+    """La data richiesta, o oggi. Allowlist: il valore arriva dall'URL.
+
+    Una data illeggibile non si indovina e non si respinge con un errore: si mostra
+    oggi, che e' la domanda piu' probabile di chi e' arrivato li' per sbaglio.
+    """
+    from datetime import date, datetime
+
+    if valore:
+        try:
+            return date.fromisoformat(str(valore)[:10])
+        except (TypeError, ValueError):
+            pass
+    if zona is not None:
+        return datetime.now(zona).date()
+    return date.today()
+
+
+def _confini_giornata(giorno, zona):
+    """`(inizio, fine)` in UTC della giornata locale indicata.
+
+    Chiuso a sinistra e aperto a destra: un avvistamento a mezzanotte esatta
+    appartiene al giorno che comincia, non a quello che finisce, e non deve comparire
+    in due giornate.
+    """
+    from datetime import datetime, time, timedelta, timezone
+
+    zona = zona or timezone.utc
+    inizio = datetime.combine(giorno, time(0, 0), tzinfo=zona)
+    fine = datetime.combine(giorno + timedelta(days=1), time(0, 0), tzinfo=zona)
+    return inizio.astimezone(timezone.utc), fine.astimezone(timezone.utc)
+
+
 def _istante(valore):
     """Un istante dell'archivio come datetime, o `None` se illeggibile."""
     from datetime import datetime, timezone
@@ -446,7 +485,7 @@ def _istante(valore):
         return None
 
 
-def _permanenze_nel_periodo(tenant_id: int, da, subnet_id: int = None) -> list:
+def _permanenze_nel_periodo(tenant_id: int, da, subnet_id: int = None, a=None) -> list:
     """Le permanenze che TOCCANO il periodo, non solo quelle iniziate dentro.
 
     La differenza conta: un apparato presente da ieri e ancora presente adesso ha una
@@ -455,6 +494,11 @@ def _permanenze_nel_periodo(tenant_id: int, da, subnet_id: int = None) -> list:
     """
     condizioni = ["tenant_id = ?", "last_seen_at >= ?"]
     parametri = [tenant_id, da.strftime("%Y-%m-%d %H:%M:%S")]
+    if a is not None:
+        # Serve solo alle finestre che NON finiscono adesso -- una giornata passata:
+        # senza, si porterebbero dentro tutte le permanenze dei giorni seguenti.
+        condizioni.append("first_seen_at < ?")
+        parametri.append(a.strftime("%Y-%m-%d %H:%M:%S"))
     if subnet_id:
         condizioni.append("subnet_id = ?")
         parametri.append(int(subnet_id))
@@ -466,7 +510,7 @@ def _permanenze_nel_periodo(tenant_id: int, da, subnet_id: int = None) -> list:
 
 
 def andamento(tenant_id: int, *, chiave_periodo: str = None,
-              subnet_id: int = None) -> dict:
+              subnet_id: int = None, zona=None, giorno=None) -> dict:
     """Quanti apparati distinti erano presenti, intervallo per intervallo.
 
     E' la risposta alla domanda che una tabella di permanenze non da': non "chi", ma
@@ -492,9 +536,22 @@ def andamento(tenant_id: int, *, chiave_periodo: str = None,
     adesso = (datetime.now(timezone.utc).replace(second=0, microsecond=0)
               + timedelta(minutes=1))
     passo = timedelta(minutes=voce["passo_min"])
-    da = adesso - timedelta(hours=voce["ore"])
+    if voce.get("calendario"):
+        # L'asse e' la giornata intera, anche la parte che deve ancora venire: e'
+        # cio' che rende confrontabili due giorni. I PUNTI pero' si fermano ad
+        # adesso, perche' disegnare zero fino a mezzanotte direbbe "non c'era
+        # nessuno" dove la verita' e' "non e' ancora successo".
+        giorno = giorno_valido(giorno, zona)
+        da, fine_asse = _confini_giornata(giorno, zona)
+        fine_punti = min(fine_asse, adesso) if fine_asse > adesso else fine_asse
+        limite_destro = fine_asse
+    else:
+        da = adesso - timedelta(hours=voce["ore"])
+        fine_asse = fine_punti = adesso
+        limite_destro = None
+        giorno = None
 
-    permanenze = _permanenze_nel_periodo(tenant_id, da, subnet_id)
+    permanenze = _permanenze_nel_periodo(tenant_id, da, subnet_id, a=limite_destro)
     intervalli = []
     for riga in permanenze:
         inizio = _istante(riga["first_seen_at"])
@@ -506,7 +563,7 @@ def andamento(tenant_id: int, *, chiave_periodo: str = None,
     punti = []
     quanti_per_intervallo = []
     momento = da
-    while momento < adesso:
+    while momento < fine_punti:
         prossimo = momento + passo
         presenti = {chiave for inizio, fine, chiave in intervalli
                     if inizio < prossimo and fine >= momento}
@@ -518,7 +575,10 @@ def andamento(tenant_id: int, *, chiave_periodo: str = None,
     return {
         "punti": punti,
         "da": da.strftime("%Y-%m-%d %H:%M:%S"),
-        "a": adesso.strftime("%Y-%m-%d %H:%M:%S"),
+        "a": fine_asse.strftime("%Y-%m-%d %H:%M:%S"),
+        "fino_a": fine_punti.strftime("%Y-%m-%d %H:%M:%S"),
+        "giorno": giorno.isoformat() if giorno else None,
+        "in_corso": bool(voce.get("calendario") and fine_punti < fine_asse),
         "periodo": voce,
         "massimo": max(quanti_per_intervallo) if quanti_per_intervallo else 0,
         "media": (round(sum(quanti_per_intervallo) / len(quanti_per_intervallo), 1)
@@ -529,7 +589,7 @@ def andamento(tenant_id: int, *, chiave_periodo: str = None,
 
 
 def fasce(tenant_id: int, *, chiave_periodo: str = None, subnet_id: int = None,
-          massimo: int = MAX_APPARATI_FASCE) -> dict:
+          massimo: int = MAX_APPARATI_FASCE, zona=None, giorno=None) -> dict:
     """Le presenze di ciascun apparato disegnate sul tempo, una riga per apparato.
 
     E' l'altra meta' dell'andamento: il grafico dice quanti, questo dice CHI e per
@@ -542,13 +602,16 @@ def fasce(tenant_id: int, *, chiave_periodo: str = None, subnet_id: int = None,
     pagina la disegna senza calcoli e senza JavaScript.
     """
     voce = periodo(chiave_periodo)
-    dati = andamento(tenant_id, chiave_periodo=voce["chiave"], subnet_id=subnet_id)
+    dati = andamento(tenant_id, chiave_periodo=voce["chiave"], subnet_id=subnet_id,
+                     zona=zona, giorno=giorno)
     inizio_periodo = _istante(dati["da"])
     fine_periodo = _istante(dati["a"])
     durata = max(1.0, (fine_periodo - inizio_periodo).total_seconds())
 
     per_apparato = {}
-    for riga in _permanenze_nel_periodo(tenant_id, inizio_periodo, subnet_id):
+    for riga in _permanenze_nel_periodo(tenant_id, inizio_periodo, subnet_id,
+                                        a=fine_periodo if voce.get("calendario")
+                                        else None):
         inizio = _istante(riga["first_seen_at"])
         fine = _istante(riga["last_seen_at"])
         if inizio is None or fine is None:
@@ -610,23 +673,40 @@ def fasce(tenant_id: int, *, chiave_periodo: str = None, subnet_id: int = None,
         "andamento": dati,
         # Le tacche dell'asse: la pagina le disegna come colonne di riferimento, e
         # senza di esse una fascia larga il 12% non direbbe di quando si tratta.
-        "tacche": _tacche(inizio_periodo, fine_periodo, voce),
+        "tacche": _tacche(inizio_periodo, fine_periodo, voce, zona=zona),
     }
 
 
-def _tacche(da, a, voce: dict, quante: int = 8) -> list:
-    """Riferimenti temporali equidistanti, con la posizione in percentuale."""
+def _tacche(da, a, voce: dict, quante: int = None, zona=None) -> list:
+    """Riferimenti temporali equidistanti, con la posizione in percentuale.
+
+    Le etichette sono nel FUSO del tenant: sono l'ora di chi quella rete la usa. Lette
+    in UTC, l'asse di una giornata italiana comincerebbe alle 22:00 del giorno prima
+    -- e nessuno riconoscerebbe la propria mattina.
+    """
     from datetime import timedelta
 
+    # Sulla giornata le tacche sono ogni tre ore: sono le ore intere che la gente
+    # cerca ("le nove", "le sei"), e otto parti di ventiquattr'ore darebbero le 03:00,
+    # le 06:00, le 09:00 -- gli stessi numeri, ma calcolati per caso.
+    quante = quante or (8 if not voce.get("calendario") else 8)
     durata = max(1.0, (a - da).total_seconds())
     passo = timedelta(seconds=durata / quante)
     tacche = []
     for indice in range(quante + 1):
         momento = da + passo * indice
+        locale = momento.astimezone(zona) if zona is not None else momento
+        if voce.get("calendario") and indice == quante:
+            # Mezzanotte in fondo all'asse e' la FINE della giornata: scritta 00:00
+            # farebbe cominciare e finire l'asse con lo stesso numero.
+            etichetta = "24:00"
+        elif voce["con_ora"]:
+            etichetta = locale.strftime("%H:%M")
+        else:
+            etichetta = locale.strftime("%d/%m")
         tacche.append({
             "posizione": round(indice / quante * 100.0, 3),
-            "etichetta": (momento.strftime("%H:%M") if voce["con_ora"]
-                          else momento.strftime("%d/%m")),
+            "etichetta": etichetta,
             "istante": momento.strftime("%Y-%m-%d %H:%M:%S"),
         })
     return tacche
