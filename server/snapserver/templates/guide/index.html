@@ -109,6 +109,7 @@
               ('acn', "Comunicazioni all'autorita' (ACN)"),
               ('siem', 'SIEM: i log come fonte di sicurezza'),
               ('ids', 'IDS e agenti di macchina'),
+              ('agenti', "Installare l'agente su una macchina"),
               ('sicurezza', 'Sicurezza e conformita'),
               ('diagnosi', 'Quando qualcosa non torna'),
               ('glossario', 'Glossario')] %}
@@ -1431,7 +1432,9 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
 
         {% include 'guide/_ids.html' %}
 
-<h2 id="sicurezza">23. Sicurezza e conformita'</h2>
+        {% include 'guide/_agenti.html' %}
+
+<h2 id="sicurezza">24. Sicurezza e conformita'</h2>
         <ul>
           <li>
             <strong>Canale cifrato.</strong> Ogni scambio fra sonda e server e' cifrato
@@ -1465,7 +1468,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </ul>
 
         <!-- ============================================================= -->
-        <h2 id="diagnosi">24. Quando qualcosa non torna</h2>
+        <h2 id="diagnosi">25. Quando qualcosa non torna</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">
@@ -1521,7 +1524,7 @@ fallimenti consecutivi >= SOGLIA DI ATTIVAZIONE
         </div>
 
         <!-- ============================================================= -->
-        <h2 id="glossario">25. Glossario</h2>
+        <h2 id="glossario">26. Glossario</h2>
         <div class="table-responsive">
           <table class="table table-sm table-bordered align-middle" data-snap-table
                  data-page-size="100" data-no-search="true">

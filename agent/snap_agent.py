@@ -91,7 +91,7 @@ import urllib.request
 from collections import deque
 from datetime import datetime, timezone
 
-VERSIONE = "1.2.0"
+VERSIONE = "1.2.2"
 PROTOCOLLO = "SNAP-AGENT/1"
 UTC_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -1121,9 +1121,13 @@ class Raccolta:
             dati["antivirus_motivo"] = str(errore)[:200]
 
         coppie = (
+            # Vuoto qui significa "nessun profilo spento", che e' la notizia buona:
+            # senza il sentinella la pagina lo mostrava come "non misurato", e una
+            # macchina in ordine risultava non verificata.
             ("firewall_profili_spenti",
-             "(Get-NetFirewallProfile | Where-Object {$_.Enabled -eq 'False'} |"
-             " ForEach-Object { $_.Name }) -join ','"),
+             "$s=(Get-NetFirewallProfile | Where-Object {$_.Enabled -eq 'False'} |"
+             " ForEach-Object { $_.Name }) -join ',';"
+             " if ($s) { $s } else { 'nessuno' }"),
             ("smb1",
              "(Get-SmbServerConfiguration -ErrorAction SilentlyContinue)"
              ".EnableSMB1Protocol"),
@@ -1139,8 +1143,14 @@ class Raccolta:
              "((Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
              "\\Policies\\System' -Name EnableLUA -ErrorAction SilentlyContinue)"
              ".EnableLUA -eq 1)"),
+            # `Confirm-SecureBootUEFI` fallisce per DUE motivi opposti: la macchina
+            # non e' UEFI (e allora "non applicabile" e' la risposta giusta), oppure
+            # mancano i privilegi (e allora non si sa). Confonderli avrebbe detto
+            # "non applicabile" su una macchina UEFI con l'avvio protetto spento.
             ("avvio_protetto",
-             "try { Confirm-SecureBootUEFI } catch { 'non applicabile' }"),
+             "try { Confirm-SecureBootUEFI }"
+             " catch [System.PlatformNotSupportedException] { 'non applicabile (BIOS)' }"
+             " catch { '' }"),
             ("firme_antivirus_giorni",
              "try { (New-TimeSpan -Start (Get-MpComputerStatus)"
              ".AntivirusSignatureLastUpdated).Days } catch { '' }"),

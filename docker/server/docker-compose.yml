@@ -62,7 +62,7 @@ services:
       # Il contesto e' la radice del repository: l'immagine deve poter copiare server/.
       context: ../..
       dockerfile: docker/server/Dockerfile
-    image: snap-server:${SNAP_VERSION:-1.2.8}
+    image: snap-server:${SNAP_VERSION:-1.8.0}
     container_name: snap-server
     restart: unless-stopped
     # Non pubblica la 5500: ci arriva solo il proxy, sulla rete interna.

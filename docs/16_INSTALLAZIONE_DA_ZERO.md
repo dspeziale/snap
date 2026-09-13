@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Prodotto | snap — Secure Network Assessment Platform |
-| Versione documentata | console 1.7.6, sonda 1.2.6, agente 1.0.2 |
+| Versione documentata | console 1.8.0, sonda 1.3.0, agente 1.2.2 |
 | Conformità documentale | ISO/IEC/IEEE 29148:2018 (§ scopo, riferimenti, istruzioni) |
 | Destinatari | chi installa il sistema e chi lo assiste |
 

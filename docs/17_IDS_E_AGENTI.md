@@ -6,7 +6,7 @@
 | | |
 |---|---|
 | Documento | Rilevazione delle intrusioni (IDS) e agenti di macchina |
-| Versione documentata | console 1.7.6, sonda 1.2.6, agente 1.0.2 |
+| Versione documentata | console 1.8.0, sonda 1.3.0, agente 1.2.2 |
 | Conformità | ISO/IEC/IEEE 29148:2018 (§1 scopo, §2 riferimenti, §3 requisiti), NIS2 art. 21, CRA all. I |
 | Aggiornato | 2026-09-13 |
 
@@ -68,6 +68,11 @@ un sensore di traffico domani significa scrivere una classe, non rifare il motor
 | IDS-04 | Il confronto è con una **linea di base** che si costruisce da sola, e che dichiara da quando esiste | Rilevare "porta nuova" al primo giro significherebbe segnalare l'intera rete. Finché la linea di base è giovane, le rilevazioni si contano ma non si allarmano |
 | IDS-06 | Oltre alla maturità del **singolo soggetto** vale quella dell'**intero archivio**: finché la memoria complessiva è più giovane della soglia, le regole che si fondano sull'assenza di memoria non scattano | Imparata sul campo. Un soggetto appena visto non ha memoria *per definizione*, quindi la sola maturità per soggetto non ferma niente: alla prima passata su una rete vera sono uscite **quattrocento** rilevazioni `HOST-NUOVO` in un colpo. Un IDS che al primo avvio segnala l'intera rete viene disattivato il giorno dopo |
 | IDS-05 | I sensori sono **innestabili** e ciascuno dichiara di che cosa è capace | È la porta lasciata aperta per il traffico, senza prometterlo oggi |
+| AG-07 | La raccolta e' divisa in **gruppi dichiarati**, e chi installa sceglie quali accendere da un'interfaccia **di console** sulla macchina | Una pagina web vorrebbe dire un servizio in ascolto su ogni postazione sorvegliata, cioe' esattamente cio' che AG-01 evita. I gruppi spenti si dichiarano alla sonda: un gruppo spento non e' un gruppo a zero |
+| AG-08 | Le **misure** (serie storica) e l'**inventario** (stato) viaggiano separati e con due ritmi: il minuto e l'ora | Misurato su una macchina vera: insieme pesavano 70,7 kB a invio, cioe' **99 MB al giorno per macchina**, per riscrivere 1.440 volte lo stesso elenco di programmi installati. Separati: 7,6 MB al giorno con **piu'** informazioni. Non e' solo traffico: un inventario e' uno stato e si sovrascrive, e nella tabella delle misure avrebbe voluto dire conservarne 1.440 copie per poterne leggere una |
+| AG-09 | Gli **elenchi** stanno nell'inventario, i **numeri** nelle misure | Le porte in ascolto pesavano 4,4 kB al minuto per ripetere lo stesso elenco. Il conteggio resta nelle misure -- e' una serie, e costa quattro byte -- e l'elenco viaggia con l'inventario, che pero' parte **subito** se quell'elenco cambia: una porta nuova non aspetta l'ora |
+| AG-10 | L'agente si installa da un **pacchetto** generato dalla console della sonda, e il pacchetto e' **una credenziale per una macchina** | Le tre righe da copiare funzionano quando chi installa ha il repository sottomano; su venti macchine diventano un messaggio inoltrato con un token dentro. Il token resta a uso singolo: una credenziale condivisa fra venti macchine non si potrebbe revocare per una sola |
+| AG-11 | Dentro un container, un gruppo o legge la **macchina** o si **dichiara** | Trovato provando il container sul serio: `software` elencava gli 87 pacchetti dell'immagine Debian e `aggiornamenti` interrogava l'apt del container. Due dati esatti e falsi -- il modo peggiore di sbagliare, perche' nessuna pagina avrebbe mostrato un'anomalia |
 | AG-01 | L'agente **apre lui** la connessione verso la sonda | Stessa regola della sonda verso il server: una macchina in una rete di utenza non è raggiungibile, e non deve esserlo |
 | AG-02 | L'agente si autentica con una **chiave propria**, emessa alla registrazione, e firma ogni invio (HMAC-SHA256 con marca temporale e nonce) | Senza firma, chiunque sulla rete potrebbe iniettare metriche false e far scattare o tacere le regole |
 | AG-03 | L'agente **non riceve comandi** in questa versione: riceve solo la propria configurazione nella risposta | Un agente che esegue comandi è un canale di esecuzione remota su ogni macchina sorvegliata: si aggiunge quando serve davvero, con la stessa cura del protocollo delle sonde |
@@ -173,19 +178,59 @@ e un magazzino chiuso alle 18 non hanno la stessa idea di "orario insolito".
 
 ## 6. L'agente di macchina
 
-### 6.1 Che cosa raccoglie
+### 6.1 Che cosa raccoglie: quindici gruppi dichiarati
 
-| Gruppo | Misure | A che cosa serve |
+Ogni gruppo dichiara che cosa manda, con quale ritmo, di quali privilegi ha bisogno e
+**se riguarda le persone**. L'ultimo campo non è decorativo: è quello che chi installa
+guarda per decidere, e quello che il titolare del trattamento deve poter leggere senza
+aprire il codice (GDPR art. 5, minimizzazione).
+
+| Gruppo | Ritmo | Persone | Che cosa manda |
+|---|---|---|---|
+| `identita` | inventario | no | nome, sistema e build, architettura, CPU, memoria totale, produttore, modello, numero di serie, BIOS e sua data, virtualizzazione, interfacce con MAC e velocità, gateway, DNS |
+| `carico` | misure | no | CPU, memoria, swap, carico medio, temperature, batteria |
+| `dischi` | misure | no | spazio per punto di mount, filesystem, inode, cifratura del volume |
+| `rete` | misure | no | ritmo del traffico in entrata e uscita |
+| `connessioni` | misure | no | quante per stato, verso quanti indirizzi distinti, porte remote più frequenti — **conteggi, non l'elenco di chi parla con chi** |
+| `processi` | misure | sì | quanti, e i primi per CPU e memoria: nome e utente |
+| `in_ascolto` | inventario | sì | porta, processo, utente, e se è raggiungibile dalla rete o solo dalla macchina |
+| `utenti` | misure | sì | chi è collegato adesso e da dove |
+| `utenze` | inventario | sì | utenze locali, amministratori, attive o disattivate, password che non scade |
+| `sicurezza` | inventario | no | antivirus e loro stato, firewall, SMB 1.0, desktop remoto e NLA, controllo account, avvio protetto, età delle firme, SELinux/AppArmor, SSH |
+| `aggiornamenti` | inventario | no | quanti in attesa, quanti di sicurezza, ultimo installato, riavvio in attesa |
+| `software` | inventario | no | nome e versione dei programmi installati |
+| `servizi` | inventario | no | servizi in esecuzione, e quelli automatici che **non** sono partiti |
+| `pianificate` | inventario | no | nomi e stato delle attività pianificate e dei cron |
+| `container` | inventario | no | nome e immagine dei container attivi |
+
+**Il software installato è il gruppo che paga di più.** Sapere che su quaranta macchine
+c'è una versione vulnerabile di un programma non richiede di scansionarle una per una,
+e non richiede che quel programma esponga una porta.
+
+**Tre preselezioni**: `tutti` (predefinito), `consigliato` (senza software e
+pianificate), `minimo` (identità, carico, dischi, rete: **nulla che riguardi le
+persone**, per dove il trattamento non è stato concordato).
+
+### 6.1-bis Due ritmi, e perché
+
+| | Contenuto | Ogni quanto | Natura |
+|---|---|---|---|
+| **Misure** | i numeri | un minuto | serie storica: si accumula, si cancella per anzianità |
+| **Inventario** | gli elenchi | un'ora, o appena cambia | stato: si sovrascrive |
+
+Misurato su una macchina reale (Windows 11, 282 programmi, 315 servizi):
+
+| | kB per invio | MB al giorno |
 |---|---|---|
-| Identità | nome host, sistema e versione, avvio, indirizzi | Legare la macchina al nodo dell'inventario |
-| Carico | CPU, memoria, swap, carico medio | Vedere una macchina che soffre prima che si fermi |
-| Dischi | spazio usato per punto di mount | Il guasto più prevedibile che esista |
-| Rete | byte e pacchetti per interfaccia | Un salto di traffico è la prima traccia di un'esfiltrazione |
-| Processi | quanti, e i primi per CPU e memoria | Un processo che divora la macchina ha un nome |
-| **Porte in ascolto** | porta, processo, utente | La differenza fra "porta aperta" e "chi l'ha aperta" |
-| Utenti | sessioni attive | Chi è dentro adesso |
-| **Eventi di sicurezza** | accessi riusciti e falliti, utenti creati, servizi di sicurezza fermati | Le regole `ACCESSI-FALLITI`, `UTENTE-NUOVO`, `SICUREZZA-FERMA` |
-| Aggiornamenti | quanti in attesa, quanti di sicurezza | La vetustà vista da dentro, non dedotta da una pagina web |
+| Tutto insieme, ogni minuto (com'era) | 70,7 | **99,4** |
+| Misure ogni minuto + inventario ogni ora | 4,3 + 65,7 | **7,6** |
+
+Tredici volte meno, con sei gruppi in più di quanti ne mandasse prima. E l'inventario,
+essendo uno stato, non riempie la tabella delle misure con 1.440 copie al giorno dello
+stesso elenco.
+
+L'inventario **non aspetta l'ora** quando le porte in ascolto cambiano: parte subito,
+perché è esattamente la cosa per cui si guarda quella pagina.
 
 ### 6.2 Che cosa NON raccoglie, per scelta
 
@@ -193,24 +238,63 @@ Contenuto di file, righe di comando complete, traffico, messaggi, cronologia. Le
 righe di comando possono contenere password passate come argomento: si registra il
 **nome** del processo e il suo utente, non come è stato invocato.
 
-### 6.3 Ciclo di vita
+### 6.3 Ciclo di vita: il pacchetto
+
+L'agente si installa da un **pacchetto** che la console della sonda costruisce: dentro
+ci sono l'agente, gli installatori per Windows, Linux e Docker, il LEGGIMI e un
+`pacchetto.json` con indirizzo della sonda e token.
 
 ```
-pip install psutil
-python snap_agent.py registra https://sonda:5510 <token>   una volta
-python snap_agent.py servizio                              a regime
-python snap_agent.py prova                                 raccoglie e stampa, senza inviare
+Windows   .\installa.ps1            attività pianificata, come SYSTEM
+Linux     sudo ./installa.sh        unit systemd, utenza dedicata (root con --privilegi-completi)
+Docker    docker compose up -d      container, macchina montata in sola lettura
 ```
 
-Il terzo comando esiste per chi installa: mostra esattamente ciò che verrebbe
-mandato, **senza mandarlo**. Serve a rispondere alla domanda che chiunque riceva un
-agente su una macchina di produzione fa per prima — *che cosa mi porta via da qui?*
+Ogni installatore fa la stessa sequenza — Python, ambiente virtuale, `psutil`,
+registrazione, **cancellazione del token**, servizio — e finisce **verificando che il
+servizio stia davvero girando**. Un installatore che stampa un esito positivo su un
+servizio che non è partito fa perdere più tempo di uno che fallisce.
 
-Alla registrazione la sonda emette una chiave; l'agente la conserva in un file con
-permessi ristretti. A regime invia ogni `intervallo` secondi (predefinito 60), firmando
-ciascun invio. La risposta della sonda porta la configurazione: intervallo, soglie,
-quali gruppi raccogliere. Un agente che non riesce a parlare **accumula in memoria** e
-riprova: la rete che si interrompe non deve perdere gli eventi di sicurezza.
+**Il pacchetto è una credenziale**: il token dentro vale un'ora e una volta sola, e un
+pacchetto vale per una macchina. Dieci macchine, dieci pacchetti, dieci credenziali
+revocabili una per una.
+
+**Senza accesso a Internet** — nella PA la norma, non l'eccezione — le *wheel* di
+`psutil` si mettono nella cartella `wheels/` del pacchetto e gli installatori le usano
+senza cercare la rete.
+
+A regime l'agente invia ogni `intervallo` secondi (predefinito 60), firmando ciascun
+invio. La risposta della sonda porta la configurazione: intervallo e soglie. Un agente
+che non riesce a parlare **accumula in memoria** e riprova: la rete che si interrompe
+non deve perdere gli eventi di sicurezza.
+
+### 6.4 Dentro un container: che cosa vede e che cosa dichiara
+
+Un agente dentro un container misura **il container**: due processi, un filesystem che
+non esiste sulla macchina. Sarebbe un dato esatto e inutile — il modo peggiore di
+sbagliare, perché sembra funzionare.
+
+Il compose apre l'isolamento in tre punti precisi: `pid: host` (i processi della
+macchina), `network_mode: host` (le porte e le interfacce vere, e la sonda
+raggiungibile), `/:/hostfs:ro` (il filesystem e `/proc` della macchina, **in sola
+lettura**). L'agente legge `SNAP_AGENT_HOSTFS` e punta lì `psutil.PROCFS_PATH`.
+
+**Anche così quattro gruppi restano fuori**, e si dichiarano:
+
+| Gruppo | Perché non si può |
+|---|---|
+| `aggiornamenti` | li conosce il gestore di pacchetti della macchina, con le sue liste e le sue chiavi: puntarci `--admindir` non basta |
+| `servizi` | `systemctl` parla con il systemd della macchina |
+| `container` | servirebbe il socket di Docker, che non si monta per non dare il controllo del motore |
+| `pianificate` | i cron si leggono dal filesystem, i timer di systemd no: l'elenco si dichiara **parziale** |
+
+`software` invece funziona, perché l'agente punta all'archivio dei pacchetti della
+macchina (`dpkg-query --admindir`, `rpm --dbpath`). Senza quell'accortezza elencava i
+pacchetti dell'immagine Debian come se fossero quelli della macchina: è il difetto che
+ha motivato AG-11.
+
+**In sintesi**: il container va bene per i server di cui interessano carico, dischi,
+rete, porte e processi. Per l'inventario completo l'installazione nativa vede tutto.
 
 ---
 
@@ -228,6 +312,11 @@ riprova: la rete che si interrompe non deve perdere gli eventi di sicurezza.
 | SR-311 | L'agente non deve accettare comandi dalla sonda |
 | SR-312 | L'agente deve accumulare e ritrasmettere quando la sonda non risponde |
 | SR-312-bis | Un evento che descrive una condizione persistente non deve essere ripetuto a ogni invio: si riferisce al cambiamento di stato e si riarma a intervallo dichiarato |
+| SR-315 | La raccolta deve essere divisa in gruppi dichiarati, attivabili singolarmente, e i gruppi disattivati devono essere comunicati alla sonda |
+| SR-316 | L'interfaccia di scelta dell'agente non deve richiedere alcuna porta in ascolto sulla macchina sorvegliata |
+| SR-317 | Le misure e l'inventario devono viaggiare separati, con cadenze proprie; l'inventario deve essere conservato come stato e sovrascritto |
+| SR-318 | Il pacchetto di installazione deve contenere tutto il necessario e un token a uso singolo, che gli installatori devono rimuovere dalla macchina una volta speso |
+| SR-319 | In esecuzione dentro un container, un gruppo che non puo' leggere la macchina ospite deve dichiararsi non misurato, mai riferire dati del container |
 | SR-313 | L'agente non deve raccogliere contenuti, ma solo misure e fatti |
 | SR-314 | La console deve mostrare rilevazioni, regole, sensori e macchine con agente, dichiarando ciò che non è stato osservato |
 

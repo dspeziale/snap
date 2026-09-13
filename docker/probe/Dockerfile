@@ -10,7 +10,7 @@
 # un reverse proxy (vedi docker-compose.yml e nginx.conf).
 #
 # Contesto di build: la RADICE del repository (serve `probe/`):
-#   docker build -f docker/probe/Dockerfile -t snap-probe:1.2.8 .
+#   docker build -f docker/probe/Dockerfile -t snap-probe:1.3.0 .
 
 # Stessa versione minore usata in sviluppo (3.13).
 FROM python:3.13-slim AS base

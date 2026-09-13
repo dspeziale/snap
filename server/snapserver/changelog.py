@@ -21,6 +21,49 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.8.0",
+        "date": "2026-09-13",
+        "abstract": "L'agente di macchina si installa da un PACCHETTO pronto -- Windows,"
+                    " Linux e Docker in un archivio solo -- e manda molto di piu':"
+                    " quindici gruppi di dati invece di nove, fra cui il software"
+                    " installato, le utenze locali, la postura di sicurezza e gli"
+                    " aggiornamenti in attesa. La scheda della macchina li mostra tutti.",
+        "changes": [
+            "SCHEDA DELLA MACCHINA RIFATTA. Sotto ai grafici c'e' ora *quello che si"
+            " vede solo da dentro*: ferro (produttore, modello, numero di serie, BIOS,"
+            " CPU, memoria), postura di sicurezza (antivirus con il loro stato,"
+            " firewall, SMB 1.0, desktop remoto, controllo account, avvio protetto),"
+            " utenze locali con gli amministratori in evidenza, servizi in esecuzione"
+            " e quelli automatici che non sono partiti, container, attivita'"
+            " pianificate e l'elenco completo del SOFTWARE INSTALLATO -- che e' cio'"
+            " che permette di sapere dove vive una vulnerabilita' senza scansionare.",
+            "CHE COSA NON ARRIVA, E PER QUALE DELLE DUE RAGIONI. La scheda distingue"
+            " i gruppi che chi ha installato l'agente ha SPENTO da quelli che l'agente"
+            " non e' RIUSCITO a leggere. La prima e' una scelta, la seconda un"
+            " problema: confonderle avrebbe fatto leggere \"non gliel'ho chiesto\""
+            " come \"non ce n'e'\".",
+            "UNA BANDIERA HA TRE STATI, non due: acceso, spento e \"su questa"
+            " macchina non esiste\". Le righe che non si applicano (SELinux su"
+            " Windows, controllo account su Linux) non compaiono affatto, invece di"
+            " comparire vuote -- una riga vuota direbbe che il dato manca, mentre non"
+            " c'e' nulla da misurare.",
+            "L'inventario di una macchina e' conservato come STATO e non come serie:"
+            " si sovrascrive quando ne arriva uno nuovo. Nella tabella delle misure"
+            " avrebbe voluto dire conservare 1.440 copie al giorno dello stesso elenco"
+            " di programmi per poterne leggere una.",
+            "IL COMPOSE DEL SERVER RIPIEGAVA SUL NUMERO DELLA SONDA: senza un file"
+            " .env, `docker compose up` costruiva `snap-server:1.2.8` -- l'immagine"
+            " del server con la versione della sonda scritta sopra. Un test nuovo"
+            " confronta la versione dichiarata dall'applicativo con quella dei file"
+            " di orchestrazione: due numeri in due posti divergono, e quello"
+            " sbagliato e' sempre quello che si legge in esercizio.",
+            "La guida ha una sezione nuova, la 23, che porta dall'archivio scaricato"
+            " alla macchina che riferisce: prerequisiti, i tre modi di installare,"
+            " come scegliere che cosa inviare, che cosa il container non puo' vedere e"
+            " i guasti veri con la loro causa.",
+        ],
+    },
+    {
         "version": "1.7.6",
         "date": "2026-09-13",
         "abstract": "Arriva l'IDS: una voce di menu nuova con le rilevazioni, il"

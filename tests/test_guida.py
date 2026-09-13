@@ -56,7 +56,7 @@ SEZIONI_CONSOLE = (
     "cose", "ruoli", "sonde", "perimetro", "scansione", "inventario",
     "monitoraggio", "controlli", "incidenti", "metriche", "dashboard",
     "regole", "canali", "report", "archivio", "threat", "sala", "zone",
-    "acn", "siem", "ids", "sicurezza", "diagnosi", "glossario",
+    "acn", "siem", "ids", "agenti", "sicurezza", "diagnosi", "glossario",
 )
 SEZIONI_SONDA = (
     "cosa", "installazione", "registrazione", "interfaccia", "accesso", "scelte",

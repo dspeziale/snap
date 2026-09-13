@@ -1,0 +1,300 @@
+{#
+  snap server - Guida: installare l'agente su una macchina, passo per passo.
+
+  E' la sezione che si legge CON LA MACCHINA DAVANTI, quindi e' scritta come una
+  procedura e non come una descrizione: ogni passo ha un comando e una verifica, e i
+  guasti veri stanno in fondo con la loro causa.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-13
+#}
+<h2 id="agenti">23. Installare l'agente su una macchina</h2>
+<p>
+  L'agente porta dentro il sistema quello che dalla rete non si vede. Si installa dal
+  <strong>pacchetto</strong> che la console della sonda prepara: dentro c'e' l'agente,
+  gli installatori per Windows, Linux e Docker, le istruzioni, e il token gia'
+  inserito. Chi lo riceve esegue un comando solo.
+</p>
+
+<div class="alert alert-warning">
+  <strong>Il pacchetto e' una credenziale.</strong> Contiene un token valido
+  <strong>un'ora</strong> e <strong>una volta sola</strong>: per quell'ora, chiunque lo
+  abbia puo' registrare una macchina. Gli installatori lo cancellano dalla macchina
+  appena speso. <strong>Un pacchetto vale per una macchina</strong>: per dieci macchine
+  si scaricano dieci pacchetti, e ognuna ha la propria credenziale revocabile da sola.
+</div>
+
+<h3>23.1 Prima di cominciare</h3>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Serve</th><th>Perche'</th><th>Se manca</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Python 3.9 o successivo</strong> sulla macchina</td>
+      <td>L'agente e' un file Python. Una sola dipendenza, <code>psutil</code>,
+        installata dall'installatore in un ambiente virtuale dedicato.</td>
+      <td>L'installatore si ferma e lo dice. Su Windows si installa da python.org o
+        dal Microsoft Store.</td>
+    </tr>
+    <tr>
+      <td>La macchina deve <strong>raggiungere la sonda</strong> sulla porta 5510</td>
+      <td>E' l'agente che apre la connessione: la sonda non lo chiama mai.</td>
+      <td>Si prova <code>https://&lt;sonda&gt;:5510/api/agent/ping</code> dal browser
+        della macchina. Se non risponde, il problema e' la rete, non la chiave.</td>
+    </tr>
+    <tr>
+      <td>Privilegi di amministratore</td>
+      <td>Per vedere il processo dietro una porta in ascolto, gli accessi falliti e le
+        utenze locali. Sono le cose per cui l'agente esiste.</td>
+      <td>Si installa lo stesso con meno privilegi: quello che non si riesce a leggere
+        viene <strong>dichiarato</strong>, non taciuto (&sect; 23.6).</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>23.2 Preparare il pacchetto</h3>
+<p>
+  Dalla <strong>console della sonda</strong> (non da questa console del server: il
+  token va emesso dove la macchina puo' arrivare), pagina <strong>Agenti</strong>:
+</p>
+<ol>
+  <li>si scrive <strong>per quale macchina</strong> &mdash; finisce nel nome del file e
+    resta nel diario della sonda, perche' fra un mese si deve poter capire a chi era
+    stato dato;</li>
+  <li>si lascia acceso <em>La macchina deve verificare il certificato di questa
+    sonda</em>, e lo si spegne <strong>solo</strong> se la sonda ha un certificato
+    proprio non firmato da un'autorita';</li>
+  <li>si preme <strong>Scarica il pacchetto</strong>.</li>
+</ol>
+<p>
+  Si ottiene un file <code>snap-agent-&lt;etichetta&gt;-&lt;data&gt;.zip</code> di una
+  cinquantina di kilobyte. Va copiato sulla macchina e scompattato.
+</p>
+
+<h3>23.3 Windows</h3>
+<p>In una finestra di <strong>PowerShell come amministratore</strong>, nella cartella
+  scompattata:</p>
+<pre class="small p-2 bg-body-tertiary rounded"><code>.\installa.ps1</code></pre>
+<p>Fa, in ordine: verifica Python, crea l'ambiente virtuale in
+  <code>C:\ProgramData\snap-agent</code>, installa <code>psutil</code>, registra la
+  macchina sulla sonda, <strong>cancella il token</strong>, crea l'attivita'
+  pianificata che parte all'accensione e riparte se cade, e infine
+  <strong>verifica che stia davvero girando</strong>. Se non e' partita lo dice e
+  mostra il comando per provarla a mano: non stampa mai &laquo;fatto&raquo; senza aver
+  guardato.</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Opzione</th><th>Che cosa cambia</th></tr></thead>
+  <tbody>
+    <tr><td><code>-Gruppi minimo</code></td>
+      <td>installa mandando solo identita', carico, dischi e rete: nulla che riguardi
+        le persone</td></tr>
+    <tr><td><code>-UtenteDiServizio</code></td>
+      <td>esegue come utenza di rete invece che come SYSTEM: meno privilegi, meno dati
+        (&sect; 23.6)</td></tr>
+    <tr><td><code>-SenzaVerificaTls</code></td>
+      <td>accetta il certificato della sonda senza verificarlo</td></tr>
+    <tr><td><code>-Destinazione &lt;cartella&gt;</code></td>
+      <td>installa altrove</td></tr>
+  </tbody>
+</table>
+
+<h3>23.4 Linux</h3>
+<pre class="small p-2 bg-body-tertiary rounded"><code>sudo ./installa.sh</code></pre>
+<p>
+  Stessa sequenza, con un'unit systemd al posto dell'attivita' pianificata, e
+  l'esecuzione affidata a un'<strong>utenza dedicata</strong>
+  (<code>snap-agent</code>) invece che a root: e' il minimo privilegio, ed e' il
+  predefinito giusto. Ha un costo, dichiarato prima e non dopo &mdash; senza privilegi
+  non si vedranno il processo dietro le porte in ascolto, gli accessi falliti e le
+  utenze locali. Con <code>--privilegi-completi</code> gira da root e li vede.
+</p>
+<pre class="small p-2 bg-body-tertiary rounded"><code>sudo ./installa.sh --privilegi-completi --gruppi consigliato</code></pre>
+<p>
+  L'unit e' scritta stretta: <code>NoNewPrivileges</code>, <code>PrivateTmp</code>,
+  <code>ProtectSystem=strict</code> e la sola cartella dell'agente scrivibile. Diario
+  con <code>journalctl -u snap-agent -f</code>.
+</p>
+
+<h3>23.5 Docker</h3>
+<p>
+  <strong>Un agente dentro un container misura il container</strong>: due processi, un
+  filesystem che non esiste sulla macchina. Sarebbe un dato esatto e inutile &mdash; il
+  modo peggiore di sbagliare, perche' sembra funzionare. Il
+  <code>docker-compose.yml</code> del pacchetto apre l'isolamento in tre punti precisi,
+  e in nessun altro:
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Riga</th><th>Perche' serve</th></tr></thead>
+  <tbody>
+    <tr><td><code>pid: host</code></td><td>i processi sono quelli della macchina</td></tr>
+    <tr><td><code>network_mode: host</code></td>
+      <td>le porte in ascolto e le interfacce sono quelle vere, e la sonda si
+        raggiunge dalla sua rete</td></tr>
+    <tr><td><code>/:/hostfs:ro</code></td>
+      <td>il filesystem e <code>/proc</code> sono quelli della macchina, in
+        <strong>sola lettura</strong>: il container puo' guardare, non toccare</td></tr>
+  </tbody>
+</table>
+<pre class="small p-2 bg-body-tertiary rounded"><code>cp docker/.env.example docker/.env
+# scrivere SNAP_AGENT_SONDA e SNAP_AGENT_TOKEN
+docker compose -f docker/docker-compose.yml up -d --build
+docker compose -f docker/docker-compose.yml logs -f</code></pre>
+<p>Dopo il primo avvio il token e' speso: si toglie da <code>.env</code>.</p>
+
+<div class="alert alert-secondary">
+  <strong>Quattro gruppi restano fuori, anche cosi'</strong> &mdash; e l'agente lo
+  dichiara invece di inventare. <em>Aggiornamenti</em>: li conosce il gestore di
+  pacchetti della macchina, con le sue liste e le sue chiavi. <em>Servizi</em>:
+  <code>systemctl</code> parla con il systemd della macchina. <em>Container</em>:
+  servirebbe il socket di Docker, che non si monta per non dare il controllo del
+  motore. <em>Attivita' pianificate</em>: i lavori cron si leggono, i timer di systemd
+  no, e l'elenco si dichiara <strong>parziale</strong>.
+  <br><br>
+  <em>Software installato</em> invece funziona: l'agente punta all'archivio dei
+  pacchetti della macchina. Senza quell'accortezza elencava i pacchetti dell'immagine
+  Debian come se fossero quelli della macchina &mdash; esatto e falso.
+  <br><br>
+  <strong>In sintesi</strong>: il container va bene per i server di cui interessano
+  carico, dischi, rete, porte e processi. Per l'inventario completo, l'installazione
+  nativa vede tutto.
+</div>
+
+<h3>23.6 Scegliere che cosa la macchina invia</h3>
+<p>
+  L'agente non apre porte e non riceve comandi: l'interfaccia con cui si sceglie e' da
+  <strong>console</strong>, sulla macchina stessa. Una pagina web vorrebbe dire un
+  servizio in ascolto su ogni postazione, cioe' esattamente cio' che l'architettura
+  evita.
+</p>
+<pre class="small p-2 bg-body-tertiary rounded"><code>python snap_agent.py configura</code></pre>
+<p>
+  Mostra i quindici gruppi con quello che mandano, ogni quanto, e <strong>se
+  riguardano le persone</strong>; si accendono e si spengono per numero. Senza domande:
+  <code>configura --gruppi minimo</code>, oppure un elenco separato da virgole.
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Preselezione</th><th>Che cosa accende</th><th>Quando si usa</th></tr></thead>
+  <tbody>
+    <tr><td><code>tutti</code></td><td>tutti e quindici i gruppi</td>
+      <td>predefinito: l'agente si installa per sapere</td></tr>
+    <tr><td><code>consigliato</code></td>
+      <td>tutto tranne l'inventario del software e le attivita' pianificate</td>
+      <td>dove l'inventario completo non serve e si vuole risparmiare</td></tr>
+    <tr><td><code>minimo</code></td>
+      <td>identita', carico, dischi, rete: <strong>nulla che riguardi le persone</strong></td>
+      <td>dove il trattamento non e' stato concordato con chi lavora su quelle
+        macchine</td></tr>
+  </tbody>
+</table>
+<p>
+  I gruppi spenti vengono <strong>dichiarati</strong> alla sonda, e la scheda della
+  macchina li elenca sotto <em>Non richiesto</em>. E' la differenza fra
+  &laquo;questa macchina non ha antivirus&raquo; e &laquo;a questa macchina non
+  gliel'ho chiesto&raquo;, e il prodotto non le confonde mai.
+</p>
+
+<h3>23.7 Che cosa arriva, e che cosa non arriva mai</h3>
+<p>
+  L'agente manda <strong>due cose con due ritmi</strong>. Le <em>misure</em> ogni
+  minuto &mdash; carico, dischi, ritmo di rete, processi, sessioni: qualche kilobyte,
+  ed e' quello che si vede sui grafici. L'<em>inventario</em> una volta all'ora, o
+  appena cambia qualcosa &mdash; software installato, servizi, utenze, postura di
+  sicurezza, porte in ascolto: e' uno stato, non una serie.
+</p>
+<p>
+  La distinzione non e' accademica: misurata su una macchina vera, mandare tutto ogni
+  minuto faceva <strong>99 MB al giorno per macchina</strong> per riscrivere 1.440
+  volte lo stesso elenco di programmi installati. Separati, la stessa macchina manda
+  <strong>7,6 MB al giorno</strong> con piu' informazioni di prima.
+</p>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>NON raccoglie mai, per scelta</th><th>Perche'</th></tr></thead>
+  <tbody>
+    <tr><td>contenuto di file</td><td>racconterebbe le persone, non la macchina</td></tr>
+    <tr><td>righe di comando complete</td>
+      <td>possono contenere una password passata come argomento: si registra il
+        <strong>nome</strong> del processo e il suo utente</td></tr>
+    <tr><td>traffico, messaggi, cronologia</td><td>non serve a nessuna delle regole</td></tr>
+    <tr><td>corpo delle attivita' pianificate</td>
+      <td>e' una riga di comando: si registrano i nomi</td></tr>
+    <tr><td>l'elenco di chi parla con chi</td>
+      <td>delle connessioni si mandano i <strong>conteggi</strong>: bastano a vedere
+        un'anomalia senza tenere un registro di cio' che le persone fanno</td></tr>
+  </tbody>
+</table>
+<p>
+  Nomi utente e sessioni sono <strong>dati personali</strong> (GDPR art. 4): la base
+  giuridica e' la sicurezza della rete (art. 6(1)(f)) e le pagine nominano
+  <strong>macchine e utenze, non persone</strong>. Prima di installare, la domanda che
+  tutti fanno &mdash; <em>che cosa mi porta via da qui?</em> &mdash; ha una risposta che
+  non chiede di fidarsi:
+</p>
+<pre class="small p-2 bg-body-tertiary rounded"><code>python snap_agent.py prova --riassunto</code></pre>
+<p>
+  Raccoglie una volta e <strong>stampa</strong> quello che manderebbe, gruppo per
+  gruppo, con quanto pesa al giorno. Senza mandarlo.
+</p>
+
+<h3>23.8 Senza accesso a Internet</h3>
+<p>
+  Nella PA e' la norma, non l'eccezione: <code>pip</code> non raggiungerebbe nulla. Si
+  mettono le <em>wheel</em> dentro il pacchetto, da una macchina che la rete ce l'ha, e
+  gli installatori le usano senza cercare la rete.
+</p>
+<pre class="small p-2 bg-body-tertiary rounded"><code>pip download psutil==6.1.0 -d wheels/ --only-binary=:all: --platform win_amd64 --python-version 313
+pip download psutil==6.1.0 -d wheels/ --only-binary=:all: --platform manylinux2014_x86_64 --python-version 313</code></pre>
+
+<h3>23.9 Verificare che funzioni</h3>
+<ol>
+  <li><strong>Sulla console della sonda</strong>, pagina <em>Agenti</em>: la macchina
+    compare con stato <em>attivo</em> e un invio recente.</li>
+  <li><strong>Su questa console</strong>, <em>IDS &rarr; Agenti di macchina</em>: la
+    stessa macchina, con CPU, memoria e dischi. Se compare sulla sonda ma non qui, il
+    problema non e' l'agente: e' il conferimento della sonda, e si guarda in
+    <em>Sonde &rarr; Console</em>.</li>
+  <li>Aprendo la macchina si vede <em>quello che si vede solo da dentro</em>: ferro,
+    postura, utenze, servizi, software installato. L'inventario arriva entro un'ora
+    dal primo avvio.</li>
+</ol>
+
+<h3>23.10 Guasti che si incontrano davvero</h3>
+<table class="table table-sm table-bordered align-middle" data-snap-table
+       data-page-size="100" data-no-search="true">
+  <thead><tr><th>Sintomo</th><th>Causa</th><th>Rimedio</th></tr></thead>
+  <tbody>
+    <tr><td><code>registrazione rifiutata dalla sonda: 403</code></td>
+      <td>il token e' scaduto (vale un'ora), e' gia' stato usato, o e' stato ricopiato
+        male</td>
+      <td>scaricare un altro pacchetto</td></tr>
+    <tr><td><code>respinto dalla sonda (401)</code> a ogni invio</td>
+      <td>la macchina e' stata revocata, oppure l'orologio e' sfasato di piu' di
+        cinque minuti</td>
+      <td>sincronizzare l'ora; se e' una revoca, registrare di nuovo</td></tr>
+    <tr><td><code>sonda non raggiungibile</code></td>
+      <td>rete, proxy o certificato</td>
+      <td>provare <code>/api/agent/ping</code>: se non risponde, non e' la chiave</td></tr>
+    <tr><td>errore di certificato</td>
+      <td>la sonda ha un certificato proprio</td>
+      <td>rigenerare il pacchetto togliendo la verifica del certificato</td></tr>
+    <tr><td>l'attivita' pianificata risulta <em>Ready</em> e non <em>Running</em></td>
+      <td>Python non parte per un errore che l'attivita' non mostra</td>
+      <td>l'installatore stampa il comando per eseguirlo a mano e vedere l'errore</td></tr>
+    <tr><td>un gruppo compare sotto <em>Non riuscito</em></td>
+      <td>privilegi, strumento assente, o container (&sect; 23.5)</td>
+      <td>il motivo e' scritto per esteso accanto al gruppo</td></tr>
+  </tbody>
+</table>
+
+<h3>23.11 Togliere l'agente</h3>
+<pre class="small p-2 bg-body-tertiary rounded"><code>sudo ./disinstalla.sh                                  # Linux
+.\disinstalla.ps1                                      # Windows, come amministratore
+docker compose -f docker/docker-compose.yml down -v     # Docker</code></pre>
+<p>
+  Disinstallare <strong>non</strong> revoca la macchina sulla sonda: smette solo di
+  riferire. Per chiudere anche la credenziale la si revoca dalla console della sonda,
+  pagina <em>Agenti</em>. Sono due gesti distinti di proposito &mdash; disinstallare e'
+  una manutenzione, revocare una credenziale e' una decisione.
+</p>

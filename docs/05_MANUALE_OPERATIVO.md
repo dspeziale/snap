@@ -861,68 +861,141 @@ rete geografica**, che e' proprio cio' che potrebbe mancare nel momento in cui s
 
 ### 6.2 Installare un agente su una macchina
 
-L'agente e' un unico file Python (`agent/snap_agent.py`) da copiare sulla macchina da
-sorvegliare. **Parla lui verso la sonda** e non riceve comandi: una macchina in rete
-di utenza non deve essere raggiungibile da nessuno, nemmeno dal prodotto che la
-sorveglia. Non apre porte, non installa servizi in ascolto, non accetta connessioni.
+L'agente porta dentro il sistema quello che dalla rete non si vede: chi ha provato ad
+accedere, quale processo tiene aperta una porta, che software e' installato, se la
+protezione e' stata fermata. Si installa dal **pacchetto** che questa console prepara.
 
-**Passo 1 -- emettere il token.** Nella console della sonda, pagina **Agenti**, si
-scrive a che cosa serve il token (*«server di posta»*, *«postazione reception»*: fra
-un mese si deve poter capire a chi era stato dato) e si preme *Emetti un token*.
+> **Il pacchetto e' una credenziale.** Contiene un token valido **un'ora** e **una
+> volta sola**. Gli installatori lo cancellano dalla macchina appena speso. Un
+> pacchetto vale per **una** macchina: per dieci macchine si scaricano dieci
+> pacchetti, e ognuna ha la propria credenziale, revocabile da sola.
 
-Il token **si vede una volta sola** e vale **un'ora**, una sola volta. Dopo quella
-pagina resta soltanto la sua impronta: se si perde, se ne emette un altro -- costa
-meno che conservare in giro una credenziale che nessuno ricorda di aver lasciato.
+**Passo 1 -- preparare il pacchetto.** Pagina **Agenti**: si scrive per quale macchina
+(finisce nel nome del file e resta nel diario), si decide se la macchina deve
+verificare il certificato di questa sonda -- da togliere solo se la sonda ha un
+certificato proprio -- e si preme *Scarica il pacchetto*. Si ottiene un `.zip` di una
+cinquantina di kilobyte, da copiare sulla macchina e scompattare.
 
-**Passo 2 -- sulla macchina:**
+**Passo 2 -- eseguire l'installatore.**
+
+| Dove | Comando | Che cosa crea |
+|---|---|---|
+| Windows | PowerShell **come amministratore**: `.\installa.ps1` | attivita' pianificata che parte all'accensione, come SYSTEM |
+| Linux | `sudo ./installa.sh` | unit systemd, con utenza dedicata `snap-agent` |
+| Docker | `cp docker/.env.example docker/.env`, riempirlo, `docker compose -f docker/docker-compose.yml up -d --build` | container con la macchina montata in sola lettura |
+
+Ogni installatore fa la stessa sequenza: verifica Python, crea un ambiente virtuale
+dedicato, installa `psutil`, registra la macchina, **cancella il token**, installa il
+servizio e infine **verifica che stia davvero girando**. Se non e' partito lo dice e
+mostra il comando per provarlo a mano: non stampa mai «fatto» senza aver guardato.
+
+**Opzioni che vale la pena conoscere.**
+
+| Opzione | Windows | Linux | Effetto |
+|---|---|---|---|
+| Meno dati personali | `-Gruppi minimo` | `--gruppi minimo` | manda solo identita', carico, dischi, rete |
+| Meno privilegi | `-UtenteDiServizio` | (e' il predefinito) | si perdono porte in ascolto, accessi falliti, utenze |
+| Piu' privilegi | (SYSTEM e' il predefinito) | `--privilegi-completi` | esegue da root e vede tutto |
+| Certificato proprio | `-SenzaVerificaTls` | `--senza-verifica-tls` | accetta il certificato senza verificarlo |
+
+**Senza accesso a Internet** `pip` non raggiunge nulla. Si mettono le *wheel* nel
+pacchetto, in una cartella `wheels/`, da una macchina che la rete ce l'ha:
 
 ```
-pip install psutil
-python snap_agent.py registra https://<sonda>:5510 <token>
-python snap_agent.py servizio
+pip download psutil==6.1.0 -d wheels/ --only-binary=:all: --platform win_amd64 --python-version 313
+pip download psutil==6.1.0 -d wheels/ --only-binary=:all: --platform manylinux2014_x86_64 --python-version 313
 ```
 
-La registrazione restituisce una chiave, che l'agente conserva in un file con permessi
-ristretti accanto a se'. Da quel momento firma ogni invio.
+Se la cartella c'e', gli installatori la usano e non cercano la rete.
 
-**Passo 3 -- avviare a regime.** Il comando `servizio` va messo sotto il gestore di
-servizi del sistema: su Linux una unit systemd, su Windows un'attivita' pianificata
-all'avvio. L'agente non si demonizza da solo, di proposito: cio' che tiene in piedi un
-processo su una macchina lo decide chi amministra quella macchina.
+#### 6.2-bis Che cosa la macchina invia, e chi lo decide
 
-**Prima di installarlo, la domanda che tutti fanno.** *Che cosa mi porta via da qui?*
-La risposta si ottiene senza fidarsi:
+La raccolta e' divisa in **quindici gruppi**. Chi installa sceglie quali accendere:
 
 ```
-python snap_agent.py prova
+python snap_agent.py configura                    interattivo
+python snap_agent.py configura --gruppi minimo    senza domande
 ```
 
-raccoglie una volta e **stampa** cio' che manderebbe, senza mandarlo.
+L'interfaccia e' **da console** e non una pagina web, e non per poverta' di mezzi: una
+pagina web vorrebbe dire un servizio in ascolto su ogni postazione sorvegliata, cioe'
+esattamente cio' che l'architettura evita. L'agente non apre porte.
 
-| Raccoglie | Non raccoglie |
-|---|---|
-| Nome host, sistema, indirizzi, avvio | Contenuto di file |
-| CPU, memoria, swap, carico | Righe di comando complete (possono contenere password) |
-| Spazio dei dischi per punto di mount | Traffico, messaggi, cronologia |
-| Byte e pacchetti per interfaccia | Chiavi, certificati, credenziali |
-| Nomi dei processi, primi per CPU e memoria | |
-| Porte in ascolto con processo e utente | |
-| Accessi falliti, utenze nuove, protezioni disattivate | |
-| Aggiornamenti in attesa, quanti di sicurezza | |
+| Preselezione | Accende | Quando si usa |
+|---|---|---|
+| `tutti` | tutti e quindici | predefinito |
+| `consigliato` | tutto tranne software e attivita' pianificate | dove l'inventario completo non serve |
+| `minimo` | identita', carico, dischi, rete | dove il trattamento non e' concordato con chi lavora su quelle macchine: **nulla che riguardi le persone** |
 
-Nomi utente e sessioni sono **dati personali** (GDPR art. 4): la base giuridica e' la
-stessa dell'inventario -- sicurezza della rete, art. 6(1)(f) -- e le pagine nominano
-macchine e utenze, non persone.
+I gruppi spenti vengono **dichiarati** alla sonda e la scheda della macchina li elenca
+sotto *Non richiesto*, distinti da quelli che l'agente non e' *riuscito* a leggere. La
+prima e' una scelta, la seconda un problema, e il prodotto non le confonde.
 
-**Revocare.** Dalla stessa pagina, bottone *revoca*: da quel momento gli invii di
-quella macchina vengono **respinti**. La revoca e' definitiva per quella chiave; per
-rimettere la macchina in servizio si emette un token nuovo e si ripete la
-registrazione.
+#### 6.2-ter Due ritmi: le misure e l'inventario
+
+L'agente manda due cose diverse, e la differenza si vede nei numeri.
+
+| | Che cosa | Ogni quanto | Quanto pesa |
+|---|---|---|---|
+| **Misure** | carico, dischi, ritmo di rete, processi, connessioni, sessioni | un minuto | pochi kB |
+| **Inventario** | software installato, servizi, utenze, postura, porte in ascolto | un'ora, o appena cambia qualcosa | qualche decina di kB |
+
+Misurato su una macchina vera: mandare tutto ogni minuto faceva **99 MB al giorno per
+macchina**, per riscrivere 1.440 volte lo stesso elenco di programmi installati.
+Separati, la stessa macchina manda **7,6 MB al giorno** con piu' informazioni di prima.
+L'inventario e' uno *stato* e si sovrascrive; le misure sono una *serie* e si
+accumulano.
+
+#### 6.2-quater Che cosa non raccoglie mai
+
+Contenuto di file, righe di comando complete, traffico, messaggi, cronologia, corpo
+delle attivita' pianificate, elenco di chi parla con chi. Le righe di comando possono
+contenere una password passata come argomento: si registra il **nome** del processo e
+il suo utente. Delle connessioni si mandano i **conteggi**, che bastano a vedere
+un'anomalia senza tenere un registro di cio' che le persone fanno.
+
+Nomi utente e sessioni sono **dati personali** (GDPR art. 4): base giuridica la
+sicurezza della rete, art. 6(1)(f). Prima di installare, la domanda che tutti fanno --
+*che cosa mi porta via da qui?* -- ha una risposta che non chiede di fidarsi:
+
+```
+python snap_agent.py prova --riassunto
+```
+
+raccoglie una volta e **stampa** cio' che manderebbe, gruppo per gruppo, con il peso
+al giorno. Senza mandarlo.
+
+#### 6.2-quinquies Il container, e i suoi limiti dichiarati
+
+Un agente dentro un container misura **il container**: sarebbe un dato esatto e
+inutile. Il compose apre l'isolamento in tre punti -- `pid: host`,
+`network_mode: host`, `/:/hostfs:ro` -- e in nessun altro.
+
+Anche cosi', **quattro gruppi restano fuori** e l'agente lo dichiara: *aggiornamenti*
+(li conosce il gestore di pacchetti della macchina), *servizi* (`systemctl` parla con
+il systemd della macchina), *container* (servirebbe il socket di Docker, che non si
+monta per non dare il controllo del motore), *attivita' pianificate* (i cron si
+leggono, i timer di systemd no: l'elenco si dichiara parziale).
+
+Il *software installato* invece funziona, perche' l'agente punta all'archivio dei
+pacchetti della macchina. Senza quell'accortezza elencava i pacchetti dell'immagine
+come se fossero quelli della macchina -- esatto e falso.
+
+**In sintesi**: il container va bene per i server di cui interessano carico, dischi,
+rete, porte e processi; per l'inventario completo l'installazione nativa vede tutto.
+
+#### 6.2-sexies Revocare e togliere
+
+**Revocare** si fa da questa pagina, bottone *revoca*: da quel momento gli invii di
+quella macchina vengono respinti. **Togliere** l'agente si fa sulla macchina
+(`disinstalla.sh` / `disinstalla.ps1` / `docker compose down -v`). Sono due gesti
+distinti di proposito: disinstallare e' una manutenzione, revocare una credenziale e'
+una decisione.
 
 **Se non entra.** Il rifiuto che l'agente riceve non dice quale verifica non e'
 passata -- spiegarlo aiuterebbe solo chi sta provando. Il motivo per esteso e' nel
-**diario della sonda**: «firma non valida», «marca temporale fuori finestra»,
-«agente sconosciuto o revocato», «invio ripetuto». Prima di tutto il resto si prova
+**diario della sonda**: «firma non valida», «marca temporale fuori finestra», «agente
+sconosciuto o revocato», «invio ripetuto». Prima di tutto il resto si prova
 `https://<sonda>:5510/api/agent/ping`: se non risponde, il problema e' la rete o il
 proxy, non la chiave.
 

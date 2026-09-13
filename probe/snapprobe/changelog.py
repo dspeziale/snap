@@ -40,6 +40,48 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.0",
+        "date": "2026-09-13",
+        "abstract": "La pagina Agenti prepara un PACCHETTO DI INSTALLAZIONE pronto --"
+                    " agente, installatori per Windows, Linux e Docker, istruzioni e"
+                    " token gia' dentro -- e la sonda conserva l'inventario di ogni"
+                    " macchina come stato, non come serie.",
+        "changes": [
+            "PACCHETTO DI INSTALLAZIONE. Un archivio da copiare sulla macchina e"
+            " aprire: chi lo riceve esegue un comando solo. Dentro ci sono gli"
+            " installatori per Windows (attivita' pianificata come SYSTEM), per Linux"
+            " (unit systemd con utenza dedicata, oppure root con"
+            " --privilegi-completi) e per Docker, piu' il LEGGIMI. Ogni installatore"
+            " verifica che il servizio stia DAVVERO girando prima di dire fatto, e se"
+            " non e' partito mostra il comando per vedere l'errore.",
+            "IL PACCHETTO E' UNA CREDENZIALE, e la pagina lo dice: contiene un token"
+            " valido un'ora e una volta sola, e gli installatori lo CANCELLANO dalla"
+            " macchina appena speso. Un pacchetto vale per una macchina: dieci"
+            " macchine, dieci pacchetti, dieci credenziali revocabili una per una.",
+            "L'INVENTARIO E' UNO STATO. Le misure restano una serie e si accumulano;"
+            " l'inventario della macchina -- software installato, servizi, utenze,"
+            " postura, porte in ascolto -- si SOVRASCRIVE quando ne arriva uno nuovo."
+            " Misurato su una macchina vera, tenerli insieme costava 99 MB al giorno"
+            " per macchina per riscrivere 1.440 volte lo stesso elenco.",
+            "SI CONFERISCE SOLO CIO' CHE E' CAMBIATO. Il record di ogni macchina"
+            " ripartiva verso il server a ogni battito -- ogni quindici secondi,"
+            " identico -- e con l'inventario dentro sarebbero stati 345 MB al giorno"
+            " per una macchina sola. Una macchina registrata e mai avviata viene"
+            " comunque conferita: altrimenti si sarebbe vista sulla sonda e non sulla"
+            " console.",
+            "L'AGENTE (1.2.2) LEGGE DUE COSE IN PIU' CON PRECISIONE. \"Nessun profilo"
+            " firewall spento\" e' la notizia buona, e tornava come risposta vuota:"
+            " la pagina la mostrava come \"non misurato\", e una macchina in ordine"
+            " risultava non verificata. E l'avvio protetto rispondeva \"non"
+            " applicabile\" sia su una macchina senza UEFI sia quando mancavano i"
+            " privilegi -- due casi opposti sotto la stessa etichetta, e su una"
+            " macchina UEFI con l'avvio protetto spento nessuno avrebbe guardato.",
+            "La versione dell'agente si aggiorna a ogni invio e non solo alla"
+            " registrazione: una macchina aggiornata continuava a risultare alla"
+            " versione con cui era stata registrata mesi prima.",
+        ],
+    },
+    {
         "version": "1.2.6",
         "date": "2026-09-13",
         "abstract": "La sonda riconosce le intrusioni e accoglie gli agenti di"

@@ -26,7 +26,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: snap-agent:${SNAP_AGENT_VERSIONE:-1.2.0}
+    image: snap-agent:${SNAP_AGENT_VERSIONE:-1.2.2}
     container_name: snap-agent
     restart: unless-stopped
 
