@@ -94,6 +94,63 @@ def register_template_filters(app, store) -> None:
             return "%d h fa" % (delta // 3600)
         return "%d gg fa" % (delta // 86400)
 
+    def filter_bytes(value) -> str:
+        """Dimensione nell'unita' che la rende leggibile.
+
+        "38040576 byte" costringe a contare le cifre; "36,3 MB" no.
+        """
+        try:
+            quantita = float(value)
+        except (TypeError, ValueError):
+            return "-"
+        if quantita < 0:
+            return "-"
+        for unita in ("byte", "kB", "MB", "GB"):
+            if quantita < 1024 or unita == "GB":
+                if unita == "byte":
+                    return "%d byte" % int(quantita)
+                testo = ("%.2f" % quantita).rstrip("0").rstrip(".")
+                return "%s %s" % (testo.replace(".", ","), unita)
+            quantita /= 1024.0
+        return "-"
+
+    def filter_intero(value) -> str:
+        """Intero con il punto delle migliaia, come si scrive in italiano."""
+        try:
+            numero = int(value)
+        except (TypeError, ValueError):
+            return "-"
+        return "{:,}".format(numero).replace(",", ".")
+
+    def filter_durata(value) -> str:
+        """Una quantita' di secondi, in forma leggibile.
+
+        UN NEGATIVO NON DIVENTA ZERO: "scaduta da 6 h" e "scade adesso" non sono la
+        stessa notizia, e appiattire il primo sul secondo nasconde proprio il
+        ritardo che chi guarda la pagina sta cercando. `None` resta `None`: significa
+        "mai eseguita", che non e' una durata.
+        """
+        if value is None:
+            return "-"
+        try:
+            secondi = float(value)
+        except (TypeError, ValueError):
+            return "-"
+        prefisso = "da " if secondi < 0 else ""
+        secondi = abs(secondi)
+        if secondi < 60:
+            return "%s%d s" % (prefisso, int(secondi))
+        if secondi < 3600:
+            return "%s%d min" % (prefisso, int(secondi // 60))
+        if secondi < 86400:
+            ore, resto = divmod(int(secondi), 3600)
+            return "%s%d h %02d min" % (prefisso, ore, resto // 60)
+        giorni, resto = divmod(int(secondi), 86400)
+        return "%s%d g %02d h" % (prefisso, giorni, resto // 3600)
+
+    app.jinja_env.filters["bytes"] = filter_bytes
+    app.jinja_env.filters["intero"] = filter_intero
+    app.jinja_env.filters["durata"] = filter_durata
     app.jinja_env.filters["dt"] = filter_datetime
     app.jinja_env.filters["dtz"] = filter_datetime_tz
     app.jinja_env.filters["hms"] = filter_time

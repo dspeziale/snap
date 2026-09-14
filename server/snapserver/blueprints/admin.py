@@ -573,6 +573,8 @@ def settings():
         disk_free,
         list_backups,
         retention_plan,
+        storage_history,
+        storage_trend,
     )
     from ..notifications import NOTIFY_EVENTS, enabled_events, is_configured, smtp_config
     from ..reports.daily import settings as impostazioni_resoconto
@@ -598,6 +600,12 @@ def settings():
         # e' la domanda che si pone prima di qualunque altra: senza, la conservazione
         # e' una politica senza conseguenze visibili.
         database=database_size(),
+        # La dimensione da sola non dice se durera': la tendenza e' una differenza fra
+        # due misure, e le misure le prende la sorveglianza (`storage_watch`), non chi
+        # apre la pagina -- altrimenti l'archivio dimenticato non avrebbe storia
+        # proprio il giorno in cui serve.
+        tendenza=storage_trend(),
+        storia=storage_history(),
         retention=retention_plan(),
         retention_types=RETENTION_TYPES,
         backups=list_backups(),

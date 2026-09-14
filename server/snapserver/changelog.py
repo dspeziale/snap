@@ -21,6 +21,53 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.8.8",
+        "date": "2026-09-14",
+        "abstract": "La pagina dell'archivio contava le righe con una statistica che"
+                    " puo' valere zero su una tabella piena, e mostrava zero. Ora le"
+                    " conta. E dice anche quanto cresce e fra quanto il disco si"
+                    " riempirebbe.",
+        "changes": [
+            "LE RIGHE ERANO SBAGLIATE, ED ERA MISURABILE. Si leggevano da"
+            " \"n_live_tup\", che e' una statistica dell'autovacuum: su una tabella"
+            " caricata in blocco e mai piu' scritta resta a ZERO per sempre. Su un"
+            " archivio reale \"ti_cve\" mostrava 0 righe avendone 6.434 e"
+            " \"ti_cve_cpe\" ne mostrava 0 avendone 117.167: il totale in cima alla"
+            " pagina era sbagliato di 123.601 righe. Una tabella da 22 MB con scritto"
+            " \"0 righe\" non e' un'imprecisione, e' una pagina di diagnosi che mente"
+            " proprio a chi la consulta per decidere che cosa cancellare. Ora le righe"
+            " si CONTANO, e sopra i due gigabyte si passa alla stima dichiarandolo.",
+            "Via i due riquadri che valevano zero per costruzione (RIUTILIZZABILE e"
+            " REGISTRO WAL): su PostgreSQL sono grandezze dell'intero servizio, non di"
+            " un database, e due riquadri fermi a \"0,00 MB\" si leggono come una"
+            " misura. Al loro posto due cose che si misurano davvero: le righe morte e"
+            " la crescita.",
+            "CRESCITA E PREVISIONE. Una misura al giorno, presa da un servizio di"
+            " sorveglianza e non da chi apre la pagina -- altrimenti l'archivio"
+            " dimenticato, l'unico che riempie davvero un disco, non avrebbe alcuna"
+            " storia proprio il giorno in cui servirebbe. Da due misure: crescita al"
+            " giorno e fra quanti giorni il volume si riempie. Sotto i sessanta giorni"
+            " l'episodio finisce nel registro delle azioni, una volta sola.",
+            "Il primo giorno si legge \"crescita: non ancora\", non \"zero\": una"
+            " crescita e' una differenza fra due misure, e uno zero al suo posto si"
+            " leggerebbe come \"non cresce\" -- un'affermazione che nessuno ha"
+            " verificato.",
+            "La console mostra anche l'archivio di OGNI SONDA, in Sonde > Console: il"
+            " dato viaggia col battito, perche' la sonda sta in casa del cliente e"
+            " nessuno andra' a guardarle il disco prima che si riempia.",
+            "Il manuale di installazione ora basta da solo per TRE macchine nuove:"
+            " capitolo 6 nuovo sulla sonda accanto alla console (le tre collisioni,"
+            " l'indirizzo con cui la sonda chiama, quando invece non conviene) e"
+            " capitolo 9 riscritto sull'agente -- pacchetto, installatori, container,"
+            " scelta dei gruppi, disinstallazione.",
+            "I PDF hanno un sommario con i numeri di pagina. Verificato due volte, e la prima non bastava: il testo estratto dal PDF dava tutte e trentaquattro le voci con il numero giusto, e la pagina era comunque una macchia nera -- le voci erano una sopra l'altra. Un testo estratto non ha geometria. Ora una prova misura che duecento voci NON stiano in una pagina sola, che e' una cosa che non si puo' aggirare.",
+            "La guida diceva che la sonda ha quattro pagine: sono otto. Mancavano"
+            " Pacchetti, Rilevazione e Agenti, aggiunte da tempo. E la sezione"
+            " sull'archivio descriveva ancora il comportamento di SQLite -- \"la"
+            " compattazione riscrive il file\" -- che su PostgreSQL non e' vero.",
+        ],
+    },
+    {
         "version": "1.8.6",
         "date": "2026-09-13",
         "abstract": "La guida operativa dice la verita' sul traffico: il prodotto ora"

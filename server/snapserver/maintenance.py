@@ -234,12 +234,27 @@ def database_target() -> str:
     return dsn.rsplit("@", 1)[-1] or "(non indicato)"
 
 
+# Oltre questa dimensione le righe non si contano piu' una per una. Misurato su un
+# archivio reale da 188 MB e 47 tabelle: 371 ms per contarle tutte. Accettabile, ma
+# cresce con l'archivio, e una pagina di diagnosi che impiega dieci secondi non si apre.
+CONTEGGIO_ESATTO_MASSIMO_BYTE = 2 * 1024 ** 3
+
+
 def database_size() -> dict:
     """Dimensione dell'archivio e occupazione per tabella.
 
     Su PostgreSQL i numeri sono migliori di quelli che si potevano dare su SQLite:
     l'occupazione per tabella e' un dato di catalogo (`pg_total_relation_size`,
     indici compresi) e non dipende da un modulo opzionale.
+
+    RIGHE CONTATE, NON STIMATE -- e detto quale delle due. Prima si leggeva
+    `pg_stat_user_tables.n_live_tup`, che e' una statistica aggiornata
+    dall'autovacuum: su una tabella caricata in blocco e poi mai piu' scritta resta a
+    ZERO per sempre. Misurato su un archivio reale: `ti_cve` mostrava 0 righe
+    avendone 6.434, `ti_cve_cpe` ne mostrava 0 avendone 117.167, e il totale in cima
+    alla pagina era sbagliato di 123.601 righe. Una tabella da 22 MB con scritto
+    "0 righe" non e' un'imprecisione: e' una pagina di diagnosi che mente proprio a
+    chi la sta consultando per decidere che cosa cancellare.
 
     Restano due voci che qui NON hanno un equivalente e valgono zero, dichiarato:
     il registro di scrittura anticipata (WAL) e la memoria condivisa sono
@@ -249,19 +264,30 @@ def database_size() -> dict:
     dimensione = int(scalar("SELECT pg_database_size(current_database())",
                             (), default=0) or 0)
     pagina = int(scalar("SELECT current_setting('block_size')::int", (), default=0) or 0)
+    esatte = dimensione <= CONTEGGIO_ESATTO_MASSIMO_BYTE
 
     tabelle = []
     for riga in query(
             "SELECT c.relname AS tabella,"
             "       pg_total_relation_size(c.oid) AS byte,"
-            "       COALESCE(s.n_live_tup, 0)     AS righe,"
+            "       c.reltuples::bigint           AS stimate,"
             "       COALESCE(s.n_dead_tup, 0)     AS morte"
             "  FROM pg_class c"
             "  JOIN pg_namespace n ON n.oid = c.relnamespace"
             "  LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid"
             " WHERE c.relkind = 'r' AND n.nspname = current_schema()"
             " ORDER BY pg_total_relation_size(c.oid) DESC"):
-        tabelle.append({"tabella": riga["tabella"], "righe": int(riga["righe"] or 0),
+        nome = str(riga["tabella"])
+        if esatte:
+            # Il nome viene dal catalogo di PostgreSQL, non dall'esterno. Si verifica
+            # comunque, perche' finisce in un'istruzione composta e nessuna
+            # distrazione futura deve poterne fare un varco.
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", nome):
+                raise MaintenanceError("Nome di tabella non utilizzabile: %r" % nome[:40])
+            quante = int(scalar('SELECT count(*) FROM "%s"' % nome, (), default=0) or 0)
+        else:
+            quante = max(0, int(riga["stimate"] or 0))
+        tabelle.append({"tabella": nome, "righe": quante,
                         "byte": int(riga["byte"] or 0),
                         "morte": int(riga["morte"] or 0)})
 
@@ -281,8 +307,95 @@ def database_size() -> dict:
         "righe_morte": morte,
         "tabelle": tabelle,
         "dettaglio_byte": True,
+        "righe_esatte": esatte,
         "righe_totali": sum(v["righe"] for v in tabelle),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Storia dell'occupazione
+# --------------------------------------------------------------------------- #
+# Una misura al giorno: la crescita di un archivio si legge su settimane, e misurare
+# piu' spesso riempirebbe di righe proprio la tabella che serve a misurare le righe.
+STORIA_INTERVALLO_ORE = 24
+# Oltre due anni la storia e' archeologia: la tendenza si calcola sulle settimane.
+STORIA_GIORNI_MASSIMI = 730
+# Su quanti giorni si calcola la crescita. Un mese copre il ciclo mensile dei dati
+# senza farsi dettare la pendenza da un singolo giorno storto.
+TENDENZA_GIORNI = 30
+
+
+def storage_sample(forza: bool = False) -> bool:
+    """Registra una misura dell'occupazione. Vero se l'ha registrata davvero.
+
+    Non lo fa chi apre la pagina: se lo facesse, la storia esisterebbe solo per gli
+    archivi che qualcuno guarda -- e quello dimenticato, l'unico che riempie davvero
+    un disco, non ne avrebbe alcuna proprio il giorno in cui serve.
+    """
+    adesso = utc_now()
+    if not forza:
+        ultima = scalar("SELECT max(measured_at) FROM storage_samples", (), default=None)
+        if ultima:
+            try:
+                quando = datetime.strptime(str(ultima)[:19], "%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                quando = None
+            if quando is not None and (adesso.replace(tzinfo=None) - quando) < timedelta(
+                    hours=STORIA_INTERVALLO_ORE):
+                return False
+
+    misura = database_size()
+    disco = disk_free()
+    execute("INSERT INTO storage_samples"
+            " (measured_at, db_bytes, rows_total, dead_rows, disk_free, disk_total)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (utc_str(adesso), misura["file_byte"], misura["righe_totali"],
+             misura["righe_morte"], disco["libero"], disco["totale"]))
+    execute("DELETE FROM storage_samples WHERE measured_at < ?",
+            (utc_str(adesso - timedelta(days=STORIA_GIORNI_MASSIMI)),))
+    return True
+
+
+def storage_history(giorni: int = STORIA_GIORNI_MASSIMI) -> list[dict]:
+    """Le misure degli ultimi giorni, dalla piu' vecchia alla piu' recente."""
+    limite = utc_str(utc_now() - timedelta(days=max(1, int(giorni))))
+    return [dict(r) for r in query(
+        "SELECT measured_at, db_bytes, rows_total, dead_rows, disk_free, disk_total"
+        "  FROM storage_samples WHERE measured_at >= ? ORDER BY measured_at", (limite,))]
+
+
+def storage_trend() -> dict:
+    """Crescita al giorno e giorni che restano prima di riempire il disco.
+
+    SI DICE ANCHE QUANDO NON SI SA. Con una sola misura la crescita non esiste -- non
+    e' zero -- e con una crescita nulla il riempimento non arriva mai: in entrambi i
+    casi si restituisce `None`, e la pagina scrive perche'. Un "0 giorni" calcolato su
+    una misura sola sarebbe un allarme inventato; un "mai" su un archivio che cresce
+    sarebbe una rassicurazione inventata. Sono lo stesso errore nelle due direzioni.
+    """
+    storia = storage_history(TENDENZA_GIORNI)
+    esito = {"campioni": len(storia), "finestra_giorni": TENDENZA_GIORNI,
+             "da_quando": storia[0]["measured_at"] if storia else None,
+             "crescita_giorno": None, "giorni_al_riempimento": None}
+    if len(storia) < 2:
+        return esito
+
+    prima, ultima = storia[0], storia[-1]
+    try:
+        inizio = datetime.strptime(str(prima["measured_at"])[:19], "%Y-%m-%d %H:%M:%S")
+        fine = datetime.strptime(str(ultima["measured_at"])[:19], "%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return esito
+    giorni = (fine - inizio).total_seconds() / 86400.0
+    if giorni <= 0:
+        return esito
+
+    esito["crescita_giorno"] = (int(ultima["db_bytes"] or 0)
+                                - int(prima["db_bytes"] or 0)) / giorni
+    libero = int(ultima["disk_free"] or 0)
+    if esito["crescita_giorno"] > 0 and libero > 0:
+        esito["giorni_al_riempimento"] = libero / esito["crescita_giorno"]
+    return esito
 
 
 def compact() -> dict:

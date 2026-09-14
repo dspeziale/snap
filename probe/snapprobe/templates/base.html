@@ -204,6 +204,13 @@
             </a>
           </li>
           <li class="nav-item">
+            <a href="{{ url_for('probe.salute') }}"
+               class="nav-link {% if request.endpoint == 'probe.salute' %}active{% endif %}">
+              <i class="nav-icon bi bi-heart-pulse"></i>
+              <p>Salute</p>
+            </a>
+          </li>
+          <li class="nav-item">
             <a href="{{ url_for('probe.diary') }}"
                class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}">
               <i class="nav-icon bi bi-journal-text"></i>

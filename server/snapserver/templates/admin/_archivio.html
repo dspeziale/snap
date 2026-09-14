@@ -17,23 +17,45 @@
 {# Gli indicatori restano fuori dalle schede: sono la risposta breve, e chi apre questa
    pagina la cerca prima di scegliere che cosa fare. #}
 <div class="row g-3 mb-3">
+  {# RIUTILIZZABILE e REGISTRO WAL non stanno piu' qui. Su PostgreSQL valevano zero
+     per costruzione -- sono grandezze dell'intero servizio, non di un database -- e
+     due riquadri fermi a "0,00 MB" si leggono come una misura, non come un "qui non
+     si applica". Al loro posto ci sono le due cose che si misurano davvero: le righe
+     morte (lo spazio che una compattazione renderebbe riutilizzabile) e la crescita. #}
+  {% set riempimento = tendenza.giorni_al_riempimento %}
   {% for voce in [
-      ('ARCHIVIO', (database.file_byte / 1048576)|round(2)|string + ' MB',
-       'bi-database', 'primary'),
-      ('RIUTILIZZABILE', (database.riutilizzabile_byte / 1048576)|round(2)|string + ' MB',
-       'bi-recycle', 'warning' if database.riutilizzabile_byte > 5242880 else 'secondary'),
-      ('REGISTRO WAL', (database.wal_byte / 1048576)|round(2)|string + ' MB',
-       'bi-journal', 'secondary'),
-      ('RIGHE TOTALI', database.righe_totali, 'bi-list-ol', 'secondary'),
-      ('DISCO LIBERO', (disk.libero / 1073741824)|round(1)|string + ' GB', 'bi-hdd',
-       'danger' if disk.libero < database.file_byte * 3 else 'success')] %}
-  <div class="col-6 col-xl">
+      ('ARCHIVIO', database.file_byte|bytes, 'bi-database', 'primary',
+       database.tabelle|length ~ ' tabelle'),
+      ('RIGHE', database.righe_totali|intero, 'bi-list-ol', 'secondary',
+       'contate una per una' if database.righe_esatte else 'stima del catalogo'),
+      ('RIGHE MORTE', database.righe_morte|intero, 'bi-recycle',
+       'warning' if database.righe_morte > 100000 else 'secondary',
+       'spazio che una compattazione renderebbe riutilizzabile'),
+      ('DISCO LIBERO', disk.libero|bytes, 'bi-hdd',
+       'danger' if disk.libero < database.file_byte * 3 else 'success',
+       'sul volume delle copie'),
+      ('CRESCITA AL GIORNO',
+       tendenza.crescita_giorno|bytes if tendenza.crescita_giorno is not none
+         else 'non ancora',
+       'bi-graph-up-arrow',
+       'secondary' if tendenza.crescita_giorno is none else 'info',
+       ('serve una seconda misura' if tendenza.crescita_giorno is none
+        else 'su ' ~ tendenza.campioni ~ ' misure in ' ~ tendenza.finestra_giorni ~ ' giorni')),
+      ('SI RIEMPIE FRA',
+       (riempimento|round(0)|int|string ~ ' giorni') if riempimento else 'non previsto',
+       'bi-hourglass-split',
+       ('danger' if riempimento and riempimento < 60
+        else ('warning' if riempimento and riempimento < 180 else 'secondary')),
+       ('non cresce, o non si sa ancora quanto' if not riempimento
+        else 'a questo ritmo, con questo spazio libero'))] %}
+  <div class="col-6 col-xl-2">
     <div class="card snap-stat h-100">
       <div class="card-body py-2">
-        <div class="d-flex justify-content-between align-items-center">
-          <div>
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div class="min-w-0">
             <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
             <p class="snap-stat-value mb-0" style="font-size:1.05rem">{{ voce[1] }}</p>
+            <p class="snap-stat-foot mb-0">{{ voce[4] }}</p>
           </div>
           <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
         </div>
@@ -58,25 +80,29 @@
       <i class="bi bi-hdd-stack me-1"></i> Dimensione per tabella
     </h3>
     <small class="text-body-secondary">
-      {{ database.pagine }} pagine da {{ database.pagina_byte }} byte,
-      {{ database.pagine_libere }} libere
-      {%- if not database.dettaglio_byte %}; occupazione per tabella non disponibile in
-      questa build di SQLite{% endif %}
+      {% if database.righe_esatte %}
+      Righe contate una per una: il numero e' esatto.
+      {% else %}
+      Archivio grande: le righe sono la <strong>stima</strong> del catalogo. Contarle
+      tutte avrebbe reso lenta questa pagina.
+      {% endif %}
+      L'occupazione comprende gli indici.
     </small>
   </div>
   <div class="card-body p-0">
     <div class="table-responsive">
       <table class="table table-hover table-sm align-middle mb-0" data-snap-table
              data-page-size="15">
-        <thead><tr><th>TABELLA</th><th>RIGHE</th><th>OCCUPAZIONE</th></tr></thead>
+        <thead><tr><th>TABELLA</th><th>RIGHE</th><th>OCCUPAZIONE</th>
+                   <th>RIGHE MORTE</th></tr></thead>
         <tbody>
           {% for t in database.tabelle %}
           <tr>
             <td class="font-monospace small">{{ t.tabella }}</td>
-            <td class="text-end">{{ t.righe }}</td>
-            <td class="text-end">
-              {% if t.byte is not none %}{{ (t.byte / 1024)|round(0)|int }} kB
-              {% else %}<span class="text-body-secondary">-</span>{% endif %}
+            <td class="text-end">{{ t.righe|intero }}</td>
+            <td class="text-end">{{ t.byte|bytes }}</td>
+            <td class="text-end {{ 'text-warning' if t.righe and t.morte > t.righe }}">
+              {{ t.morte|intero }}
             </td>
           </tr>
           {% endfor %}
@@ -84,6 +110,67 @@
       </table>
     </div>
   </div>
+  <div class="card-footer small text-body-secondary">
+    <strong>Righe morte</strong> sono versioni superate che PostgreSQL non ha ancora
+    ripulito: occupano spazio ma vengono riusate da sole. Non sono un guasto, e non
+    c'e' niente da fare finche' non superano di molto le righe vive.
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-graph-up me-1"></i> Come sta crescendo
+    </h3>
+    <small class="text-body-secondary">
+      Una misura al giorno, presa dal servizio di sorveglianza
+    </small>
+  </div>
+  {% if storia|length < 2 %}
+  <div class="card-body">
+    <p class="small text-body-secondary mb-0">
+      {% if not storia %}
+      Nessuna misura ancora. La prima viene presa entro un'ora dall'avvio del server.
+      {% else %}
+      C'e' <strong>una sola misura</strong>, presa {{ storia[0].measured_at|ago }}. Una
+      crescita e' una differenza fra due misure: la seconda arriva domani, e con essa
+      la previsione. Finche' non c'e', la crescita non e' zero &mdash; e' ignota, e la
+      pagina lo scrive invece di mostrare uno zero rassicurante.
+      {% endif %}
+    </p>
+  </div>
+  {% else %}
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="20" data-no-search="true">
+        <thead><tr><th>MISURATA</th><th>ARCHIVIO</th><th>RIGHE</th>
+                   <th>DISCO LIBERO</th><th>VARIAZIONE</th></tr></thead>
+        <tbody>
+          {# Dalla piu' recente in giu'. La variazione di una riga e' rispetto alla
+             misura PRECEDENTE, che in questo ordine sta una riga piu' sotto. #}
+          {% set recenti = storia|reverse|list %}
+          {% for m in recenti %}
+          <tr>
+            <td class="small">{{ m.measured_at|dt }}</td>
+            <td class="text-end">{{ m.db_bytes|bytes }}</td>
+            <td class="text-end">{{ m.rows_total|intero }}</td>
+            <td class="text-end">{{ m.disk_free|bytes if m.disk_free else '-' }}</td>
+            <td class="text-end small text-body-secondary">
+              {% if not loop.last %}
+                {% set differenza = m.db_bytes - recenti[loop.index0 + 1].db_bytes %}
+                {{ '+' if differenza > 0 }}{{ differenza|abs|bytes }}
+              {% else %}
+                prima misura
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
 </div>
 
 </div>

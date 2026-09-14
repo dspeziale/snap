@@ -26,7 +26,9 @@ license: MIT
 
 from __future__ import annotations
 
+import shutil
 import threading
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -145,6 +147,11 @@ class ProbeAgent:
         # dall'ultimo contatto registrato, se e' recente.
         self._online = self._recent_contact()
         self._last_error = ""
+        # Quando si e' misurata l'ultima volta l'occupazione dell'archivio. Sta in
+        # memoria e non nell'archivio perche' il ciclo passa ogni quindici secondi:
+        # senza, ogni passata farebbe una lettura per scoprire che non e' ancora ora.
+        # Al riavvio riparte da zero e si misura una volta in piu': innocuo.
+        self._archivio_misurato_at = 0.0
 
     def _recent_contact(self) -> bool:
         """Vero se il server ha risposto di recente, secondo l'archivio locale."""
@@ -335,6 +342,10 @@ class ProbeAgent:
 
         if self.store.get_setting("paused", "0") == "1":
             return outcome
+
+        # Quanto occupa l'archivio: una volta al giorno, e prima del battito, cosi'
+        # l'istantanea porta la misura di oggi e non quella di ieri.
+        outcome["archivio"] = self._campiona_archivio()
 
         if self._collection_due():
             outcome["collected"] = self.collector.collect()
@@ -1088,6 +1099,10 @@ class ProbeAgent:
             # Sono poche decine di byte, e senza di essi la console mostrerebbe uno
             # zero senza sapere se e' "niente di anomalo" o "non ho ancora guardato".
             "ids": self._ids_console(),
+            # QUANTO OCCUPA. Un disco pieno ferma la sonda in silenzio, e nessuno va a
+            # guardare il disco di una sonda finche' non smette di conferire: se il
+            # dato non viaggia col battito, non esiste per chi la sorveglia.
+            "archivio": self._archivio_console(),
         }
         # IL PERIMETRO NON VIAGGIA: lo ha mandato il server, quindi rimandarglielo e'
         # traffico a vuoto -- ed era 30 dei 37 kilobyte della prima istantanea, con
@@ -1119,6 +1134,74 @@ class ProbeAgent:
             for e in esecuzioni[:8]
         ] if esecuzioni else []
         return istantanea
+
+    # Ogni quanto rimisurare l'occupazione. La cadenza vera e' nell'archivio
+    # (`STORIA_INTERVALLO_ORE`): questa serve solo a non bussare a ogni giro.
+    ARCHIVIO_RIMISURA_SEC = 3600
+
+    def _campiona_archivio(self) -> bool:
+        """Registra la misura quotidiana dell'occupazione. Vero se l'ha registrata.
+
+        Un guasto qui non deve fermare il ciclo: sapere quanto si occupa e' utile,
+        raccogliere e conferire e' il mestiere. Si scrive nel diario e si prosegue.
+        """
+        adesso = time.monotonic()
+        if adesso - self._archivio_misurato_at < self.ARCHIVIO_RIMISURA_SEC:
+            return False
+        self._archivio_misurato_at = adesso
+        try:
+            return self.store.archivio_campiona(self._disco_libero())
+        except Exception as errore:  # noqa: BLE001 - la diagnosi non ferma il servizio
+            self.store.log("warning",
+                           "Misura dell'occupazione dell'archivio non riuscita: %s"
+                           % errore)
+            return False
+
+    @staticmethod
+    def _disco_libero() -> int:
+        """Byte liberi sul volume dove la sonda scrive. Zero se non si sa.
+
+        NON E' IL VOLUME DELL'ARCHIVIO quando la base dati sta su un'altra macchina o
+        in un altro contenitore: e' quello di QUESTO processo. La pagina lo dichiara,
+        perche' un numero giusto con l'etichetta sbagliata inganna piu' di un numero
+        assente.
+        """
+        try:
+            return int(shutil.disk_usage(".").free)
+        except OSError:
+            # Percorso non interrogabile (volume smontato, permessi): non e' un
+            # guasto della sonda e non deve comparire come tale.
+            return 0
+
+    def _archivio_console(self) -> dict:
+        """Quanto occupa l'archivio della sonda, per la console del server.
+
+        Sono poche decine di byte sul battito, e rispondono a una domanda che dal
+        server non si potrebbe porre in nessun altro modo: la sonda sta in casa del
+        cliente e nessuno andra' a guardarle il disco prima che si riempia.
+        """
+        try:
+            misura = self.store.occupazione()
+            tendenza = self.store.archivio_tendenza(self._disco_libero())
+        except Exception as errore:  # noqa: BLE001 - un battito vale piu' di una misura
+            self.store.log("warning",
+                           "Occupazione non leggibile per l'istantanea: %s" % errore)
+            return {}
+        return {
+            "byte": misura["byte"],
+            "righe": misura["righe"],
+            "righe_morte": misura["morte"],
+            "righe_esatte": misura["righe_esatte"],
+            "tabelle": len(misura["tabelle"]),
+            # Le tre piu' grosse: bastano a capire CHE COSA occupa, e non sono un
+            # elenco di diciannove righe da mandare ogni quindici secondi.
+            "maggiori": [{"tabella": t["tabella"], "byte": t["byte"], "righe": t["righe"]}
+                         for t in misura["tabelle"][:3]],
+            "disco_libero": self._disco_libero(),
+            "crescita_giorno": tendenza.get("crescita_giorno"),
+            "giorni_al_riempimento": tendenza.get("giorni_al_riempimento"),
+            "campioni": tendenza.get("campioni", 0),
+        }
 
     def _ids_console(self) -> dict:
         """Il poco che serve al server per spiegare uno zero di rilevazioni."""

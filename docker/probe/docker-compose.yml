@@ -47,7 +47,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/probe/Dockerfile
-    image: snap-probe:${SNAP_VERSION:-1.3.4}
+    image: snap-probe:${SNAP_VERSION:-1.3.6}
     container_name: snap-probe
     restart: unless-stopped
     network_mode: host

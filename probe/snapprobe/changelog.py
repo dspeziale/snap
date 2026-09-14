@@ -40,6 +40,40 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.3.6",
+        "date": "2026-09-14",
+        "abstract": "Pagina Salute nuova: quanto occupa l'archivio, quanto durera', e"
+                    " quanto manca alla prossima esecuzione di ogni fase -- compresa"
+                    " la scoperta della rete, che prima non lo diceva da nessuna parte.",
+        "changes": [
+            "IL CONTO ALLA ROVESCIA NON ESISTEVA. La pagina di stato mostrava la"
+            " \"prossima fase\", ma era la prima fase GIA' scaduta, non quando lo"
+            " sara': alla domanda \"quanto manca alla prossima scansione della rete?\""
+            " nessuna pagina rispondeva. Ora la scheda Scadenze dice cadenza, ultima"
+            " esecuzione e quanto manca, per ogni fase.",
+            "La scoperta si conta PER SUBNET, e la pagina lo mostra con due colonne:"
+            " con 380 subnet le scadenze sono 380 e il perimetro si ricensisce a"
+            " scaglioni lungo la giornata. Un numero solo avrebbe detto una cosa falsa.",
+            "Una fase scaduta compare come tale, con il ritardo: \"scaduta da sei ore\""
+            " e \"scade adesso\" non sono la stessa notizia per chi deve capire se la"
+            " sonda sta dietro al proprio lavoro. Misurato su una rete reale, la pagina"
+            " ha mostrato subito tre fasi in ritardo che nessuno vedeva.",
+            "OCCUPAZIONE DELL'ARCHIVIO. Tabella per tabella, con le righe contate (non"
+            " stimate), le righe morte e che cosa contiene ciascuna tabella. La sonda"
+            " sapeva gia' misurarsi -- il metodo esisteva -- ma il numero non compariva"
+            " in nessuna pagina.",
+            "Una misura al giorno, e da due misure la crescita e la previsione di"
+            " riempimento. Il primo giorno si legge \"non ancora\" e non \"zero\": una"
+            " crescita e' una differenza fra due misure.",
+            "La misura viaggia col battito verso la console del server, perche' la"
+            " sonda sta in casa del cliente e nessuno andra' a guardarle il disco"
+            " prima che si riempia.",
+            "La storia dell'occupazione si azzera con l'archivio: conservarla darebbe"
+            " una crescita calcolata a cavallo di un azzeramento -- negativa, cioe' un"
+            " \"non si riempie mai\" che nessuno ha misurato.",
+        ],
+    },
+    {
         "version": "1.3.4",
         "date": "2026-09-13",
         "abstract": "I pacchetti si possono GUARDARE. Una pagina nuova mostra che cosa"

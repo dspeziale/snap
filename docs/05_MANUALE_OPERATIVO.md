@@ -846,11 +846,14 @@ cifrato e autenticato dalle chiavi della registrazione.
 | Diario locale | Eventi e conferimenti registrati sul dispositivo |
 | IDS | Le rilevazioni prodotte su questa rete, lo stato dei sensori e la maturita' della memoria. E' la stessa informazione della console, ma **locale**: si vede anche quando il collegamento con la sede e' interrotto |
 | Agenti | Le macchine che riferiscono a questa sonda, con l'emissione dei token di registrazione e la revoca (capitolo 6.2) |
+| Pacchetti | Che cosa passa sul filo, quando l'osservazione del traffico e' accesa: intestazioni e nomi in chiaro, mai il contenuto |
+| Salute | Quanto occupa l'archivio, quanto durera', e quanto manca a ciascuna fase di scansione (capitolo 6.3) |
 
 L'interfaccia non consente la consultazione dei dati raccolti: la loro sede e' il
-server. Le due pagine IDS e Agenti sono l'eccezione, e per un motivo preciso: chi e'
-davanti alla sonda deve poter capire che cosa sta succedendo **senza dipendere dalla
-rete geografica**, che e' proprio cio' che potrebbe mancare nel momento in cui serve.
+server. Le pagine IDS, Agenti, Pacchetti e Salute sono l'eccezione, e per un motivo
+preciso: chi e' davanti alla sonda deve poter capire che cosa sta succedendo **senza
+dipendere dalla rete geografica**, che e' proprio cio' che potrebbe mancare nel momento
+in cui serve.
 
 **Operazioni di manutenzione**:
 - *Azzera il contatore dei cicli*: riporta a zero la numerazione delle raccolte;
@@ -1000,6 +1003,38 @@ sconosciuto o revocato», «invio ripetuto». Prima di tutto il resto si prova
 proxy, non la chiave.
 
 ---
+
+### 6.3 Salute: occupazione dell'archivio e scadenze
+
+Risponde a due domande che prima non avevano una pagina.
+
+**Quanto occupa questa sonda.** L'archivio tabella per tabella, con le righe
+**contate** (non stimate), le righe morte e che cosa contiene ciascuna tabella. Una
+misura al giorno viene registrata da sola: da due misure la pagina ricava la crescita
+al giorno e, con lo spazio libero, fra quanti giorni il volume si riempirebbe.
+
+> Il primo giorno si legge «crescita: non ancora», non «zero». Una crescita e' una
+> differenza fra due misure, e finora ce n'e' una sola: uno zero al suo posto si
+> leggerebbe come «non cresce», che e' un'affermazione che nessuno ha verificato.
+
+**Quanto manca alla prossima esecuzione.** Per ogni fase: cadenza, ultima esecuzione e
+tempo che manca. La **scoperta si conta per subnet**, le altre no: con centinaia di
+subnet le scadenze sono altrettante e il perimetro si ricensisce a scaglioni lungo la
+giornata, percio' ci sono due colonne — quando scade la prima e quando l'ultima.
+
+| Si legge | Significa |
+|---|---|
+| *fra 12 h 04 min* | la fase ripartira' allora |
+| *scaduta da 6 h* | e' **in coda**, non e' ferma |
+| *appena possibile* | non e' mai stata eseguita |
+| *mai* nella colonna dell'ultima esecuzione | idem: non c'e' un istante da cui contare |
+
+Una fase scaduta non e' un guasto: lo diventa se resta scaduta mentre le altre
+avanzano, ed e' allora che si guarda il diario.
+
+Le stesse cifre dell'archivio arrivano alla console del server col battito, e si
+leggono in *Sonde → Console*: la sonda sta in casa del cliente, e nessuno andra' a
+guardarle il disco prima che si riempia.
 
 ## 7. Esercizio ordinario
 

@@ -614,16 +614,24 @@ class Foglio:
     # ------------------------------------------------------------------ #
     # Elementi
     # ------------------------------------------------------------------ #
-    def titolo_sezione(self, testo, nota=""):
-        """Sezione numerata, con la barretta del colore del genere."""
+    def titolo_sezione(self, testo, nota="", numerato=True):
+        """Sezione numerata, con la barretta del colore del genere.
+
+        `numerato=False` per le parti che NON sono una sezione del discorso e non
+        devono consumare un numero: il sommario, che sta davanti a tutto e che
+        altrimenti diventerebbe "1." spostando di uno l'intero documento -- proprio i
+        numeri che il sommario sta dichiarando.
+        """
         self.spazio(46)
-        self.numero_sezione += 1
+        if numerato:
+            self.numero_sezione += 1
         c = self.c
         c.setFillColor(self.tema["accento"])
         c.rect(MARGINE, self.y - 3, 3.5, 16, stroke=0, fill=1)
         c.setFont(self.font["titolo"], 13)
         c.setFillColor(INCHIOSTRO)
-        c.drawString(MARGINE + 10, self.y, "%d. %s" % (self.numero_sezione, testo))
+        c.drawString(MARGINE + 10, self.y,
+                     ("%d. %s" % (self.numero_sezione, testo)) if numerato else testo)
         if nota:
             c.setFont(self.font["corpo"], 8)
             c.setFillColor(INCHIOSTRO_3)

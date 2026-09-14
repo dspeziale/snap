@@ -449,12 +449,33 @@
 </p>
 <h3>Dimensione</h3>
 <ul>
-  <li>Dimensione del file, <strong>spazio riutilizzabile</strong> interno, registro WAL,
-      righe totali, spazio libero sul volume, ripartizione per tabella.</li>
-  <li>Dopo un'eliminazione <strong>il file non si riduce</strong>: lo spazio resta dentro
-      l'archivio e viene riusato. Per restituirlo al disco serve la
-      <strong>compattazione</strong>, che riscrive l'intero file ed e' percio'
-      un'operazione a se'.</li>
+  <li>Occupazione dell'archivio, <strong>righe contate</strong> (non stimate),
+      <strong>righe morte</strong>, spazio libero sul volume delle copie, e la
+      ripartizione per tabella con gli indici compresi.</li>
+  <li>Le <strong>righe morte</strong> sono versioni superate che PostgreSQL non ha
+      ancora ripulito: occupano spazio ma vengono riusate da sole. Non sono un guasto,
+      e non c'e' niente da fare finche' non superano di molto le righe vive.</li>
+  <li>Dopo un'eliminazione <strong>la dimensione non cala</strong>, e la
+      <strong>compattazione non la fa calare</strong>: su PostgreSQL marca come
+      riutilizzabile lo spazio delle righe morte <em>dentro</em> l'archivio, cosi' le
+      scritture successive non lo fanno crescere. Restituire spazio al sistema
+      richiederebbe un lucchetto esclusivo su tutte le tabelle, e su un archivio in
+      esercizio non si prende di iniziativa.</li>
+</ul>
+<h3>Crescita e previsione</h3>
+<ul>
+  <li>Una <strong>misura al giorno</strong>, presa da sola dal servizio di
+      sorveglianza: non la prende chi apre la pagina, altrimenti l'archivio
+      dimenticato &mdash; l'unico che riempie davvero un disco &mdash; non avrebbe
+      alcuna storia proprio il giorno in cui servirebbe.</li>
+  <li>Da due misure si ricava la <strong>crescita al giorno</strong> e, con lo spazio
+      libero, fra quanti giorni il volume si riempirebbe. Sotto i sessanta giorni la
+      previsione viene registrata nel <strong>registro delle azioni</strong> come
+      avviso, una volta per episodio.</li>
+  <li>Il primo giorno si legge <strong>&laquo;crescita: non ancora&raquo;</strong>, e
+      non e' un guasto: una crescita e' una differenza fra due misure, e finora ce n'e'
+      una. Uno zero al suo posto si leggerebbe come &laquo;non cresce&raquo;, che e'
+      un'affermazione che nessuno ha verificato.</li>
 </ul>
 <h3>Conservazione</h3>
 <ul>

@@ -251,6 +251,72 @@
     </div>
   </div>
 
+  {# QUANTO OCCUPA LA SONDA. Arriva col battito, come tutto il resto: la sonda sta in
+     casa del cliente e nessuno andra' a guardarle il disco prima che si riempia. Le
+     sonde registrate prima di questa versione non lo mandano ancora, e il riquadro
+     non compare: e' un'assenza dichiarata, non uno zero. #}
+  {% set archivio = (consolle.archivio or {}) if consolle else {} %}
+  {% if archivio.get('byte') %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-database me-1"></i> Archivio della sonda</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6 fw-normal text-body-secondary">Occupazione</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.byte|bytes }}
+            <span class="text-body-secondary">({{ archivio.tabelle }} tabelle)</span>
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Righe</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.righe|intero }}
+            {%- if not archivio.get('righe_esatte') %}
+            <span class="text-body-secondary">(stimate)</span>
+            {%- endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Disco libero sulla sonda</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.disco_libero|bytes if archivio.get('disco_libero')
+               else 'non misurabile' }}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Crescita al giorno</dt>
+          <dd class="col-6 mb-1">
+            {% if archivio.get('crescita_giorno') is not none %}
+            {{ archivio.crescita_giorno|bytes }}
+            {% else %}
+            <span class="text-body-secondary" title="una crescita e' una differenza fra
+              due misure: la sonda ne ha {{ archivio.get('campioni', 0) }}">non ancora nota</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Si riempie fra</dt>
+          <dd class="col-6 mb-1">
+            {% set giorni = archivio.get('giorni_al_riempimento') %}
+            {% if giorni %}
+            <span class="{{ 'text-danger' if giorni < 60
+                            else ('text-warning' if giorni < 180 else '') }}">
+              {{ giorni|round(0)|int }} giorni</span>
+            {% else %}
+            <span class="text-body-secondary">non previsto</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Occupano di piu'</dt>
+          <dd class="col-6 mb-0">
+            {% for t in archivio.get('maggiori') or [] %}
+            <span class="d-block font-monospace" style="font-size:.72rem">
+              {{ t.tabella }} &middot; {{ t.byte|bytes }}
+            </span>
+            {% else %}
+            <span class="text-body-secondary">&mdash;</span>
+            {% endfor %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {# La ricognizione delle presenze compare solo dove esiste: su un impianto senza
      reti senza fili un riquadro vuoto sarebbe una domanda in piu'. #}
   <div class="col-12 col-xl-6">

@@ -110,6 +110,7 @@ def create_app(config_object=Config) -> Flask:
         from .reports.daily import start_scheduler
         from .rules import start_evaluator
         from .siem.detect import start_detector
+        from .storage_watch import start_watcher as start_storage_watcher
 
         start_dispatcher(app)
         # Il resoconto quotidiano e le regole sono compito del SERVER: i due thread
@@ -123,6 +124,11 @@ def create_app(config_object=Config) -> Flask:
         # Una sonda con le scansioni bloccate smette di raccogliere in silenzio: la
         # sorveglianza vive nel processo del server e avvisa (una volta per episodio).
         start_probe_scan_watcher(app)
+        # L'occupazione dell'archivio si misura una volta al giorno: la crescita e'
+        # una differenza fra due misure, e senza qualcuno che le prenda con
+        # regolarita' non esiste. Vale anche qui l'uno-per-processo: due thread
+        # scriverebbero due campioni per lo stesso giorno.
+        start_storage_watcher(app)
         # La rilevazione SIEM analizza gli eventi raccolti dai log e apre gli allarmi:
         # e' compito del server, come le regole, e vale la stessa regola dell'uno per
         # processo (altrimenti due thread aprirebbero lo stesso allarme due volte).

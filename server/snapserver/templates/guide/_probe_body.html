@@ -96,7 +96,7 @@
 <h2 id="interfaccia">4. L'interfaccia locale</h2>
 <p>
   Si apre su <code>http://127.0.0.1:5510/</code>, ha il <strong>menu a sinistra</strong>
-  come la console del server e quattro pagine. In fondo al menu restano sempre visibili
+  come la console del server e otto pagine. In fondo al menu restano sempre visibili
   lo stato del canale, la coda locale, il fuso orario in uso e il pulsante di
   <strong>uscita</strong>: sono la condizione in cui si sta lavorando, non qualcosa da
   andare a cercare. Su schermo stretto il menu si
@@ -111,6 +111,10 @@
       <tr><td><strong>Stato</strong></td><td>attivita' in corso, perimetro ricevuto, avanzamento dei profili, coda, capacita' di nmap</td></tr>
       <tr><td><strong>Registrazione</strong></td><td>stato della registrazione e modulo per eseguirla</td></tr>
       <tr><td><strong>Configurazione</strong></td><td>le scelte che si possono fare in sede</td></tr>
+      <tr><td><strong>Pacchetti</strong></td><td>che cosa passa sul filo, se l'osservazione del traffico e' accesa: intestazioni e nomi in chiaro, mai il contenuto</td></tr>
+      <tr><td><strong>Rilevazione</strong></td><td>che cosa ha notato il motore su questa rete, e quali sensori hanno saltato il turno</td></tr>
+      <tr><td><strong>Agenti</strong></td><td>le macchine che riferiscono a questa sonda, e il pacchetto per aggiungerne una</td></tr>
+      <tr><td><strong>Salute</strong></td><td>quanto occupa l'archivio, quanto durera', e quanto manca a ciascuna fase di scansione</td></tr>
       <tr><td><strong>Diario locale</strong></td><td>cosa e' accaduto, in ordine di tempo: e' la prima cosa da leggere quando qualcosa non torna</td></tr>
     </tbody>
   </table>
@@ -133,6 +137,38 @@
       attivita' e il diario delle fasi), conferimenti, identita' e canale, diario
       recente.</li>
 </ul>
+
+<h3>La pagina Salute: quanto occupa e quanto manca</h3>
+<p>
+  Risponde a due domande che prima non avevano una pagina: <strong>quanto spazio sta
+  occupando questa sonda</strong>, e <strong>quando ripartira' ciascuna fase</strong>.
+</p>
+<ul>
+  <li><strong>Occupazione</strong> &mdash; l'archivio tabella per tabella, con le righe
+      <em>contate</em> (non stimate) e le righe morte, cioe' lo spazio che una
+      compattazione renderebbe riutilizzabile.</li>
+  <li><strong>Scadenze</strong> &mdash; per ogni fase la cadenza, l'ultima esecuzione e
+      quanto manca alla prossima. La <strong>scoperta si conta per subnet</strong>:
+      con centinaia di subnet le scadenze sono altrettante e il perimetro si ricensisce
+      a scaglioni lungo la giornata, percio' ci sono due colonne &mdash; quando scade la
+      prima e quando l'ultima.</li>
+  <li><strong>Lavoro e canale</strong> &mdash; coda, collegamento, nodi, rilevazione,
+      traffico: i numeri che si guardano insieme quando qualcosa non torna.</li>
+  <li><strong>Storia</strong> &mdash; una misura al giorno, con la variazione rispetto
+      alla precedente.</li>
+</ul>
+<div class="alert alert-secondary">
+  <strong>&laquo;Crescita al giorno: non ancora&raquo; non e' un guasto.</strong> Una
+  crescita e' una <strong>differenza fra due misure</strong>, e il primo giorno ce n'e'
+  una sola: la pagina scrive che non la sa ancora, invece di mostrare uno zero che si
+  leggerebbe come &laquo;non cresce&raquo;. Il giorno dopo c'e' il numero, e con esso la
+  previsione di quando il disco si riempirebbe.
+</div>
+<div class="alert alert-secondary">
+  <strong>Una fase scaduta non e' una fase ferma:</strong> e' una fase <em>in coda</em>.
+  Lo diventa se resta scaduta mentre le altre avanzano &mdash; ed e' allora che si
+  guarda il diario.
+</div>
 
 <h3>Leggere l'indicatore di attivita'</h3>
 <p>

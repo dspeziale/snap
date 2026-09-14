@@ -36,6 +36,13 @@ DOCS = RADICE / "docs"
 sys.path.insert(0, str(RADICE / "server"))
 
 from snapserver.reports import render_pdf  # noqa: E402
+from snapserver.reports.render_pdf import (  # noqa: E402
+    INCHIOSTRO,
+    INCHIOSTRO_3,
+    INTERLINEA,
+    LINEA,
+    MARGINE,
+)
 
 # Larghezza massima di una riga di codice prima che vada a capo da sola. Il corpo
 # monospazio del documento entra in circa novanta caratteri sulla A4 con i margini
@@ -184,9 +191,14 @@ def leggi_blocchi(sorgente: Path) -> tuple:
             if livello == 1 and not blocchi:
                 titolo = testo
                 continue
-            # Via la numerazione del sorgente: `titolo_sezione` numera lui, e
-            # lasciarla darebbe "4. 4. La sonda in contenitore".
-            blocchi.append(("titolo%d" % min(livello, 3), _senza_numero(testo)))
+            # Via la numerazione del sorgente SOLO dove l'impaginatore rinumera
+            # lui, cioe' ai primi due livelli: lasciarla darebbe "4. 4. La sonda in
+            # contenitore". Il terzo livello invece non viene numerato da nessuno, e
+            # toglierla rendeva "9.3 Installare" un "Installare" qualunque -- in un
+            # documento che si cita per capitoli e sottocapitoli.
+            livello_reso = min(livello, 3)
+            blocchi.append(("titolo%d" % livello_reso,
+                            testo if livello_reso == 3 else _senza_numero(testo)))
             continue
 
         if riga.lstrip().startswith("|"):
@@ -259,50 +271,33 @@ def leggi_blocchi(sorgente: Path) -> tuple:
     return titolo, sottotitolo, blocchi
 
 
-def genera(sorgente: Path, destinazione: Path) -> Path:
-    """Impagina il documento con l'impaginatore del prodotto."""
-    titolo, sottotitolo, blocchi = leggi_blocchi(sorgente)
-    destinazione.parent.mkdir(parents=True, exist_ok=True)
-    adesso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+# Sopra questa lunghezza il documento vuole un sommario con i numeri di pagina. La
+# soglia e' quella della regola documentale del progetto (cinque pagine): sotto, un
+# indice sarebbe piu' lungo di cio' che indicizza.
+PAGINE_CHE_VOGLIONO_UN_SOMMARIO = 5
+# Quante volte al massimo si rifa' l'impaginazione cercando il punto fisso. Due giri
+# bastano sempre nei casi reali; il terzo e' il margine, e oltre si smette e si
+# stampa comunque -- un sommario con un numero incerto e' meglio di nessun documento.
+GIRI_MASSIMI = 4
 
-    # L'indice delle sezioni per il frontespizio: i titoli di primo livello del corpo.
-    # L'impaginatore numera da se' le voci dell'indice: lasciare anche i numeri del
-    # sorgente darebbe "1. 1. Che cosa si sta installando".
-    sezioni = [c for g, c in blocchi if g in ("titolo1", "titolo2")]
 
-    # Che cosa dichiara la copertina. Un documento che non e' una procedura non deve
-    # portare la fascia "INSTALLAZIONE": chi cerca come si installa e apre una
-    # specifica ha perso tempo per colpa di un'etichetta sbagliata.
-    procedura = "INSTALLAZIONE" in sorgente.stem.upper()
-    foglio = render_pdf.Foglio(
-        destinazione,
-        kind="installazione" if procedura else "documentazione",
-        titolo=titolo,
-        # NESSUN TENANT: non e' il report di una rete, e l'impaginatore omette la
-        # riga "Tenant ..." quando e' vuota (vedi render_pdf._riferimento_documento).
-        tenant="",
-        intervallo=("procedura di installazione" if procedura
-                    else "documentazione di prodotto"),
-        generato=adesso,
-        sottotitolo=sottotitolo,
-        scopo=(sottotitolo,) if sottotitolo else (),
-        sezioni=sezioni[:14],
-        riferimenti=[
-            ("Sorgente", sorgente.name),
-            ("Prodotto", "snap - Secure Network Assessment Platform"),
-        ],
-        nota="Documento generato dal sorgente in docs/: se il contenuto cambia, cambia"
-             " il sorgente e questo PDF si rigenera. Una copia modificata a mano"
-             " sarebbe una seconda verita'.",
-    )
+def _impagina(foglio, blocchi, registro=None) -> None:
+    """Disegna il corpo del documento. Con `registro`, annota dove finisce ogni titolo.
 
+    La stessa funzione serve i due giri: e' l'unico modo perche' il secondo impagini
+    esattamente come il primo. Due funzioni gemelle divergerebbero alla prima modifica,
+    e i numeri del sommario indicherebbero pagine sbagliate senza che nulla lo dica.
+    """
     for genere, contenuto in blocchi:
-        if genere == "titolo1":
+        if genere in ("titolo1", "titolo2"):
             foglio.titolo_sezione(contenuto)
-        elif genere == "titolo2":
-            foglio.titolo_sezione(contenuto)
+            if registro is not None:
+                registro.append((1, "%d. %s" % (foglio.numero_sezione, contenuto),
+                                 foglio.pagina))
         elif genere == "titolo3":
             foglio.sottotitolo_sezione(contenuto)
+            if registro is not None:
+                registro.append((2, contenuto, foglio.pagina))
         elif genere == "paragrafo":
             foglio.paragrafo(contenuto)
         elif genere == "elenco":
@@ -322,7 +317,141 @@ def genera(sorgente: Path, destinazione: Path) -> Path:
                 foglio.tabella(contenuto[0], contenuto[1:])
             foglio.a_capo()
 
+
+def _sommario(foglio, voci, scarto: int) -> int:
+    """Disegna il sommario. Restituisce quante pagine ha occupato.
+
+    `scarto` e' di quanto il sommario stesso sposta in avanti il corpo: i numeri
+    stampati sono quelli del giro precedente PIU' questo, ed e' esattamente il valore
+    che il punto fisso sta cercando.
+
+    ATTENZIONE AL CURSORE. `foglio.spazio(n)` riserva spazio e cambia pagina se non ce
+    n'e' piu', ma NON sposta `foglio.y`: lo sposta chi disegna. Dimenticarlo qui aveva
+    prodotto trentaquattro voci una sopra l'altra -- e la prova sul testo estratto non
+    se n'era accorta, perche' i caratteri c'erano tutti e i numeri erano giusti. Un
+    sommario si guarda, non si interroga.
+    """
+    prima = foglio.pagina
+    foglio.titolo_sezione("Sommario", numerato=False)
+    c = foglio.c
+    destra = foglio.larghezza - MARGINE
+
+    for livello, testo, pagina in voci:
+        capitolo = livello == 1
+        altezza = INTERLINEA + (3 if capitolo else 0)
+        # Un filo d'aria prima di ogni capitolo: senza, i sottocapitoli del capitolo
+        # precedente e il capitolo nuovo formano un blocco unico e l'occhio non trova
+        # piu' l'inizio.
+        if capitolo:
+            foglio.y -= 4
+        foglio.spazio(altezza)
+
+        rientro = MARGINE + (0 if capitolo else 16)
+        font = foglio.font["titolo"] if capitolo else foglio.font["corpo"]
+        corpo = 10 if capitolo else 8.5
+        numero = "%d" % (pagina + scarto)
+
+        c.setFont(font, corpo)
+        c.setFillColor(INCHIOSTRO if capitolo else INCHIOSTRO_3)
+        c.drawString(rientro, foglio.y, testo)
+        c.drawRightString(destra, foglio.y, numero)
+
+        # La guida dell'occhio dal titolo al numero. E' una linea TRATTEGGIATA e non
+        # una fila di punti scritti: a corpo pieno, lunga mezza pagina, quella fila si
+        # legge come una riga continua e pesa piu' del titolo che accompagna.
+        inizio = rientro + c.stringWidth(testo, font, corpo) + 6
+        fine = destra - c.stringWidth(numero, font, corpo) - 6
+        if fine > inizio + 12:
+            c.saveState()
+            c.setStrokeColor(LINEA)
+            c.setLineWidth(.6)
+            c.setDash(0.6, 2.6)
+            # Un filo sotto la linea di base, dove passerebbero i puntini.
+            c.line(inizio, foglio.y + 2, fine, foglio.y + 2)
+            c.restoreState()
+
+        foglio.y -= altezza
+
+    # Il corpo comincia su una pagina propria: cosi' lo scarto e' esattamente il
+    # numero di pagine del sommario, e non dipende da quanto spazio ne avanza.
+    foglio._nuova_pagina()
+    return foglio.pagina - prima
+
+
+def genera(sorgente: Path, destinazione: Path) -> Path:
+    """Impagina il documento con l'impaginatore del prodotto.
+
+    Due giri quando il documento e' lungo: il primo per sapere dove cade ogni titolo,
+    il secondo per stamparlo con il sommario davanti. Si veda `_sommario` per il
+    punto fisso.
+    """
+    titolo, sottotitolo, blocchi = leggi_blocchi(sorgente)
+    destinazione.parent.mkdir(parents=True, exist_ok=True)
+    adesso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+    # L'indice delle sezioni per il frontespizio: i titoli di primo livello del corpo.
+    # L'impaginatore numera da se' le voci dell'indice: lasciare anche i numeri del
+    # sorgente darebbe "1. 1. Che cosa si sta installando".
+    sezioni = [c for g, c in blocchi if g in ("titolo1", "titolo2")]
+
+    # Che cosa dichiara la copertina. Un documento che non e' una procedura non deve
+    # portare la fascia "INSTALLAZIONE": chi cerca come si installa e apre una
+    # specifica ha perso tempo per colpa di un'etichetta sbagliata.
+    procedura = "INSTALLAZIONE" in sorgente.stem.upper()
+
+    def foglio_nuovo(percorso):
+        return render_pdf.Foglio(
+            percorso,
+            kind="installazione" if procedura else "documentazione",
+            titolo=titolo,
+            # NESSUN TENANT: non e' il report di una rete, e l'impaginatore omette la
+            # riga "Tenant ..." quando e' vuota (vedi render_pdf._riferimento_documento).
+            tenant="",
+            intervallo=("procedura di installazione" if procedura
+                        else "documentazione di prodotto"),
+            generato=adesso,
+            sottotitolo=sottotitolo,
+            scopo=(sottotitolo,) if sottotitolo else (),
+            sezioni=sezioni[:14],
+            riferimenti=[
+                ("Sorgente", sorgente.name),
+                ("Prodotto", "snap - Secure Network Assessment Platform"),
+            ],
+            nota="Documento generato dal sorgente in docs/: se il contenuto cambia,"
+                 " cambia il sorgente e questo PDF si rigenera. Una copia modificata"
+                 " a mano sarebbe una seconda verita'.",
+        )
+
+    # PRIMO GIRO, in un file di scarto: serve solo a sapere dove cade ogni titolo.
+    prova = destinazione.with_suffix(".giro.pdf")
+    voci = []
+    foglio = foglio_nuovo(prova)
+    _impagina(foglio, blocchi, registro=voci)
+    pagine = foglio.pagina
     foglio.salva()
+    prova.unlink(missing_ok=True)
+
+    if pagine <= PAGINE_CHE_VOGLIONO_UN_SOMMARIO or not voci:
+        foglio = foglio_nuovo(destinazione)
+        _impagina(foglio, blocchi)
+        foglio.salva()
+        return destinazione
+
+    # SECONDO GIRO E SEGUENTI: si stampa con il sommario, e si ripete finche' il
+    # numero di pagine che il sommario occupa non coincide con quello usato per
+    # calcolare i numeri che vi sono stampati.
+    scarto = 1
+    for _ in range(GIRI_MASSIMI):
+        foglio = foglio_nuovo(destinazione)
+        occupate = _sommario(foglio, voci, scarto)
+        _impagina(foglio, blocchi)
+        foglio.salva()
+        if occupate == scarto:
+            return destinazione
+        scarto = occupate
+        # I titoli non si spostano fra un giro e l'altro -- il corpo e' identico e
+        # comincia sempre a inizio pagina -- quindi `voci` resta valido: cambia solo
+        # di quanto va traslato.
     return destinazione
 
 

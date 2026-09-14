@@ -871,6 +871,59 @@ def ids():
     )
 
 
+@bp.get("/salute")
+def salute():
+    """Quanto occupa questa sonda, come sta lavorando, e quanto manca alle scadenze.
+
+    PERCHE' UNA PAGINA SOLA E NON TRE. Sono numeri che si guardano insieme o non si
+    guardano: un archivio che cresce e una coda che non si svuota sono lo stesso
+    guasto visto da due lati, e una fase scaduta da due giorni spiega tutte e due.
+    Sparpagliarli avrebbe richiesto di ricordarsi di aprire tre pagine.
+
+    Non c'e' niente qui che riguardi la rete esaminata: sono le condizioni di salute
+    DELLA SONDA. Cio' che ha trovato sta altrove.
+    """
+    import shutil
+
+    from . import ids as modulo_ids
+
+    store = _store()
+    agente = _agent()
+
+    try:
+        disco = shutil.disk_usage(".")
+        disco_libero, disco_totale = int(disco.free), int(disco.total)
+    except OSError as errore:
+        # Volume non interrogabile: si dichiara, non si mostra uno zero. Zero byte
+        # liberi e "non l'ho potuto misurare" sono notizie opposte.
+        current_app.logger.warning("Spazio su disco non leggibile: %s", errore)
+        disco_libero, disco_totale = None, None
+
+    occupazione = store.occupazione()
+    tendenza = store.archivio_tendenza(disco_libero or 0)
+    stato = agente.status()
+    scansione = agente.scan_status()
+
+    return render_template(
+        "salute.html",
+        occupazione=occupazione,
+        tendenza=tendenza,
+        storia=store.archivio_storia(store.STORIA_GIORNI_MASSIMI),
+        disco_libero=disco_libero,
+        disco_totale=disco_totale,
+        scadenze=agente.scanner.scadenze(),
+        stato=stato,
+        scansione=scansione,
+        traffico_attivo=store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") == "1",
+        pacchetti=store.traffico_riepilogo(),
+        agenti_attivi=store.agenti_attivi(),
+        ids=store.get_json("ids_last_result", {}) or {},
+        ritenzione_minuti=store.TRAFFICO_MINUTI,
+        storia_giorni=store.STORIA_GIORNI_MASSIMI,
+        tendenza_giorni=store.TENDENZA_GIORNI,
+    )
+
+
 @bp.get("/agenti")
 def agenti():
     """Le macchine che riferiscono a questa sonda, e come aggiungerne una."""

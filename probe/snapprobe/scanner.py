@@ -40,7 +40,7 @@ import re
 import socket
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from . import mac_costruttori
 from . import nmap_xml
@@ -1206,6 +1206,74 @@ class NetworkScanner:
                      ATTESA_RITENTATIVO_TETTO_SEC)
         trascorso = (datetime.now(timezone.utc) - ultimo).total_seconds()
         return trascorso < attesa
+
+    # Le fasi che hanno una cadenza vera e che si mostrano nel conto alla rovescia.
+    # Non tutte quelle di DEFAULT_CADENCES: `raffica` si esegue quando manca il
+    # profilo e non a tempo, e mostrarne la cadenza farebbe attendere qualcosa che
+    # non arriva a quell'ora.
+    FASI_A_CADENZA = ("discovery", "ports", "services", "os", "deep",
+                      "snmp", "smb", "vuln", "web", "monitor")
+
+    def scadenze(self) -> list[dict]:
+        """Per ogni fase a cadenza: quando e' stata eseguita e quanto manca.
+
+        LA SCOPERTA SI CONTA PER SUBNET, le altre no. E' una differenza vera e non un
+        dettaglio: `_due("discovery", cidr)` guarda lo stato di OGNI subnet, quindi su
+        380 subnet ci sono 380 scadenze distinte e il perimetro si ricensisce a
+        scaglioni lungo la giornata. Dare un solo numero direbbe una cosa falsa; si
+        danno la prima e l'ultima, che sono l'inizio e la fine del giro.
+
+        `manca_sec` negativo significa GIA' SCADUTA: non si porta a zero, perche'
+        "scaduta da sei ore" e "scade adesso" non sono la stessa notizia per chi
+        deve capire se la sonda sta stando dietro al proprio lavoro.
+        """
+        consentito, motivo = self.scanning_allowed()
+        cadenze = self.cadences()
+        adesso = datetime.now(timezone.utc)
+        perimetro = [v["cidr"] if isinstance(v, dict) else v for v in self.perimeter()]
+        # Gli stati si leggono TUTTI IN UNA VOLTA. Con 380 subnet, una lettura per
+        # ciascuna sono 380 interrogazioni per disegnare una riga di pagina: misurato
+        # su questa rete, la differenza fra una pagina che si apre e una che si attende.
+        stati = {(r["target"], r["stage"]): r for r in self.store.all_scan_states()}
+
+        def quando(stato) -> datetime | None:
+            if not stato or not stato.get("last_run_at"):
+                return None
+            try:
+                return datetime.strptime(stato["last_run_at"],
+                                         "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                return None
+
+        esito = []
+        for fase in self.FASI_A_CADENZA:
+            cadenza = int(cadenze.get(fase) or 0)
+            if cadenza <= 0:
+                continue
+            voce = {"fase": fase, "cadenza_sec": cadenza, "consentita": consentito,
+                    "motivo": motivo, "per_subnet": fase == "discovery",
+                    "mai_eseguita": 0, "bersagli": 1}
+            if fase == "discovery":
+                istanti = [quando(stati.get((cidr, fase))) for cidr in perimetro]
+                voce["bersagli"] = len(istanti)
+                voce["mai_eseguita"] = sum(1 for i in istanti if i is None)
+                fatti = [i for i in istanti if i is not None]
+                voce["ultima"] = max(fatti).strftime("%Y-%m-%d %H:%M:%S") if fatti else None
+                # La PRIMA a scadere e' quella eseguita per prima: e' lei che detta
+                # quando il giro successivo comincia.
+                voce["manca_sec"] = (min(fatti) + timedelta(seconds=cadenza)
+                                     - adesso).total_seconds() if fatti else None
+                voce["manca_ultima_sec"] = (max(fatti) + timedelta(seconds=cadenza)
+                                            - adesso).total_seconds() if fatti else None
+            else:
+                istante = quando(stati.get(("*", fase)))
+                voce["mai_eseguita"] = 0 if istante else 1
+                voce["ultima"] = istante.strftime("%Y-%m-%d %H:%M:%S") if istante else None
+                voce["manca_sec"] = ((istante + timedelta(seconds=cadenza)
+                                      - adesso).total_seconds() if istante else None)
+                voce["manca_ultima_sec"] = voce["manca_sec"]
+            esito.append(voce)
+        return esito
 
     def next_due(self) -> tuple | None:
         """Prima fase dovuta, nell'ordine di priorita'. None se nulla e' dovuto.

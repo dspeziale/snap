@@ -156,14 +156,82 @@ silenzio.
 
 ## 7. Manutenzione: dimensione dell'archivio
 
-La pagina delle impostazioni mostra: dimensione del file, spazio **riutilizzabile**
-interno, registro di scrittura anticipata (WAL), righe totali, spazio libero sul volume,
-e la ripartizione per tabella (righe e, dove SQLite espone `dbstat`, byte).
+La pagina delle impostazioni mostra: occupazione dell'archivio, **righe contate**,
+**righe morte**, spazio libero sul volume delle copie, la ripartizione per tabella
+(indici compresi), e la **crescita** con la previsione di riempimento.
 
-Lo spazio riutilizzabile ha una voce propria per una ragione precisa: dopo
-un'eliminazione **il file non si riduce**, e senza quel numero sembra che la
-conservazione non abbia funzionato. Restituire lo spazio al disco e' un'operazione
-distinta (compattazione), perche' riscrive l'intero file e su un archivio grande dura.
+### 7.1 Le righe si contano, non si stimano
+
+Si leggevano da `pg_stat_user_tables.n_live_tup`, che e' una statistica aggiornata
+dall'autovacuum: su una tabella caricata in blocco e mai piu' scritta resta a **zero**
+per sempre. Misurato su un archivio reale: `ti_cve` mostrava 0 righe avendone 6.434,
+`ti_cve_cpe` ne mostrava 0 avendone 117.167, e il totale in cima alla pagina era
+sbagliato di **123.601 righe**.
+
+Una tabella da 22 MB con scritto «0 righe» non e' un'imprecisione: e' una pagina di
+diagnosi che mente proprio a chi la consulta per decidere che cosa cancellare. Le righe
+si contano quindi davvero, e sopra i **due gigabyte** di archivio si passa alla stima
+del catalogo **dichiarandolo** nella pagina.
+
+### 7.2 Righe morte, non «spazio riutilizzabile»
+
+Le **righe morte** sono versioni superate che PostgreSQL non ha ancora ripulito:
+occupano spazio ma vengono riusate da sole. Non sono un guasto, e non c'e' niente da
+fare finche' non superano di molto le righe vive.
+
+Due voci sono sparite dalla pagina perche' su PostgreSQL valevano **zero per
+costruzione**: «spazio riutilizzabile» e «registro WAL» sono grandezze dell'intero
+servizio, non di un singolo database, e attribuirne una parte a questo archivio sarebbe
+un numero inventato. Due riquadri fermi a «0,00 MB» si leggono come una misura, non come
+un «qui non si applica».
+
+Dopo un'eliminazione la dimensione **non cala**, e la compattazione **non la fa calare**:
+su PostgreSQL marca come riutilizzabile lo spazio delle righe morte *dentro* l'archivio,
+cosi' le scritture successive non lo fanno crescere. Restituire spazio al sistema
+richiederebbe un lucchetto esclusivo su tutte le tabelle, e su un archivio in esercizio
+non si prende di iniziativa.
+
+### 7.3 Crescita e previsione di riempimento
+
+Una **misura al giorno**, presa da un servizio di sorveglianza e non da chi apre la
+pagina: se la prendesse chi guarda, la storia esisterebbe solo per gli archivi che
+qualcuno guarda — e quello dimenticato, l'unico che riempie davvero un disco, non ne
+avrebbe alcuna proprio il giorno in cui servirebbe.
+
+| | |
+|---|---|
+| Cadenza della misura | una al giorno |
+| Storia conservata | 730 giorni |
+| Finestra della tendenza | ultimi 30 giorni |
+| Soglia di avviso | previsione sotto i **60 giorni** |
+| Soglia di rientro | previsione sopra i **90 giorni** |
+
+Le due soglie sono distinte per non mandare un avviso e un rientro al giorno quando la
+previsione oscilla intorno al valore critico. L'episodio finisce nel **registro delle
+azioni** (`storage.full.warning`), una volta per episodio.
+
+Perche' non parte una mail: la coda delle notifiche e' **di un tenant**
+(`notifications.tenant_id` e' NOT NULL), mentre l'archivio e' uno solo per tutti. Le
+tre strade per forzare il vincolo erano peggiori del male — mandarlo a ogni tenant,
+attaccarlo a un tenant scelto a caso, o rendere annullabile una colonna di una tabella
+centrale — e il registro delle azioni e' gia' di sistema. Il recapito per posta e' una
+decisione separata: richiede una notifica di sistema, che oggi non esiste.
+
+### 7.4 «Crescita: non ancora» non e' «crescita: zero»
+
+Con una sola misura la crescita **non esiste**, e con una crescita nulla o negativa il
+riempimento **non arriva mai**. In entrambi i casi la pagina scrive che non lo sa, e
+perche'. Un «0 giorni al riempimento» calcolato su una misura sola sarebbe un allarme
+inventato; un «mai» su un archivio che cresce sarebbe una rassicurazione inventata. Sono
+lo stesso errore nelle due direzioni.
+
+### 7.5 Anche le sonde
+
+Ogni sonda misura il proprio archivio allo stesso modo e porta il risultato **col
+battito**: occupazione, righe, righe morte, le tre tabelle piu' grosse, spazio libero,
+crescita e previsione. Si leggono in *Sonde → Console*, e sulla sonda stessa nella
+pagina *Salute*. La ragione e' la stessa di sempre: la sonda sta in casa del cliente, il
+server non puo' interrogarla, e nessuno andra' a guardarle il disco prima che si riempia.
 
 ---
 

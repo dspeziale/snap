@@ -1,0 +1,435 @@
+{#
+  snap probe - Salute della sonda: quanto occupa, come lavora, che cosa e' scaduto.
+
+  PERCHE' UNA PAGINA SOLA. Un archivio che cresce, una coda che non si svuota e una
+  fase scaduta da due giorni sono spesso lo stesso guasto visto da tre lati. Su tre
+  pagine distinte nessuno li avrebbe messi in fila.
+
+  Qui non c'e' niente della rete esaminata: sono le condizioni di salute DELLA SONDA.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-14
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block title %}Salute{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-1"><i class="bi bi-heart-pulse me-2"></i>Salute della sonda</h1>
+    <p class="text-body-secondary mb-0">
+      Quanto occupa l'archivio, quanto durera', e che cosa e' in ritardo.
+    </p>
+  </div>
+  <span class="badge text-bg-light border">
+    {{ occupazione.tabelle|length }} tabelle &middot;
+    {{ occupazione.righe|intero }} righe
+  </span>
+</div>
+
+{# ------------------------------------------------------------------------- #}
+{# I numeri che rispondono per primi                                          #}
+{# ------------------------------------------------------------------------- #}
+<div class="row g-3 mb-3">
+  {% set riempimento = tendenza.giorni_al_riempimento %}
+  {% for voce in [
+      ('ARCHIVIO', occupazione.byte|bytes, 'bi-database', 'primary',
+       occupazione.tabelle|length ~ ' tabelle'),
+      ('RIGHE', occupazione.righe|intero, 'bi-list-ol', 'secondary',
+       'contate una per una' if occupazione.righe_esatte else 'stima del catalogo'),
+      ('RIGHE MORTE', occupazione.morte|intero, 'bi-recycle',
+       'warning' if occupazione.morte > 50000 else 'secondary',
+       'spazio che una compattazione renderebbe riutilizzabile'),
+      ('DISCO LIBERO',
+       disco_libero|bytes if disco_libero is not none else 'non misurabile',
+       'bi-hdd',
+       ('secondary' if disco_libero is none
+        else ('danger' if disco_libero < occupazione.byte * 3 else 'success')),
+       'sul volume di questo processo'),
+      ('CRESCITA AL GIORNO',
+       tendenza.crescita_giorno|bytes if tendenza.crescita_giorno is not none
+         else 'non ancora',
+       'bi-graph-up-arrow',
+       'secondary' if tendenza.crescita_giorno is none else 'info',
+       ('serve una seconda misura' if tendenza.crescita_giorno is none
+        else 'su ' ~ tendenza.campioni ~ ' misure in ' ~ tendenza_giorni ~ ' giorni')),
+      ('SI RIEMPIE FRA',
+       (riempimento|round(0)|int|string ~ ' giorni') if riempimento else 'non previsto',
+       'bi-hourglass-split',
+       ('danger' if riempimento and riempimento < 30
+        else ('warning' if riempimento and riempimento < 180 else 'secondary')),
+       ('non cresce, o non si sa ancora quanto' if not riempimento
+        else 'a questo ritmo, con questo spazio libero'))] %}
+  <div class="col-6 col-xl-2">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div class="min-w-0">
+            <p class="snap-stat-label mb-0">{{ voce[0] }}</p>
+            <p class="snap-stat-value mb-0" style="font-size:1.05rem">{{ voce[1] }}</p>
+            <p class="snap-stat-foot mb-0">{{ voce[4] }}</p>
+          </div>
+          <span class="snap-stat-icon text-bg-{{ voce[3] }}"><i class="bi {{ voce[2] }}"></i></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% if tendenza.crescita_giorno is none %}
+<div class="alert alert-secondary py-2 small mb-3">
+  <i class="bi bi-info-circle me-1"></i>
+  <strong>La crescita non e' zero: non e' ancora nota.</strong>
+  Una crescita e' una differenza fra due misure, e finora ce n'e'
+  {{ tendenza.campioni }}. La sonda ne prende una al giorno da sola: fra
+  ventiquattro ore questo riquadro avra' un numero, e la previsione con esso.
+</div>
+{% endif %}
+
+{# ------------------------------------------------------------------------- #}
+{# Le schede                                                                  #}
+{# ------------------------------------------------------------------------- #}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-archivio" data-bs-toggle="tab"
+            data-bs-target="#pane-archivio" type="button" role="tab"
+            aria-controls="pane-archivio" aria-selected="true">
+      <i class="bi bi-hdd-stack me-1"></i> Occupazione
+      <span class="badge text-bg-secondary ms-1">{{ occupazione.tabelle|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-scadenze" data-bs-toggle="tab"
+            data-bs-target="#pane-scadenze" type="button" role="tab"
+            aria-controls="pane-scadenze" aria-selected="false">
+      <i class="bi bi-alarm me-1"></i> Scadenze
+      <span class="badge text-bg-secondary ms-1">{{ scadenze|length }}</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-lavoro" data-bs-toggle="tab"
+            data-bs-target="#pane-lavoro" type="button" role="tab"
+            aria-controls="pane-lavoro" aria-selected="false">
+      <i class="bi bi-speedometer2 me-1"></i> Lavoro e canale
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-storia" data-bs-toggle="tab"
+            data-bs-target="#pane-storia" type="button" role="tab"
+            aria-controls="pane-storia" aria-selected="false">
+      <i class="bi bi-graph-up me-1"></i> Storia
+      <span class="badge text-bg-secondary ms-1">{{ storia|length }}</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+{# --- Occupazione --------------------------------------------------------- #}
+<div class="tab-pane fade show active" id="pane-archivio" role="tabpanel"
+     aria-labelledby="tab-archivio">
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h2 class="h6 mb-0"><i class="bi bi-hdd-stack me-1"></i> Occupazione per tabella</h2>
+      <small class="text-body-secondary">
+        {% if occupazione.righe_esatte %}
+        Righe contate una per una: il numero e' esatto.
+        {% else %}
+        Archivio grande: le righe sono la <strong>stima</strong> del catalogo, non un
+        conteggio. Contarle tutte avrebbe reso lenta questa pagina.
+        {% endif %}
+        L'occupazione comprende gli indici.
+      </small>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+               data-page-size="25">
+          <thead>
+            <tr><th>TABELLA</th><th>RIGHE</th><th>OCCUPAZIONE</th><th>RIGHE MORTE</th>
+                <th>CHE COSA CONTIENE</th></tr>
+          </thead>
+          <tbody>
+            {% set spiegazioni = {
+              'local_nodes': 'i dispositivi trovati sulla rete, con il loro profilo',
+              'scan_state': 'quando ogni fase e stata eseguita su ogni bersaglio',
+              'scan_claims': 'le prenotazioni delle passate in corso',
+              'spool': 'la coda di cio che non e ancora arrivato al server',
+              'sync_log': 'esito degli ultimi conferimenti',
+              'events': 'il diario della sonda',
+              'check_state': 'lo stato dei controlli programmati',
+              'snmp_arp': 'le tabelle ARP lette dagli apparati di rete',
+              'snmp_porta': 'le porte degli apparati lette via SNMP',
+              'local_ids_baseline': 'la memoria di cio che era normale',
+              'local_ids_findings': 'le rilevazioni del motore',
+              'local_agents': 'le macchine registrate (credenziali: non si azzerano)',
+              'local_agent_tokens': 'i token di registrazione emessi',
+              'local_agent_metrics': 'le misure inviate dagli agenti',
+              'local_agent_events': 'gli eventi di sicurezza inviati dagli agenti',
+              'local_agent_nonces': 'anti-ripetizione degli invii degli agenti',
+              'local_traffico': 'i pacchetti letti, al massimo ' ~ ritenzione_minuti ~ ' minuti',
+              'local_archivio_storia': 'questa misura, un campione al giorno',
+              'settings': 'la configurazione e la registrazione',
+            } %}
+            {% for t in occupazione.tabelle %}
+            <tr>
+              <td class="font-monospace small">{{ t.tabella }}</td>
+              <td class="text-end">{{ t.righe|intero }}</td>
+              <td class="text-end">{{ t.byte|bytes }}</td>
+              <td class="text-end {{ 'text-warning' if t.morte > t.righe and t.righe }}">
+                {{ t.morte|intero }}
+              </td>
+              <td class="small text-body-secondary">
+                {{ spiegazioni.get(t.tabella, '-') }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer small text-body-secondary">
+      <strong>Righe morte</strong> sono versioni superate che PostgreSQL non ha ancora
+      ripulito: occupano spazio ma vengono riusate da sole. Non sono un guasto, e non
+      c'e' niente da fare finche' non superano di molto le righe vive.
+    </div>
+  </div>
+</div>
+
+{# --- Scadenze ------------------------------------------------------------ #}
+<div class="tab-pane fade" id="pane-scadenze" role="tabpanel"
+     aria-labelledby="tab-scadenze">
+  <div class="card">
+    <div class="card-header">
+      <h2 class="h6 mb-0"><i class="bi bi-alarm me-1"></i> Quanto manca a ciascuna fase</h2>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+               data-page-size="15" data-no-search="true">
+          <thead>
+            <tr><th>FASE</th><th>CADENZA</th><th>BERSAGLI</th><th>ULTIMA ESECUZIONE</th>
+                <th>LA PRIMA SCADE</th><th>L'ULTIMA SCADE</th></tr>
+          </thead>
+          <tbody>
+            {% for v in scadenze %}
+            <tr>
+              <td><span class="badge text-bg-secondary">{{ v.fase }}</span></td>
+              <td class="text-end small">{{ v.cadenza_sec|durata }}</td>
+              <td class="text-end small">
+                {{ v.bersagli|intero }}
+                {%- if v.mai_eseguita %}
+                <span class="text-warning">({{ v.mai_eseguita }} mai)</span>
+                {%- endif %}
+              </td>
+              <td class="small">{{ v.ultima|dt if v.ultima else 'mai' }}</td>
+              <td class="small {{ 'text-warning' if v.manca_sec is not none and v.manca_sec < 0 }}">
+                {% if v.manca_sec is none %}
+                <span class="text-body-secondary">appena possibile</span>
+                {% elif v.manca_sec < 0 %}
+                scaduta {{ v.manca_sec|durata }}
+                {% else %}
+                fra {{ v.manca_sec|durata }}
+                {% endif %}
+              </td>
+              <td class="small">
+                {% if not v.per_subnet %}
+                <span class="text-body-secondary">&mdash;</span>
+                {% elif v.manca_ultima_sec is none %}
+                <span class="text-body-secondary">appena possibile</span>
+                {% elif v.manca_ultima_sec < 0 %}
+                scaduta {{ v.manca_ultima_sec|durata }}
+                {% else %}
+                fra {{ v.manca_ultima_sec|durata }}
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer small text-body-secondary">
+      {% if not scadenze or not scadenze[0].consentita %}
+      <span class="text-warning">
+        <i class="bi bi-pause-circle me-1"></i>
+        Le scansioni sono ferme{% if scadenze %} ({{ scadenze[0].motivo }}){% endif %}:
+        le scadenze passano lo stesso, ma niente parte.
+      </span>
+      {% else %}
+      <strong>La scoperta si conta per subnet</strong>, le altre fasi no: con
+      {{ scadenze[0].bersagli|intero }} subnet ci sono altrettante scadenze distinte e
+      il perimetro si ricensisce a scaglioni lungo la giornata. Per questo ci sono due
+      colonne e non una. <strong>Una fase scaduta non e' un guasto</strong>: significa
+      che e' in coda. Lo diventa se resta scaduta mentre le altre avanzano.
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{# --- Lavoro e canale ----------------------------------------------------- #}
+<div class="tab-pane fade" id="pane-lavoro" role="tabpanel" aria-labelledby="tab-lavoro">
+  <div class="row g-3">
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h6 mb-0"><i class="bi bi-cloud-arrow-up me-1"></i> Canale verso il server</h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0 small">
+            <dt class="col-6 fw-normal text-body-secondary">Collegamento</dt>
+            <dd class="col-6 mb-1">
+              {% if stato.online %}<span class="text-success">attivo</span>
+              {% else %}<span class="text-warning">in attesa</span>{% endif %}
+            </dd>
+            <dt class="col-6 fw-normal text-body-secondary">In coda</dt>
+            <dd class="col-6 mb-1">{{ stato.queue_size|intero }} record</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Il piu' vecchio in coda</dt>
+            <dd class="col-6 mb-1">
+              {{ stato.oldest_queued_at|ago if stato.oldest_queued_at else 'niente in coda' }}
+            </dd>
+            <dt class="col-6 fw-normal text-body-secondary">Ultimo errore</dt>
+            <dd class="col-6 mb-0">
+              {{ stato.last_error or 'nessuno' }}
+            </dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h6 mb-0"><i class="bi bi-radar me-1"></i> Scansione</h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0 small">
+            <dt class="col-6 fw-normal text-body-secondary">Passate in corso</dt>
+            <dd class="col-6 mb-1">
+              {{ scansione.running_scans }} su {{ scansione.workers }} thread
+            </dd>
+            <dt class="col-6 fw-normal text-body-secondary">Nodi confermati</dt>
+            <dd class="col-6 mb-1">{{ scansione.nodes_confirmed|intero }}</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Nodi candidati</dt>
+            <dd class="col-6 mb-1">{{ scansione.nodes_candidate|intero }}</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Profili da completare</dt>
+            <dd class="col-6 mb-1">{{ scansione.profiles_pending|intero }}</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Subnet nel perimetro</dt>
+            <dd class="col-6 mb-0">{{ scansione.perimeter_count|intero
+              if scansione.perimeter_count is defined
+              else (scansione.perimeter|length)|intero }}</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h6 mb-0"><i class="bi bi-shield-exclamation me-1"></i> Rilevazione</h2>
+        </div>
+        <div class="card-body">
+          <dl class="row mb-0 small">
+            <dt class="col-6 fw-normal text-body-secondary">Ultima passata dell'IDS</dt>
+            <dd class="col-6 mb-1">
+              {{ ids.eseguito_at|ago if ids.eseguito_at else 'mai' }}
+            </dd>
+            <dt class="col-6 fw-normal text-body-secondary">Rilevazioni</dt>
+            <dd class="col-6 mb-1">{{ ids.rilevazioni or 0 }}</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Sensori saltati</dt>
+            <dd class="col-6 mb-1">
+              {{ (ids.sensori_saltati or [])|length }}
+            </dd>
+            <dt class="col-6 fw-normal text-body-secondary">Macchine con agente</dt>
+            <dd class="col-6 mb-0">{{ agenti_attivi }}</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-header">
+          <h2 class="h6 mb-0"><i class="bi bi-ethernet me-1"></i> Osservazione del traffico</h2>
+        </div>
+        <div class="card-body">
+          {% if not traffico_attivo %}
+          <p class="small text-body-secondary mb-0">
+            Spenta. Nessun pacchetto viene letto e la tabella dei pacchetti e' vuota:
+            non e' una rete silenziosa.
+          </p>
+          {% else %}
+          <dl class="row mb-0 small">
+            <dt class="col-6 fw-normal text-body-secondary">Pacchetti conservati</dt>
+            <dd class="col-6 mb-1">{{ pacchetti.pacchetti|intero }}</dd>
+            <dt class="col-6 fw-normal text-body-secondary">Finestra</dt>
+            <dd class="col-6 mb-0">
+              al massimo {{ ritenzione_minuti }} minuti
+            </dd>
+          </dl>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# --- Storia -------------------------------------------------------------- #}
+<div class="tab-pane fade" id="pane-storia" role="tabpanel" aria-labelledby="tab-storia">
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <h2 class="h6 mb-0"><i class="bi bi-graph-up me-1"></i> Le misure prese finora</h2>
+      <small class="text-body-secondary">
+        Una al giorno, conservate {{ storia_giorni }} giorni
+      </small>
+    </div>
+    <div class="card-body p-0">
+      {% if not storia %}
+      <p class="text-body-secondary text-center py-4 mb-0">
+        Nessuna misura ancora. La prima viene presa dal ciclo della sonda entro un'ora
+        dall'avvio.
+      </p>
+      {% else %}
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+               data-page-size="20" data-no-search="true">
+          <thead>
+            <tr><th>MISURATA</th><th>ARCHIVIO</th><th>RIGHE</th><th>DISCO LIBERO</th>
+                <th>VARIAZIONE</th></tr>
+          </thead>
+          <tbody>
+            {# Dalla piu' recente in giu'. La variazione di una riga e' rispetto alla
+               misura PRECEDENTE, che in questo ordine sta una riga piu' sotto: si
+               guarda avanti nell'elenco, non indietro. #}
+            {% set recenti = storia|reverse|list %}
+            {% for m in recenti %}
+            <tr>
+              <td class="small">{{ m.misurato_at|dt }}</td>
+              <td class="text-end">{{ m.byte|bytes }}</td>
+              <td class="text-end">{{ m.righe|intero }}</td>
+              <td class="text-end">
+                {{ m.disco_libero|bytes if m.disco_libero else '-' }}
+              </td>
+              <td class="text-end small text-body-secondary">
+                {% if not loop.last %}
+                  {% set differenza = m.byte - recenti[loop.index0 + 1].byte %}
+                  {{ '+' if differenza > 0 }}{{ differenza|abs|bytes }}
+                {% else %}
+                  <span title="e' la prima misura: non c'e' niente da confrontare">
+                    prima misura</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+</div>
+{% endblock %}
