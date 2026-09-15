@@ -2028,8 +2028,24 @@ def reti_pubbliche():
     non e' ancora stato risolto. Sono tre cose diverse con tre rimedi diversi, e senza
     un posto in cui guardarle si conclude che "non funziona".
     """
+    from ..mac_costruttori import costruttore, normalizza
     from ..mac_costruttori import stato as stato_mac
-    from ..rete_pubblica import GIORNI_DI_VALIDITA, TICK_SECONDI, stato
+    from ..rete_pubblica import GIORNI_DI_VALIDITA, TICK_SECONDI, in_corso, stato
+
+    # RICERCA DI UN MAC NEL CATALOGO. Finora il catalogo si poteva solo guardare dal
+    # di fuori -- "quanti prefissi ho" -- mentre la domanda vera e' l'opposta: "ho
+    # questo indirizzo fisico, chi ha fatto la scheda?".
+    cercato = (request.args.get("mac") or "").strip()[:64]
+    esito_mac = None
+    if cercato:
+        pulito = normalizza(cercato)
+        esito_mac = {
+            "richiesto": cercato,
+            "normalizzato": pulito,
+            # Vuoto quando non si sa: si dice, invece di lasciare la casella muta.
+            "costruttore": costruttore(cercato) if pulito else "",
+            "leggibile": bool(pulito),
+        }
 
     reti = query(
         "SELECT cidr, name, holder, country, asn, source, fetched_at"
@@ -2053,4 +2069,29 @@ def reti_pubbliche():
         # domanda -- "di chi e' questo?" -- una volta per gli indirizzi e una per le
         # schede di rete.
         schede=stato_mac(),
+        aggiornamento_in_corso=in_corso(),
+        # La ricerca di un MAC nel catalogo: si arriva qui con un indirizzo in mano.
+        mac_cercato=cercato,
+        mac_esito=esito_mac,
     )
+
+
+@bp.post("/reti-pubbliche/aggiorna")
+@role_required(ROLE_ANALYST)
+def aggiorna_reti_pubbliche():
+    """Un giro di raccolta e risoluzione adesso, invece di aspettare la cadenza.
+
+    Serve quando si sta GUARDANDO la pagina: il servizio di fondo passa ogni cinque
+    minuti, e non si sa se sia appena passato o stia per arrivare.
+    """
+    from ..rete_pubblica import PER_RICHIESTA, avvia_su_richiesta
+
+    if avvia_su_richiesta(current_app._get_current_object()):
+        flash("Aggiornamento avviato: fino a %d indirizzi, circa mezzo minuto."
+              " Ricarica la pagina per vedere il risultato." % PER_RICHIESTA,
+              "success")
+    else:
+        # Non e' un errore: e' la risposta giusta, ed e' meglio dirla che avviarne
+        # un secondo che si prenderebbe un rifiuto dal registro.
+        flash("Un aggiornamento e' gia' in corso: si aspetta che finisca.", "info")
+    return redirect(url_for("inventory.reti_pubbliche"))

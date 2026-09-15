@@ -500,6 +500,54 @@ def stato() -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Un giro su richiesta
+# --------------------------------------------------------------------------- #
+_su_richiesta = None
+
+# Quanti se ne risolvono premendo il bottone. Venti, come il giro normale: sono venti
+# secondi di pause, e chiederne di piu' in una volta significa farsi bloccare
+# l'indirizzo del server dal registro -- e' successo, con un 429.
+PER_RICHIESTA = 20
+
+
+def in_corso() -> bool:
+    """Vero se un giro su richiesta sta ancora lavorando."""
+    return _su_richiesta is not None and _su_richiesta.is_alive()
+
+
+def avvia_su_richiesta(app) -> bool:
+    """Avvia un giro adesso, in un filo proprio. Falso se ce n'e' gia' uno.
+
+    NON si fa dentro la richiesta HTTP: venti indirizzi sono venti secondi di pause
+    -- quelle che i registri pretendono -- e una pagina che ci mette venti secondi
+    sembra rotta. Si avvia e si dice che e' partito.
+
+    UNO ALLA VOLTA, e non per prudenza formale: due giri insieme interrogherebbero lo
+    stesso registro in parallelo, che e' il modo di prendersi un rifiuto per eccesso
+    di richieste.
+    """
+    global _su_richiesta
+    if in_corso():
+        return False
+
+    def lavoro():
+        try:
+            with app.app_context():
+                nuovi = raccogli_tutto()
+                esito = giro(limite=PER_RICHIESTA)
+                app.logger.info(
+                    "Reti pubbliche su richiesta: %d in coda, %d risolte, %d non"
+                    " riuscite", nuovi, esito["risolti"], esito["falliti"])
+        except Exception as errore:  # noqa: BLE001 - un filo che muore non deve tacere
+            app.logger.warning("Giro su richiesta non riuscito: %s", errore)
+
+    _su_richiesta = threading.Thread(target=lavoro, name="snap-rete-adesso",
+                                     daemon=True)
+    _su_richiesta.start()
+    return True
+
+
+# --------------------------------------------------------------------------- #
 # Il servizio di fondo
 # --------------------------------------------------------------------------- #
 def start_watcher(app) -> None:

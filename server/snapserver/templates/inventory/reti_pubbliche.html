@@ -34,6 +34,30 @@
 </div>
 {% endif %}
 
+{# AGGIORNARE ADESSO. Il servizio di fondo passa ogni {{ cadenza_minuti }} minuti e
+   guarda indietro di due giorni: a regime va bene, ma chi sta GUARDANDO questa pagina
+   non sa se il giro sia appena passato o stia per arrivare. #}
+{% if has_role('analyst') %}
+<form method="post" action="{{ url_for('inventory.aggiorna_reti_pubbliche') }}"
+      class="mb-3 d-flex align-items-center flex-wrap gap-2">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <button type="submit" class="btn btn-sm btn-primary"
+          {{ 'disabled' if aggiornamento_in_corso }}>
+    <i class="bi bi-arrow-clockwise me-1"></i>
+    {% if aggiornamento_in_corso %}Aggiornamento in corso{% else %}Aggiorna adesso{% endif %}
+  </button>
+  <span class="small text-body-secondary">
+    {% if aggiornamento_in_corso %}
+      Un giro sta gia' lavorando: ricarica fra poco. Due insieme interrogherebbero lo
+      stesso registro in parallelo, ed e' il modo di farsi rifiutare le richieste.
+    {% else %}
+      Rimette in coda tutti gli indirizzi pubblici in archivio e ne risolve una
+      ventina, con la pausa che i registri pretendono: circa mezzo minuto.
+    {% endif %}
+  </span>
+</form>
+{% endif %}
+
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
     <div class="card snap-stat h-100"><div class="card-body py-2">
@@ -183,6 +207,49 @@
       di chi ha fatto la scheda, come si sono sempre mostrati.
     </p>
     {% endif %}
+    {# LA DOMANDA VERA non e' "quanti prefissi ho" ma "ho questo indirizzo fisico,
+       chi ha fatto la scheda?". Si arriva qui con un MAC in mano -- letto
+       sull'etichetta sotto un apparato, o preso da un allarme -- e si scrive
+       comunque lo si sia letto: i due punti, i trattini e il formato compatto
+       valgono tutti. #}
+    <form method="get" action="{{ url_for('inventory.reti_pubbliche') }}"
+          class="row g-2 align-items-end mb-3">
+      <div class="col-12 col-md-6 col-lg-5">
+        <label class="form-label small mb-1" for="mac">
+          Cerca un indirizzo fisico
+        </label>
+        <input type="text" class="form-control form-control-sm font-monospace" id="mac"
+               name="mac" value="{{ mac_cercato or '' }}"
+               placeholder="80:3f:5d:ff:2e:31 &mdash; oppure 803f5dff2e31">
+      </div>
+      <div class="col-12 col-md-3 col-lg-2">
+        <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+          <i class="bi bi-search me-1"></i> Cerca
+        </button>
+      </div>
+      {% if mac_esito %}
+      <div class="col-12 col-lg-5">
+        {% if not mac_esito.leggibile %}
+        <div class="alert alert-warning py-1 px-2 mb-0 small">
+          Non sembra un indirizzo fisico: servono almeno sei cifre esadecimali.
+        </div>
+        {% elif mac_esito.costruttore %}
+        <div class="alert alert-success py-1 px-2 mb-0 small">
+          <span class="font-monospace">{{ mac_esito.normalizzato[:6] }}</span> &rarr;
+          <strong>{{ mac_esito.costruttore }}</strong>
+        </div>
+        {% else %}
+        <div class="alert alert-secondary py-1 px-2 mb-0 small">
+          Prefisso non presente nel catalogo. Puo' essere un indirizzo
+          <em>amministrato localmente</em> &mdash; molti telefoni ne generano uno
+          diverso per ogni rete &mdash; oppure un blocco assegnato dopo l'ultimo
+          caricamento.
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+    </form>
+
     <p class="small text-body-secondary mb-0">
       Si carica dalla riga di comando del server:
       <span class="font-monospace">flask carica-oui</span> lo scarica dal registro

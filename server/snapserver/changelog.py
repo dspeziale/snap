@@ -21,6 +21,40 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "2.0.8",
+        "date": "2026-09-15",
+        "abstract": "Un bottone per aggiornare le reti pubbliche adesso, e la ricerca"
+                    " di un indirizzo fisico -- comunque lo si scriva.",
+        "changes": [
+            "AGGIORNA ADESSO, sulla pagina Reti pubbliche. Il servizio di fondo passa"
+            " ogni cinque minuti e guarda indietro di due giorni: a regime va bene,"
+            " ma chi sta guardando la pagina non sa se il giro sia appena passato o"
+            " stia per arrivare.",
+            "Il giro parte in un filo proprio e la pagina lo dice, invece di far"
+            " aspettare la richiesta: risolvere venti indirizzi richiede venti"
+            " secondi -- e' la pausa che i registri regionali pretendono -- e una"
+            " pagina che ci mette venti secondi sembra rotta. Uno alla volta: due"
+            " giri insieme interrogherebbero lo stesso registro in parallelo, che e'"
+            " il modo di prendersi un rifiuto per eccesso di richieste.",
+            "UN MAC SI CERCA COMUNQUE LO SI SCRIVA. La ricerca libera dei nodi"
+            " guardava gia' l'indirizzo fisico, ma confrontando il TESTO: chi ha in"
+            " mano `80:3f:5d:ff:2e:31` lo trovava, chi lo scriveva `803f5dff2e31` o"
+            " `80-3f-5d-ff-2e-31` no. E i MAC si scrivono in tutti e tre i modi a"
+            " seconda di dove si sono letti -- l'etichetta sotto un apparato usa il"
+            " formato compatto, la pagina di un router i trattini, nmap i due punti.",
+            "Il modo in cui falliva era il peggiore possibile: \"nessun risultato\","
+            " indistinguibile da \"quell'apparato non e' in inventario\". Ora si"
+            " confrontano le sole cifre, da una parte e dall'altra, e solo quando il"
+            " cercato sembra un indirizzo fisico: una ricerca per \"Ricoh\" resta"
+            " una ricerca per nome.",
+            "RICERCA NEL CATALOGO DEI COSTRUTTORI, sulla stessa pagina: si incolla un"
+            " MAC e si legge chi ha fatto la scheda. Un prefisso assente lo dice e"
+            " spiega le due ragioni possibili -- un indirizzo amministrato localmente"
+            " (molti telefoni ne generano uno diverso per ogni rete) oppure un blocco"
+            " assegnato dopo l'ultimo caricamento del catalogo.",
+        ],
+    },
+    {
         "version": "2.0.6",
         "date": "2026-09-15",
         "abstract": "Il catalogo dei costruttori caricava solo un terzo del registro:"

@@ -6,7 +6,7 @@
 | | |
 |---|---|
 | Documento | Rilevazione delle intrusioni (IDS) e agenti di macchina |
-| Versione documentata | console 2.0.6, sonda 1.5.0, agente 1.2.6 |
+| Versione documentata | console 2.0.8, sonda 1.5.0, agente 1.2.6 |
 | Conformità | ISO/IEC/IEEE 29148:2018 (§1 scopo, §2 riferimenti, §3 requisiti), NIS2 art. 21, CRA all. I |
 | Aggiornato | 2026-09-13 |
 

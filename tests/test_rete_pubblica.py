@@ -339,3 +339,44 @@ def test_la_voce_sta_nel_menu():
                / "sidebar.html").read_text(encoding="utf-8")
 
     assert "inventory.reti_pubbliche" in modello
+
+
+# --------------------------------------------------------------------------- #
+# Aggiornare adesso, e cercare un indirizzo fisico
+# --------------------------------------------------------------------------- #
+def test_il_bottone_avvia_un_giro_e_lo_dice(logged_client, server_app, monkeypatch):
+    """Serve quando si sta GUARDANDO la pagina: il servizio di fondo passa ogni
+    cinque minuti, e non si sa se sia appena passato o stia per arrivare."""
+    from snapserver import rete_pubblica
+
+    avviati = []
+    monkeypatch.setattr(rete_pubblica, "avvia_su_richiesta",
+                        lambda app: avviati.append(1) or True)
+
+    risposta = logged_client.post("/inventory/reti-pubbliche/aggiorna",
+                                  follow_redirects=True)
+
+    assert risposta.status_code == 200
+    assert avviati == [1]
+    assert "Aggiornamento avviato" in risposta.get_data(as_text=True)
+
+
+def test_due_giri_insieme_non_partono(logged_client, monkeypatch):
+    """Interrogherebbero lo stesso registro in parallelo, ed e' il modo di prendersi
+    un rifiuto per eccesso di richieste -- e' gia' successo."""
+    from snapserver import rete_pubblica
+
+    monkeypatch.setattr(rete_pubblica, "avvia_su_richiesta", lambda app: False)
+
+    risposta = logged_client.post("/inventory/reti-pubbliche/aggiorna",
+                                  follow_redirects=True)
+
+    assert "gia' in corso" in risposta.get_data(as_text=True).replace("&#39;", "'")
+
+
+def test_la_raccolta_straordinaria_guarda_tutto_l_archivio(server_app):
+    """A regime si guardano due giorni; su un archivio che ha mesi di eventi questo
+    lascerebbe le righe vecchie senza nome per settimane."""
+    from snapserver.rete_pubblica import ORE_DA_RACCOGLIERE, ORE_DI_TUTTO
+
+    assert ORE_DI_TUTTO > ORE_DA_RACCOGLIERE * 100

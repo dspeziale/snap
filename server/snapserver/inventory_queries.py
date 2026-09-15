@@ -19,6 +19,18 @@ from .db import days_ago_str, query, scalar
 STALE_AFTER_HOURS = 24
 
 
+def _solo_esadecimali(testo: str) -> str:
+    """Le sole cifre esadecimali di un testo, maiuscole.
+
+    Serve a confrontare i MAC senza farsi fermare dalla punteggiatura. Torna stringa
+    vuota per un testo che non ne contiene: chi cerca "stampante" non deve finire a
+    confrontare lettere con le cifre di un indirizzo fisico.
+    """
+    import re as _re
+
+    return _re.sub(r"[^0-9A-Fa-f]", "", testo or "").upper()
+
+
 def inventory_summary(tenant_id: int) -> dict:
     """Sintesi dell'inventario per i riquadri e gli indicatori."""
     totale = scalar("SELECT COUNT(*) FROM nodes WHERE tenant_id = ?", (tenant_id,))
@@ -168,8 +180,27 @@ def nodes_list(tenant_id: int, subnet_id: int = None, device_type: str = None,
     if cercato:
         campi = ("n.ip", "n.hostname", "n.mac", "n.mac_vendor", "n.os_name",
                  "n.device_label")
-        condizioni.append("(%s)" % " OR ".join("%s ILIKE ?" % c for c in campi))
-        parametri.extend(["%%%s%%" % cercato] * len(campi))
+        pezzi = ["%s ILIKE ?" % c for c in campi]
+        valori = ["%%%s%%" % cercato] * len(campi)
+
+        # UN MAC SI SCRIVE IN TRE MODI -- `80:3f:5d`, `80-3f-5d`, `803f5d` -- a
+        # seconda di dove lo si e' letto: l'etichetta sotto un apparato usa il
+        # formato compatto, la pagina di un router i trattini, nmap i due punti.
+        # Confrontando il testo com'e' scritto, due ricerche su tre non trovano
+        # niente, e chi guarda conclude che l'apparato non sia in inventario.
+        #
+        # Si confrontano percio' le sole CIFRE, da una parte e dall'altra. Solo
+        # quando il cercato SEMBRA un MAC: spogliare della punteggiatura una ricerca
+        # per "Ricoh" non avrebbe senso.
+        solo_cifre = _solo_esadecimali(cercato)
+        if len(solo_cifre) >= 4:
+            pezzi.append(
+                "replace(replace(replace(upper(n.mac), ':', ''), '-', ''), '.', '')"
+                " LIKE ?")
+            valori.append("%%%s%%" % solo_cifre)
+
+        condizioni.append("(%s)" % " OR ".join(pezzi))
+        parametri.extend(valori)
 
     if snmp == "letto":
         condizioni.append("EXISTS (SELECT 1 FROM node_snmp s WHERE s.node_id = n.id)")
