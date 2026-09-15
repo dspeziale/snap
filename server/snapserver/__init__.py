@@ -110,6 +110,7 @@ def create_app(config_object=Config) -> Flask:
         from .reports.daily import start_scheduler
         from .rules import start_evaluator
         from .siem.detect import start_detector
+        from .rete_pubblica import start_watcher as start_rete_pubblica_watcher
         from .storage_watch import start_watcher as start_storage_watcher
 
         start_dispatcher(app)
@@ -129,6 +130,12 @@ def create_app(config_object=Config) -> Flask:
         # regolarita' non esiste. Vale anche qui l'uno-per-processo: due thread
         # scriverebbero due campioni per lo stesso giorno.
         start_storage_watcher(app)
+        # Da chi arriva un indirizzo pubblico: la cache dei nomi delle reti si
+        # alimenta da se', raccogliendo a valle gli indirizzi comparsi di recente. Non
+        # tocca il percorso di acquisizione del SIEM -- li' il costo sarebbe assurdo --
+        # e vale l'uno-per-processo, altrimenti due thread interrogherebbero lo stesso
+        # registro pubblico per lo stesso indirizzo.
+        start_rete_pubblica_watcher(app)
         # La rilevazione SIEM analizza gli eventi raccolti dai log e apre gli allarmi:
         # e' compito del server, come le regole, e vale la stessa regola dell'uno per
         # processo (altrimenti due thread aprirebbero lo stesso allarme due volte).

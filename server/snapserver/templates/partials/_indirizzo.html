@@ -1,0 +1,49 @@
+{#
+  snap server - Un indirizzo in tabella, con il nome della rete se e' esterno.
+
+  PERCHE' UNA MACRO E NON DEL MARCATO RIPETUTO. Gli indirizzi compaiono in una decina
+  di pagine diverse -- eventi SIEM, allarmi, registro delle azioni, quadro SOC -- e la
+  regola su che cosa mostrare e' una sola. Scritta in un posto solo, cambia in un
+  posto solo.
+
+  IL NOME STA IN UN SUGGERIMENTO, non in una colonna: e' un di piu', e la tabella deve
+  restare leggibile anche quando la cache e' vuota (rete isolata, servizio spento,
+  indirizzo appena visto). Un indirizzo senza nome si mostra com'e', esattamente come
+  prima; uno con il nome prende un tratteggio sotto, che e' l'invito a fermarcisi
+  sopra.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% macro indirizzo(valore, vuoto='-') -%}
+{%- if not valore -%}
+{{ vuoto }}
+{%- else -%}
+{%- set rete = valore|rete -%}
+{%- if rete -%}
+<span class="font-monospace snap-ip-esterno" title="{{ rete }}"
+      data-snap-rete="{{ rete }}">{{ valore }}</span>
+{%- else -%}
+<span class="font-monospace">{{ valore }}</span>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}
+
+{# Un MAC con il costruttore nel suggerimento. Stessa regola dell'indirizzo: se non si
+   sa, si mostra il MAC e basta -- il catalogo puo' non essere ancora stato caricato,
+   e su una rete senza uscita verso internet si carica a mano. #}
+{% macro scheda(valore, vuoto='-') -%}
+{%- if not valore -%}
+{{ vuoto }}
+{%- else -%}
+{%- set chi = valore|costruttore -%}
+{%- if chi -%}
+<span class="font-monospace snap-ip-esterno" title="{{ chi }}"
+      data-snap-costruttore="{{ chi }}">{{ valore }}</span>
+{%- else -%}
+<span class="font-monospace">{{ valore }}</span>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro %}

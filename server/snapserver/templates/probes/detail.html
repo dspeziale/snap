@@ -42,8 +42,12 @@
   <label class="small text-body-secondary">Sforzo</label>
   <select name="effort" class="form-select form-select-sm" style="width:auto">
     {% set corrente = probe.scan_effort if probe.scan_effort is defined else 'med' %}
-    {% for valore, testo in [('min', 'minimo (1 thread)'), ('med', 'medio (2 thread)'),
-                             ('max', 'massimo (4 thread)')] %}
+    {# Le etichette vengono dall'elenco condiviso e non si scrivono qui: quando
+       erano scritte a mano dicevano "medio (2 thread)" di un profilo che ne usa
+       sedici, e chi sceglieva moltiplicava il carico per otto credendo di
+       raddoppiarlo. #}
+    {% for valore in sforzi %}
+    {% set testo = etichette_sforzo[valore] %}
     <option value="{{ valore }}" {% if corrente == valore %}selected{% endif %}>{{ testo }}</option>
     {% endfor %}
   </select>

@@ -153,6 +153,7 @@ capitolo 11.
 | R14 | Presenze sulle reti senza fili | Sicurezza fisica, DPO | Settimanale, mensile | 3-6 | "Chi c'e' stato sulle reti senza fili, e con quale certezza lo so" |
 | R15 | Salute della flotta e copertura | Chi gestisce il servizio, fornitore | Settimanale | 4-8 | "Le sonde funzionano? Quanta parte del perimetro e' davvero coperta?" |
 | R16 | Esposizione SMB | Sistemisti Windows, sicurezza interna | Mensile, su richiesta | 5-14 | "Dove la firma SMB non e' richiesta, dove SMB 1.0 e' ancora acceso" |
+| R17 | Fine supporto dei sistemi operativi | Direzione IT, chi pianifica le migrazioni | Mensile, su richiesta | 5-12 | "Quali sistemi operativi non ricevono piu' correzioni, e da quando" |
 
 ### R1 - Sintesi esecutiva
 
@@ -377,6 +378,54 @@ da guardare prima delle singole scadenze.
 **Limite dichiarato in copertina**: si vedono i soli certificati che una sonda ha
 potuto leggere aprendo una connessione HTTPS. Un servizio che la sonda non raggiunge
 non compare, e la sua assenza NON e' la conferma che non esista.
+
+### R17 - Fine supporto dei sistemi operativi
+
+**Destinatario**: chi pianifica le migrazioni.
+
+**Perche' esiste, e perche' non e' R13.** R13 misura l'eta' di cio' che un apparato
+**espone** (l'anno dichiarato dalle sue interfacce web). Questo misura un'altra cosa:
+la data oltre la quale il **produttore** non pubblica piu' correzioni. Un sistema fuori
+supporto non e' un sistema con una vulnerabilita' — e' un sistema in cui ogni
+vulnerabilita' futura **restera' aperta per sempre**, perche' nessuna patch arrivera'.
+E' la causa a monte, e si risolve pianificando, non applicando patch (NIS2 art.
+21(2)(e)).
+
+**Da dove vengono le date**: da un catalogo locale di release con rilascio, fine
+supporto ordinario e supporto esteso, verificato a una data che il documento dichiara.
+Locale come quello della threat intelligence, e per la stessa ragione: la correlazione
+deve funzionare in una rete senza uscita verso internet.
+
+**Il supporto esteso sta in una colonna a parte** (ESU di Microsoft, LTS di Debian, ESM
+di Ubuntu, ELS di Red Hat) e **non conta come copertura**: vale solo per chi lo ha
+acquistato o attivato, e darlo per scontato trasformerebbe un sistema scoperto in un
+sistema coperto.
+
+**Ogni riga porta l'origine del proprio verdetto.** E' la sezione 3 del documento, e va
+letta prima delle altre:
+
+| Origine | Che cosa significa | Che cosa se ne fa |
+|---|---|---|
+| **dichiarato** | la macchina lo dice di se' (agente, SMB, SNMP) | si puo' aprire una migrazione |
+| **stimato** | dedotto da un'impronta di rete | si conferma prima di aprire una migrazione |
+
+nmap non legge la release installata: riconosce un'impronta e la nomina con la versione
+da cui l'impronta fu raccolta. Misurato su una rete reale: 307 dispositivi risultano
+«Windows 11 21H2» — fuori supporto — e possono essere 24H2 aggiornate ieri.
+
+**Raggruppato per release, non per macchina**: una migrazione si pianifica per release.
+Sullo stesso impianto, 650 dispositivi fuori supporto si concentrano su 17 release: sono
+17 progetti, non 650 interventi. L'elenco per macchina c'e' comunque, in fondo, per chi
+deve intervenire.
+
+**Che cosa NON si e' potuto determinare** ha una sezione propria, e non e' un vuoto: e'
+un elenco di cose da andare a vedere, con il motivo per esteso. Le ragioni sono poche e
+si ripetono, quindi sono raggruppate: per meta' dei dispositivi di una rete tipica
+l'impronta e' un **kernel** — e il supporto lo da' la distribuzione, che dall'esterno
+non si vede — e per gli apparati di rete il ciclo di vita e' del **modello**, che
+pubblica il produttore dell'apparato.
+
+---
 
 ### R13 - Vetusta' del parco
 

@@ -216,15 +216,28 @@ def test_la_console_mostra_lo_stato_e_il_suo_istante(server_app, logged_client):
         "syncs": [],
     })
 
-    testo = logged_client.get("/probes/%d/console" % probe_id).get_data(as_text=True)
+    def pagina(vista=None):
+        indirizzo = "/probes/%d/console" % probe_id
+        if vista:
+            indirizzo += "?vista=%s" % vista
+        return logged_client.get(indirizzo).get_data(as_text=True)
 
-    assert "una riga del diario locale" in testo, (
+    # Da quando la console ha il menu della sonda, ciascuna di queste cose sta dove
+    # sta sulla sonda: si chiedono le stesse, alle pagine giuste.
+    stato = pagina()
+    assert "10.10.60.0/24" in stato, "le presenze senza fili stanno nello stato"
+    assert "616" in stato, "600 confermati + 16 candidati"
+    assert "380" in stato, "il perimetro ricevuto"
+
+    assert "una riga del diario locale" in pagina("diario"), (
         "il diario locale e' la parte che finora si leggeva SOLO in sede")
-    assert "10.10.60.0/24" in testo
-    assert "616" in testo, "600 confermati + 16 candidati"
-    assert "380" in testo, "il perimetro ricevuto"
-    assert "7.95" in testo, "la versione di nmap sulla sonda"
-    assert "10/09/2026" in testo, "l'istante dell'istantanea si dichiara"
+    assert "7.95" in pagina("configurazione"), "la versione di nmap sulla sonda"
+
+    # L'istante si dichiara su OGNI vista: e' cio' che distingue questa pagina da una
+    # console dal vivo, e non puo' dipendere da quale voce si e' aperta.
+    for vista in (None, "diario", "configurazione", "comandi"):
+        assert "10/09/2026" in pagina(vista), (
+            "l'istante dell'istantanea non si dichiara sulla vista %r" % vista)
 
 
 def test_una_console_vecchia_lo_dice(server_app, logged_client):

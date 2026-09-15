@@ -64,7 +64,12 @@ from .. import map_graphic
 from .. import zones
 from ..presence import storico as presence_history
 from ..security import ROLE_ANALYST, ROLE_TENANT_ADMIN, login_required, role_required
-from ..subnets import MAX_HOSTS_PER_SUBNET, SubnetError, import_subnets
+from ..subnets import (
+    MAX_HOSTS_PER_SUBNET,
+    SubnetError,
+    chiave_ordinamento,
+    import_subnets,
+)
 from ..tenancy import current_tenant_id
 
 bp = Blueprint("inventory", __name__, url_prefix="/inventory")
@@ -426,6 +431,85 @@ def certificates_email():
     return redirect(ritorno)
 
 
+@bp.get("/sistemi")
+@login_required
+def sistemi():
+    """I sistemi operativi trovati, con la fine supporto e quanti nodi li usano.
+
+    LA DOMANDA A CUI RISPONDE non e' "che sistemi ci sono" -- quella la risolve gia'
+    l'elenco dei dispositivi -- ma "che cosa devo aggiornare, e con che urgenza". Un
+    sistema fuori supporto non riceve piu' correzioni: le vulnerabilita' che escono da
+    quel giorno restano aperte per sempre.
+
+    IL VERDETTO PORTA SEMPRE LA PROPRIA ORIGINE. Un dato letto dentro la macchina
+    dall'agente e una stima ricavata da un'impronta di rete non valgono uguale, e
+    mescolarli produrrebbe pratiche di migrazione aperte su una supposizione: su una
+    rete reale, 307 nodi risultano a nmap "Windows 11 21H2" -- fuori supporto -- e
+    possono benissimo essere 24H2 aggiornate ieri.
+    """
+    from ..os_lifecycle import (GIORNI_DI_PREAVVISO, VERIFICATO_AL,
+                                riconosci, sistemi_dichiarati)
+
+    tenant_id = current_tenant_id()
+    stato_scelto = (request.args.get("stato") or "").strip() or None
+
+    righe = query(
+        "SELECT COALESCE(os_name, '') AS os_name,"
+        "       COALESCE(os_family, '') AS os_family,"
+        "       COUNT(*) AS nodi,"
+        "       AVG(COALESCE(os_accuracy, 0)) AS accuratezza"
+        "  FROM nodes WHERE tenant_id = ? AND os_name IS NOT NULL AND os_name <> ''"
+        " GROUP BY os_name, os_family ORDER BY COUNT(*) DESC", (tenant_id,))
+
+    # Da dove viene il dato. Le macchine con un agente DICHIARANO il proprio sistema;
+    # sulle altre il sistema e' l'impronta di nmap. L'abbinamento e' per NODO (vedi
+    # `sistemi_dichiarati`): confrontare le due stringhe, come faceva la prima
+    # stesura, non poteva riuscire -- l'impronta e cio' che la macchina dice di se'
+    # non coincidono mai.
+    dichiarati = sistemi_dichiarati(tenant_id)
+    per_osservato = {}
+    for riga in query(
+            "SELECT id, COALESCE(os_name, '') AS os_name FROM nodes"
+            " WHERE tenant_id = ? AND os_name IS NOT NULL AND os_name <> ''",
+            (tenant_id,)):
+        if int(riga["id"]) in dichiarati:
+            per_osservato[riga["os_name"]] = dichiarati[int(riga["id"])]
+
+    voci, conteggi = [], {}
+    for riga in righe:
+        # Per un nodo che dichiara, si giudica la stringa DICHIARATA, non l'impronta:
+        # altrimenti si scriverebbe "dichiarato" accanto a un verdetto dedotto.
+        dichiarato = per_osservato.get(riga["os_name"])
+        sorgente = "agente" if dichiarato else "nmap"
+        esito = riconosci(dichiarato or riga["os_name"], riga["os_family"], sorgente)
+        esito["nodi"] = int(riga["nodi"] or 0)
+        esito["famiglia"] = riga["os_family"]
+        esito["accuratezza"] = int(riga["accuratezza"] or 0)
+        voci.append(esito)
+        conteggi[esito["stato"]] = conteggi.get(esito["stato"], 0) + esito["nodi"]
+
+    # L'ordine e' quello dell'urgenza, non alfabetico: chi apre questa pagina cerca
+    # che cosa fare per primo. A parita' di stato, i piu' diffusi in cima.
+    ordine = {"fuori_supporto": 0, "in_scadenza": 1, "ambiguo": 2,
+              "supportato": 3, "non_determinabile": 4}
+    voci.sort(key=lambda v: (ordine.get(v["stato"], 9), -v["nodi"]))
+    if stato_scelto:
+        mostrate = [v for v in voci if v["stato"] == stato_scelto]
+    else:
+        mostrate = voci
+
+    return render_template(
+        "inventory/sistemi.html",
+        voci=mostrate,
+        totale_voci=len(voci),
+        conteggi=conteggi,
+        nodi_totali=sum(v["nodi"] for v in voci),
+        stato_scelto=stato_scelto,
+        verificato_al=VERIFICATO_AL,
+        preavviso=GIORNI_DI_PREAVVISO,
+    )
+
+
 @bp.get("/map")
 @login_required
 def network_map():
@@ -495,13 +579,19 @@ def network_map_graphic():
         flash("Quella rete non ha dispositivi da disegnare, oppure non appartiene a"
               " questo tenant: viene mostrato il panorama.", "info")
 
-    # L'elenco per il selettore: solo reti con dispositivi, le piu' popolose per prime.
+    # L'elenco per il selettore: solo reti con dispositivi, IN ORDINE DI INDIRIZZO.
+    #
+    # Prima erano ordinate per numero di dispositivi, e a parita' per testo. Nessuno
+    # dei due e' l'ordine in cui si cerca una rete: chi apre questo menu sa quale rete
+    # vuole disegnare e la cerca dove starebbe in un elenco di indirizzi. Per di piu'
+    # l'ordine alfabetico mette `10.10.0.0/24` prima di `10.2.0.0/24`, quindi la rete
+    # cercata non e' nemmeno dove il testo la metterebbe.
     reti = sorted(
         ({"id": v["id"], "cidr": v["cidr"], "etichetta": v["etichetta"],
           "totale": int(v.get("totale") or 0)}
          for s in albero.get("sonde") or [] for v in s.get("subnet") or []
          if v.get("id")),
-        key=lambda v: (-v["totale"], v["cidr"]))
+        key=lambda v: chiave_ordinamento(v["cidr"]))
 
     # Formato di stampa scelto: governa la dimensione della pagina (@page). Allowlist,
     # perche' il valore finisce in un foglio di stile.
@@ -1105,6 +1195,114 @@ def toggle_all_subnets():
     flash("%s %d subnet.%s" % ("Attivate" if attiva else "Disattivate", da_cambiare,
                                "" if rimaste else " Il perimetro e' vuoto: le sonde non "
                                "scansionano piu' nulla."),
+          "success" if rimaste else "warning")
+    return redirect(url_for("inventory.subnets"))
+
+
+def _subnet_contenute(tenant_id: int, aggregato: str) -> tuple:
+    """Le subnet del perimetro contenute nell'aggregato. (elenco, errore).
+
+    Il confronto si fa con `ipaddress`, non con il testo: "10.58." come prefisso di
+    stringa prenderebbe anche 10.580.0.0/24 (che non esiste) e soprattutto mancherebbe
+    tutti i casi in cui la maschera non cade su un punto -- un /12 o un /20 non si
+    riconoscono guardando le cifre.
+    """
+    import ipaddress
+
+    testo = (aggregato or "").strip()
+    if not testo:
+        return [], "Indicare un blocco di indirizzi, per esempio 10.58.0.0/16."
+    try:
+        # `strict=False` accetta anche un indirizzo dentro il blocco ("10.58.3.7/16"):
+        # chi lo scrive intende quel blocco, e rifiutarlo sarebbe pedanteria.
+        blocco = ipaddress.ip_network(testo, strict=False)
+    except ValueError:
+        return [], ("%r non e' un blocco di indirizzi valido: si scrive come"
+                    " 10.58.0.0/16." % testo[:40])
+
+    contenute = []
+    for riga in query("SELECT id, cidr, label, zone, is_enabled, host_count"
+                      "  FROM subnets WHERE tenant_id = ? ORDER BY cidr", (tenant_id,)):
+        try:
+            rete = ipaddress.ip_network(riga["cidr"], strict=False)
+        except ValueError:
+            # Una riga illeggibile non ferma le altre: si salta e si prosegue, ed e'
+            # visibile nell'elenco del perimetro che quella riga e' malformata.
+            continue
+        if rete.version == blocco.version and rete.subnet_of(blocco):
+            contenute.append(dict(riga))
+    return contenute, ""
+
+
+@bp.post("/subnets/blocco")
+@role_required(ROLE_TENANT_ADMIN)
+def subnets_blocco():
+    """Sospende o riattiva TUTTE le subnet contenute in un blocco di indirizzi.
+
+    Su un perimetro di trecento subnet, sospendere una sede significa spuntare
+    trenta righe sparse su tre pagine: si sbaglia, e non si sbaglia in modo
+    evidente -- resta una subnet accesa e nessuno se ne accorge.
+
+    DUE TEMPI. `anteprima` mostra l'elenco esatto di cio' che cambierebbe; `applica`
+    lo esegue. Il secondo non si fida del primo: ricalcola l'insieme, cosi' non agisce
+    su un elenco che nel frattempo e' cambiato.
+    """
+    tenant_id = current_tenant_id()
+    aggregato = (request.form.get("cidr") or "").strip()[:64]
+    attiva = (request.form.get("state") or "").strip() == "on"
+    applica = (request.form.get("azione") or "").strip() == "applica"
+
+    contenute, errore = _subnet_contenute(tenant_id, aggregato)
+    if errore:
+        flash(errore, "warning")
+        return redirect(url_for("inventory.subnets"))
+    if not contenute:
+        flash("Nessuna subnet del perimetro e' contenuta in %s: non c'e' niente da"
+              " cambiare." % aggregato, "warning")
+        return redirect(url_for("inventory.subnets"))
+
+    da_cambiare = [v for v in contenute if int(v["is_enabled"] or 0) != (1 if attiva else 0)]
+
+    if not applica:
+        # L'anteprima non cambia niente: rimanda alla pagina con l'elenco esatto.
+        return render_template(
+            "inventory/subnets.html",
+            subnets=subnets_list(tenant_id),
+            summary=inventory_summary(tenant_id),
+            zones=zones.catalogo(tenant_id),
+            zone_summary=zones.summary(subnets_list(tenant_id)),
+            max_hosts=MAX_HOSTS_PER_SUBNET,
+            probes_total=0, probes_scanning=0,
+            anteprima={"cidr": aggregato, "attiva": attiva, "contenute": contenute,
+                       "da_cambiare": da_cambiare},
+        )
+
+    if not da_cambiare:
+        flash("Le %d subnet contenute in %s sono gia' tutte %s."
+              % (len(contenute), aggregato, "attive" if attiva else "sospese"), "info")
+        return redirect(url_for("inventory.subnets"))
+
+    identificativi = [int(v["id"]) for v in da_cambiare]
+    execute("UPDATE subnets SET is_enabled = ?, updated_at = ? WHERE tenant_id = ?"
+            " AND id IN (%s)" % ",".join("?" * len(identificativi)),
+            [1 if attiva else 0, utc_now_str(), tenant_id] + identificativi)
+
+    attive = query("SELECT COUNT(*) AS n FROM subnets WHERE tenant_id = ?"
+                   " AND is_enabled = 1", (tenant_id,), one=True)
+    rimaste = int(attive["n"] or 0)
+    log_event(
+        "subnets.%s.blocco" % ("enabled" if attiva else "disabled"),
+        "%s %d subnet contenute in %s (su %d trovate): %d attive nel perimetro. %s"
+        % ("Riattivate" if attiva else "Sospese", len(da_cambiare), aggregato,
+           len(contenute), rimaste,
+           ", ".join(v["cidr"] for v in da_cambiare[:20])
+           + (" e altre %d" % (len(da_cambiare) - 20) if len(da_cambiare) > 20 else "")),
+        tenant_id=tenant_id, severity="info" if attiva else "warning", entity="subnet")
+
+    flash("%s %d subnet contenute in %s.%s"
+          % ("Riattivate" if attiva else "Sospese", len(da_cambiare), aggregato,
+             "" if rimaste else " Il perimetro e' vuoto: le sonde non scansionano"
+                                " piu' nulla."),
           "success" if rimaste else "warning")
     return redirect(url_for("inventory.subnets"))
 
@@ -1814,3 +2012,45 @@ def reprocess():
     flash("Rielaborazione conclusa in %s s su %d dispositivi. %s"
           % (esito["durata_s"], esito["nodi"], " | ".join(righe)), "success")
     return redirect(request.referrer or url_for("inventory.nodes"))
+
+
+# --------------------------------------------------------------------------- #
+# Reti pubbliche: di chi sono gli indirizzi di internet che compaiono nei dati
+# --------------------------------------------------------------------------- #
+@bp.get("/reti-pubbliche")
+@login_required
+def reti_pubbliche():
+    """La cache dei nomi delle reti: che cosa si sa, e che cosa resta da sapere.
+
+    Perche' ha una pagina propria. Il nome della rete compare nei suggerimenti sugli
+    indirizzi esterni, e un suggerimento vuoto non dice se manchi perche' il servizio
+    e' spento, perche' il server non ha uscita verso internet o perche' quell'indirizzo
+    non e' ancora stato risolto. Sono tre cose diverse con tre rimedi diversi, e senza
+    un posto in cui guardarle si conclude che "non funziona".
+    """
+    from ..mac_costruttori import stato as stato_mac
+    from ..rete_pubblica import GIORNI_DI_VALIDITA, TICK_SECONDI, stato
+
+    reti = query(
+        "SELECT cidr, name, holder, country, asn, source, fetched_at"
+        " FROM net_ranges ORDER BY fetched_at DESC LIMIT 500", ())
+    # Chi non si e' potuto risolvere, con il motivo: e' la meta' che spiega un
+    # suggerimento vuoto, e senza di essa la pagina direbbe solo cio' che e' andato
+    # bene.
+    irrisolti = query(
+        "SELECT ip, attempts, error, first_seen_at, last_seen_at, next_try_at"
+        " FROM net_lookups WHERE resolved_at IS NULL"
+        " ORDER BY last_seen_at DESC LIMIT 200", ())
+    return render_template(
+        "inventory/reti_pubbliche.html",
+        reti=[dict(r) for r in reti],
+        irrisolti=[dict(r) for r in irrisolti],
+        conti=stato(),
+        attivo=bool(current_app.config.get("RETE_PUBBLICA_ATTIVA", True)),
+        cadenza_minuti=TICK_SECONDI // 60,
+        giorni_di_validita=GIORNI_DI_VALIDITA,
+        # Il catalogo dei costruttori sta qui e non altrove: risponde alla stessa
+        # domanda -- "di chi e' questo?" -- una volta per gli indirizzi e una per le
+        # schede di rete.
+        schede=stato_mac(),
+    )

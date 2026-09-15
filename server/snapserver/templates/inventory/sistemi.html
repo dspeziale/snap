@@ -1,0 +1,217 @@
+{#
+  snap server - Sistemi operativi trovati, con il loro ciclo di vita.
+
+  La domanda non e' "che sistemi ci sono" -- quella la risolve l'elenco dei
+  dispositivi -- ma "che cosa devo aggiornare, e con che urgenza".
+
+  Ogni verdetto porta la propria ORIGINE. Un dato letto dentro la macchina e una stima
+  ricavata da un'impronta di rete non valgono uguale: mescolarli farebbe aprire
+  pratiche di migrazione su una supposizione.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-14
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% extends 'base.html' %}
+{% block page_title %}Sistemi operativi{% endblock %}
+{% block breadcrumb %}
+  <li class="breadcrumb-item"><a href="{{ url_for('inventory.nodes') }}">Rete</a></li>
+  <li class="breadcrumb-item active">Sistemi operativi</li>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <p class="text-body-secondary mb-0" style="max-width:70ch">
+    I sistemi operativi trovati sulla rete, con la <strong>data di fine supporto</strong>
+    e quanti dispositivi li usano. Un sistema fuori supporto non riceve piu' correzioni:
+    le vulnerabilita' che escono da quel giorno restano aperte per sempre.
+  </p>
+  <span class="badge text-bg-light border">
+    catalogo verificato al {{ verificato_al }}
+  </span>
+</div>
+
+{# --------------------------------------------------------------------------- #}
+{# I conteggi, in ordine di urgenza                                             #}
+{# --------------------------------------------------------------------------- #}
+<div class="row g-3 mb-3">
+  {% for chiave, etichetta, icona, tono, spiega in [
+      ('fuori_supporto', 'FUORI SUPPORTO', 'bi-x-octagon', 'danger',
+       'non ricevono piu\' correzioni di sicurezza'),
+      ('in_scadenza', 'IN SCADENZA', 'bi-hourglass-split', 'warning',
+       'fine supporto entro ' ~ preavviso ~ ' giorni'),
+      ('ambiguo', 'DA CONFERMARE', 'bi-question-circle', 'info',
+       'l\'impronta copre piu\' release con scadenze diverse'),
+      ('supportato', 'SUPPORTATI', 'bi-check-circle', 'success',
+       'fine supporto oltre la soglia'),
+      ('non_determinabile', 'NON DETERMINABILE', 'bi-dash-circle', 'secondary',
+       'l\'osservazione non identifica un prodotto') ] %}
+  <div class="col-6 col-xl">
+    <a class="text-decoration-none"
+       href="{{ url_for('inventory.sistemi', stato=none if stato_scelto == chiave else chiave) }}">
+      <div class="card snap-stat h-100 {{ 'border-primary' if stato_scelto == chiave }}">
+        <div class="card-body py-2">
+          <div class="d-flex justify-content-between align-items-start gap-2">
+            <div class="min-w-0">
+              <p class="snap-stat-label mb-0">{{ etichetta }}</p>
+              <p class="snap-stat-value mb-0" style="font-size:1.05rem">
+                {{ (conteggi.get(chiave) or 0)|intero }}
+              </p>
+              <p class="snap-stat-foot mb-0">{{ spiega }}</p>
+            </div>
+            <span class="snap-stat-icon text-bg-{{ tono }}"><i class="bi {{ icona }}"></i></span>
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+
+{% if conteggi.get('non_determinabile') and conteggi.get('non_determinabile') > (nodi_totali / 2) %}
+{# Il caso normale su una rete esaminata solo dalla rete, e va spiegato invece di
+   lasciare intendere che il prodotto non funzioni. #}
+<div class="alert alert-secondary">
+  <h2 class="h6"><i class="bi bi-info-circle me-1"></i>
+    Perche' la maggior parte non e' determinabile</h2>
+  <p class="mb-2">
+    Dalla rete si vede un'<strong>impronta</strong>, non una release. Per meta' dei
+    dispositivi di una rete tipica l'impronta e' un <strong>kernel</strong>
+    (&laquo;Linux 4.0 - 4.4&raquo;), e il supporto non lo da' il kernel: lo da' la
+    distribuzione, che dall'esterno non si vede. Per gli apparati di rete il ciclo di
+    vita e' del <strong>modello</strong>, non della versione del sistema.
+  </p>
+  <p class="mb-0">
+    Si risolve dove serve davvero: <strong>installando l'agente</strong> sulle macchine
+    che contano, oppure abilitando la lettura <strong>SMB</strong> sulle postazioni
+    Windows. In entrambi i casi il sistema viene <em>dichiarato dalla macchina</em>, e
+    la riga di questa tabella passa da &laquo;stimato&raquo; a &laquo;dichiarato&raquo;.
+  </p>
+</div>
+{% endif %}
+
+{# --------------------------------------------------------------------------- #}
+{# La tabella                                                                   #}
+{# --------------------------------------------------------------------------- #}
+<div class="card">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-pc-display me-1"></i>
+      {% if stato_scelto %}
+        Sistemi con stato &laquo;{{ stato_scelto|replace('_', ' ') }}&raquo;
+      {% else %}
+        Tutti i sistemi trovati
+      {% endif %}
+    </h3>
+    <small class="text-body-secondary">
+      {{ voci|length }} di {{ totale_voci }} voci &middot; {{ nodi_totali|intero }} dispositivi
+      {% if stato_scelto %}
+      &middot; <a href="{{ url_for('inventory.sistemi') }}">togli il filtro</a>
+      {% endif %}
+    </small>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover table-sm align-middle mb-0" data-snap-table
+             data-page-size="25">
+        <thead>
+          <tr>
+            <th>SISTEMA OSSERVATO</th><th>DISPOSITIVI</th><th>PRODOTTO</th>
+            <th>RELEASE</th><th>RILASCIO</th><th>FINE SUPPORTO</th>
+            <th>GIORNI</th><th>STATO</th><th>ORIGINE DEL DATO</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for v in voci %}
+          <tr>
+            <td class="small">
+              {# La ricerca libera dell'elenco cerca anche in os_name: non serve un
+                 filtro nuovo, e uno in piu' da mantenere sarebbe un filtro in piu' da
+                 sbagliare. #}
+              <a href="{{ url_for('inventory.nodes', cerca=v.osservato) }}"
+                 class="text-decoration-none">{{ v.osservato }}</a>
+              {% if v.nota %}
+              <i class="bi bi-info-circle text-body-secondary ms-1"
+                 title="{{ v.nota }}"></i>
+              {% endif %}
+              {% if v.perche %}
+              {# La spiegazione sta NELLA cella, non in una riga propria: una riga con
+                 una cella sola fa perdere a DataTables il conto delle colonne, e la
+                 tabella smette di funzionare del tutto. #}
+              <span class="d-block text-body-secondary mt-1" style="font-size:.74rem">
+                <i class="bi bi-arrow-return-right me-1"></i>{{ v.perche }}
+              </span>
+              {% endif %}
+            </td>
+            <td class="text-end">{{ v.nodi|intero }}</td>
+            <td class="small">{{ v.prodotto or '—' }}</td>
+            <td class="small">{{ v.release or '—' }}</td>
+            <td class="small">{{ v.rilascio or '—' }}</td>
+            <td class="small">
+              {% if v.fine_supporto %}
+                {{ v.fine_supporto }}
+                {% if v.fine_supporto_esteso %}
+                <span class="d-block text-body-secondary" style="font-size:.72rem"
+                      title="Supporto esteso o a pagamento: vale solo per chi lo ha
+                             acquistato o attivato">
+                  esteso {{ v.fine_supporto_esteso }}
+                </span>
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-end small">
+              {% if v.giorni is not none %}
+                {% if v.giorni < 0 %}
+                <span class="text-danger">{{ (-v.giorni)|intero }} gg fa</span>
+                {% else %}
+                fra {{ v.giorni|intero }} gg
+                {% endif %}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% set toni = {'fuori_supporto': 'danger', 'in_scadenza': 'warning',
+                             'ambiguo': 'info', 'supportato': 'success',
+                             'non_determinabile': 'secondary'} %}
+              <span class="badge text-bg-{{ toni.get(v.stato, 'secondary') }}">
+                {{ v.stato|replace('_', ' ') }}
+              </span>
+            </td>
+            <td class="small">
+              {% if v.fiducia == 'dichiarato' %}
+              <span class="text-success"><i class="bi bi-patch-check me-1"></i>dichiarato</span>
+              {% else %}
+              <span class="text-body-secondary"
+                    title="{{ v.fiducia_perche }}">
+                <i class="bi bi-question-circle me-1"></i>stimato
+              </span>
+              {% endif %}
+              <span class="d-block text-body-secondary" style="font-size:.72rem">
+                {{ v.sorgente }}{% if v.accuratezza %} · {{ v.accuratezza }}%{% endif %}
+              </span>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="9" class="text-center text-body-secondary py-4">
+            Nessun sistema operativo con questo stato.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    <strong>&laquo;Stimato&raquo; non e' un difetto di questo prodotto</strong>: nmap
+    riconosce una famiglia e nomina la release da cui l'impronta fu raccolta, non quella
+    installata. Una macchina indicata come &laquo;Windows 11 21H2&raquo; puo' essere una
+    24H2 aggiornata ieri. Prima di aprire una migrazione su una riga
+    &laquo;stimato&raquo;, si conferma con l'agente o con SMB.
+    <span class="d-block mt-1">
+      Le date sono quelle pubblicate dai produttori, <strong>verificate al
+      {{ verificato_al }}</strong>. Il <em>supporto esteso</em> (ESU, LTS, ESM, ELS)
+      vale solo per chi lo ha acquistato o attivato: non si conta come copertura.
+    </span>
+  </div>
+</div>
+
+{% endblock %}

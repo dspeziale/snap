@@ -39,6 +39,12 @@ USCITE_AMMESSE = {
     "channels.py": "bot Telegram e server di posta",
     "threat_sources.py": "cataloghi pubblici di vulnerabilita' (NVD, CISA, MITRE)",
     "notifications.py": "server di posta",
+    # RDAP, i registri pubblici degli indirizzi internet. Va verso `rdap.org`, che
+    # instrada al registro regionale: la destinazione e' per costruzione un indirizzo
+    # PUBBLICO, e il modulo si rifiuta di chiedere un indirizzo privato -- che e'
+    # l'unica forma che potrebbe avere una sonda. Il rifiuto e' provato in
+    # test_rete_pubblica.py.
+    "rete_pubblica.py": "registri pubblici degli indirizzi internet (RDAP)",
 }
 
 # `urllib.parse` non apre niente: analizza un URL, e il server lo usa per validare
@@ -73,6 +79,25 @@ def test_solo_i_moduli_dichiarati_aprono_connessioni():
         "Se la destinazione e' una sonda, non si puo' fare: la sonda non e'"
         " raggiungibile dal server. Se e' un servizio esterno, va aggiunta a"
         " USCITE_AMMESSE con il motivo." % ", ".join(colpevoli))
+
+
+def test_l_uscita_rdap_non_puo_puntare_a_una_sonda():
+    """La dichiarazione in USCITE_AMMESSE non basta: si controlla che il modulo non
+    POSSA chiedere l'indirizzo di una sonda.
+
+    Una sonda sta nella rete del cliente, e quindi ha un indirizzo privato. Finche'
+    il modulo rifiuta gli indirizzi privati, la sua uscita verso internet non e' una
+    strada verso una sonda: e' la ragione per cui quella riga e' ammessa.
+    """
+    import sys
+
+    sys.path.insert(0, str(RADICE / "server"))
+    from snapserver.rete_pubblica import e_pubblico
+
+    for indirizzo in ("10.20.10.42", "192.168.1.50", "172.16.0.9", "127.0.0.1"):
+        assert e_pubblico(indirizzo) is False, (
+            "%s uscirebbe verso un registro: e' un indirizzo di rete interna, cioe'"
+            " la forma che ha una sonda" % indirizzo)
 
 
 def test_nessun_indirizzo_di_sonda_diventa_un_url():

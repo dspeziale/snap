@@ -47,6 +47,20 @@
     raggiungibile SOLO da 127.0.0.1: nulla in chiaro sulla rete, ma nulla
     raggiungibile dalla rete.
 
+.PARAMETER Password
+    Imposta o reimposta la password dell'interfaccia locale, poi esce.
+
+    E' la via d'uscita che mancava: /primo-accesso vale solo finche' una password
+    non c'e', quindi una password DIMENTICATA non aveva nessuna procedura -- restava
+    da cancellare a mano una riga nelle impostazioni dell'archivio.
+
+    Non serve fermare la sonda e non serve riavviarla: l'interfaccia rilegge
+    l'impronta a ogni accesso.
+
+.PARAMETER Casuale
+    Con -Password: genera una password robusta e la mostra UNA volta. Viene
+    conservata come impronta scrypt, quindi non sara' piu' rileggibile.
+
 .PARAMETER PrimaPassword
     Avvio per la SOLA prima impostazione della password, da fare una volta.
 
@@ -72,12 +86,20 @@
     .\start-nativa.ps1 -SoloVerifica
     .\start-nativa.ps1 -SenzaProxy
     .\start-nativa.ps1 -PrimaPassword      # una volta, per scegliere la password
+    .\start-nativa.ps1 -Password          # imposta o REIMPOSTA la password, ed esce
+    .\start-nativa.ps1 -Password -Casuale # come sopra, generandola robusta
 #>
 [CmdletBinding()]
 param(
     [int]$Port = 5511,
     [switch]$SenzaProxy,
     [switch]$PrimaPassword,
+    # Imposta o reimposta la password dell'interfaccia e esce, senza avviare niente.
+    # Non richiede che la sonda sia ferma: l'interfaccia legge l'impronta a ogni
+    # accesso, quindi la nuova password vale dal tentativo successivo.
+    [switch]$Password,
+    # Con -Password: ne genera una robusta e la mostra una volta sola.
+    [switch]$Casuale,
     [switch]$SoloVerifica,
     # Avvia la sonda SENZA finestra: il diario va su file invece che a schermo. La
     # sonda e' un servizio, non un programma da guardare -- una finestra aperta per
@@ -314,6 +336,27 @@ $env:SNAP_PROBE_DATABASE_URL =
 $env:SNAP_PROBE_OWNER_DATABASE_URL =
     "postgresql+psycopg://$($conf['PROBE_POSTGRES_USER']):$($conf['PROBE_POSTGRES_PASSWORD'])@127.0.0.1:5532/$db_nome"
 $env:SNAP_PROBE_SECRET_KEY = $conf['SNAP_PROBE_SECRET_KEY']
+
+# --- 6-bis. Sola password ------------------------------------------------------
+# Qui e non prima: serve la stringa di connessione appena composta, ed e' proprio
+# quella la ragione per cui questo interruttore esiste -- chi ha perso la password
+# dell'interfaccia non ha voglia di comporre a mano un DSN che contiene un'altra
+# password.
+if ($Password) {
+    $argomentiPassword = @('run.py', '--password')
+    if ($Casuale) { $argomentiPassword += '--password-casuale' }
+    Push-Location (Join-Path $Radice 'probe')
+    try {
+        & $python @argomentiPassword
+        $esito = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    # Nessun messaggio in piu' da qui: l'uscita di PowerShell e quella di Python
+    # hanno buffer distinti, e l'avviso compariva PRIMA della password a cui si
+    # riferiva. Cio' che serve lo dice gia' il comando.
+    exit $esito
+}
 # Il percorso sul disco, non quello del contenitore: vedi il controllo 5-bis.
 if ($AncoraServer) { $env:SNAP_PROBE_SERVER_CA = $AncoraServer }
 $env:PYTHONUNBUFFERED = '1'

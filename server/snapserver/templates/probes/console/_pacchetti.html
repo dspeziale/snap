@@ -1,0 +1,95 @@
+{#
+  snap server - Console remota di una sonda: pacchetti.
+
+  PERCHE' I PACCHETTI NON ARRIVANO QUI. Sono il traffico di chi lavora su quella
+  rete: chi parla con chi, a che ora, verso quali nomi. Restano sulla sonda, dove
+  hanno una ritenzione breve e non escono dalla rete del cliente. Dal server se ne sa
+  il NUMERO -- che basta a dire se l'osservazione sta funzionando -- e da qui la si
+  accende e la si spegne.
+
+  E' una minimizzazione voluta (GDPR art. 5.1.c): il dato utile alla sorveglianza e'
+  "sta osservando o no", non il contenuto di cio' che osserva.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% set traffico = (consolle.traffico or {}) if consolle else {} %}
+
+<div class="row g-3">
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">PACCHETTI SULLA SONDA</p>
+        <p class="snap-stat-value mb-0">{{ (traffico.get('pacchetti') or 0)|intero }}</p>
+        <p class="snap-stat-foot mb-0">conservati in sede, non qui</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">OSSERVAZIONE</p>
+        <p class="snap-stat-value mb-0">
+          {% if not traffico.get('attiva') %}spenta
+          {% elif traffico.get('in_ascolto') %}in ascolto
+          {% else %}ferma{% endif %}
+        </p>
+        <p class="snap-stat-foot mb-0">
+          {% if traffico.get('attiva') and not traffico.get('in_ascolto') %}
+          accesa, ma la cattura non sta girando
+          {% elif traffico.get('attiva') %}la cattura sta girando
+          {% else %}nessuna cattura richiesta{% endif %}
+        </p>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-md-4">
+    <div class="card snap-stat h-100">
+      <div class="card-body py-2">
+        <p class="snap-stat-label mb-1">INTERFACCIA</p>
+        <p class="snap-stat-value mb-0" style="font-size:1rem">
+          {{ traffico.get('interfaccia') or '—' }}
+        </p>
+        <p class="snap-stat-foot mb-0">
+          filtro: {{ traffico.get('filtro') or 'quello predefinito' }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  {% if traffico.get('attiva') and not traffico.get('in_ascolto') %}
+  <div class="col-12">
+    <div class="alert alert-warning mb-0">
+      <strong>Accesa, ma non in ascolto.</strong>
+      {{ traffico.get('errore')
+         or "l'osservazione e' stata richiesta, ma la cattura non sta girando." }}
+      La sonda riprova a ogni giro: se la condizione dura, l'interfaccia scelta non
+      esiste piu' su quella macchina oppure manca il permesso di cattura.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-shield-lock me-1"></i> Perche' i pacchetti restano sulla sonda</h2>
+      </div>
+      <div class="card-body small">
+        <p>
+          Un pacchetto osservato dice chi ha parlato con chi, a che ora e verso quale
+          nome. Riguarda le PERSONE che lavorano su quella rete, non gli apparati: e'
+          il dato piu' delicato che questo prodotto tocchi. Resta percio' dove nasce,
+          con una ritenzione breve, e non attraversa la rete geografica.
+        </p>
+        <p class="mb-0">
+          Dal server se ne sa il numero, che e' quanto serve per rispondere alla sola
+          domanda che si fa da qui -- <em>sta osservando o no</em> -- e l'osservazione
+          si accende e si spegne dalla vista
+          <a href="{{ url_for('probes.console', probe_id=probe.id, vista='configurazione') }}">Configurazione</a>.
+          I pacchetti si leggono aprendo l'interfaccia della sonda in sede.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

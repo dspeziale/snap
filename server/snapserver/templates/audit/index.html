@@ -6,6 +6,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/pagination.html' as nav %}
 {% block title %}Audit ed eventi{% endblock %}
 {% block page_icon %}bi-journal-text{% endblock %}
@@ -76,7 +77,7 @@
             <td class="small fw-semibold">{{ event['event_type'] }}</td>
             <td class="small">{{ event['actor'] }}</td>
             <td class="small">{{ event['description'] }}</td>
-            <td class="small text-body-secondary">{{ event['source_ip'] or '-' }}</td>
+            <td class="small text-body-secondary">{{ snap_indirizzo(event['source_ip']) }}</td>
           </tr>
           {% else %}
           <tr><td colspan="6" class="text-center text-body-secondary py-4">

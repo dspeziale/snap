@@ -61,7 +61,7 @@ class Config:
     """Configurazione di base (ambiente di esercizio)."""
 
     APP_NAME = "SNAP"
-    APP_VERSION = "1.8.8"
+    APP_VERSION = "2.0.6"
     APP_SUBTITLE = "Secure Network Assessment Platform"
     # Quale dei due componenti si sta guardando. Compare sotto il marchio e nel piede
     # di pagina: con console e sonda aperte in due schede e' l'informazione che
@@ -116,6 +116,12 @@ class Config:
     # Spento per difetto (secure by default): si accende esplicitamente. La porta sta
     # nel range del progetto (5500-5600).
     SIEM_LISTENER = _bool("SNAP_SERVER_SIEM_LISTENER", False)
+
+    # Risoluzione dei nomi delle reti pubbliche (RDAP). Si spegne dove il server non
+    # ha uscita verso internet: non e' un guasto da nascondere, e il prodotto deve
+    # restare pienamente utilizzabile in una rete isolata -- gli indirizzi esterni si
+    # mostrano allora come si sono sempre mostrati, senza suggerimento.
+    RETE_PUBBLICA_ATTIVA = _bool("SNAP_SERVER_RETE_PUBBLICA", True)
     # Una o piu' porte (separate da virgola) su cui ascoltare il syslog, in UDP e TCP.
     # Il valore predefinito 5514 sta nel range del progetto; si puo' aggiungere la 514
     # standard per gli apparati che inviano solo a quella (es. "514,5514").

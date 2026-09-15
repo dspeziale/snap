@@ -260,7 +260,7 @@
       {% if agent_status.presence.at %}
       <dt class="col-5 col-md-3 fw-normal text-body-secondary">Ultima passata</dt>
       <dd class="col-7 col-md-9 mb-1">
-        {{ agent_status.presence.at }} &middot;
+        {{ agent_status.presence.at|dt }} &middot;
         {{ agent_status.presence.seen }} presenti,
         {{ agent_status.presence.new }} nuovi,
         in {{ agent_status.presence.duration_sec }} s
@@ -466,6 +466,19 @@
       <dt class="col-5 col-md-3">Nodi da approfondire</dt>
       <dd class="col-7 col-md-9">{{ scan.uncertain }}</dd>
     </dl>
+    {# SI DICHIARA IL TRONCAMENTO. La tabella porta le esecuzioni piu' recenti, non
+       tutte: con centinaia di subnet sono migliaia di righe, e mandarle tutte al
+       browser per mostrarne dieci costava due megabyte e trentacinque secondi a ogni
+       apertura. Un elenco troncato che non lo dichiara fa credere che quello sia
+       tutto, ed e' il modo piu' facile di concludere che una fase non e' mai stata
+       eseguita. #}
+    {% if scan.states_total and scan.states_total > scan.states|length %}
+    <p class="small text-body-secondary mb-2">
+      Le <strong>{{ scan.states|length }}</strong> esecuzioni piu' recenti, su
+      {{ scan.states_total|intero }} registrate. Quanto manca a ciascuna fase sta
+      nella pagina <a href="{{ url_for('probe.salute') }}">Salute</a>.
+    </p>
+    {% endif %}
     <div class="table-responsive">
       <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="10">
         <thead><tr><th>BERSAGLIO</th><th>FASE</th><th>ULTIMA ESECUZIONE</th><th>ESITO</th>

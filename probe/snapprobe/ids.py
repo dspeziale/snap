@@ -79,6 +79,38 @@ CHIAVE_TRAFFICO_INTERFACCIA = "traffico_interfaccia"
 CHIAVE_TRAFFICO_FILTRO = "traffico_filtro"
 CHIAVE_TRAFFICO_ERRORE = "traffico_ultimo_errore"
 
+# L'ISTANTE dell'ultimo giro in cui la cattura risultava viva. Attraversa i due
+# processi passando dall'archivio: il processo dell'interfaccia non ha nessun
+# oggetto Cattura da interrogare, perche' la cattura vive in quello dell'agente.
+# Un istante e non un interruttore: un processo che muore non fa in tempo a
+# scrivere "sono morto", mentre un istante fermo da un minuto lo dice da solo.
+CHIAVE_TRAFFICO_VIVA_AT = "traffico_viva_at"
+# I CONTATORI della cattura: quanti pacchetti ha letto, quanti ne ha scartati, su che
+# cosa e da quando. Sono stato del processo che cattura, e attraversano i processi
+# nello stesso modo dell'istante qui sopra -- passando dall'archivio. Gli SCARTATI in
+# particolare non si ricavano da nessun'altra parte: sono quelli che l'anello ha perso
+# perche' nessuno li ha ritirati in tempo, cioe' il segnale che la sonda non tiene il
+# passo del traffico.
+CHIAVE_TRAFFICO_CONTATORI = "traffico_contatori"
+
+# Oltre questo numero di indirizzi diversi, una scheda di rete non e' di una macchina:
+# e' di un ROUTER, e il MAC che si vede nei suoi pacchetti e' il suo, non quello di
+# chi li ha generati. Le coppie che passano di li' non si associano.
+#
+# La soglia si calibra da sola sul segmento e non richiede di conoscere maschere,
+# gateway o topologia -- che la sonda spesso non conosce. Otto e' largo per una
+# postazione (che ne ha uno, al massimo due con un indirizzo secondario) e stretto per
+# un router (che ne serve decine).
+INDIRIZZI_OLTRE_I_QUALI_E_UN_ROUTER = 8
+
+# Quante volte una coppia deve essersi vista per valere. Un pacchetto solo puo' essere
+# un residuo o una lettura storta.
+COPPIE_MINIME = 2
+# Oltre questo, l'ultimo istante firmato non vale piu' come "sta ascoltando":
+# e' quattro giri del ciclo, quindi non basta un giro lungo a far sembrare
+# ferma una cattura che sta lavorando.
+TRAFFICO_VIVA_SCADENZA_SEC = 60
+
 # La cattura vive nel processo dell'agente di raccolta, non in quello
 # dell'interfaccia: e' li' che gira il motore IDS che ne legge il riassunto. Questo
 # riferimento lo tiene il modulo perche' il sensore possa raggiungerlo senza che il
@@ -92,6 +124,49 @@ def imposta_cattura(presa) -> None:
 
 def _cattura_in_corso():
     return _CATTURA.get("presa")
+
+
+def contatori_cattura(store) -> dict:
+    """I contatori pubblicati dall'agente. Vuoti se non ne ha ancora pubblicati.
+
+    Si torna un dizionario e non None: chi lo usa lo interroga per chiave, e un
+    dizionario vuoto risponde "non lo so" a tutte senza far sollevare niente -- che
+    e' esattamente cio' che serve a un modello.
+    """
+    import json
+
+    grezzo = (store.get_setting(CHIAVE_TRAFFICO_CONTATORI, "") or "").strip()
+    if not grezzo:
+        return {}
+    try:
+        voci = json.loads(grezzo)
+    except (TypeError, ValueError):
+        return {}
+    return voci if isinstance(voci, dict) else {}
+
+
+def cattura_in_ascolto(store) -> bool:
+    """Vero se la cattura sta ascoltando ADESSO, chiunque lo chieda.
+
+    Non si guarda l'oggetto `Cattura` in memoria: vive nel processo dell'agente, e
+    chi fa questa domanda e' quasi sempre il processo dell'interfaccia, che non ce
+    l'ha. Guardarlo li' faceva dichiarare "la cattura non e' partita" su una pagina
+    che nel frattempo mostrava i pacchetti appena arrivati.
+
+    Si guarda invece l'istante che l'agente firma a ogni giro finche' la cattura e'
+    viva: se e' recente, sta ascoltando.
+    """
+    from datetime import datetime, timezone
+
+    firmato = (store.get_setting(CHIAVE_TRAFFICO_VIVA_AT, "") or "").strip()
+    if not firmato:
+        return False
+    try:
+        quando = datetime.strptime(firmato, "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    return (datetime.now(timezone.utc) - quando).total_seconds() <= TRAFFICO_VIVA_SCADENZA_SEC
 
 
 def _reti_dichiarate(archivio) -> list:
@@ -627,7 +702,8 @@ class SensoreTraffico(Sensore):
     descrizione = ("Intestazioni dei pacchetti e nomi dichiarati in chiaro (DNS, SNI,"
                    " Host HTTP). Riconosce avvelenamento ARP, DHCP abusivo,"
                    " avvelenamento dei nomi, scansioni interne, beaconing e tunnel"
-                   " DNS. Non legge il contenuto.")
+                   " DNS, e associa indirizzo IP e scheda di rete. Non legge il"
+                   " contenuto.")
 
     def disponibile(self, archivio) -> tuple:
         from . import cattura as modulo_cattura
@@ -638,13 +714,17 @@ class SensoreTraffico(Sensore):
         assenza = modulo_cattura.motivo_assenza()
         if assenza:
             return False, assenza
-        presa = _cattura_in_corso()
-        if presa is None or not presa.viva:
+        # NON si guarda l'oggetto della cattura: vive nel processo dell'AGENTE, e
+        # questa domanda la fa quasi sempre la pagina IDS, che gira in quello
+        # dell'INTERFACCIA. Cercarlo li' faceva dichiarare "cattura non avviata" su
+        # una pagina che mostrava le rilevazioni appena prodotte da quella cattura.
+        if not cattura_in_ascolto(archivio):
             motivo = archivio.get_setting(CHIAVE_TRAFFICO_ERRORE, "")
             return False, (motivo or "cattura non avviata")
-        stato = presa.stato()
-        return True, ("in ascolto su %s: %d pacchetti letti"
-                      % (stato["interfaccia"][-24:], stato["pacchetti"]))
+        stato = contatori_cattura(archivio)
+        return True, ("in ascolto su %s: %s pacchetti letti"
+                      % (str(stato.get("interfaccia") or "?")[-24:],
+                         stato.get("pacchetti", "?")))
 
     def osserva(self, archivio, adesso: datetime) -> list:
         presa = _cattura_in_corso()
@@ -666,6 +746,67 @@ class SensoreTraffico(Sensore):
         rilevazioni.extend(self._beaconing(archivio, finestra))
         rilevazioni.extend(self._dns(finestra))
         rilevazioni.extend(self._http(finestra))
+        # L'associazione indirizzo/scheda legge l'ARCHIVIO e non la finestra in
+        # memoria: le coppie vanno confrontate con quelle di prima, e la finestra
+        # dura quanto un giro.
+        rilevazioni.extend(self._ip_e_schede(archivio, adesso))
+        return rilevazioni
+
+    # -- indirizzo e scheda di rete ----------------------------------------- #
+    def _ip_e_schede(self, archivio, adesso: datetime) -> list:
+        """Associa indirizzo IP e scheda di rete leggendo i pacchetti conservati.
+
+        Il MAC di un pacchetto e' quello del passo precedente, non della macchina che
+        l'ha generato: se il traffico ha attraversato un router, quel MAC e' del
+        ROUTER. Associare alla cieca attribuirebbe la sua scheda a mezza internet e
+        farebbe scattare "una scheda su molti indirizzi" su di lui a ogni giro -- un
+        allarme quotidiano su un fatto normale, cioe' il modo piu' rapido di far
+        ignorare un IDS.
+
+        Un router si riconosce proprio da li': e' la scheda che compare con molti
+        indirizzi diversi. Le coppie che passano da quelle schede non si associano.
+        """
+        coppie = archivio.traffico_coppie_ip_mac(minimo=COPPIE_MINIME)
+        if not coppie:
+            return []
+
+        # Quante schede per indirizzo e quanti indirizzi per scheda: servono
+        # entrambi, e si contano una volta sola.
+        indirizzi_per_scheda = {}
+        for voce in coppie:
+            indirizzi_per_scheda.setdefault(voce["mac"], set()).add(voce["ip"])
+        schede_di_transito = {mac for mac, ips in indirizzi_per_scheda.items()
+                              if len(ips) > INDIRIZZI_OLTRE_I_QUALI_E_UN_ROUTER}
+
+        rilevazioni = []
+        for voce in coppie:
+            ip, mac = voce["ip"], voce["mac"]
+            if mac in schede_di_transito:
+                # Traffico instradato: la scheda e' del router. Non si associa, e non
+                # si segnala -- e' il funzionamento normale di una rete.
+                continue
+
+            # La memoria e' la STESSA del sensore dell'inventario (`mac_di_ip`): le
+            # due sorgenti devono concordare, altrimenti un cambio di scheda
+            # verrebbe segnalato due volte o, peggio, ciascuna sorgente crederebbe
+            # normale cio' che l'altra ha visto cambiare.
+            cambiato = archivio.ids_confronta("mac_di_ip", ip, mac, adesso)
+            if cambiato and cambiato["maturo"]:
+                rilevazioni.append(Rilevazione(
+                    "ARP-MAC-CAMBIATO", self.codice, ip,
+                    "%s risponde con una scheda di rete diversa" % ip,
+                    "visto nel traffico: prima %s, adesso %s (noto dal %s)"
+                    % (cambiato["prima"], mac, cambiato["visto_da"]),
+                    {"ip": ip, "mac_prima": cambiato["prima"], "mac_adesso": mac,
+                     "fonte": "traffico"}))
+                continue
+
+            # IL GUADAGNO VERO: un nodo che non aveva scheda ora ce l'ha. Un MAC da'
+            # il costruttore, e su un apparato muto e' spesso l'unico indizio sul
+            # tipo. Non si sovrascrive mai un MAC gia' noto -- quello viene da ARP
+            # durante una scansione, che e' una prova diretta.
+            if archivio.nodo_senza_mac(ip):
+                archivio.assegna_mac_osservato(ip, mac)
         return rilevazioni
 
     # -- le regole ---------------------------------------------------------- #

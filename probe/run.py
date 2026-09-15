@@ -61,7 +61,113 @@ def parse_arguments() -> argparse.Namespace:
         help="avvia SOLO l'interfaccia web, senza l'agente di raccolta",
     )
     parser.add_argument("--status", action="store_true", help="mostra lo stato locale ed esce")
+    parser.add_argument(
+        "--password",
+        nargs="?",
+        const="",
+        metavar="NUOVA",
+        help="imposta o reimposta la password dell'interfaccia locale ed esce."
+             " Senza valore la chiede senza mostrarla a schermo; con"
+             " --password-casuale ne genera una robusta",
+    )
+    parser.add_argument(
+        "--password-casuale",
+        action="store_true",
+        help="con --password: genera una password robusta e la mostra una volta",
+    )
     return parser.parse_args()
+
+
+# Lunghezza della password generata. Venti caratteri dall'alfabeto qui sotto sono
+# circa 118 bit: piu' che sufficienti per una credenziale che non si digita spesso e
+# che si conserva in un gestore di password.
+LUNGHEZZA_GENERATA = 20
+# Alfabeto senza i caratteri che si confondono a voce o su carta (l/I/1, O/0) e senza
+# quelli che una shell interpreta: una password che va citata al telefono o incollata
+# in un comando non deve costringere a spiegare quale "l" era.
+ALFABETO_GENERATO = ("ABCDEFGHJKLMNPQRSTUVWXYZ"
+                     "abcdefghijkmnopqrstuvwxyz"
+                     "23456789"
+                     "-_.+=")
+
+
+def genera_password() -> str:
+    """Una password robusta che soddisfa la politica per costruzione.
+
+    Si estrae finche' non rispetta la politica invece di comporla a pezzi: comporre
+    "una maiuscola, una minuscola, una cifra e poi il resto" riduce lo spazio delle
+    password possibili in un modo che non si vede a occhio.
+    """
+    import secrets
+
+    from snapprobe.auth import errori_di_politica
+
+    for _tentativo in range(100):
+        candidata = "".join(secrets.choice(ALFABETO_GENERATO)
+                            for _ in range(LUNGHEZZA_GENERATA))
+        if not errori_di_politica(candidata):
+            return candidata
+    # Non e' mai successo e non puo' praticamente succedere; se succedesse, meglio
+    # fermarsi che consegnare una password che non rispetta la politica.
+    raise RuntimeError("generazione della password non riuscita")
+
+
+def command_password(valore: str, casuale: bool) -> int:
+    """Imposta o reimposta la password dell'interfaccia locale.
+
+    PERCHE' ESISTE. `/primo-accesso` vale solo finche' una password non c'e': una
+    password dimenticata non aveva nessuna via d'uscita documentata. Questo comando
+    ne e' la via, e chiede piu' di quella pagina -- una shell sulla macchina della
+    sonda -- non meno.
+
+    La password non si accetta dalla riga di comando per una ragione misurabile:
+    finirebbe nella cronologia della shell e nell'elenco dei processi, dove la vede
+    chiunque sia connesso alla stessa macchina.
+    """
+    import getpass
+
+    from snapprobe.auth import errori_di_politica, imposta_password, password_impostata
+    from snapprobe.store import ProbeStore
+
+    ProbeStore()  # apre l'archivio: se non e' raggiungibile, si vede subito
+    prima = password_impostata()
+
+    if casuale:
+        nuova = genera_password()
+        mostrata = True
+    elif valore:
+        # Un valore sulla riga di comando: si accetta (serve agli automatismi) ma si
+        # dice che cosa comporta, invece di lasciarlo scoprire a chi legge la
+        # cronologia della shell fra un mese.
+        print("ATTENZIONE: la password passata sulla riga di comando resta nella"
+              " cronologia della shell e nell'elenco dei processi.")
+        nuova, mostrata = valore, False
+    else:
+        nuova = getpass.getpass("Nuova password dell'interfaccia della sonda: ")
+        conferma = getpass.getpass("Ripetere la password: ")
+        if nuova != conferma:
+            print("Le due password non coincidono: niente e' stato cambiato.",
+                  file=sys.stderr)
+            return 1
+        mostrata = False
+
+    errori = errori_di_politica(nuova)
+    if errori:
+        for errore in errori:
+            print("  %s" % errore, file=sys.stderr)
+        print("Niente e' stato cambiato.", file=sys.stderr)
+        return 1
+
+    imposta_password(nuova)
+    print("Password %s." % ("reimpostata" if prima else "impostata"))
+    if mostrata:
+        print()
+        print("    %s" % nuova)
+        print()
+        print("Si vede UNA VOLTA: viene conservata come impronta scrypt, quindi"
+              " nemmeno la sonda puo' rileggerla.")
+    print("L'interfaccia accetta la nuova password subito: non serve riavviare.")
+    return 0
 
 
 def command_status() -> int:
@@ -137,6 +243,9 @@ def command_headless() -> int:
 def main() -> int:
     arguments = parse_arguments()
 
+    if arguments.password is not None or arguments.password_casuale:
+        return command_password(arguments.password or "",
+                                arguments.password_casuale)
     if arguments.status:
         return command_status()
     if arguments.enroll:

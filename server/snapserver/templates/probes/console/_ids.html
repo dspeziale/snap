@@ -1,0 +1,108 @@
+{#
+  snap server - Console remota di una sonda: IDS.
+
+  PERCHE' QUI NON C'E' L'ELENCO DELLE RILEVAZIONI. Le rilevazioni vengono CONFERITE
+  al server come tutto il resto: sono gia' qui, per intero, nella sala operativa, con
+  la ricerca e i filtri. Rimandarle indietro nell'istantanea sarebbe traffico a vuoto
+  (la stessa ragione per cui il perimetro non torna indietro) e un secondo elenco,
+  piu' corto e piu' vecchio, che non si sa quale dei due sia quello buono.
+
+  Qui c'e' invece cio' che SOLO la sonda sa: se il motore ha girato, quali sensori
+  hanno saltato il turno e da quanto esiste la memoria di cio' che e' normale. Sono i
+  tre motivi per cui uno zero di rilevazioni puo' non voler dire "niente di anomalo".
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+{% set rilevazione = (consolle.ids or {}) if consolle else {} %}
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0"><i class="bi bi-radar me-1"></i> Ultima passata del motore</h2>
+        {% if rilevazione.get('eseguito_at') %}
+        <span class="badge text-bg-light border">{{ rilevazione.eseguito_at|ago }}</span>
+        {% else %}
+        <span class="badge text-bg-secondary">mai eseguita</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if rilevazione.get('eseguito_at') %}
+        <dl class="row mb-0 small">
+          <dt class="col-6 fw-normal text-body-secondary">Rilevazioni</dt>
+          <dd class="col-6 mb-1">{{ rilevazione.get('rilevazioni', 0)|intero }}</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Di cui nuove</dt>
+          <dd class="col-6 mb-1">{{ rilevazione.get('nuove', 0)|intero }}</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Aggiornate</dt>
+          <dd class="col-6 mb-1">{{ rilevazione.get('aggiornate', 0)|intero }}</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Agenti che riferiscono</dt>
+          <dd class="col-6 mb-0">{{ rilevazione.get('agenti', 0)|intero }}</dd>
+        </dl>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          Il motore non ha ancora girato su questa sonda. Uno zero di rilevazioni,
+          finche' il motore non ha girato, non vuol dire "niente di anomalo".
+        </p>
+        {% endif %}
+      </div>
+      <div class="card-footer small text-body-secondary">
+        Le rilevazioni vere si leggono nella
+        <a href="{{ url_for('operations.soc') }}">sala operativa</a>: vengono conferite
+        al server e stanno gia' qui per intero. Rimandarle indietro col battito
+        sarebbe un secondo elenco, piu' corto e piu' vecchio.
+      </div>
+    </div>
+  </div>
+
+  {# I SENSORI SALTATI sono la spiegazione piu' frequente di uno zero, e l'unica che
+     dal server non si potrebbe dedurre in nessun altro modo. #}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0">
+          <i class="bi bi-exclamation-triangle me-1"></i> Perche' uno zero puo' non essere uno zero
+        </h2>
+      </div>
+      <div class="card-body">
+        <h3 class="h6 small text-uppercase text-body-secondary">Sensori che hanno saltato il turno</h3>
+        {% if rilevazione.get('sensori_saltati') %}
+        <ul class="small mb-3">
+          {% for voce in rilevazione.sensori_saltati %}
+          <li>{{ voce }}</li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="small text-body-secondary">Nessuno: hanno girato tutti.</p>
+        {% endif %}
+
+        <h3 class="h6 small text-uppercase text-body-secondary">Memoria di cio' che e' normale</h3>
+        {% set memoria = rilevazione.get('memoria') or {} %}
+        {% if memoria %}
+        <dl class="row mb-0 small">
+          {% for chiave, valore in memoria.items() %}
+          <dt class="col-7 fw-normal text-body-secondary">{{ chiave|replace('_', ' ') }}</dt>
+          <dd class="col-5 mb-1">
+            {% if valore is boolean %}
+              <span class="badge text-bg-{{ 'success' if valore else 'warning' }}">
+                {{ 'matura' if valore else 'ancora giovane' }}</span>
+            {% else %}{{ valore }}{% endif %}
+          </dd>
+          {% endfor %}
+        </dl>
+        {% else %}
+        <p class="small text-body-secondary mb-0">
+          Non dichiarata da questa sonda: e' una versione precedente alla
+          {{ versione_minima }}.
+        </p>
+        {% endif %}
+      </div>
+      <div class="card-footer small text-body-secondary">
+        Una memoria ancora giovane significa che la sonda non ha visto abbastanza
+        giorni per sapere che cosa sia normale su questa rete: in quel periodo non
+        segnala, e il silenzio non e' una assoluzione.
+      </div>
+    </div>
+  </div>
+</div>

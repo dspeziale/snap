@@ -140,7 +140,7 @@
             <tbody>
               {% for voce in pacchetti %}
               <tr>
-                <td class="small text-nowrap">{{ voce.visto_at[11:19] }}</td>
+                <td class="small text-nowrap">{{ voce.visto_at|hms }}</td>
                 <td class="small">
                   <span class="badge text-bg-light border">{{ voce.protocollo or '?' }}</span>
                 </td>
@@ -210,7 +210,7 @@
                 <td class="small text-end fw-semibold">{{ voce.pacchetti }}</td>
                 <td class="small text-end text-body-secondary">{{ voce.byte }}</td>
                 <td class="small text-body-secondary">
-                  {{ voce.dal[11:19] }} &rarr; {{ voce.al[11:19] }}
+                  {{ voce.dal|hms }} &rarr; {{ voce.al|hms }}
                 </td>
                 <td class="small">{{ voce.nome or '' }}</td>
               </tr>
@@ -249,7 +249,7 @@
                 <td class="small">{{ voce.nome }}</td>
                 <td class="small text-end fw-semibold">{{ voce.quante }}</td>
                 <td class="small text-end text-body-secondary">{{ voce.da_quanti }}</td>
-                <td class="small text-body-secondary">{{ voce.ultimo[11:19] }}</td>
+                <td class="small text-body-secondary">{{ voce.ultimo|hms }}</td>
               </tr>
               {% endfor %}
             </tbody>

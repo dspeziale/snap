@@ -1937,6 +1937,189 @@ COLONNE_CERTIFICATO = ["DOVE", "SOGGETTO", "EMITTENTE", "SCADENZA", "QUANDO",
 PESI_CERTIFICATO = [16, 26, 22, 12, 12, 12]
 
 
+SEZIONI_FINE_SUPPORTO = [
+    "Che cosa dice questo documento",
+    "Situazione in una riga",
+    "Quanto ci si puo' fidare di questi numeri",
+    "Sistemi gia' fuori supporto",
+    "Sistemi in scadenza",
+    "Che cosa non si e' potuto determinare",
+    "Dispositivi fuori supporto, uno per uno",
+]
+
+
+def fine_supporto_report(percorso, dati: dict) -> str:
+    """Quali sistemi operativi nessuno corregge piu', e da quando.
+
+    L'ORDINE DEL DOCUMENTO E' QUELLO DELLE DECISIONI. Prima quanto ci si puo' fidare
+    dei numeri (perche' da li' dipende se si apre una migrazione), poi cio' che e'
+    gia' scaduto, poi cio' che scade, infine cio' che non si e' potuto determinare --
+    che non e' un vuoto ma un elenco di cose da andare a vedere.
+    """
+    conti = dati["conteggi"]
+    foglio = Foglio(
+        percorso, kind="fine_supporto",
+        titolo="Fine supporto dei sistemi operativi",
+        sottotitolo="Che cosa nessuno corregge piu', e da quando",
+        tenant=dati["tenant"]["nome"], intervallo=dati["intervallo"],
+        fuso=dati["tenant"].get("fuso"), generato=dati["generato_utc"],
+        scopo=[
+            "Quali sistemi operativi di %s hanno superato la data oltre la quale il"
+            " produttore non pubblica piu' correzioni." % dati["tenant"]["nome"],
+            "Un sistema fuori supporto non e' un sistema con una vulnerabilita': e'"
+            " un sistema in cui ogni vulnerabilita' futura restera' aperta per"
+            " sempre. E' la causa a monte, e si risolve pianificando, non applicando"
+            " patch.",
+        ],
+        sezioni=SEZIONI_FINE_SUPPORTO, riferimenti=riferimenti_comuni(dati),
+        nota=NOTA_PROVENIENZA, orizzontale=True)
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Che cosa dice questo documento")
+    foglio.paragrafo(
+        "Ogni dispositivo dell'inventario che dichiara o lascia dedurre un sistema"
+        " operativo viene confrontato con un catalogo di date di fine supporto"
+        " pubblicate dai produttori, verificato al %s. Il catalogo e' locale: la"
+        " correlazione non contatta nessuno." % dati["verificato_al"])
+    foglio.paragrafo(
+        "Il supporto ESTESO (ESU di Microsoft, LTS di Debian, ESM di Ubuntu, ELS di"
+        " Red Hat) e' riportato a parte e NON conta come copertura: vale solo per chi"
+        " lo ha acquistato o attivato, e darlo per scontato trasformerebbe un sistema"
+        " scoperto in un sistema coperto.")
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Situazione in una riga")
+    foglio.riquadri([
+        (conti["fuori"], "fuori supporto",
+         CRITICO if conti["fuori"] else OK),
+        (conti["in_scadenza"], "entro %d giorni" % dati["preavviso"],
+         ATTENZIONE if conti["in_scadenza"] else OK),
+        (conti["supportati"], "supportati", OK),
+        (conti["non_determinabili"], "non determinabili", None),
+        (conti["esaminati"], "dispositivi esaminati", None),
+    ])
+    if conti["release_fuori"]:
+        foglio.paragrafo(
+            "I %d dispositivi fuori supporto si concentrano su %d release distinte:"
+            " sono %d progetti di migrazione, non %d interventi."
+            % (conti["fuori"], conti["release_fuori"], conti["release_fuori"],
+               conti["fuori"]))
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Quanto ci si puo' fidare di questi numeri")
+    dichiarati = conti["dichiarati"]
+    esaminati = max(1, conti["esaminati"])
+    foglio.paragrafo(
+        "%d verdetti su %d (%d%%) poggiano su una DICHIARAZIONE della macchina --"
+        " l'agente installato, una lettura SMB o SNMP. Gli altri sono dedotti da"
+        " un'impronta di rete."
+        % (dichiarati, conti["esaminati"], round(100.0 * dichiarati / esaminati)))
+    foglio.box([{"testo":
+                 "nmap non legge la release installata: riconosce un'impronta e la"
+                 " nomina con la versione da cui l'impronta fu raccolta. Una macchina"
+                 " indicata come \"Windows 11 21H2\" puo' essere una 24H2 aggiornata"
+                 " ieri. Prima di aprire una migrazione su una riga dedotta, la si"
+                 " conferma installando l'agente o abilitando SMB su quella macchina."}])
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Sistemi gia' fuori supporto")
+    gruppi_fuori = [g for g in dati["gruppi"] if g["stato"] == "fuori_supporto"]
+    if gruppi_fuori:
+        foglio.paragrafo(
+            "Raggruppati per release, dalla piu' vecchia: e' l'ordine in cui si"
+            " interviene, e una migrazione si pianifica per release, non per macchina.")
+        foglio.tabella(
+            ["SISTEMA", "RELEASE", "DISPOSITIVI", "RILASCIO", "FINE SUPPORTO",
+             "DA QUANTO", "SUPPORTO ESTESO", "ORIGINE"],
+            [[str(g["nome"] or "-"), str(g["release"] or "-"),
+              str(g["nodi"]), str(g["rilascio"] or "-"),
+              str(g["fine_supporto"] or "-"),
+              ("%d giorni" % -g["giorni"]) if g["giorni"] is not None else "-",
+              str(g["fine_supporto_esteso"] or "nessuno"),
+              "%d dichiarati su %d" % (g["dichiarati"], g["nodi"])]
+             for g in gruppi_fuori[:MAX_RIGHE_ELENCO]],
+            larghezze=[30, 12, 9, 11, 13, 11, 14, 16])
+    else:
+        foglio.paragrafo("Nessun sistema operativo riconosciuto risulta fuori"
+                         " supporto. Si veda pero' la sezione sui non determinabili:"
+                         " uno zero qui non e' una garanzia se molti sistemi non sono"
+                         " stati riconosciuti.")
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Sistemi in scadenza")
+    gruppi_scadenza = [g for g in dati["gruppi"] if g["stato"] == "in_scadenza"]
+    foglio.paragrafo(
+        "Entro %d giorni. Sei mesi sono il tempo minimo per pianificare, far"
+        " approvare e svolgere una migrazione: avvisare a trenta giorni significa"
+        " avvisare quando non si fa piu' in tempo." % dati["preavviso"])
+    if gruppi_scadenza:
+        foglio.tabella(
+            ["SISTEMA", "RELEASE", "DISPOSITIVI", "FINE SUPPORTO", "GIORNI",
+             "SUPPORTO ESTESO"],
+            [[str(g["nome"] or "-"), str(g["release"] or "-"), str(g["nodi"]),
+              str(g["fine_supporto"] or "-"),
+              str(g["giorni"] if g["giorni"] is not None else "-"),
+              str(g["fine_supporto_esteso"] or "nessuno")]
+             for g in gruppi_scadenza[:MAX_RIGHE_ELENCO]],
+            larghezze=[34, 14, 12, 16, 10, 20])
+    else:
+        foglio.paragrafo("Nessun sistema scade entro la soglia.")
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Che cosa non si e' potuto determinare")
+    ignoti = [g for g in dati["gruppi"] if g["stato"] == "non_determinabile"]
+    foglio.paragrafo(
+        "Non e' un vuoto: e' un elenco di cose da andare a vedere. Per meta' dei"
+        " dispositivi di una rete tipica l'impronta e' un KERNEL, e il supporto non lo"
+        " da' il kernel ma la distribuzione, che dall'esterno non si vede. Per gli"
+        " apparati di rete il ciclo di vita e' del MODELLO, e lo pubblica il"
+        " produttore dell'apparato.")
+    if dati["motivi"]:
+        # Per MOTIVO, non per sistema: le ragioni sono quattro e si ripetevano
+        # identiche su decine di righe, ciascuna troncata a meta' frase. Cosi' si
+        # legge il perche' per esteso, e accanto quanto pesa.
+        for motivo in dati["motivi"]:
+            foglio.sottotitolo_sezione(
+                "%d dispositivi, %d sistemi osservati"
+                % (motivo["nodi"], len(motivo["sistemi"])))
+            foglio.paragrafo(motivo["perche"])
+            foglio.paragrafo("Sistemi: %s%s"
+                             % (", ".join(motivo["sistemi"][:12]),
+                                " e altri %d" % (len(motivo["sistemi"]) - 12)
+                                if len(motivo["sistemi"]) > 12 else ""))
+        foglio.paragrafo(
+            "Si risolve dove serve davvero: installando l'agente sulle macchine che"
+            " contano, o abilitando la lettura SMB sulle postazioni Windows.")
+    else:
+        foglio.paragrafo("Ogni sistema osservato e' stato ricondotto a un prodotto"
+                         " del catalogo.")
+
+    # ------------------------------------------------------------------ #
+    foglio.titolo_sezione("Dispositivi fuori supporto, uno per uno")
+    if dati["fuori"]:
+        foglio.paragrafo(
+            "L'elenco operativo: chi deve intervenire lavora su questo, non sul"
+            " riepilogo per release.")
+        foglio.tabella(
+            ["DISPOSITIVO", "INDIRIZZO", "RETE", "ZONA", "SISTEMA",
+             "FINE SUPPORTO", "ORIGINE"],
+            [[str(v.get("hostname") or v.get("device_label") or "-"),
+              str(v["ip"]), str(v.get("cidr") or "-"),
+              str(v.get("zona") or "non dichiarata"),
+              str(v.get("nome") or v.get("os_name") or "-"),
+              str(v.get("fine_supporto") or "-"), str(v.get("fiducia") or "-")]
+             for v in dati["fuori"][:MAX_RIGHE_ELENCO]],
+            larghezze=[20, 13, 14, 15, 24, 12, 12])
+        if len(dati["fuori"]) > MAX_RIGHE_ELENCO:
+            foglio.paragrafo("Mostrati i primi %d di %d."
+                             % (MAX_RIGHE_ELENCO, len(dati["fuori"])))
+    else:
+        foglio.paragrafo("Nessun dispositivo risulta fuori supporto.")
+
+    foglio.salva()
+    return str(percorso)
+
+
 def certificates_report(percorso, dati: dict) -> str:
     """Lo stato dei certificati TLS del parco."""
     conti = dati["conteggi"]

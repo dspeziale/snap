@@ -411,6 +411,9 @@ class ProbeAgent:
         # Il travaso dei pacchetti letti PRIMA dell'IDS: cosi' la pagina che li
         # mostra e' aggiornata anche nei giri in cui il motore non passa (gira ogni
         # cinque minuti, il ciclo ogni quindici secondi).
+        # PRIMA il confronto fra cio' che e' acceso e cio' che gira, poi il travaso:
+        # accendendo l'osservazione dalla pagina, la cattura parte qui entro un giro.
+        outcome["cattura"] = self._allinea_cattura()
         outcome["traffico"] = self._travasa_traffico()
         outcome["ids"] = self._ids_step()
         outcome["agenti"] = self._accoda_agenti()
@@ -464,9 +467,88 @@ class ProbeAgent:
 
         modulo_ids.imposta_cattura(presa)
         self._cattura = presa
+        self._cattura_scelta = (interfaccia, filtro or "")
         self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, "")
         self.store.log("info", "Osservazione del traffico avviata su %s" % interfaccia)
         return {"attiva": True, "interfaccia": interfaccia}
+
+    def _allinea_cattura(self) -> str:
+        """Fa combaciare la cattura in corso con cio' che e' stato chiesto.
+
+        PERCHE' UN CONFRONTO A OGNI GIRO e non un'azione al momento del comando: la
+        sonda gira in due processi e l'unico che puo' travasare i pacchetti
+        nell'archivio e' questo. Se accendesse la cattura il processo
+        dell'interfaccia -- come faceva -- i pacchetti finirebbero in un anello che
+        nessuno svuota, e la pagina resterebbe vuota mentre tutto dichiara di
+        funzionare.
+
+        Con l'impostazione come unica fonte di verita' non serve nessun canale fra i
+        due processi: chi accende scrive, e questo se ne accorge entro un giro.
+
+        Restituisce che cosa ha fatto, per il diario del ciclo.
+        """
+        from . import ids as modulo_ids
+
+        voluta = self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") == "1"
+        interfaccia = (self.store.get_setting(
+            modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA, "") or "").strip()
+        filtro = (self.store.get_setting(
+            modulo_ids.CHIAVE_TRAFFICO_FILTRO, "") or "").strip()
+        presa = getattr(self, "_cattura", None)
+        viva = bool(presa is not None and presa.stato().get("viva"))
+
+        if not voluta:
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_VIVA_AT, "")
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_CONTATORI, "")
+            if presa is not None:
+                self.ferma_cattura()
+                return "spenta"
+            return ""
+
+        # Accesa ma non in ascolto: la si rimette in piedi. Capita quando la scheda
+        # viene staccata e riattaccata, o quando il driver di cattura si ferma.
+        cambiata = viva and (interfaccia, filtro) != getattr(
+            self, "_cattura_scelta", (interfaccia, filtro))
+        if viva and not cambiata:
+            # La firma dell'istante: e' cosi' che il processo dell'interfaccia sa che
+            # qui si sta ascoltando. Senza, la pagina dichiarava "non e' partita"
+            # mentre mostrava i pacchetti appena arrivati.
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_VIVA_AT, utc_now_str())
+            self._pubblica_contatori(presa)
+            return ""
+
+        if presa is not None:
+            self.ferma_cattura()
+        esito = self.avvia_cattura()
+        self._cattura_scelta = (interfaccia, filtro)
+        if esito.get("attiva"):
+            self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_VIVA_AT, utc_now_str())
+            self._pubblica_contatori(getattr(self, "_cattura", None))
+        return "avviata" if esito.get("attiva") else "non avviata"
+
+    def _pubblica_contatori(self, presa) -> None:
+        """Mette i contatori della cattura dove l'altro processo possa leggerli.
+
+        La pagina Configurazione dice su che cosa si sta ascoltando, quanti pacchetti
+        sono stati letti e quanti scartati: nessuno di quei numeri esiste fuori dal
+        processo che cattura, e cercarli li' faceva sollevare il modello.
+        """
+        import json
+
+        from . import ids as modulo_ids
+
+        if presa is None:
+            return
+        try:
+            stato = presa.stato()
+        except Exception as errore:  # noqa: BLE001
+            # Non deve fermare il giro: i contatori sono un di piu' rispetto al
+            # travaso dei pacchetti, che e' il lavoro vero.
+            self.store.log("warning",
+                           "Contatori della cattura non leggibili: %s" % errore)
+            return
+        self.store.set_setting(modulo_ids.CHIAVE_TRAFFICO_CONTATORI,
+                               json.dumps(stato, default=str))
 
     def ferma_cattura(self) -> None:
         from . import ids as modulo_ids
@@ -917,6 +999,58 @@ class ProbeAgent:
         if name == "scan_resume":
             self.store.set_setting("scan_paused", "0")
             return "scansioni riprese su richiesta del server"
+        if name == "collect_now":
+            # "Raccogli ora" della console locale: la stessa azione, chiesta da
+            # lontano. Non conferisce: quello e' `flush`, e tenerli distinti permette
+            # di raccogliere senza mandare, che e' una cosa che si vuole fare.
+            esito = self.collector.collect()
+            return "raccolta immediata: %s record" % (
+                sum(esito.values()) if isinstance(esito, dict) else esito)
+        if name == "traffico":
+            # Accende o spegne l'osservazione del traffico. Scrive le impostazioni e
+            # basta: la cattura la avvia il ciclo di questo stesso processo, che e'
+            # l'unico che poi travasa i pacchetti nell'archivio (vedi
+            # `_allinea_cattura`). Al giro successivo, quindi entro quindici secondi.
+            from . import ids as modulo_ids
+
+            attiva = bool(payload.get("attiva"))
+            interfaccia = str(payload.get("interfaccia") or "").strip()
+            if attiva and not interfaccia:
+                raise ValueError("per osservare il traffico serve un'interfaccia")
+            self.store.set_settings({
+                modulo_ids.CHIAVE_TRAFFICO_ATTIVO: "1" if attiva else "0",
+                modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA: interfaccia,
+                modulo_ids.CHIAVE_TRAFFICO_FILTRO:
+                    str(payload.get("filtro") or "").strip(),
+            })
+            return ("osservazione del traffico %s: si applica entro un giro di ciclo"
+                    % ("accesa su %s" % interfaccia if attiva else "spenta"))
+        if name == "snmp_config":
+            # Community e apparati. La community ARRIVA dal server e non torna
+            # indietro: l'istantanea dice soltanto se ce n'e' una.
+            from . import snmp_raccolta
+
+            valori = {}
+            if payload.get("community") is not None:
+                valori[snmp_raccolta.CHIAVE_COMMUNITY] = str(payload["community"])
+            if payload.get("apparati") is not None:
+                valori[snmp_raccolta.CHIAVE_APPARATI] = str(payload["apparati"])
+            if payload.get("attivo") is not None:
+                valori[snmp_raccolta.CHIAVE_ATTIVA] = "1" if payload["attivo"] else "0"
+            if not valori:
+                raise ValueError("comando snmp_config senza niente da impostare")
+            self.store.set_settings(valori)
+            return "configurazione SNMP aggiornata (%s)" % ", ".join(sorted(valori))
+        if name == "snmp_discover":
+            scoperti = self._scopri_apparati_snmp()
+            return ("scoperta SNMP: %d apparati aggiunti%s"
+                    % (len(scoperti), (" (%s)" % ", ".join(scoperti[:6]))
+                       if scoperti else ""))
+        if name == "snmp_read":
+            esito = self._raccogli_snmp()
+            return ("lettura SNMP: %s apparati, %s interrogati, %s coppie"
+                    % (esito.get("apparati", 0), esito.get("interrogati", 0),
+                       esito.get("coppie", 0)))
         if name == "flush":
             outcome = self.flush_queue()
             return "conferimento immediato: %s" % outcome
@@ -1041,9 +1175,23 @@ class ProbeAgent:
         return summary
 
     # -- stato per l'interfaccia --------------------------------------------
+    def _ciclo_in_questo_processo(self) -> bool:
+        """Vero se il ciclo di raccolta gira QUI, e non nell'altro processo.
+
+        E' la domanda che decide se `_online` valga qualcosa: e' un'osservazione
+        diretta solo per chi le richieste le fa davvero. Nel processo
+        dell'interfaccia quell'oggetto esiste ma non contatta nessuno, e il suo
+        valore resta quello del momento in cui il processo e' partito.
+        """
+        return self._thread is not None and self._thread.is_alive()
+
     @property
     def online(self) -> bool:
-        return self._online
+        """Se il server risponde. Per osservazione diretta dove si puo', altrimenti
+        dall'archivio -- che e' il solo punto in cui i due processi si parlano."""
+        if self._ciclo_in_questo_processo():
+            return self._online
+        return self._recent_contact()
 
     @property
     def last_error(self) -> str:
@@ -1103,6 +1251,14 @@ class ProbeAgent:
             # guardare il disco di una sonda finche' non smette di conferire: se il
             # dato non viaggia col battito, non esiste per chi la sorveglia.
             "archivio": self._archivio_console(),
+            # LE VISTE CHE MANCAVANO alla console remota. Senza, dal server si
+            # vedeva la scansione e null'altro: non si sapeva se l'osservazione del
+            # traffico fosse accesa, quali interfacce esistessero su quella macchina,
+            # quanto mancasse alle fasi, ne' quali agenti riferissero.
+            "traffico": self._traffico_console(),
+            "scadenze": self._scadenze_console(),
+            "agenti_macchina": self._agenti_console(),
+            "configurazione": self._configurazione_console(),
         }
         # IL PERIMETRO NON VIAGGIA: lo ha mandato il server, quindi rimandarglielo e'
         # traffico a vuoto -- ed era 30 dei 37 kilobyte della prima istantanea, con
@@ -1118,7 +1274,10 @@ class ProbeAgent:
         # migliaia di righe. Si manda il CONTEGGIO e le ultime, che e' quello che si
         # guarda.
         stati = istantanea["scan"].pop("states", None) or []
-        istantanea["scan"]["states_count"] = len(stati)
+        # Il conteggio viene dal TOTALE e non dalla lista: da quando la pagina riceve
+        # solo le ultime duecento, `len(stati)` direbbe duecento su qualunque sonda.
+        istantanea["scan"]["states_count"] = istantanea["scan"].pop(
+            "states_total", len(stati))
         istantanea["scan"]["states_recent"] = [
             {"target": s.get("target"), "stage": s.get("stage"),
              "status": s.get("status"), "at": s.get("last_run_at"),
@@ -1203,6 +1362,90 @@ class ProbeAgent:
             "campioni": tendenza.get("campioni", 0),
         }
 
+    def _traffico_console(self) -> dict:
+        """Lo stato dell'osservazione e le interfacce di QUESTA macchina.
+
+        LE INTERFACCE DEVONO VIAGGIARE, altrimenti la console remota non potrebbe
+        accendere l'osservazione: solo la sonda sa quali schede esistono, e su una
+        macchina vera hanno nomi che nessuno indovina (su Windows sono GUID). Con
+        l'indirizzo accanto si riconosce quella giusta anche da lontano.
+        """
+        from . import cattura as modulo_cattura
+        from . import ids as modulo_ids
+
+        assenza = modulo_cattura.motivo_assenza()
+        interfacce = []
+        if not assenza:
+            try:
+                interfacce = [{"nome": v["nome"], "descrizione": v["descrizione"],
+                               "indirizzi": v["indirizzi"]}
+                              for v in modulo_cattura.interfacce() if not v["loopback"]]
+            except modulo_cattura.ErroreCattura as errore:
+                assenza = str(errore)
+
+        presa = getattr(self, "_cattura", None)
+        try:
+            riepilogo = self.store.traffico_riepilogo()
+        except Exception as errore:  # noqa: BLE001 - un battito vale piu' di un conteggio
+            self.store.log("warning", "Riepilogo del traffico non leggibile: %s" % errore)
+            riepilogo = {}
+        return {
+            "attiva": self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ATTIVO, "0") == "1",
+            "interfaccia": self.store.get_setting(
+                modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA, "") or "",
+            "filtro": self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_FILTRO, "") or "",
+            "errore": self.store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, "") or "",
+            "in_ascolto": modulo_ids.cattura_in_ascolto(self.store),
+            "assenza": assenza,
+            "interfacce": interfacce[:40],
+            "pacchetti": int(riepilogo.get("pacchetti") or 0),
+            "dal": riepilogo.get("dal"),
+            "al": riepilogo.get("al"),
+        }
+
+    def _scadenze_console(self) -> list:
+        """Quanto manca a ciascuna fase: la stessa tabella della pagina Salute."""
+        try:
+            return self.scanner.scadenze()
+        except Exception as errore:  # noqa: BLE001
+            self.store.log("warning", "Scadenze non calcolate per l'istantanea: %s"
+                           % errore)
+            return []
+
+    def _agenti_console(self) -> list:
+        """Le macchine che riferiscono a questa sonda.
+
+        Poche righe e senza inventario: dal server l'inventario di ciascuna si legge
+        gia' in IDS > Agenti di macchina, ed e' arrivato per la sua strada. Qui serve
+        solo sapere CHI riferisce a questa sonda e da quando tace.
+        """
+        try:
+            elenco = self.store.agenti(limite=60)
+        except Exception as errore:  # noqa: BLE001
+            self.store.log("warning", "Agenti non letti per l'istantanea: %s" % errore)
+            return []
+        return [{"uid": v.get("agent_uid"), "hostname": v.get("hostname"),
+                 "ip": v.get("ip"), "sistema": v.get("sistema"),
+                 "stato": v.get("stato"), "ultimo_invio": v.get("ultimo_invio"),
+                 "invii": v.get("invii")}
+                for v in elenco]
+
+    def _configurazione_console(self) -> dict:
+        """Le scelte locali che la console remota deve poter vedere e cambiare."""
+        impostazioni = self.store.all_settings()
+        return {
+            "intervallo_raccolta": impostazioni.get("scan_interval_sec"),
+            "raccolta_sospesa": impostazioni.get("paused") == "1",
+            "snmp_attivo": impostazioni.get("snmp_enabled") == "1",
+            # NON la community: e' un segreto, e un segreto che torna indietro
+            # nell'istantanea e' un segreto conservato sul server.
+            "snmp_community_impostata": bool(
+                (impostazioni.get("snmp_community") or "").strip()),
+            "snmp_apparati": len([r for r in
+                                  (impostazioni.get("snmp_devices") or "").splitlines()
+                                  if r.strip() and not r.strip().startswith("#")]),
+        }
+
     def _ids_console(self) -> dict:
         """Il poco che serve al server per spiegare uno zero di rilevazioni."""
         esito = self.store.get_json("ids_last_result", {}) or {}
@@ -1218,8 +1461,12 @@ class ProbeAgent:
 
     def status(self) -> dict:
         return {
-            "running": self._thread is not None and self._thread.is_alive(),
-            "online": self._online,
+            "running": self._ciclo_in_questo_processo(),
+            # NON `self._online`: nel processo dell'interfaccia quel valore e' fissato
+            # alla costruzione e non cambia piu'. La pagina ha detto "Server non
+            # raggiungibile" per tutta la vita del processo mentre l'agente accanto
+            # conferiva un lotto al minuto.
+            "online": self.online,
             "last_error": self._last_error,
             "queue_size": self.store.queue_size(),
             "queue_breakdown": self.store.queue_breakdown(),

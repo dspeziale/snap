@@ -434,6 +434,81 @@
           di subnet attive e' sempre visibile nella pagina <em>Sonde &rarr; Perimetro</em>.
         </div>
 
+        <h3>Sospendere un blocco intero</h3>
+        <p>
+          Con un perimetro di trecento subnet, sospendere una sede significa spuntare
+          trenta righe sparse su tre pagine di tabella: si sbaglia, e non si sbaglia in
+          modo evidente &mdash; resta una subnet accesa e nessuno se ne accorge.
+        </p>
+        <p>
+          Nel riquadro <em>Sospendere o riattivare un blocco intero</em> si scrive un
+          blocco di indirizzi &mdash; per esempio <code>10.58.0.0/16</code> &mdash; e il
+          prodotto trova da solo <strong>tutte le subnet del perimetro contenute in quel
+          blocco</strong>, qualunque sia la loro maschera.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>SI SCRIVE</th><th>CHE COSA PRENDE</th></tr></thead>
+            <tbody>
+              <tr><td><code>10.58.0.0/16</code></td>
+                <td>ogni subnet che comincia per <code>10.58.</code>, con qualunque maschera</td></tr>
+              <tr><td><code>10.6.24.0/22</code></td>
+                <td><code>10.6.24.0/24</code> e <code>10.6.25.0/24</code>, ma <strong>non</strong>
+                    <code>10.6.30.0/24</code>: il confronto e' sugli indirizzi, non sulle cifre</td></tr>
+              <tr><td><code>10.58.3.7/16</code></td>
+                <td>lo stesso di <code>10.58.0.0/16</code>: si accetta anche un indirizzo
+                    dentro il blocco</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>Si vede prima, si applica dopo.</strong> Il primo pulsante mostra
+          l'<em>elenco esatto</em> delle subnet che cambierebbero, senza toccare niente;
+          solo il secondo applica. L'insieme viene ricalcolato al momento
+          dell'applicazione, cosi' non si agisce su un'anteprima vecchia.
+        </p>
+        <p>
+          Sospendere <strong>non cancella niente</strong>: i dispositivi gia' trovati
+          restano in inventario, si smette solo di guardarli. L'operazione finisce nel
+          registro delle azioni <em>con l'elenco dei CIDR toccati</em>: fra sei mesi si
+          puo' sapere chi l'ha decisa, quando, e su che cosa.
+        </p>
+
+        <h4>Che cosa garantisce la sospensione</h4>
+        <p>
+          Una subnet sospesa <strong>non riceve piu' un pacchetto</strong> dalla sonda,
+          appena la nuova configurazione le arriva &mdash; entro un minuto. Vale per
+          ogni attivita', non solo per la scansione:
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>ATTIVITA'</th><th>DOPO LA SOSPENSIONE</th></tr></thead>
+            <tbody>
+              <tr><td>Scoperta, porte, servizi, sistema operativo, approfondimento</td>
+                <td>non pianificate su quegli indirizzi</td></tr>
+              <tr><td>Monitoraggio dei nodi gia' noti</td>
+                <td>si ferma: i nodi restano in inventario con l'ultimo stato visto</td></tr>
+              <tr><td>Letture SNMP, SMB, pagine di gestione</td>
+                <td>non eseguite, e gli apparati SNMP dichiarati in quelle subnet
+                    vengono <strong>saltati e contati</strong></td></tr>
+              <tr><td>Ricognizione delle reti senza fili</td>
+                <td>non piu' sondate</td></tr>
+              <tr><td>Scansione chiesta a mano su una subnet</td>
+                <td>il pulsante rifiuta e spiega perche'</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="alert alert-secondary">
+          <strong>Resta fuori una cosa sola, ed e' voluto:</strong> i
+          <em>controlli periodici</em> (Controlli &rarr; Bersagli) sono bersagli
+          dichiarati a mano da un operatore &mdash; un indirizzo, un nome, un URL
+          &mdash; e non appartengono al perimetro di scansione. Sospendere una subnet
+          non li spegne: sarebbe una sorpresa, perche' nessuno li ha collegati a quella
+          subnet. Si sospendono dalla loro pagina.
+        </div>
+
         <!-- ============================================================= -->
         <h2 id="scansione">5. Come lavora la scansione</h2>
         <p>
@@ -702,6 +777,68 @@
           servizi, sistema operativo, e un <strong>tipo di dispositivo con una
           confidenza</strong>.
         </p>
+        <h3>Sistemi operativi e fine supporto</h3>
+        <p>
+          <em>Rete &rarr; Sistemi operativi</em> raccoglie in una tabella i sistemi
+          trovati, con la <strong>data di fine supporto</strong> e quanti dispositivi
+          li usano. Un sistema fuori supporto non riceve piu' correzioni: le
+          vulnerabilita' che escono da quel giorno restano aperte per sempre. E' il
+          dato con cui si pianificano gli aggiornamenti (NIS2 art. 21(2)(e)).
+        </p>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle" data-snap-table
+                 data-page-size="100" data-no-search="true">
+            <thead><tr><th>STATO</th><th>SIGNIFICATO</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge text-bg-danger">fuori supporto</span></td>
+                <td>la fine supporto e' passata</td></tr>
+              <tr><td><span class="badge text-bg-warning">in scadenza</span></td>
+                <td>entro 180 giorni. Sei mesi sono il tempo minimo per pianificare,
+                    approvare e svolgere una migrazione</td></tr>
+              <tr><td><span class="badge text-bg-info">da confermare</span></td>
+                <td>l'impronta copre <strong>piu' release</strong> con scadenze diverse:
+                    non si sceglie a caso quale sia</td></tr>
+              <tr><td><span class="badge text-bg-success">supportato</span></td>
+                <td>fine supporto oltre la soglia</td></tr>
+              <tr><td><span class="badge text-bg-secondary">non determinabile</span></td>
+                <td>l'osservazione non identifica un prodotto</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h4>&laquo;Stimato&raquo; e &laquo;dichiarato&raquo;: la colonna che conta</h4>
+        <p>
+          nmap non legge la release installata: riconosce un'<strong>impronta di
+          rete</strong>, e la nomina con la versione da cui l'impronta fu raccolta. Su
+          una rete reale 307 dispositivi risultano &laquo;Windows 11 21H2&raquo; &mdash;
+          fuori supporto &mdash; e possono benissimo essere 24H2 aggiornate ieri.
+          <strong>Prima di aprire una migrazione su una riga &laquo;stimato&raquo;, si
+          conferma.</strong>
+        </p>
+        <p>
+          Si conferma installando l'<strong>agente</strong> sulla macchina, o abilitando
+          la lettura <strong>SMB</strong> sulle postazioni Windows: in entrambi i casi il
+          sistema viene dichiarato dalla macchina stessa, e la riga passa a
+          &laquo;dichiarato&raquo;.
+        </p>
+        <div class="alert alert-secondary">
+          <strong>Perche' meta' dei dispositivi non e' determinabile.</strong> Per molti
+          l'impronta e' un <strong>kernel</strong> (&laquo;Linux 4.0 - 4.4&raquo;), e il
+          supporto non lo da' il kernel: lo da' la distribuzione, che dall'esterno non si
+          vede. Due macchine con lo stesso kernel possono stare una dentro e una fuori
+          supporto. Per gli apparati di rete il ciclo di vita e' del <strong>modello</strong>,
+          non della versione del sistema: Cisco e Aruba lo pubblicano cosi'. In entrambi i
+          casi la tabella scrive <em>perche'</em> non lo sa, invece di lasciare una cella
+          vuota.
+        </div>
+        <p>
+          Le date sono quelle pubblicate dai produttori e la pagina dichiara
+          <strong>a quando risalgono</strong>. Il <em>supporto esteso</em> (ESU di
+          Microsoft, LTS di Debian, ESM di Ubuntu, ELS di Red Hat) sta in una colonna a
+          parte e <strong>non</strong> si conta come copertura: vale solo per chi lo ha
+          acquistato o attivato.
+        </p>
+
         <h3>Come viene deciso il tipo</h3>
         <p>
           Il riconoscimento pesa le prove: porte aperte, nomi di servizio, prodotti e versioni,

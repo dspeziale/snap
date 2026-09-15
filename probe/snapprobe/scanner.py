@@ -49,6 +49,11 @@ from .nmap_runner import (NmapAborted, NmapError, NmapRunner, NmapTimeout,
                           bersagli_senza_rotta as nmap_senza_rotta, filtra_script)
 
 # Fasi nell'ordine di priorita' con cui vengono valutate.
+# Quante esecuzioni si mandano alla pagina di stato della sonda. La tabella ne mostra
+# dieci alla volta: mandarne cinquemila significava comporre e trasmettere due
+# megabyte per buttarne via 5.310 a ogni apertura.
+RIGHE_STATI_IN_PAGINA = 200
+
 STAGES = ("discovery", "monitor", "raffica", "ports", "services", "os", "deep",
           "snmp", "smb", "vuln", "web")
 
@@ -106,6 +111,11 @@ DEFAULT_CADENCES = {
     # una porta web si apre per la prima volta la lettura avviene subito, perche' il
     # nodo non ha ancora nessuna lettura in archivio.
     "web": 86400,
+    # Le reti senza fili si ricensiscono per conto proprio e piu' spesso: il
+    # DHCP riassegna di continuo, e la cadenza del perimetro cablato
+    # fotograferebbe un momento spacciandolo per lo stato. Il server manda il
+    # valore in vigore; questa e' la ricaduta se non arriva.
+    "discovery_wifi": 21600,
 }
 
 # Porte UDP che identificano un dispositivo quando le prove TCP non bastano.
@@ -608,6 +618,20 @@ EFFORT_PROFILES = {
         "host_timeout": "120s", "hosts_per_task": 1, "udp_ports": "161,137",
         "label": "minimo: una scansione per volta, rete poco disturbata",
     },
+    # Fra "una per volta" e "sedici in parallelo" non c'era niente, e il salto e'
+    # grande: su una rete piccola o delicata sedici sono troppi, uno e' inutilmente
+    # lento. Questi due stanno in mezzo e usano la temporizzazione prudente di nmap
+    # con un riconoscimento di versione moderato.
+    "four": {
+        "workers": 4, "timing": "-T3", "version_intensity": 4,
+        "host_timeout": "150s", "hosts_per_task": 1, "udp_ports": UDP_IDENTIFYING_PORTS,
+        "label": "quattro host in parallelo: impatto contenuto, adatto a reti piccole",
+    },
+    "eight": {
+        "workers": 8, "timing": "-T3", "version_intensity": 4,
+        "host_timeout": "180s", "hosts_per_task": 1, "udp_ports": UDP_IDENTIFYING_PORTS,
+        "label": "otto host in parallelo: compromesso fra durata e disturbo",
+    },
     "med": {
         "workers": 16, "timing": "-T3", "version_intensity": 5,
         "host_timeout": "180s", "hosts_per_task": 1, "udp_ports": UDP_IDENTIFYING_PORTS,
@@ -957,6 +981,30 @@ class NetworkScanner:
         cadenze.update(self.store.get_json("scan_cadences", {}) or {})
         return cadenze
 
+    def reti_senza_fili(self) -> set:
+        """Le subnet del perimetro dichiarate senza fili dal server.
+
+        Il flag viaggia col perimetro da sempre -- `presence.py` lo legge -- ma lo
+        scanner non lo guardava affatto: e' tutto cio' che mancava perche' le reti
+        senza fili potessero avere una cadenza propria.
+        """
+        return {v["cidr"] for v in self.perimeter()
+                if isinstance(v, dict) and v.get("wifi") and v.get("cidr")}
+
+    def cadenza_scoperta(self, cidr: str, cadenze: dict | None = None) -> int:
+        """Ogni quanto si ricensisce QUESTA subnet.
+
+        Una rete senza fili cambia composizione nell'arco di una giornata di lavoro;
+        una cablata no. Dare a entrambe lo stesso intervallo significa ricensire
+        troppo spesso la seconda o troppo di rado la prima -- e la seconda e' il caso
+        in cui l'errore non si vede, perche' un elenco vecchio sembra un elenco.
+        """
+        cadenze = cadenze if cadenze is not None else self.cadences()
+        if cidr in self.reti_senza_fili():
+            return int(cadenze.get("discovery_wifi")
+                       or DEFAULT_CADENCES["discovery_wifi"])
+        return int(cadenze["discovery"])
+
     def scanning_allowed(self) -> tuple:
         """Verifica i due interruttori. Restituisce (consentito, motivo).
 
@@ -1102,11 +1150,27 @@ class NetworkScanner:
         return tuple(f for f in PROFILE_STAGES if f != "os")
 
     def pending_nodes(self, stage: str = None) -> list[dict]:
-        """Nodi che attendono il PRIMO profilo completo.
+        """Nodi che attendono il PRIMO profilo completo, DENTRO il perimetro attivo.
 
         Un nodo gia' conferito non e' in attesa: la sua ri-ispezione e' governata
         dalle cadenze. Senza questa distinzione il completamento dei profili
         avrebbe sempre lavoro da fare e la scoperta non avanzerebbe mai.
+
+        IL FILTRO DEL PERIMETRO STA QUI, e non nei chiamanti. Ci stava nei
+        chiamanti, e ne mancavano quattro: `plan_tasks` prendeva i nodi da
+        profilare direttamente da qui -- raffica, porte, e il completamento delle
+        fasi -- senza passare da `_targets_for`, che e' il punto in cui il filtro
+        era applicato. Risultato misurato da una prova su un ciclo completo: tre
+        nodi di una subnet SOSPESA finivano nei compiti e sarebbero stati
+        scansionati.
+        Il guardiano di `_run_task` li avrebbe rifiutati un istante prima di
+        chiamare nmap -- quindi nessun pacchetto sarebbe uscito -- ma al prezzo di
+        far fallire l'INTERO compito, compresi i bersagli leciti che conteneva, e
+        di registrare un evento critico di violazione del perimetro a ogni ciclo.
+        Un nodo fuori perimetro non e' un tentativo di violazione: e' un perimetro
+        cambiato.
+
+        Mettendolo qui, ogni chiamante -- anche uno scritto domani -- lo eredita.
         """
         richieste = self._required_stages()
         # Un nodo attende una fase solo quando le precedenti sono svolte. Senza
@@ -1162,12 +1226,10 @@ class NetworkScanner:
                 continue
             if stage not in svolte and precedenti <= svolte:
                 attesa.append(nodo)
-        # Il filtro del perimetro sta qui perche' questo e' l'unico punto da cui i
-        # nodi da profilare provengono: pianificazione del pool, console e conteggio
-        # dell'interfaccia. Un nodo non scansionabile non e' lavoro in attesa.
-        if stage is None:
-            return attesa
-        return self._within_perimeter_only(attesa, stage)
+        # Un nodo non scansionabile non e' lavoro in attesa: vale anche per il
+        # conteggio senza fase, che altrimenti mostrerebbe per sempre "N profili da
+        # completare" su nodi che nessuna fase prendera' mai.
+        return self._within_perimeter_only(attesa, stage or "profilo")
 
     def _scadenza_troppo_recente(self, nodo: dict) -> bool:
         """Vero se questo candidato e' stato abbandonato per scadenza troppo di
@@ -1293,7 +1355,9 @@ class NetworkScanner:
 
         # 1. La scoperta scaduta ha un posto garantito: e' la prima cosa dovuta.
         for cidr in [v["cidr"] if isinstance(v, dict) else v for v in perimetro]:
-            if self._due(cidr, "discovery", cadenze["discovery"]):
+            # La cadenza dipende dalla SUBNET, non dalla fase: quelle senza fili si
+            # ricensiscono per conto proprio e piu' spesso.
+            if self._due(cidr, "discovery", self.cadenza_scoperta(cidr, cadenze)):
                 return ("discovery", cidr)
 
         # 2. Completare il profilo dei nodi non ancora conferiti, partendo dalle
@@ -2429,10 +2493,18 @@ class NetworkScanner:
 
             `tetto` limita quanti posti del ciclo questa fase puo' occupare: serve a
             non far riempire l'intero ciclo da una fase sola.
+
+            IL PERIMETRO SI APPLICA QUI, in uno dei due imbuti da cui passa ogni
+            compito. Stava nei singoli chiamanti, e ne mancavano cinque: la
+            ri-ispezione dei nodi confermati, l'approfondimento dei nodi incerti e le
+            tre letture di arricchimento pescavano da `local_nodes("confirmed")` e
+            dagli elenchi per porta aperta, che contengono ancora -- giustamente -- i
+            nodi delle subnet sospese. Trovato da una prova su un ciclo completo: tre
+            nodi di una subnet sospesa finivano nei compiti.
             """
             massimo = limite if tetto is None else min(limite, tetto)
             gruppo = []
-            for nodo in nodi:
+            for nodo in self._within_perimeter_only(list(nodi), fase):
                 if len(compiti) >= massimo:
                     break
                 if nodo["ip"] in assegnati:
@@ -2446,9 +2518,13 @@ class NetworkScanner:
                 compiti.append({"stage": fase, "target": "*", "hosts": list(gruppo)})
 
         def aggiungi_un_compito(fase, nodi):
-            """Un solo compito per questa fase: il resto del ciclo resta agli altri."""
+            """Un solo compito per questa fase: il resto del ciclo resta agli altri.
+
+            Il perimetro si applica anche qui: e' il secondo imbuto (vedi
+            `aggiungi_nodi`), e lasciarne uno solo protetto non protegge niente.
+            """
             gruppo = []
-            for nodo in nodi:
+            for nodo in self._within_perimeter_only(list(nodi), fase):
                 if nodo["ip"] in assegnati or len(gruppo) >= quanti_per(fase):
                     continue
                 gruppo.append(nodo["ip"])
@@ -2460,8 +2536,13 @@ class NetworkScanner:
         #    attivita' devono avanzare insieme. Diversamente, su una rete grande i
         #    nodi da profilare non finiscono mai e la scoperta resta indietro.
         da_scoprire = [v["cidr"] if isinstance(v, dict) else v for v in perimetro]
+        senza_fili = self.reti_senza_fili()
         da_scoprire = [c for c in da_scoprire
-                       if self._due(c, "discovery", cadenze["discovery"])]
+                       if self._due(c, "discovery",
+                                    self.cadenza_scoperta(c, cadenze))]
+        # LE SENZA FILI PER PRIME fra quelle scadute: sono quelle il cui contenuto
+        # invecchia in ore, mentre una cablata scaduta da un'ora e' ancora vera.
+        da_scoprire.sort(key=lambda c: c not in senza_fili)
         if da_scoprire:
             compiti.append({"stage": "discovery", "target": da_scoprire[0],
                             "hosts": [da_scoprire[0]]})
@@ -3977,7 +4058,11 @@ class NetworkScanner:
             "enabled_by_server": self.store.get_setting("scan_enabled", "1") == "1",
             "uncertain": len(self._uncertain_nodes()),
             "next_due": self.next_due(),
-            "states": self.store.all_scan_states(),
+            # NON tutte: erano 5.320 righe, quasi due megabyte di pagina, per
+            # mostrarne dieci alla volta. Il totale viaggia accanto, cosi' la pagina
+            # puo' dire "le ultime 200 su 5.320" invece di far credere che sia tutto.
+            "states": self.store.recent_scan_states(RIGHE_STATI_IN_PAGINA),
+            "states_total": self.store.scan_states_count(),
             "hostname": socket.gethostname(),
         }
 

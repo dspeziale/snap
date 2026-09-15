@@ -753,3 +753,8 @@ def test_il_gruppo_della_pagina_in_corso_resta_aperto():
     assert '.nav-treeview .nav-link.active' in sorgente
     posizione = sorgente.index("contieneLaPagina")
     assert 'gruppo.classList.add("menu-open")' in sorgente[posizione:posizione + 400]
+
+
+# --------------------------------------------------------------------------- #
+# Righe irregolari dentro una tabella interattiva
+# --------------------------------------------------------------------------- #

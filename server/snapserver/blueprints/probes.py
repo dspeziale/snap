@@ -43,6 +43,7 @@ from ..blueprints.api_probe import (
     DISCOVERY_DAYS_MAX,
     DISCOVERY_DAYS_MIN,
     HOST_TIMEOUTS,
+    SCAN_EFFORT_LABELS,
     SCAN_EFFORTS,
 )
 from ..queries import probe_fleet
@@ -67,7 +68,93 @@ AVAILABLE_COMMANDS = {
     # dimenticherebbe un nodo che la sonda ricorda di avere profilato, e quel nodo
     # non tornerebbe fino alla scadenza della cadenza -- giorni.
     "forget": "Riavvio della raccolta dalla scoperta",
+    # I comandi che la console LOCALE della sonda aveva e questa no. Senza di essi
+    # "aprire la console della sonda" dal server mostrava lo stato ma non permetteva
+    # di fare quasi niente: si guardava, e per agire bisognava andare sul posto.
+    "collect_now": "Raccolta immediata (senza conferire)",
+    "snmp_discover": "Scoperta degli apparati SNMP",
+    "snmp_read": "Lettura SNMP immediata",
 }
+
+# Comandi che portano con se' dei dati e hanno percio' una rotta propria: l'elenco
+# qui sopra serve ai pulsanti, che non hanno niente da dire oltre al proprio nome.
+COMANDI_CON_DATI = {
+    "traffico": "Osservazione del traffico",
+    "snmp_config": "Configurazione SNMP",
+}
+
+# Che cosa NON si fa da qui, e non per dimenticanza. Si dichiara nella pagina: chi lo
+# cerca deve sapere dov'e' e perche' non e' qui, invece di concludere che manca.
+SOLO_IN_SEDE = (
+    ("Registrazione della sonda",
+     "e' il momento in cui la sonda sceglie a chi obbedire: se il server potesse"
+     " eseguirla da solo, potrebbe impadronirsi di una sonda senza che nessuno sia"
+     " davanti a quella macchina"),
+    ("Emissione di un token per un agente",
+     "produce una credenziale che si vede una volta sola: farla tornare indietro"
+     " nell'istantanea significherebbe conservarla sul server"),
+    ("Azzeramento dell'archivio della sonda",
+     "in sede chiede di digitare una parola, e una conferma che si puo' cliccare da"
+     " mille chilometri non e' la stessa conferma"),
+)
+
+
+# --------------------------------------------------------------------------- #
+# LE VISTE DELLA CONSOLE REMOTA: il menu della sonda, rifatto qui.
+#
+# Chi sceglie "Console" dalla flotta deve trovarsi davanti QUELLA macchina, con le
+# sue pagine dove stanno quando ci si sta davanti -- non un riepilogo lungo con tutte
+# le schede una sotto l'altra. I gruppi e le voci sono gli stessi del menu della
+# sonda (Esercizio / Osservazione / Impostazioni): chi passa dall'una all'altra nello
+# stesso pomeriggio non deve reimparare dove sono le cose.
+#
+# Sta qui e non nel modello perche' e' anche l'ALLOWLIST della vista richiesta: una
+# sola fonte, e una vista che non esiste non puo' arrivare al render.
+# --------------------------------------------------------------------------- #
+CONSOLE_VISTE = (
+    ("esercizio", "Esercizio", "bi-activity", (
+        ("stato", "Stato della sonda", "bi-speedometer2"),
+        ("salute", "Salute", "bi-heart-pulse"),
+        ("diario", "Diario locale", "bi-journal-text"),
+    )),
+    ("osservazione", "Osservazione", "bi-binoculars", (
+        ("ids", "IDS", "bi-radar"),
+        ("pacchetti", "Pacchetti", "bi-ethernet"),
+        ("agenti", "Agenti", "bi-pc-display"),
+    )),
+    ("impostazioni", "Impostazioni", "bi-sliders", (
+        ("configurazione", "Configurazione", "bi-gear"),
+        ("comandi", "Comandi", "bi-lightning-charge"),
+        ("registrazione", "Registrazione", "bi-key"),
+    )),
+)
+
+# La vista predefinita e' la stessa pagina che la sonda apre da sola: e' la domanda
+# con cui si arriva su questa interfaccia, "sta lavorando?".
+CONSOLE_VISTA_PREDEFINITA = "stato"
+
+# Dove si torna dopo un comando. E' un'allowlist di NOMI DI ROTTA e non un indirizzo
+# preso dal modulo: un indirizzo di ritorno scelto da chi invia e' il modo classico
+# per far rimbalzare qualcuno fuori dal sito.
+RITORNI = {
+    "detail": "probes.detail",
+    "console": "probes.console",
+}
+
+
+def _ritorno(probe_id: int):
+    """Redirect alla pagina da cui si e' partiti, fra le due ammesse."""
+    scelta = RITORNI.get((request.form.get("ritorno") or "").strip(), "probes.detail")
+    if scelta == "probes.console":
+        vista = request.form.get("vista", CONSOLE_VISTA_PREDEFINITA)
+        if vista not in CONSOLE_VISTE_VALIDE:
+            vista = CONSOLE_VISTA_PREDEFINITA
+        return redirect(url_for(scelta, probe_id=probe_id, vista=vista))
+    return redirect(url_for(scelta, probe_id=probe_id))
+
+
+CONSOLE_VISTE_VALIDE = frozenset(
+    voce[0] for _, _, _, voci in CONSOLE_VISTE for voce in voci)
 
 
 def _public_base_url() -> str:
@@ -215,6 +302,10 @@ def detail(probe_id: int):
         commands=commands,
         options_json=json.dumps(options, indent=2, ensure_ascii=False),
         available_commands=AVAILABLE_COMMANDS,
+        # L'elenco e le etichette degli sforzi vengono da un posto solo: scritti a
+        # mano nel modello dicevano "medio (2 thread)" di un profilo che ne usa 16.
+        sforzi=SCAN_EFFORTS,
+        etichette_sforzo=SCAN_EFFORT_LABELS,
         offline_after=current_app.config["PROBE_OFFLINE_AFTER_SEC"],
     )
 
@@ -260,11 +351,21 @@ def console(probe_id: int):
     online = bool(visto and (utc_now() - visto) <= timedelta(
         seconds=int(current_app.config["PROBE_OFFLINE_AFTER_SEC"])))
 
+    # Allowlist, non blocklist: una vista che non c'e' riporta a quella predefinita
+    # invece di finire in un `include` costruito con cio' che ha scritto il chiamante.
+    vista = request.args.get("vista", CONSOLE_VISTA_PREDEFINITA)
+    if vista not in CONSOLE_VISTE_VALIDE:
+        vista = CONSOLE_VISTA_PREDEFINITA
+
     return render_template(
         "probes/console.html",
         probe=probe,
         consolle=consolle,
         consolle_at=probe["console_at"],
+        comandi=AVAILABLE_COMMANDS,
+        solo_in_sede=SOLO_IN_SEDE,
+        viste=CONSOLE_VISTE,
+        vista=vista,
         fresca=fresca,
         online=online,
         versione=probe["agent_version"],
@@ -357,10 +458,10 @@ def send_command(probe_id: int):
     command = (request.form.get("command") or "").strip()
     if command not in AVAILABLE_COMMANDS:
         flash("Comando non riconosciuto.", "warning")
-        return redirect(url_for("probes.detail", probe_id=probe_id))
+        return _ritorno(probe_id)
     if probe["status"] == "pending":
         flash("La sonda non e' ancora registrata: comando non accodabile.", "warning")
-        return redirect(url_for("probes.detail", probe_id=probe_id))
+        return _ritorno(probe_id)
 
     _enqueue_command(tenant_id, probe_id, command, {})
     log_event(
@@ -370,7 +471,91 @@ def send_command(probe_id: int):
         entity_id=probe_id,
     )
     flash("Comando accodato: verra' consegnato al prossimo contatto della sonda.", "success")
-    return redirect(url_for("probes.detail", probe_id=probe_id))
+    return _ritorno(probe_id)
+
+
+@bp.post("/<int:probe_id>/traffico")
+@role_required(ROLE_ANALYST)
+def set_traffico(probe_id: int):
+    """Accende o spegne l'osservazione del traffico sulla sonda, da remoto.
+
+    Ha una rotta propria e non il pulsante generico perche' porta dei DATI --
+    l'interfaccia e il filtro -- e l'interfaccia la conosce solo la sonda: viaggia
+    nell'istantanea, e questa pagina la ripropone.
+
+    IL RITARDO E' DICHIARATO. Il comando parte al contatto successivo (meno di un
+    minuto) e la cattura si allinea al giro di ciclo dopo. Chi preme il pulsante non
+    deve chiedersi se ha funzionato: la pagina glielo dice prima.
+    """
+    tenant_id = current_tenant_id()
+    probe = _load_probe(probe_id, tenant_id)
+    if probe["status"] == "pending":
+        flash("La sonda non e' ancora registrata: comando non accodabile.", "warning")
+        return redirect(url_for("probes.console", probe_id=probe_id,
+                                 vista="configurazione"))
+
+    attiva = bool(request.form.get("traffico_attivo"))
+    interfaccia = (request.form.get("traffico_interfaccia") or "").strip()[:200]
+    filtro = (request.form.get("traffico_filtro") or "").strip()[:500]
+    if attiva and not interfaccia:
+        flash("Per osservare il traffico serve scegliere un'interfaccia.", "warning")
+        return redirect(url_for("probes.console", probe_id=probe_id,
+                                 vista="configurazione"))
+
+    _enqueue_command(tenant_id, probe_id, "traffico",
+                     {"attiva": attiva, "interfaccia": interfaccia, "filtro": filtro})
+    # L'osservazione del traffico riguarda le PERSONE che lavorano su quella rete:
+    # l'evento dice chi l'ha accesa, quando e su che cosa, e non si limita a "comando
+    # accodato" come gli altri.
+    log_event(
+        "probe.traffico",
+        "Osservazione del traffico %s sulla sonda %s"
+        % ("accesa su %s" % interfaccia if attiva else "spenta", probe["code"]),
+        entity="probe", entity_id=probe_id,
+        severity="warning" if attiva else "info",
+    )
+    flash("Richiesta accodata: la sonda la applica al prossimo contatto."
+          " %s" % ("L'osservazione riguarda il traffico di chi lavora su quella rete:"
+                   " va dichiarata nel registro dei trattamenti." if attiva else ""),
+          "success")
+    return redirect(url_for("probes.console", probe_id=probe_id,
+                                 vista="configurazione"))
+
+
+@bp.post("/<int:probe_id>/snmp")
+@role_required(ROLE_ANALYST)
+def set_snmp(probe_id: int):
+    """Community e apparati SNMP della sonda, da remoto.
+
+    La community VA verso la sonda e non torna: l'istantanea dice soltanto se ce n'e'
+    una. Un segreto che torna indietro e' un segreto conservato in un posto in piu'.
+    """
+    tenant_id = current_tenant_id()
+    probe = _load_probe(probe_id, tenant_id)
+    if probe["status"] == "pending":
+        flash("La sonda non e' ancora registrata: comando non accodabile.", "warning")
+        return redirect(url_for("probes.console", probe_id=probe_id,
+                                 vista="configurazione"))
+
+    dati = {"attivo": bool(request.form.get("snmp_attivo"))}
+    community = request.form.get("snmp_community")
+    if community:
+        # Vuoto significa "non cambiare": diversamente, aprire la pagina e salvare
+        # senza riscrivere la community la cancellerebbe.
+        dati["community"] = community.strip()[:200]
+    apparati = request.form.get("snmp_apparati")
+    if apparati is not None:
+        dati["apparati"] = apparati.strip()[:4000]
+
+    _enqueue_command(tenant_id, probe_id, "snmp_config", dati)
+    log_event("probe.snmp",
+              "Configurazione SNMP accodata per la sonda %s (%s)"
+              % (probe["code"], ", ".join(sorted(k for k in dati if k != "community"))),
+              entity="probe", entity_id=probe_id)
+    flash("Configurazione SNMP accodata: la sonda la applica al prossimo contatto.",
+          "success")
+    return redirect(url_for("probes.console", probe_id=probe_id,
+                                 vista="configurazione"))
 
 
 @bp.post("/<int:probe_id>/effort")

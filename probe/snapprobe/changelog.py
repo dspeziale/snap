@@ -40,6 +40,256 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "1.5.0",
+        "date": "2026-09-15",
+        "abstract": "La pagina di stato si apriva in 35 secondi: il fuso orario si"
+                    " rileggeva dall'archivio una volta per ogni data in pagina."
+                    " Ora 1 secondo. E la pagina Configurazione, che rispondeva 500"
+                    " a cattura accesa, si riapre.",
+        "changes": [
+            "TRENTACINQUE SECONDI PER UNA PAGINA, e la causa non era il volume ma una"
+            " riga sola. Il filtro delle date chiedeva il fuso del tenant"
+            " ALL'ARCHIVIO a ogni chiamata, cioe' a ogni CELLA: misurate 5.345"
+            " interrogazioni per una sola apertura, 25 secondi passati ad aspettare"
+            " il socket. Ora si legge una volta per richiesta. L'aggiornamento senza"
+            " riavvio resta -- la richiesta dopo rilegge -- e il fuso non puo'"
+            " cambiare a meta' di una pagina, che sarebbe peggio.",
+            "DUE MEGABYTE PER MOSTRARNE DIECI RIGHE. La tabella delle esecuzioni"
+            " mandava al browser tutte le righe di scan_state -- 5.320 sulla"
+            " installazione reale -- e la paginazione le buttava via dopo averle"
+            " ricevute. Ora ne viaggiano le 200 piu' recenti e la pagina DICHIARA"
+            " quante ce ne sono in tutto: un elenco troncato che non lo dice fa"
+            " credere che una fase non sia mai stata eseguita.",
+            "MISURATO, pagina di stato: da 35,0 s e 1.969 kB a 1,05 s e 152 kB."
+            " Pagina Pacchetti: da 7,1 s a 0,42 s. Tutte le altre sotto il secondo.",
+            "LA PAGINA CONFIGURAZIONE RISPONDEVA 500 con la cattura accesa, ed e'"
+            " colpa della correzione precedente: lo stato della cattura aveva smesso"
+            " di portare `interfaccia` e `scartati`, che il modello leggeva. Il ramo"
+            " rotto si percorre solo a cattura VIVA, e provando la pagina a cattura"
+            " spenta ci si passava accanto. Ora i contatori li pubblica l'agente"
+            " nell'archivio, come tutto il resto che attraversa i due processi.",
+            "SFORZO DELLA SCANSIONE: si possono scegliere anche 4 e 8 host in"
+            " parallelo. Fra \"una per volta\" e \"sedici\" il salto era troppo"
+            " grande: su una rete piccola o delicata sedici sono troppi e uno e'"
+            " inutilmente lento.",
+        ],
+    },
+    {
+        "version": "1.4.8",
+        "date": "2026-09-15",
+        "abstract": "La pagina diceva \"Server non raggiungibile\" mentre la sonda"
+                    " conferiva un lotto al minuto. Terzo e ultimo punto in cui"
+                    " l'interfaccia guardava nella memoria del processo sbagliato.",
+        "changes": [
+            "\"SERVER NON RAGGIUNGIBILE\" MENTRE SI CONFERIVA. Il collegamento col"
+            " server lo tiene l'AGENTE, e lo stato \"online\" era un suo attributo in"
+            " memoria. Nel processo dell'INTERFACCIA quell'oggetto esiste ma non"
+            " gira: il valore veniva fissato alla costruzione del processo e non"
+            " cambiava piu'. La pastiglia restava com'era partita per tutta la vita"
+            " dell'interfaccia.",
+            "IL DIFETTO AVEVA DUE FACCE, ed entrambe mentivano. Partita con un"
+            " contatto recente, la pagina avrebbe detto \"Canale attivo\" PER SEMPRE,"
+            " anche col server spento da ore. Partita con un contatto vecchio -- il"
+            " caso di una sonda appena riavviata -- diceva \"Server non"
+            " raggiungibile\" per sempre, mentre il diario accanto registrava \"Lotto"
+            " conferito\" ogni pochi secondi.",
+            "LA CURA E' QUELLA GIA' USATA PER LA CATTURA: lo stato attraversa i due"
+            " processi passando dall'archivio. `last_contact_at` era gia' scritto a"
+            " ogni contatto riuscito: era gia' la verita' condivisa, bastava"
+            " leggerla.",
+            "LA PRONTEZZA SI CONSERVA DOVE E' VERA. Nel processo che il ciclo lo"
+            " esegue davvero, un fallimento si sa nell'istante in cui accade, mentre"
+            " l'archivio impiegherebbe cinque minuti a dirlo. Quel valore resta"
+            " quindi un'osservazione diretta per chi osserva, e una lettura"
+            " dell'archivio per chi non puo' osservare.",
+        ],
+    },
+    {
+        "version": "1.4.6",
+        "date": "2026-09-15",
+        "abstract": "Le ore della pagina Pacchetti erano in UTC: un'ora o due"
+                    " indietro, sulla colonna che serve proprio a dire \"e'"
+                    " successo mentre facevo la prova\".",
+        "changes": [
+            "L'ORA DEI PACCHETTI NON SI RITAGLIAVA PIU' DALLA STRINGA. Era presa con"
+            " `visto_at[11:19]`, cioe' i caratteri dell'ora com'e' scritta"
+            " nell'archivio -- che e' UTC -- prima che qualcuno la convertisse. Su"
+            " quella pagina l'ora e' l'unica colonna che permetta di dire \"questo e'"
+            " successo mentre facevo la prova\": sbagliata di due ore, manda a"
+            " cercare nel punto sbagliato del traffico.",
+            "STESSO DIFETTO, ALTRE PAGINE: l'ultima passata dell'IDS, la data delle"
+            " rilevazioni, la memoria di cio' che e' normale, l'ultimo invio degli"
+            " agenti, gli eventi ricevuti e l'ultima ricognizione delle presenze"
+            " uscivano tutte senza conversione.",
+            "Un controllo nuovo passa ogni modello della sonda e del server e"
+            " pretende che ogni istante stampato passi da un filtro di conversione,"
+            " con le eccezioni elencate e motivate una per una. Un orario sbagliato"
+            " ha esattamente l'aspetto di un orario giusto: e' il genere di difetto"
+            " che non si trova guardando, solo controllando.",
+        ],
+    },
+    {
+        "version": "1.4.4",
+        "date": "2026-09-15",
+        "abstract": "La pagina diceva \"accesa, ma non in ascolto\" mentre mostrava i"
+                    " pacchetti appena arrivati. E il menu, cresciuto fino a otto voci"
+                    " in fila, ora sta in tre gruppi come quello della console.",
+        "changes": [
+            "\"ACCESA, MA NON IN ASCOLTO\" ERA UN FALSO ALLARME, ed e' la coda della"
+            " correzione precedente. Da quando la cattura vive nel processo"
+            " dell'AGENTE -- l'unico che possa travasare i pacchetti nell'archivio --"
+            " il processo dell'INTERFACCIA non ha piu' nessun oggetto di cattura da"
+            " interrogare: lo cercava in casa propria, non lo trovava, e concludeva"
+            " che non fosse partita. Intanto la pagina Pacchetti mostrava il traffico"
+            " di quel momento: due pagine della stessa sonda dicevano il contrario"
+            " l'una dell'altra.",
+            "LO STATO \"STA ASCOLTANDO\" ATTRAVERSA I PROCESSI COME TUTTO IL RESTO,"
+            " passando dall'archivio: l'agente firma un istante a ogni giro finche'"
+            " la cattura e' viva, e chiunque altro lo legge e guarda QUANTO E'"
+            " VECCHIO. Un istante e non un interruttore, perche' un processo che"
+            " muore non fa in tempo a scrivere \"sono morto\", mentre un istante"
+            " fermo da un minuto lo dice da solo. Spegnendo, l'istante si cancella:"
+            " uno vecchio rimasto scritto direbbe \"ascoltava fino a poco fa\" di una"
+            " cattura spenta apposta.",
+            "MISURATO SULLA SONDA IN ESERCIZIO al momento della correzione: 15.115"
+            " pacchetti in archivio, l'ultimo arrivato nello stesso secondo in cui la"
+            " pagina dichiarava che la cattura non era partita.",
+            "LA CONSOLE LOCALE E QUELLA REMOTA ORA LEGGONO LA STESSA FONTE: prima la"
+            " prima guardava la memoria del proprio processo e la seconda"
+            " l'istantanea del battito, e potevano dire cose diverse sulla stessa"
+            " cattura.",
+            "IL MENU STA IN TRE GRUPPI A SCOMPARSA -- Esercizio, Osservazione,"
+            " Impostazioni -- con la stessa marcatura della console del server. Erano"
+            " otto voci in fila, nate una alla volta e appese in fondo man mano che"
+            " le pagine comparivano: un elenco piatto non dice quali voci riguardano"
+            " la stessa cosa. I gruppi sono le tre domande con cui si arriva qui --"
+            " sta lavorando, che cosa ha visto, com'e' impostata.",
+            "Le ETICHETTE delle voci non cambiano. Cambiare insieme struttura e nomi"
+            " avrebbe costretto a ritrovare due cose per ogni pagina invece di una.",
+            "Il gruppo della pagina aperta e' gia' aperto, e Impostazioni si apre da"
+            " solo finche' la sonda non e' registrata: l'unica cosa da fare su una"
+            " sonda appena installata non puo' stare dentro un menu chiuso.",
+        ],
+    },
+    {
+        "version": "1.4.2",
+        "date": "2026-09-15",
+        "abstract": "I pacchetti venivano catturati ma non comparivano nella pagina:"
+                    " la cattura accesa dall'interfaccia partiva nel processo"
+                    " sbagliato. E l'elenco delle interfacce ora porta l'indirizzo.",
+        "changes": [
+            "LA CATTURA PARTIVA DOVE NESSUNO POTEVA TRAVASARLA. La sonda gira in DUE"
+            " processi: l'interfaccia e l'agente di raccolta. L'anello dei pacchetti"
+            " letti vive nel processo che cattura, e il travaso nell'archivio -- che"
+            " e' l'unica strada per cui la pagina Pacchetti possa mostrarli -- lo fa"
+            " il ciclo dell'AGENTE. Accendendo l'osservazione dalla pagina era pero'"
+            " l'INTERFACCIA ad avviare la cattura: i pacchetti finivano in un anello"
+            " che nessuno svuotava. Il diario diceva \"avviata\", il sensore risultava"
+            " attivo, e non compariva un pacchetto.",
+            "MISURATO: con l'osservazione accesa dalla pagina, zero righe per cinque"
+            " minuti. Riavviando la sonda -- cosi' che sia l'agente ad avviarla --"
+            " 744 righe in quarantacinque secondi. Dopo la correzione, accesa dalla"
+            " pagina senza riavviare: cattura partita in 14 secondi e 3.307 pacchetti"
+            " nell'archivio entro un minuto.",
+            "L'IMPOSTAZIONE E' ORA L'UNICA FONTE DI VERITA': l'agente confronta a ogni"
+            " giro cio' che gira con cio' che e' stato chiesto, e allinea. Non serve"
+            " nessun canale fra i due processi, e funziona anche nei casi che prima"
+            " non funzionavano mai -- accendere senza riavviare, e rimettere in piedi"
+            " una cattura caduta perche' la scheda e' stata staccata.",
+            "La pagina dichiara che l'osservazione si avvia entro quindici secondi:"
+            " un interruttore che non fa niente per quindici secondi sembra rotto.",
+            "L'ELENCO DELLE INTERFACCE PORTA L'INDIRIZZO con cui ciascuna si presenta"
+            " sulla rete. Su una macchina vera le schede hanno descrizioni che si"
+            " somigliano tutte (\"Intel(R) Ethernet Connection\", tre volte) e nomi che"
+            " non dicono niente -- su Windows sono GUID. Con l'indirizzo si riconosce"
+            " a colpo d'occhio quella giusta, invece di indovinare: e chi indovina"
+            " male accende la cattura su un ponte di Docker e non vede niente. Gli"
+            " indirizzi di collegamento locale (fe80::) non compaiono, perche' ce n'e'"
+            " uno su ogni scheda e non distinguono niente.",
+            "Dove il formato dell'indirizzo non e' noto (sistemi diversi da Linux,"
+            " Windows e BSD) l'interfaccia compare SENZA indirizzo invece che con uno"
+            " inventato: interpretare male un sockaddr non da' un errore, da' un"
+            " indirizzo plausibile e sbagliato.",
+        ],
+    },
+    {
+        "version": "1.4.0",
+        "date": "2026-09-15",
+        "abstract": "Una password dimenticata dell'interfaccia non aveva via d'uscita."
+                    " Ora si imposta e si reimposta con un comando, senza fermare la"
+                    " sonda.",
+        "changes": [
+            "IL BUCO: la pagina /primo-accesso vale SOLO finche' una password non"
+            " c'e'. Se c'e' gia', rimanda all'accesso -- quindi una password"
+            " dimenticata non aveva nessuna procedura documentata: restava da"
+            " cancellare a mano una riga nelle impostazioni dell'archivio, cosa che"
+            " non stava scritta da nessuna parte e che nessuno indovina.",
+            "`python run.py --password` imposta o reimposta la password: la chiede"
+            " senza mostrarla a schermo, oppure con --password-casuale ne genera una"
+            " robusta e la mostra una volta. Non serve fermare ne' riavviare la"
+            " sonda: l'interfaccia rilegge l'impronta a ogni accesso.",
+            "Sulla variante fuori dal contenitore basta `.\\start-nativa.ps1"
+            " -Password`. L'attrito vero non era il comando ma la CONFIGURAZIONE:"
+            " run.py vuole la stringa di connessione all'archivio nell'ambiente, e"
+            " quella contiene un'altra password e sta in un file .env. Chi ha perso la"
+            " password dell'interfaccia non ha voglia di comporre un DSN a mano: e' il"
+            " momento in cui si rinuncia e si azzera l'archivio. Il lanciatore quella"
+            " stringa la compone gia'.",
+            "LA SICUREZZA NON CALA. /primo-accesso si fida di chi e' davanti alla"
+            " macchina; il comando chiede di piu' -- una shell su quella macchina e i"
+            " permessi per aprirne l'archivio. Chi puo' eseguirlo potrebbe gia'"
+            " cambiare l'impronta a mano.",
+            "La password generata e' estratta a caso e poi VERIFICATA contro la"
+            " politica, non composta a pezzi: comporre \"una maiuscola, una minuscola,"
+            " una cifra e poi il resto\" riduce lo spazio delle password possibili in"
+            " un modo che non si vede a occhio. L'alfabeto esclude i caratteri che si"
+            " confondono a voce (l/I/1, O/0) e quelli che una shell interpreta.",
+            "Reimpostare la password AZZERA anche il blocco dopo cinque tentativi"
+            " falliti: altrimenti sarebbe la via d'uscita che non porta fuori.",
+            "Le funzioni di autenticazione della sonda funzionano ora anche fuori da"
+            " una richiesta web: prima pretendevano il contesto dell'applicazione, ed"
+            " e' il motivo per cui una via da riga di comando non poteva esistere.",
+        ],
+    },
+    {
+        "version": "1.3.8",
+        "date": "2026-09-14",
+        "abstract": "Una subnet sospesa non viene piu' contattata da NESSUN cammino."
+                    " Tre buchi chiusi, trovati ripercorrendo uno per uno i modi in"
+                    " cui un pacchetto puo' uscire dalla sonda.",
+        "changes": [
+            "LA PIANIFICAZIONE FACEVA USCIRE BERSAGLI SOSPESI. Il filtro del perimetro"
+            " era applicato in `_targets_for`, ma `plan_tasks` compone i compiti per"
+            " altre cinque strade -- ri-ispezione dei nodi confermati, approfondimento"
+            " degli incerti, letture SNMP, SMB e web -- che pescano dagli elenchi per"
+            " porta aperta e da local_nodes: insiemi che contengono ancora i nodi delle"
+            " subnet sospese, e devono contenerli, perche' sospendere non cancella."
+            " Misurato da una prova su un ciclo completo: tre nodi di una subnet"
+            " sospesa finivano nei compiti. Ora il filtro sta nei DUE IMBUTI da cui"
+            " passa ogni compito, quindi lo eredita anche un cammino scritto domani.",
+            "Il guardiano finale li avrebbe fermati un istante prima di chiamare nmap,"
+            " quindi nessun pacchetto sarebbe uscito -- ma al prezzo di far fallire"
+            " l'INTERO compito, bersagli leciti compresi, e di registrare un evento"
+            " critico di violazione del perimetro a ogni ciclo. Un nodo fuori perimetro"
+            " non e' un tentativo di violazione: e' un perimetro cambiato.",
+            "LA LETTURA SNMP NON PASSAVA DA NESSUN CONTROLLO, ed era il buco peggiore"
+            " perche' silenzioso: non usa nmap, quindi non incontrava il guardiano. La"
+            " scoperta degli apparati pescava dai nodi in archivio e la raccolta"
+            " interrogava un elenco conservato nelle impostazioni -- un apparato"
+            " aggiunto quando la sua subnet era attiva continuava a ricevere GET di"
+            " sysDescr dopo la sospensione. Ora entrambe verificano il perimetro, e la"
+            " raccolta CONTA gli apparati saltati: uno saltato non e' uno che non"
+            " risponde, e confonderli farebbe cercare un guasto che non c'e'.",
+            "I profili in attesa non comprendono piu' i nodi fuori perimetro: il"
+            " conteggio dell'interfaccia mostrava per sempre \"N profili da"
+            " completare\" su nodi che nessuna fase avrebbe mai preso.",
+            "Ventuno prove nuove, una per ogni cammino che esce dalla sonda, piu' una"
+            " che registra OGNI bersaglio di un ciclo completo e pretende che non ve ne"
+            " sia uno solo della subnet sospesa -- con la controprova che i bersagli"
+            " leciti invece ci siano, altrimenti passerebbe una sonda che non fa nulla.",
+        ],
+    },
+    {
         "version": "1.3.6",
         "date": "2026-09-14",
         "abstract": "Pagina Salute nuova: quanto occupa l'archivio, quanto durera', e"

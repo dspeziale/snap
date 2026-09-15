@@ -154,68 +154,129 @@
         <ul class="nav sidebar-menu flex-column" data-lte-toggle="treeview"
             role="navigation" data-snap-menu>
           {# Etichette di sezione come nella console: dividono il menu in blocchi con
-             un'intestazione fissa, cosi' si trova a colpo d'occhio dove si sta. #}
+             un'intestazione fissa, cosi' si trova a colpo d'occhio dove si sta.
+
+             Dentro il blocco le voci stanno in GRUPPI a scomparsa, con la stessa
+             marcatura della console (menu-open, nav-arrow, ul.nav.nav-treeview).
+             Erano otto voci in fila, nate una alla volta e appese in fondo: un elenco
+             piatto non dice quali riguardano la stessa cosa. I tre gruppi sono le tre
+             domande con cui si arriva qui -- sta lavorando, che cosa ha visto, com'e'
+             impostata. #}
+          {% set in_esercizio = request.endpoint in ('probe.index', 'probe.salute',
+                                                     'probe.diary') %}
+          {% set in_osservazione = request.endpoint in ('probe.ids', 'probe.pacchetti',
+                                                        'probe.agenti',
+                                                        'probe.agenti_token') %}
+          {% set in_impostazioni = request.endpoint in ('probe.configuration',
+                                                        'probe.enroll_form',
+                                                        'probe.enroll') %}
           <li class="nav-header">SONDA</li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.index') }}"
-               class="nav-link {% if request.endpoint == 'probe.index' %}active{% endif %}">
+
+          {# --- Esercizio: aperto anche da una pagina che non sta in nessun gruppo
+                 (la guida, un errore), perche' «sta lavorando?» e' la domanda con cui
+                 si apre questa interfaccia. #}
+          <li class="nav-item {% if in_esercizio or not (in_osservazione or in_impostazioni) %}menu-open{% endif %}"
+              data-snap-gruppo="esercizio">
+            <a href="#" class="nav-link {% if in_esercizio %}active{% endif %}">
               <i class="nav-icon bi bi-activity"></i>
-              <p>Stato della sonda</p>
+              <p>Esercizio<i class="nav-arrow bi bi-chevron-right"></i></p>
             </a>
+            <ul class="nav nav-treeview">
+              <li class="nav-item">
+                <a href="{{ url_for('probe.index') }}"
+                   class="nav-link {% if request.endpoint == 'probe.index' %}active{% endif %}">
+                  <i class="nav-icon bi bi-speedometer2"></i>
+                  <p>Stato della sonda</p>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('probe.salute') }}"
+                   class="nav-link {% if request.endpoint == 'probe.salute' %}active{% endif %}">
+                  <i class="nav-icon bi bi-heart-pulse"></i>
+                  <p>Salute</p>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('probe.diary') }}"
+                   class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}">
+                  <i class="nav-icon bi bi-journal-text"></i>
+                  <p>Diario locale</p>
+                </a>
+              </li>
+            </ul>
           </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.enroll_form') }}"
-               class="nav-link {% if request.endpoint in ['probe.enroll_form', 'probe.enroll'] %}active{% endif %}">
-              <i class="nav-icon bi bi-key"></i>
+
+          {# --- Osservazione: le tre pagine che mostrano CIO' CHE PASSA sulla rete,
+                 invece dello stato della sonda. Stanno insieme perche' si guardano
+                 insieme: una rilevazione si capisce coi pacchetti di quel momento. #}
+          <li class="nav-item {% if in_osservazione %}menu-open{% endif %}"
+              data-snap-gruppo="osservazione">
+            <a href="#" class="nav-link {% if in_osservazione %}active{% endif %}">
+              <i class="nav-icon bi bi-binoculars"></i>
+              <p>Osservazione<i class="nav-arrow bi bi-chevron-right"></i></p>
+            </a>
+            <ul class="nav nav-treeview">
+              <li class="nav-item">
+                <a href="{{ url_for('probe.ids') }}"
+                   class="nav-link {% if request.endpoint == 'probe.ids' %}active{% endif %}">
+                  <i class="nav-icon bi bi-radar"></i>
+                  <p>IDS</p>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('probe.pacchetti') }}"
+                   class="nav-link {% if request.endpoint == 'probe.pacchetti' %}active{% endif %}">
+                  <i class="nav-icon bi bi-ethernet"></i>
+                  <p>Pacchetti</p>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('probe.agenti') }}"
+                   class="nav-link {% if request.endpoint in ['probe.agenti', 'probe.agenti_token'] %}active{% endif %}">
+                  <i class="nav-icon bi bi-pc-display"></i>
+                  <p>Agenti</p>
+                </a>
+              </li>
+            </ul>
+          </li>
+
+          {# --- Impostazioni: si toccano di rado, quindi il gruppo sta chiuso. Ma
+                 finche' la sonda non e' registrata si apre da solo e la pastiglia
+                 sale sulla testa del gruppo: altrimenti l'unica cosa da fare su una
+                 sonda appena installata sarebbe nascosta dentro un menu chiuso. #}
+          <li class="nav-item {% if in_impostazioni or not agent_status.enrolled %}menu-open{% endif %}"
+              data-snap-gruppo="impostazioni">
+            <a href="#" class="nav-link {% if in_impostazioni %}active{% endif %}">
+              <i class="nav-icon bi bi-sliders"></i>
               <p>
-                Registrazione
+                Impostazioni
                 {% if not agent_status.enrolled %}
                 <span class="nav-badge badge text-bg-warning">da fare</span>
                 {% endif %}
+                <i class="nav-arrow bi bi-chevron-right"></i>
               </p>
             </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.configuration') }}"
-               class="nav-link {% if request.endpoint == 'probe.configuration' %}active{% endif %}">
-              <i class="nav-icon bi bi-sliders"></i>
-              <p>Configurazione</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.pacchetti') }}"
-               class="nav-link {% if request.endpoint == 'probe.pacchetti' %}active{% endif %}">
-              <i class="nav-icon bi bi-ethernet"></i>
-              <p>Pacchetti</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.ids') }}"
-               class="nav-link {% if request.endpoint == 'probe.ids' %}active{% endif %}">
-              <i class="nav-icon bi bi-radar"></i>
-              <p>IDS</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.agenti') }}"
-               class="nav-link {% if request.endpoint in ['probe.agenti', 'probe.agenti_token'] %}active{% endif %}">
-              <i class="nav-icon bi bi-pc-display"></i>
-              <p>Agenti</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.salute') }}"
-               class="nav-link {% if request.endpoint == 'probe.salute' %}active{% endif %}">
-              <i class="nav-icon bi bi-heart-pulse"></i>
-              <p>Salute</p>
-            </a>
-          </li>
-          <li class="nav-item">
-            <a href="{{ url_for('probe.diary') }}"
-               class="nav-link {% if request.endpoint == 'probe.diary' %}active{% endif %}">
-              <i class="nav-icon bi bi-journal-text"></i>
-              <p>Diario locale</p>
-            </a>
+            <ul class="nav nav-treeview">
+              <li class="nav-item">
+                <a href="{{ url_for('probe.configuration') }}"
+                   class="nav-link {% if request.endpoint == 'probe.configuration' %}active{% endif %}">
+                  <i class="nav-icon bi bi-gear"></i>
+                  <p>Configurazione</p>
+                </a>
+              </li>
+              <li class="nav-item">
+                <a href="{{ url_for('probe.enroll_form') }}"
+                   class="nav-link {% if request.endpoint in ['probe.enroll_form', 'probe.enroll'] %}active{% endif %}">
+                  <i class="nav-icon bi bi-key"></i>
+                  <p>
+                    Registrazione
+                    {% if not agent_status.enrolled %}
+                    <span class="nav-badge badge text-bg-warning">da fare</span>
+                    {% endif %}
+                  </p>
+                </a>
+              </li>
+            </ul>
           </li>
 
           <li class="nav-header">ASSISTENZA</li>

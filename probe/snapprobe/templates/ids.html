@@ -22,7 +22,7 @@
   </div>
   {% if ultima_passata.eseguito_at %}
   <span class="badge text-bg-light border">
-    ultima passata {{ ultima_passata.eseguito_at }}
+    ultima passata {{ ultima_passata.eseguito_at|dt }}
   </span>
   {% endif %}
 </div>
@@ -73,7 +73,7 @@
         </div>
         <div class="d-flex justify-content-between py-1 border-bottom">
           <span class="small">memoria dal</span>
-          <span class="fw-bold">{{ riepilogo.memoria_dal or '—' }}</span>
+          <span class="fw-bold">{{ riepilogo.memoria_dal|dt if riepilogo.memoria_dal else '—' }}</span>
         </div>
         <div class="d-flex justify-content-between py-1 border-bottom">
           <span class="small">rilevazioni in tutto</span>
@@ -138,7 +138,7 @@
             <td class="small font-monospace">{{ voce.soggetto }}</td>
             <td class="small text-body-secondary">{{ voce.prova }}</td>
             <td class="small">
-              {{ voce.ultima_at }}
+              {{ voce.ultima_at|dt }}
               {% if voce.conteggio > 1 %}
               <span class="badge text-bg-secondary">×{{ voce.conteggio }}</span>
               {% endif %}

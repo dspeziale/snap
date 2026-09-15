@@ -289,19 +289,60 @@ def test_l_interfaccia_della_sonda_usa_tinte_chiare(probe_app):
     assert 'data-bs-theme="dark"' not in corpo
 
 
+def _menu(probe_app, percorso):
+    corpo = probe_app.test_client().get(percorso).data.decode("utf-8")
+    return corpo[corpo.index("data-snap-menu"):corpo.index("app-main")]
+
+
 def test_la_voce_del_menu_dice_dove_si_e(probe_app):
-    corpo = probe_app.test_client().get("/diary").data.decode("utf-8")
-    inizio = corpo.index("data-snap-menu")
-    fine = corpo.index("app-main")
-    menu = corpo[inizio:fine]
-    attive = [riga for riga in menu.splitlines() if "nav-link active" in riga]
-    assert len(attive) == 1, "una voce attiva e una sola"
-    prima, dopo = menu.split("nav-link active")[0], menu.split("nav-link active")[1]
+    """Da quando il menu e' a gruppi, la marcatura AdminLTE accende due cose: la voce
+    e la testa del gruppo che la contiene. Sono due affermazioni diverse -- «sei qui»
+    e «sei in questa famiglia» -- e la console del server fa lo stesso.
+
+    Il controllo guarda quindi le voci che PORTANO DA QUALCHE PARTE: di quelle ne
+    deve essere accesa una sola, e deve essere la pagina aperta."""
+    menu = _menu(probe_app, "/diary")
+
+    accese = [riga for riga in menu.splitlines() if "nav-link active" in riga]
+    # Le teste di gruppo accese non portano da nessuna parte: e' cosi' che si
+    # distinguono da una voce vera senza dover leggere l'annidamento.
+    voci = [riga for riga in accese if 'href="#"' not in riga]
+    teste = [riga for riga in accese if 'href="#"' in riga]
+    assert len(voci) == 1, "una voce accesa e una sola: %r" % accese
+    assert len(teste) == 1, "acceso il gruppo che contiene la pagina, e quello solo"
+
+    prima, dopo = menu.split("nav-link active")[1], menu.split("nav-link active")[2]
     # Nella marcatura AdminLTE l'indirizzo PRECEDE la classe sullo stesso <a> e
     # l'etichetta la segue: si guardano entrambi, cosi' il controllo dice davvero che
     # la voce accesa e' quella della pagina aperta e non un'altra qualunque.
     assert "/diary" in prima[-200:], "la voce accesa non punta alla pagina aperta"
     assert "Diario locale" in dopo[:200], "la voce accesa non e' quella del diario"
+
+
+def test_il_gruppo_della_pagina_aperta_e_gia_aperto(probe_app):
+    """Un sottomenu chiuso nasconde la voce accesa: si arriverebbe sulla pagina senza
+    vedere piu' dove si e'."""
+    for percorso, gruppo in (("/diary", "esercizio"),
+                             ("/pacchetti", "osservazione"),
+                             ("/configuration", "impostazioni")):
+        menu = _menu(probe_app, percorso)
+        posizione = menu.index('data-snap-gruppo="%s"' % gruppo)
+        # Si guarda SOLO la <li> che porta l'attributo, non l'intero menu:
+        # altrimenti basterebbe un altro gruppo aperto a far passare il controllo.
+        apertura = menu.rindex("<li", 0, posizione)
+        assert "menu-open" in menu[apertura:posizione], (
+            "aprendo %s il gruppo %s resta chiuso" % (percorso, gruppo))
+
+
+def test_ogni_pagina_della_sonda_e_raggiungibile_dal_menu(probe_app):
+    """Riorganizzare un menu e' il modo piu' facile di perdere una pagina per strada:
+    resta servita, ma non ci arriva piu' nessuno."""
+    menu = _menu(probe_app, "/")
+
+    for indirizzo in ("/", "/salute", "/diary", "/ids", "/pacchetti", "/agenti",
+                      "/configuration", "/enroll", "/guida"):
+        assert 'href="%s"' % indirizzo in menu, (
+            "la pagina %s non e' piu' raggiungibile dal menu" % indirizzo)
 
 
 def test_lo_stato_del_canale_si_vede_da_ogni_pagina(probe_app):

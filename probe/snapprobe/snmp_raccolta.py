@@ -53,6 +53,26 @@ TIMEOUT_APPARATO = 3.0
 TENTATIVI = 2
 
 
+def dentro_al_perimetro(store, indirizzo: str) -> bool:
+    """Vero se l'indirizzo appartiene a una subnet ATTIVA del perimetro.
+
+    PERCHE' STA QUI E NON SOLO NELLO SCANNER. La lettura SNMP non passa da nmap,
+    quindi non incontra il guardiano di `_run_task`: senza questo controllo una
+    subnet sospesa continuerebbe a ricevere GET di sysDescr, e nessuna pagina lo
+    direbbe. Sospendere una subnet deve significare "non la contatto piu'", non "non
+    la scansiono piu' con nmap".
+
+    Perimetro VUOTO significa nessuna scansione, non tutte: e' la stessa regola di
+    `_run_task`, che senza perimetro solleva invece di procedere.
+    """
+    from .scanner import within_perimeter
+
+    perimetro = store.get_json("scan_subnets", []) or []
+    if not perimetro:
+        return False
+    return within_perimeter(perimetro, indirizzo)
+
+
 def apparati_dichiarati(store) -> list[dict]:
     """Gli apparati da interrogare, dalle impostazioni locali.
 
@@ -98,7 +118,7 @@ def raccogli(store) -> dict:
     l'eccezione, e non deve costare la raccolta di tutti gli altri.
     """
     esito = {"apparati": 0, "interrogati": 0, "falliti": 0, "coppie": 0,
-             "porte": 0, "dettagli": []}
+             "porte": 0, "fuori_perimetro": 0, "dettagli": []}
     if not attiva(store):
         return esito
 
@@ -109,6 +129,17 @@ def raccogli(store) -> dict:
     for apparato in apparati:
         indirizzo = apparato["indirizzo"]
         etichetta = apparato["etichetta"]
+        # Un apparato dichiarato resta nell'elenco anche quando la sua subnet viene
+        # sospesa: l'elenco vive nelle impostazioni, non nel perimetro. Si salta qui,
+        # e lo si CONTA -- un apparato saltato non e' un apparato che non risponde, e
+        # confonderli farebbe cercare un guasto che non c'e'.
+        if not dentro_al_perimetro(store, indirizzo):
+            esito["fuori_perimetro"] = esito.get("fuori_perimetro", 0) + 1
+            esito["dettagli"].append({
+                "apparato": etichetta, "esito": "saltato",
+                "motivo": "la sua subnet non e' fra quelle attive del perimetro:"
+                          " non viene contattato"})
+            continue
         try:
             tabella = snmp.arp_table(indirizzo, community,
                                      timeout=TIMEOUT_APPARATO, tentativi=TENTATIVI)

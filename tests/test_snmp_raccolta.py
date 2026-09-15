@@ -21,6 +21,15 @@ import pytest
 
 @pytest.fixture()
 def sonda(probe_store):
+    """Archivio con un PERIMETRO dichiarato.
+
+    Serve perche' la lettura SNMP non contatta piu' un apparato fuori perimetro:
+    senza perimetro non si interroga nessuno, e queste prove -- che riguardano il
+    comportamento della raccolta, non il perimetro -- resterebbero a vuoto. Il caso
+    "nessun perimetro" ha una prova propria in test_subnet_sospese.py.
+    """
+    probe_store.set_json("scan_subnets", [{"cidr": "10.20.10.0/24"},
+                                          {"cidr": "10.60.0.0/16"}])
     return probe_store
 
 

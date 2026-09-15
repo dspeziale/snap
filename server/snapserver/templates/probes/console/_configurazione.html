@@ -1,0 +1,145 @@
+{#
+  snap server - Console remota di una sonda: configurazione
+
+  Le schede vengono dall'unica pagina lunga che c'era prima: sono state SPOSTATE, non
+  riscritte. Ciascuna porta con se' la decisione che l'ha prodotta -- che cosa non
+  viaggia col battito, che cosa e' un'assenza dichiarata e non uno zero.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-sliders me-1"></i> Configurazione in vigore</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6 fw-normal text-body-secondary">Sforzo</dt>
+          <dd class="col-6 mb-1">{{ (consolle.scan or {}).effort_label or (consolle.scan or {}).effort }}</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Tempo per host</dt>
+          <dd class="col-6 mb-1">
+            {{ (consolle.scan or {}).host_timeout }}
+            {% if not (consolle.scan or {}).get('host_timeout_chosen') %}
+            <span class="text-body-secondary">(dal profilo)</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Censimento del perimetro</dt>
+          <dd class="col-6 mb-1">ogni {{ (consolle.scan or {}).discovery_days }} giorni</dd>
+          <dt class="col-6 fw-normal text-body-secondary">Scansioni</dt>
+          <dd class="col-6 mb-1">
+            {% if (consolle.scan or {}).get('enabled_by_server') %}abilitate dal server
+            {% else %}disabilitate dal server{% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">nmap</dt>
+          <dd class="col-6 mb-1">
+            {{ (consolle.scan or {}).get('capabilities', {}).get('nmap_version')
+               or 'non rilevato' }}
+            {% if (consolle.scan or {}).get('capabilities', {}).get('raw_sockets') %}
+            &middot; <span class="text-success">accesso raw</span>
+            {% else %}
+            &middot; <span class="text-warning">senza accesso raw</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Fasi in corso</dt>
+          <dd class="col-6 mb-0">
+            {% if (consolle.scan or {}).get('phases_in_flight') %}
+            {% for fase in (consolle.scan or {}).get('phases_in_flight') or [] %}
+            <span class="badge text-bg-primary">{{ fase }}</span>
+            {% endfor %}
+            {% else %}<span class="text-body-secondary">nessuna</span>{% endif %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+
+  {# ------------------------------------------------------------------------ #}
+  {# OSSERVAZIONE DEL TRAFFICO, governabile da qui.                            #}
+  {#                                                                           #}
+  {# Le interfacce le conosce solo la sonda -- su una macchina vera hanno nomi  #}
+  {# che nessuno indovina -- e arrivano nell'istantanea proprio perche' senza   #}
+  {# di esse questa scelta da remoto sarebbe impossibile.                       #}
+  {# ------------------------------------------------------------------------ #}
+  {% set traffico = (consolle.traffico or {}) if consolle else {} %}
+  {% if consolle and consolle.get('traffico') is not none %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <h2 class="h6 mb-0"><i class="bi bi-ethernet me-1"></i> Osservazione del traffico</h2>
+        {% if traffico.attiva %}
+          <span class="badge text-bg-{{ 'success' if traffico.in_ascolto else 'warning' }}">
+            {{ 'in ascolto' if traffico.in_ascolto else 'accesa, non in ascolto' }}
+          </span>
+        {% else %}
+          <span class="badge text-bg-secondary">spenta</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        {% if traffico.assenza %}
+        <p class="small text-body-secondary mb-0">
+          Non disponibile su questa sonda: {{ traffico.assenza }}
+        </p>
+        {% else %}
+        {% if traffico.errore %}
+        <div class="alert alert-warning py-2 small">{{ traffico.errore }}</div>
+        {% endif %}
+        {% if traffico.attiva %}
+        <p class="small text-body-secondary">
+          {{ (traffico.pacchetti or 0)|intero }} pacchetti conservati sulla sonda.
+          Si consultano dalla sua interfaccia locale, pagina <em>Pacchetti</em>: qui
+          non viaggiano, perche' sono il traffico di chi lavora su quella rete.
+        </p>
+        {% endif %}
+        {% if has_role('analyst') %}
+        <form method="post" action="{{ url_for('probes.set_traffico', probe_id=probe.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="traffico_interfaccia">Interfaccia</label>
+            <select class="form-select form-select-sm" id="traffico_interfaccia"
+                    name="traffico_interfaccia">
+              <option value="">&mdash; nessuna &mdash;</option>
+              {% for voce in traffico.interfacce or [] %}
+              <option value="{{ voce.nome }}"
+                      {{ 'selected' if voce.nome == traffico.interfaccia }}>
+                {{ voce.descrizione or voce.nome }}
+                {%- if voce.indirizzi %} &mdash; {{ voce.indirizzi|join(', ') }}
+                {%- else %} &mdash; senza indirizzo{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small mb-1" for="traffico_filtro">
+              Filtro (BPF) &mdash; vuoto = quello predefinito
+            </label>
+            <input type="text" class="form-control form-control-sm" id="traffico_filtro"
+                   name="traffico_filtro" value="{{ traffico.filtro }}">
+          </div>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" role="switch"
+                   id="traffico_attivo" name="traffico_attivo"
+                   {{ 'checked' if traffico.attiva }}>
+            <label class="form-check-label small" for="traffico_attivo">
+              Osserva il traffico su questa interfaccia
+            </label>
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-primary"
+                  data-confirm="Accendere o spegnere l'osservazione del traffico su questa
+                                sonda? La richiesta parte al prossimo contatto. L'osservazione
+                                legge intestazioni e nomi in chiaro, mai il contenuto, e
+                                riguarda il traffico di chi lavora su quella rete.">
+            <i class="bi bi-check2 me-1"></i> Applica al prossimo contatto
+          </button>
+        </form>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>

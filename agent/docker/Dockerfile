@@ -29,7 +29,7 @@
 # l'installazione nativa (installa.sh) vede tutto.
 #
 # Contesto di build: la cartella `agent/` del pacchetto.
-#   docker build -f docker/Dockerfile -t snap-agent:1.2.2 .
+#   docker build -f docker/Dockerfile -t snap-agent:1.2.6 .
 
 FROM python:3.13-slim
 

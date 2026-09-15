@@ -47,6 +47,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import socket
 import sys
 import threading
 import time
@@ -92,6 +93,24 @@ class _Intestazione(ctypes.Structure):
                 ("caplen", ctypes.c_uint32), ("len", ctypes.c_uint32)]
 
 
+class _Indirizzo(ctypes.Structure):
+    """`struct pcap_addr`: un indirizzo dell'interfaccia, con la sua maschera.
+
+    Di questa struttura serve il solo `addr`: la maschera e il broadcast non
+    aiutano a riconoscere un'interfaccia in un elenco a discesa, e leggerli
+    vorrebbe dire trattare altri tre `sockaddr` per niente.
+    """
+
+    pass
+
+
+_Indirizzo._fields_ = [("next", ctypes.POINTER(_Indirizzo)),
+                       ("addr", ctypes.c_void_p),
+                       ("netmask", ctypes.c_void_p),
+                       ("broadaddr", ctypes.c_void_p),
+                       ("dstaddr", ctypes.c_void_p)]
+
+
 class _Dispositivo(ctypes.Structure):
     pass
 
@@ -99,8 +118,71 @@ class _Dispositivo(ctypes.Structure):
 _Dispositivo._fields_ = [("next", ctypes.POINTER(_Dispositivo)),
                          ("name", ctypes.c_char_p),
                          ("description", ctypes.c_char_p),
-                         ("addresses", ctypes.c_void_p),
+                         ("addresses", ctypes.POINTER(_Indirizzo)),
                          ("flags", ctypes.c_uint32)]
+
+
+# Quanti byte si leggono da un `sockaddr`: bastano per IPv6 (28), che e' il piu'
+# lungo dei due che interessano. Si legge una copia, non si tiene il puntatore: la
+# libreria libera tutto con `pcap_freealldevs`.
+_SOCKADDR_BYTE = 28
+
+
+def _famiglia_e_indirizzo(puntatore) -> tuple:
+    """(famiglia, indirizzo) da un `struct sockaddr`. (None, None) se non si sa.
+
+    IL FORMATO NON E' UNO SOLO, e questa e' l'unica ragione per cui questa funzione
+    e' piu' lunga di tre righe:
+
+    * su Linux e Windows i primi due byte sono la famiglia, come intero a 16 bit
+      nell'ordine della macchina;
+    * sui BSD (macOS compreso) il primo byte e' la LUNGHEZZA della struttura e il
+      secondo la famiglia.
+
+    Sbagliare interpretazione non da' un errore: da' un indirizzo plausibile e
+    sbagliato, che e' molto peggio. Dove il formato non e' noto si restituisce
+    "non lo so" e l'interfaccia compare senza indirizzo -- come ogni altra cosa
+    che questo prodotto non ha potuto misurare.
+    """
+    if not puntatore:
+        return None, None
+    grezzo = ctypes.string_at(puntatore, _SOCKADDR_BYTE)
+    if sys.platform.startswith(("linux", "win")):
+        famiglia = int.from_bytes(grezzo[0:2], sys.byteorder)
+    elif sys.platform == "darwin" or "bsd" in sys.platform:
+        famiglia = grezzo[1]
+    else:
+        return None, None
+
+    try:
+        if famiglia == socket.AF_INET:
+            return famiglia, socket.inet_ntop(socket.AF_INET, grezzo[4:8])
+        if famiglia == socket.AF_INET6:
+            return famiglia, socket.inet_ntop(socket.AF_INET6, grezzo[8:24])
+    except (OSError, ValueError):
+        # Byte che non compongono un indirizzo valido: non si inventa niente.
+        return famiglia, None
+    return famiglia, None
+
+
+def _indirizzi_di(dispositivo) -> list:
+    """Gli indirizzi IPv4 e IPv6 di un dispositivo, nell'ordine in cui li elenca.
+
+    IPv4 PRIMA: e' quello con cui la sonda si presenta sulla rete che si vuole
+    osservare, ed e' quello che chi sceglie l'interfaccia riconosce. Gli IPv6 di
+    collegamento locale (fe80::) si scartano: ce n'e' uno su ogni scheda, sono tutti
+    simili, e riempirebbero l'elenco senza distinguere niente.
+    """
+    trovati, voce = [], dispositivo.addresses
+    while voce:
+        contenuto = voce.contents
+        famiglia, indirizzo = _famiglia_e_indirizzo(contenuto.addr)
+        if indirizzo and indirizzo not in trovati:
+            if not (famiglia == socket.AF_INET6 and indirizzo.lower().startswith("fe80")):
+                trovati.append(indirizzo)
+        voce = contenuto.next
+    # Gli IPv4 in testa: `:` compare solo negli IPv6.
+    return sorted(trovati, key=lambda a: (":" in a, a))
 
 
 class _Programma(ctypes.Structure):
@@ -192,6 +274,9 @@ def interfacce() -> list:
             trovate.append({
                 "nome": (contenuto.name or b"").decode(errors="replace"),
                 "descrizione": (contenuto.description or b"").decode(errors="replace"),
+                # Gli indirizzi con cui l'interfaccia si presenta sulla rete: senza,
+                # scegliere fra tre schede con la stessa descrizione e' indovinare.
+                "indirizzi": _indirizzi_di(contenuto),
                 # Il bit 1 di `flags` e' PCAP_IF_LOOPBACK: un'interfaccia di loopback
                 # non vede la rete del cliente, e proporla sarebbe un invito a
                 # scegliere quella sbagliata.

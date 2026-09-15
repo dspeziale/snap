@@ -382,9 +382,17 @@
                     name="traffico_interfaccia">
               <option value="">— nessuna —</option>
               {% for voce in traffico.interfacce %}
+              {# L'INDIRIZZO, non solo il nome. Su una macchina vera le schede hanno
+                 descrizioni che si somigliano tutte ("Intel(R) Ethernet Connection",
+                 tre volte) e nomi che non dicono niente (su Windows sono GUID). Con
+                 l'indirizzo si riconosce a colpo d'occhio quella che sta sulla rete
+                 da osservare, invece di indovinare -- e chi indovina male accende la
+                 cattura su un ponte di Docker e non vede niente. #}
               <option value="{{ voce.nome }}"
                       {{ 'selected' if voce.nome == traffico.interfaccia }}>
                 {{ voce.descrizione or voce.nome }}
+                {%- if voce.indirizzi %} &mdash; {{ voce.indirizzi|join(', ') }}
+                {%- else %} &mdash; senza indirizzo{% endif %}
               </option>
               {% endfor %}
             </select>

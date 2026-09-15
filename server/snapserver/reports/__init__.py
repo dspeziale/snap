@@ -39,6 +39,7 @@ KIND_INCIDENT = "incident"
 KIND_EU_COMPLIANCE = "eu_compliance"
 KIND_CERTIFICATES = "certificates"
 KIND_VETUSTA = "vetusta"
+KIND_FINE_SUPPORTO = "fine_supporto"
 KIND_PRESENZE = "presenze"
 KIND_FLOTTA = "flotta"
 KIND_SMB = "smb"
@@ -58,6 +59,7 @@ REPORT_KINDS = {
     KIND_EU_COMPLIANCE: "Conformita' europea (NIS2, CRA, GDPR)",
     KIND_CERTIFICATES: "Certificati TLS",
     KIND_VETUSTA: "Vetusta' del parco",
+    KIND_FINE_SUPPORTO: "Fine supporto dei sistemi operativi",
     KIND_PRESENZE: "Presenze sulle reti senza fili",
     KIND_FLOTTA: "Salute della flotta e copertura",
     KIND_SMB: "Esposizione SMB",
@@ -76,6 +78,20 @@ REPORT_CATALOG = {
         # Orizzontale: soggetto ed emittente sono nomi distinti lunghi, e in verticale
         # si spezzano a meta' parola -- un certificato con il soggetto troncato non si
         # riconosce.
+        "orizzontale": True,
+        "ruolo": "analyst",
+    },
+    KIND_FINE_SUPPORTO: {
+        # Non e' il documento delle vulnerabilita' e non e' quello della vetusta'
+        # delle interfacce web (KIND_VETUSTA, che misura l'eta' di cio' che un
+        # apparato espone): e' la data oltre la quale il PRODUTTORE non pubblica piu'
+        # correzioni. Si consegna a chi pianifica le migrazioni.
+        "destinatario": "Direzione IT, chi pianifica le migrazioni",
+        "domanda": "Quali sistemi operativi non ricevono piu' correzioni, e da quando",
+        "periodo": 30,
+        "periodi": (30, 90),
+        # Orizzontale: ogni riga porta release, due date, il conteggio e l'origine del
+        # verdetto, e in verticale le date si spezzano a meta'.
         "orizzontale": True,
         "ruolo": "analyst",
     },

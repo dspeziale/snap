@@ -787,9 +787,100 @@ successivi.
 L'operazione resta nel registro di audit del tenant, con severita' *critica* e con il
 conto di cio' che e' stato eliminato.
 
+### 5.10 Sistemi operativi e fine supporto
+
+*Rete → Sistemi operativi*: i sistemi trovati, con data di rilascio, **fine supporto**,
+giorni residui e quanti dispositivi li usano. Un sistema fuori supporto non riceve più
+correzioni: le vulnerabilità che escono da quel giorno restano aperte per sempre.
+
+| Stato | Significato |
+|---|---|
+| **fuori supporto** | la data è passata |
+| **in scadenza** | entro 180 giorni — il tempo minimo per pianificare e svolgere una migrazione in una PA |
+| **da confermare** | l'impronta copre più release con scadenze diverse |
+| **supportato** | fine supporto oltre la soglia |
+| **non determinabile** | l'osservazione non identifica un prodotto |
+
+**La colonna che conta è l'origine del dato.** nmap non legge la release installata:
+riconosce un'impronta di rete e la nomina con la versione da cui l'impronta fu
+raccolta. Su una rete reale 307 dispositivi risultano «Windows 11 21H2» — fuori
+supporto — e possono essere 24H2 aggiornate ieri. Una riga *stimato* si conferma
+installando l'agente o abilitando SMB su quella macchina; solo allora diventa
+*dichiarato*.
+
+Quando il verdetto manca, la pagina scrive **perché**: un kernel nudo («Linux 4.0 -
+4.4») non ha una fine supporto perché il supporto lo dà la distribuzione, che dalla
+rete non si vede; un apparato Cisco non ce l'ha perché il ciclo di vita è del modello,
+non della versione di IOS. Sono due assenze diverse e portano a due azioni diverse.
+
+Il *supporto esteso* (ESU, LTS, ESM, ELS) è in una colonna a parte e **non** vale come
+copertura: è di chi lo ha acquistato o attivato.
+
+### 5.11 Sospendere un blocco di subnet
+
+*Rete → Perimetro*, riquadro **Sospendere o riattivare un blocco intero**. Si scrive un
+blocco di indirizzi e il prodotto trova tutte le subnet del perimetro contenute in
+quel blocco.
+
+| Si scrive | Che cosa prende |
+|---|---|
+| `10.58.0.0/16` | ogni subnet dentro quel blocco, con qualunque maschera |
+| `10.6.24.0/22` | `10.6.24.0/24` e `10.6.25.0/24`, **non** `10.6.30.0/24` |
+| `10.58.3.7/16` | lo stesso di `10.58.0.0/16`: si accetta anche un indirizzo dentro il blocco |
+
+Il confronto è sugli **indirizzi**, non sulle cifre: le maschere che non cadono su un
+punto (`/22`, `/12`) funzionano come le altre.
+
+**Si vede prima, si applica dopo**: il primo pulsante mostra l'elenco esatto di ciò che
+cambierebbe senza toccare niente. L'insieme viene ricalcolato al momento
+dell'applicazione, quindi non si agisce su un'anteprima vecchia. Sospendere non
+cancella nulla — i dispositivi restano in inventario — e l'operazione finisce nel
+registro delle azioni con i CIDR toccati.
+
 ## 6. Uso dell'interfaccia della sonda
 
+### 6.0-ante La password dell'interfaccia: impostarla e reimpostarla
+
+**Un comando, e non serve fermare la sonda.**
+
+| Dove | Comando |
+|---|---|
+| Fuori dal contenitore (Windows) | `.\start-nativa.ps1 -Password` |
+| Come sopra, generandola robusta | `.\start-nativa.ps1 -Password -Casuale` |
+| In contenitore (Linux) | `docker compose ... exec probe python run.py --password` |
+| Dove il DSN è già nell'ambiente | `cd probe ; python run.py --password` |
+
+Vale sia per la **prima** password sia per una **dimenticata**. L'interfaccia rilegge
+l'impronta a ogni accesso: la nuova password vale dal tentativo successivo, senza
+riavvii.
+
+> **Perché esiste questo comando.** La pagina `/primo-accesso` vale solo finché una
+> password non c'è: se c'è già, rimanda all'accesso. Una password dimenticata non
+> aveva quindi nessuna procedura — restava da cancellare a mano una riga nelle
+> impostazioni dell'archivio, cosa che non era scritta da nessuna parte.
+
+La password **non è recuperabile**: è conservata come impronta scrypt, quindi nemmeno
+il prodotto può rileggerla. Con `-Casuale` viene mostrata una volta sola.
+
+Senza valore, il comando la chiede **senza mostrarla a schermo**. Passarla sulla riga
+di comando si può — serve agli automatismi — ma il comando avverte: finirebbe nella
+cronologia della shell e nell'elenco dei processi, dove la vede chiunque sia connesso
+a quella macchina.
+
+**La sicurezza non cala rispetto alla pagina.** `/primo-accesso` si fida di chi è
+davanti alla macchina; il comando chiede di più: una shell su quella macchina e i
+permessi per aprirne l'archivio. Chi può eseguirlo potrebbe già cambiare l'impronta a
+mano.
+
+Politica: almeno 10 caratteri, con maiuscola, minuscola e cifra — la stessa della
+console, perché scoprire che la sonda accetta password più deboli sarebbe una sorpresa
+nel verso sbagliato.
+
 ### 6.0-bis La prima password, con la sonda fuori dal contenitore
+
+> Da quando esiste `-Password` (capitolo 6.0-ante) questa procedura non è più
+> necessaria: resta documentata perché la pagina `/primo-accesso` continua a
+> funzionare, e perché spiega un comportamento dei cookie che si incontra altrove.
 
 Su Windows la sonda si avvia sulla macchina e il TLS lo termina un proxy in
 contenitore (vedi `PORTS.md`). In quella configurazione la **prima** password si

@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| Contiene | agente 1.2.2, installatori per Windows, Linux e Docker |
+| Contiene | agente 1.2.6, installatori per Windows, Linux e Docker |
 | Il token scade | vedi `pacchetto.json`, campo `scade_at` |
 | Vale per | una macchina sola |
 

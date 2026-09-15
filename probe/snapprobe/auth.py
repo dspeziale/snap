@@ -81,7 +81,23 @@ LIBERE = {"auth.login", "auth.primo_accesso", "static",
 # Password
 # --------------------------------------------------------------------------- #
 def _store():
-    return current_app.extensions["snap_store"]
+    """L'archivio della sonda, dentro o fuori da una richiesta web.
+
+    Dentro l'applicazione si prende quello gia' aperto. Fuori -- da riga di comando,
+    che e' come si reimposta una password dimenticata -- si apre un archivio proprio:
+    il motore e' unico per processo, quindi e' lo stesso database, non un secondo.
+
+    Senza questa ricaduta ogni funzione di questo modulo era inutilizzabile dalla
+    riga di comando, e una password persa restava senza via d'uscita se non
+    cancellando a mano una riga nelle impostazioni.
+    """
+    from flask import has_app_context
+
+    if has_app_context():
+        return current_app.extensions["snap_store"]
+    from .store import ProbeStore
+
+    return ProbeStore()
 
 
 def hash_password(chiaro: str) -> str:

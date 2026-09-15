@@ -65,6 +65,28 @@ def _host_count(rete) -> int:
     return totale if totale <= 2 else totale - 2
 
 
+def chiave_ordinamento(cidr) -> tuple:
+    """Come si ordinano le reti in un elenco: per indirizzo, non per testo.
+
+    Ordinare i CIDR come stringhe mette `10.10.0.0/24` PRIMA di `10.2.0.0/24`, perche'
+    il carattere `1` viene prima di `2`. In un elenco di trenta reti questo significa
+    che quella che si cerca non e' dove la si cerca -- e chi guarda conclude che non
+    ci sia.
+
+    La chiave porta anche la versione del protocollo, cosi' le reti IPv4 e IPv6 non si
+    mescolano, e la lunghezza del prefisso, per dare un ordine stabile a due reti che
+    cominciano allo stesso indirizzo (`10.0.0.0/8` prima di `10.0.0.0/16`).
+
+    Cio' che non si interpreta finisce in fondo con il proprio testo: un elenco non
+    deve sollevare per una riga storta, ma nemmeno fingere di saperla collocare.
+    """
+    try:
+        rete = ipaddress.ip_network(str(cidr).strip(), strict=False)
+    except (TypeError, ValueError):
+        return (9, 0, 0, str(cidr or ""))
+    return (rete.version, int(rete.network_address), rete.prefixlen, "")
+
+
 def split_network(rete) -> list:
     """Suddivide una rete in blocchi che stanno dentro MAX_HOSTS_PER_SUBNET.
 

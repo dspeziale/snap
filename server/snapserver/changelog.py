@@ -21,6 +21,410 @@ from __future__ import annotations
 # Ogni voce: version, date (YYYY-MM-DD), abstract (1-2 frasi), changes (elenco).
 CHANGELOG = [
     {
+        "version": "2.0.6",
+        "date": "2026-09-15",
+        "abstract": "Il catalogo dei costruttori caricava solo un terzo del registro:"
+                    " i file dei blocchi medi e piccoli hanno un formato diverso da"
+                    " quello che avevo assunto. E le reti negli elenchi si ordinano"
+                    " per indirizzo, non per testo.",
+        "changes": [
+            "I TRE FILE DEL REGISTRO IEEE NON HANNO LO STESSO FORMATO. In `oui.txt`"
+            " il prefisso sta su una riga sola; in `mam.txt` e `oui36.txt` il record"
+            " e' su DUE righe -- l'OUI di 24 bit sulla prima, l'intervallo assegnato"
+            " dentro di esso sulla seconda -- e il prefisso vero e' la somma dei due."
+            " Cercandolo su una riga sola i due cataloghi piu' specifici caricavano"
+            " ZERO voci: 40.136 prefissi invece di 53.900, e proprio i mancanti sono"
+            " quelli che evitano di rispondere \"IEEE Registration Authority\" al"
+            " posto del nome dell'azienda.",
+            "Quanti caratteri del suffisso siano assegnati lo dice l'INTERVALLO"
+            " stesso (uno per i blocchi medi, tre per i piccoli), non il nome del"
+            " file: i due formati si leggono cosi' con lo stesso codice, e un terzo"
+            " taglio futuro non rompe niente.",
+            "Almeno aveva caricato zero invece di spazzatura: un prefisso composto"
+            " male avrebbe attribuito il nome di un'azienda alle schede di un'altra,"
+            " che e' molto peggio di nessun nome.",
+            "LE RETI NEGLI ELENCHI SI ORDINANO PER INDIRIZZO. Il selettore della"
+            " mappa grafica le metteva in ordine di NUMERO DI DISPOSITIVI, e a parita'"
+            " in ordine alfabetico: nessuno apre quel menu chiedendosi quale sia la"
+            " rete piu' popolosa -- si sa gia' quale si vuole disegnare, e la si"
+            " cerca dove starebbe in un elenco di indirizzi. In piu' l'ordine"
+            " alfabetico mette `10.10.0.0/24` prima di `10.2.0.0/24`, quindi la rete"
+            " cercata non era nemmeno dove il testo l'avrebbe messa.",
+            "RACCOLTA STRAORDINARIA DELLE RETI PUBBLICHE (`flask raccogli-reti`):"
+            " guarda tutto l'archivio invece dei soli ultimi due giorni e mette in"
+            " coda ogni indirizzo pubblico che vi compare. Su un'installazione che ha"
+            " gia' mesi di eventi, la finestra di due giorni del servizio di fondo"
+            " avrebbe lasciato le righe vecchie senza nome per settimane. Si fa una"
+            " volta; dopo, il servizio riprende il proprio passo.",
+        ],
+    },
+    {
+        "version": "2.0.4",
+        "date": "2026-09-15",
+        "abstract": "La cache dei proprietari di rete ha una pagina da cui guardarla."
+                    " Le reti senza fili si ricensiscono per conto proprio e piu'"
+                    " spesso. L'IDS associa indirizzo e scheda leggendo i pacchetti."
+                    " E i MAC dicono chi ha fatto la scheda.",
+        "changes": [
+            "RETI PUBBLICHE: UNA PAGINA DA CUI GUARDARE LA CACHE, sotto Rete. Mostra"
+            " le reti riconosciute, gli indirizzi ancora senza nome CON IL MOTIVO, e"
+            " che cosa esce verso il registro. Serviva: un suggerimento vuoto non"
+            " dice se manchi perche' il servizio e' spento, perche' il server non ha"
+            " uscita verso internet o perche' quell'indirizzo non e' ancora stato"
+            " risolto -- tre cose con tre rimedi diversi.",
+            "LE RETI SENZA FILI SI RICENSISCONO PER CONTO PROPRIO, ogni sei ore"
+            " invece dei tre giorni del perimetro cablato, e passano per prime fra"
+            " quelle scadute. Su una rete in cui il DHCP riassegna di continuo, una"
+            " scoperta ogni tre giorni fotografa un momento e lo spaccia per lo"
+            " stato. Da non confondere con la ricognizione delle presenze, che gia'"
+            " esisteva e risponde a un'altra domanda: quella dice CHI c'e' adesso,"
+            " questa CHE COSA c'e'.",
+            "Il flag delle reti senza fili viaggiava col perimetro da sempre, ma lo"
+            " scanner non lo guardava affatto: era tutto cio' che mancava perche' le"
+            " due cose si potessero separare.",
+            "L'IDS ASSOCIA INDIRIZZO E SCHEDA DI RETE leggendo i pacchetti. Le regole"
+            " sul MAC c'erano gia', ma le alimentava il solo sensore dell'inventario,"
+            " che legge i MAC raccolti con ARP durante le scansioni -- e ARP non"
+            " attraversa un router: sull'installazione reale erano 21 nodi su quasi"
+            " cinquemila. Ogni riga di traffico porta invece la coppia gia' fatta.",
+            "IL TRANELLO, che e' il motivo per cui non si puo' associare e basta: il"
+            " MAC di un pacchetto e' quello del passo precedente, non della macchina"
+            " che l'ha generato. Se il traffico ha attraversato un router, quel MAC e'"
+            " del ROUTER. Un router si riconosce proprio da li' -- e' la scheda che"
+            " compare con molti indirizzi diversi -- e le coppie che passano di li'"
+            " non si associano. La soglia si calibra da sola sul segmento e non"
+            " richiede di conoscere maschere, gateway o topologia.",
+            "Il guadagno vero non e' un allarme in piu': e' che i nodi trovano il"
+            " proprio MAC. Un MAC da' il costruttore della scheda, e su un apparato"
+            " muto -- nessun banner, nessuna porta parlante -- il costruttore e'"
+            " spesso l'unico indizio sul tipo.",
+            "COSTRUTTORI DELLE SCHEDE DI RETE, dal registro IEEE. Il server e' il"
+            " punto in cui tutti i MAC del prodotto si incontrano: quelli osservati"
+            " nel traffico, quelli riferiti in SNMP, quelli delle presenze. Si carica"
+            " con `flask carica-oui`, oppure da un file gia' scaricato con"
+            " `--file oui.txt` -- ed e' il caso che conta, perche' dove il server non"
+            " ha uscita verso internet il file si porta a mano.",
+            "I PREFISSI NON SONO TUTTI LUNGHI UGUALE: lo IEEE assegna blocchi grandi,"
+            " medi e piccoli, e un blocco piccolo e' condiviso fra molte aziende."
+            " Fermarsi ai primi tre byte darebbe il nome di chi ha rivenduto il"
+            " blocco invece di quello dell'azienda, quindi si cerca dal prefisso piu'"
+            " lungo al piu' corto.",
+            "Anche il menu dello sforzo di scansione ora offre 4 e 8 host in"
+            " parallelo, e dice i numeri VERI: diceva \"medio (2 thread)\" e"
+            " \"massimo (4 thread)\" di profili che ne usano 16 e 32, quindi chi"
+            " sceglieva moltiplicava il carico sulla rete del cliente per otto"
+            " credendo di raddoppiarlo.",
+        ],
+    },
+    {
+        "version": "2.0.2",
+        "date": "2026-09-15",
+        "abstract": "Gli indirizzi di internet dicono di chi sono: passando sopra a"
+                    " uno compare il nome della rete, che una cache si procura da"
+                    " sola. E le date che uscivano ancora in UTC ora sono nel fuso"
+                    " del tenant, su ogni pagina.",
+        "changes": [
+            "DI CHI E' QUESTO INDIRIZZO. Un indirizzo pubblico in tabella e' quattro"
+            " numeri: sapere che e' un grande fornitore di nuvola, oppure una rete"
+            " residenziale dall'altra parte del mondo, cambia la lettura della riga."
+            " Il nome compare in un suggerimento passandoci sopra, negli eventi SIEM,"
+            " negli allarmi, nel quadro SOC e nel registro delle azioni.",
+            "LA CACHE SI ALIMENTA DA SOLA. A ogni giro il servizio raccoglie gli"
+            " indirizzi pubblici comparsi di recente e li risolve con calma. Non lo"
+            " fa nel percorso di acquisizione del SIEM, e non e' un dettaglio: li' si"
+            " fanno decine di migliaia di inserimenti al secondo in una transazione"
+            " sola, e aggiungerci una lettura e una scrittura per riga vorrebbe dire"
+            " rallentare l'acquisizione per riempire una cache di comodo. Tre letture"
+            " ogni cinque minuti trovano le stesse cose.",
+            "SI CONSERVA L'INTERVALLO, NON L'INDIRIZZO. RDAP non risponde \"questo"
+            " indirizzo e' di X\" ma \"l'intervallo da A a B e' di X\": una sola"
+            " interrogazione copre cosi' tutti gli indirizzi di quella rete, spesso"
+            " migliaia, ed e' la ragione per cui questa cache regge il traffico di un"
+            " SIEM invece di soffocarlo. Fra due intervalli che contengono lo stesso"
+            " indirizzo vince il piu' stretto: il nome che serve e' quello"
+            " dell'azienda, non quello del blocco del registro regionale.",
+            "LE PAGINE NON INTERROGANO MAI INTERNET: leggono solo la cache. Una"
+            " pagina che aspettasse una risposta si bloccherebbe per secondi su una"
+            " tabella di trenta righe, e in una rete senza uscita non si aprirebbe"
+            " affatto. Un indirizzo non ancora risolto si mostra come si e' sempre"
+            " mostrato, e si arricchisce da solo al giro successivo.",
+            "GLI INDIRIZZI PRIVATI NON ESCONO MAI. Sono quelli della rete del"
+            " cliente, e sono anche gli unici che potrebbero identificare una"
+            " postazione. Al registro pubblico arriva l'indirizzo e nient'altro: mai"
+            " chi ha parlato con quell'indirizzo, ne' quando.",
+            "Nessuna dipendenza aggiunta (`urllib` e `json` della libreria standard,"
+            " come per la threat intelligence) e nessuna chiave da procurarsi. Il"
+            " servizio si spegne con SNAP_SERVER_RETE_PUBBLICA=0 dove il server non"
+            " ha uscita verso internet.",
+            "DATE: CENSITE TUTTE LE PAGINE. Gli istanti si conservano in UTC e si"
+            " convertono al fuso del tenant solo in presentazione; dove il filtro"
+            " mancava, l'ora usciva indietro di un'ora o due e nessuno se ne"
+            " accorgeva -- un orario sbagliato ha esattamente l'aspetto di un orario"
+            " giusto. Un controllo nuovo passa ogni modello del server e della sonda"
+            " e pretende che ogni istante stampato passi da un filtro, con le"
+            " eccezioni elencate e motivate una per una.",
+            "L'ULTIMO ACCESSO ALLE UTENZE e' l'unica data del prodotto che non nasca"
+            " in UTC: la raccoglie l'agente dal sistema ospite, nel formato e nel"
+            " fuso di QUELLA macchina. Ora l'agente la normalizza alla fonte -- e' il"
+            " solo posto che conosca quel fuso -- e la pagina dichiara le date che"
+            " non ha potuto convertire, che arrivano dagli agenti non ancora"
+            " aggiornati, invece di mostrarle come se fossero nel fuso di chi guarda.",
+        ],
+    },
+    {
+        "version": "2.0.0",
+        "date": "2026-09-15",
+        "abstract": "Da Flotta sonde -> Console si apre la CONSOLE della sonda: il"
+                    " suo menu a sinistra, le sue pagine, e la barra del server che si"
+                    " ritira. Le viste arrivano col battito, i comandi partono in coda."
+                    " Tre cose restano in sede, e la pagina dice quali e perche'.",
+        "changes": [
+            "IL NUMERO ARRIVA A 2.0.0 PER ARITMETICA, non per un cambio di"
+            " impianto: la console avanza di due centesimi a rilascio e la 1.9.8"
+            " era l'ultima prima del riporto. Non c'e' nessuna rottura da gestire"
+            " nell'aggiornamento.",
+            "\"CONSOLE\" APRE LA SONDA, non un riepilogo della sonda. C'e' il MENU"
+            " DELLA SONDA a sinistra -- gli stessi tre gruppi e le stesse voci della"
+            " sua interfaccia locale -- e ogni voce apre la propria pagina. Prima era"
+            " una schermata sola, lunga, con tutte le schede una sotto l'altra: le"
+            " informazioni c'erano, ma non era la console di quella macchina.",
+            "LA BARRA DEL SERVER SI RITIRA mentre si sta qui, e torna com'era"
+            " uscendo. Due barre affiancate si confondono, e confondere le due"
+            " significa cliccare sulla rete sbagliata. La scelta dell'utente sulla"
+            " barra non viene toccata: ritirargliela per sempre perche' e' passato da"
+            " una sonda sarebbe una decisione presa al posto suo.",
+            "LE VISTE SONO NOVE, nei tre gruppi della sonda: Esercizio (stato, salute,"
+            " diario locale), Osservazione (IDS, pacchetti, agenti), Impostazioni"
+            " (configurazione, comandi, registrazione). L'elenco sta in una struttura"
+            " dati ed e' anche l'allowlist della vista richiesta: una sola fonte, e"
+            " una vista che non esiste non arriva al render.",
+            "LA VISTA IDS MOSTRA LO STATO DEL MOTORE, non un secondo elenco di"
+            " rilevazioni: quelle vengono conferite e stanno gia' qui per intero nella"
+            " sala operativa. Rimandarle indietro col battito avrebbe prodotto un"
+            " elenco piu' corto e piu' vecchio, e nessuno saprebbe quale dei due sia"
+            " quello buono. Qui c'e' invece cio' che solo la sonda sa: se il motore ha"
+            " girato, quali sensori hanno saltato il turno e da quanto esiste la"
+            " memoria di cio' che e' normale -- i tre motivi per cui uno zero puo' non"
+            " voler dire \"niente di anomalo\".",
+            "Un comando accodato dalla console riporta alla console: chi ne accoda uno"
+            " ne accoda spesso un altro, e prima si veniva rimandati sulla scheda. Il"
+            " ritorno e' un nome simbolico fra due, non un indirizzo scelto da chi"
+            " invia.",
+            "\"Cio' che si fa solo davanti alla sonda\" e' salito sotto il menu:"
+            " e' la risposta alla domanda \"perche' questa cosa qui non c'e'\", e"
+            " quella domanda si fa guardando il menu, non dopo aver letto tutto.",
+            "LA CONSOLE REMOTA FA CIO' CHE FA QUELLA LOCALE, senza violare la regola"
+            " che regge questo prodotto: il server non apre MAI una connessione verso"
+            " una sonda. Non si puo' quindi inoltrare la sua interfaccia, e la cosa si"
+            " ottiene in un modo solo -- ogni VISTA viaggia nell'istantanea del"
+            " battito, ogni COMANDO si accoda e viene consegnato al contatto"
+            " successivo. Cio' che cambia per chi guarda e' il ritardo, che la pagina"
+            " DICHIARA invece di nasconderlo.",
+            "NUOVE VISTE NELLA CONSOLE DELLA SONDA: osservazione del traffico (con"
+            " l'elenco delle interfacce, che solo la sonda conosce: su una macchina"
+            " vera i nomi delle schede non si indovinano), quanto manca a ciascuna"
+            " fase di scansione, le macchine con agente, la configurazione in vigore"
+            " e quanto occupa l'archivio.",
+            "NUOVI COMANDI ACCODABILI: accendere e spegnere l'osservazione del"
+            " traffico, configurare e provare la lettura SNMP, chiedere una raccolta"
+            " subito.",
+            "CIO' CHE NON VIAGGIA, e non per dimenticanza: la community SNMP (un"
+            " segreto che torna indietro e' un segreto conservato in un posto in piu';"
+            " la pagina dice CHE e' impostata, non quale sia) e i pacchetti osservati"
+            " (sono il traffico di chi lavora su quella rete e restano sulla sonda,"
+            " con la loro ritenzione; da qui se ne sa il numero).",
+            "TRE COSE RESTANO DAVANTI ALLA SONDA, dichiarate in fondo alla pagina con"
+            " il motivo di ciascuna: la registrazione (e' il momento in cui la sonda"
+            " sceglie a chi obbedire), l'emissione di un token per un agente (produce"
+            " una credenziale che si vede una volta sola) e l'azzeramento"
+            " dell'archivio (una conferma che si clicca da mille chilometri non e' la"
+            " stessa conferma).",
+            "Accendere l'osservazione del traffico resta nel registro delle azioni con"
+            " gravita' di avviso: riguarda le persone che lavorano su quella rete, e"
+            " fra sei mesi si deve poter sapere chi l'ha acceso, quando e su che"
+            " cosa.",
+            "Un controllo pretende che ogni comando offerto da un pulsante sia"
+            " riconosciuto dalla sonda: un pulsante che non fa niente non si scopre"
+            " finche' qualcuno non lo preme.",
+        ],
+    },
+    {
+        "version": "1.9.8",
+        "date": "2026-09-15",
+        "abstract": "La scheda di prodotto diventa verticale e porta due pagine di"
+                    " estratti da un impianto reale, con gli identificativi"
+                    " sostituiti.",
+        "changes": [
+            "ESTRATTI DAI REPORT VERI. Le ultime pagine mostrano che cosa i report"
+            " trovano davvero: perimetro e occupazione degli indirizzi, sistemi fuori"
+            " supporto, certificati in scadenza, vulnerabilita' confermate e sfruttate"
+            " attivamente, e un esempio di dato che il prodotto rifiuta di contare"
+            " perche' non e' quello che sembra. Un esempio inventato non dimostra che"
+            " il prodotto funzioni; questi numeri sono misurati.",
+            "ANONIMIZZAZIONE, e non dei soli indirizzi. L'indirizzo IP e'"
+            " l'identificativo piu' evidente ma non l'unico: la subnet dice lo schema"
+            " di indirizzamento, il nome host dice l'ente e spesso la sede, e"
+            " l'emittente di un certificato interno e' quasi sempre il nome di un"
+            " server reale. Si sostituiscono tutti, in modo coerente -- lo stesso"
+            " apparato porta lo stesso identificativo finto in tutte le righe -- e con"
+            " gli indirizzi riservati alla documentazione (RFC 5737). Le autorita' di"
+            " certificazione pubbliche restano: non dicono nulla di chi le usa.",
+            "L'AVVERTENZA DEL PIE' DI PAGINA PUO' ESSERE SCELTA. Ne esistevano due,"
+            " per i due casi soliti: il report di una rete e la documentazione di"
+            " prodotto. Il terzo caso -- un documento di prodotto che porta misure"
+            " reali anonimizzate -- non era coperto, e la scheda dichiarava su ogni"
+            " pagina di non contenere dati di rete mentre ne conteneva. Un'avvertenza"
+            " falsa stampata su ogni pagina insegna a non leggerle.",
+            "La scheda e' VERTICALE: i report portano molte colonne per riga e stanno"
+            " in orizzontale, questa e' prosa con tabelle strette.",
+            "Dodici prove sull'anonimizzazione, che e' il pezzo che impedisce a un"
+            " estratto di portare fuori la rete di un cliente: un difetto li' non"
+            " produce un errore, produce un PDF che gira per posta.",
+        ],
+    },
+    {
+        "version": "1.9.6",
+        "date": "2026-09-15",
+        "abstract": "Scheda di prodotto per la direzione, con la stessa veste dei"
+                    " report. E tre difetti del report sul fine supporto, colti da"
+                    " guardie che esistevano gia'.",
+        "changes": [
+            "SCHEDA DI PRODOTTO: tre pagine che dicono che cosa fa snap, a chi si"
+            " consegna ciascun documento, a quali obblighi risponde e -- la sezione"
+            " che di solito manca in un documento commerciale -- quali sono i limiti"
+            " dichiarati. Usa l'impaginatore dei report, non quello dei manuali:"
+            " stessa copertina e stessa tipografia, perche' chi la riceve ha gia'"
+            " visto i report e il riconoscimento vale piu' di una grafica nuova.",
+            "Il limite di pagine e' VERIFICATO: il generatore rilegge il PDF prodotto"
+            " e fallisce se supera quattro pagine, e una prova fa lo stesso. Un limite"
+            " dichiarato e non verificato e' un'intenzione.",
+            "IL REPORT SUL FINE SUPPORTO NON AVEVA UN TEMA PROPRIO e riusava la fascia"
+            " della vetusta' del parco: due documenti diversi con la stessa copertina"
+            " si confondono in mano a chi li riceve. Ora ha la sua.",
+            "Le celle del report erano TAGLIATE A MANO con un limite di caratteri --"
+            " ed e' esattamente cio' che produceva le frasi mozzate a meta' parola"
+            " viste alla prima generazione. L'impaginatore manda a capo da solo: i"
+            " tagli sono stati tolti, e la guardia del progetto che li vieta ora"
+            " passa.",
+            "Le tabelle possono rinunciare al monospazio della prima colonna"
+            " (`mono_prima=False`): serve a incolonnare indirizzi IP nei report, e in"
+            " una tabella di prosa fa l'effetto opposto. I report restano come erano.",
+            "Due prove della lettura SNMP non dichiaravano un perimetro e dalla 1.3.8"
+            " restavano a vuoto: ora lo dichiarano, e il caso \"nessun perimetro\" ha"
+            " una prova propria invece di essere un effetto collaterale.",
+        ],
+    },
+    {
+        "version": "1.9.4",
+        "date": "2026-09-14",
+        "abstract": "Report nuovo: Fine supporto dei sistemi operativi. Quali sistemi"
+                    " nessuno corregge piu', da quando, e quanto ci si puo' fidare di"
+                    " ciascun verdetto.",
+        "changes": [
+            "R17, FINE SUPPORTO DEI SISTEMI OPERATIVI. Non e' il report delle"
+            " vulnerabilita' e non e' quello della vetusta' delle interfacce web"
+            " (R13, che misura l'eta' di cio' che un apparato espone): e' la data"
+            " oltre la quale il PRODUTTORE non pubblica piu' correzioni. Un sistema"
+            " fuori supporto non ha una vulnerabilita': ha la certezza che ogni"
+            " vulnerabilita' futura restera' aperta. Generato sull'inventario reale:"
+            " 650 dispositivi fuori supporto su 4.832 esaminati.",
+            "RAGGRUPPATO PER RELEASE, non per macchina: quei 650 dispositivi si"
+            " concentrano su 17 release, cioe' 17 progetti di migrazione e non 650"
+            " interventi. L'elenco per macchina resta in fondo, per chi deve"
+            " intervenire.",
+            "Il supporto esteso (ESU, LTS, ESM, ELS) e' in colonna separata e non"
+            " conta come copertura: vale solo per chi lo ha attivato.",
+            "CORRETTO UN ABBINAMENTO CHE NON POTEVA RIUSCIRE. Per sapere quali"
+            " verdetti poggiano su una dichiarazione della macchina si confrontava"
+            " \"nodes.os_name\" con \"agent_hosts.sistema\": l'impronta di nmap"
+            " (\"Microsoft Windows 11 21H2\") contro cio' che la macchina dice di se'"
+            " (\"Windows 11\"). Non combaciano mai, e il risultato era \"0 dichiarati"
+            " su 4832\" con l'aria di essere una misura. Ora l'abbinamento e' per"
+            " NODO, e per quei nodi si giudica la stringa DICHIARATA -- altrimenti si"
+            " scriverebbe \"dichiarato\" accanto a un verdetto dedotto. Vale per il"
+            " report e per la pagina Sistemi operativi.",
+            "La sezione dei sistemi non determinabili raggruppa le RAGIONI invece di"
+            " ripeterle: erano quattro motivi ripetuti su decine di righe, ciascuno"
+            " troncato a meta' frase dalla larghezza della colonna. Ora si leggono per"
+            " esteso, con quanto pesa ciascuno.",
+        ],
+    },
+    {
+        "version": "1.9.2",
+        "date": "2026-09-14",
+        "abstract": "La tabella dei sistemi operativi non si apriva: \"DataTables"
+                    " warning: Requested unknown parameter\". Segnalato da chi la"
+                    " usava.",
+        "changes": [
+            "LA CAUSA ERA UNA RIGA IRREGOLARE. La spiegazione del verdetto -- perche'"
+            " un kernel nudo non ha una fine supporto, perche' un apparato Cisco non"
+            " ce l'ha -- stava in una RIGA PROPRIA con colspan=9, in mezzo a righe da"
+            " nove celle. DataTables costruisce la propria idea delle colonne dalla"
+            " prima riga e pretende che tutte le altre la rispettino: con una riga"
+            " irregolare smette di funzionare del tutto, e al posto della tabella"
+            " compare l'avviso. La spiegazione ora sta DENTRO la cella del sistema"
+            " osservato, dove del resto si riferisce.",
+            "La prova guarda l'HTML RESO e pretende che ogni riga abbia lo stesso"
+            " numero di celle delle intestazioni. Una prima stesura analizzava invece"
+            " il modello Jinja contando le righe dentro il ciclo: sbagliava i confini"
+            " dei blocchi, dava novantacinque falsi positivi ed e' stata buttata. Sul"
+            " reso il numero di celle e' un fatto, non una deduzione.",
+            "Verificato anche nel browser, che e' chi aveva prodotto il messaggio:"
+            " nessun avviso in console, ricerca che filtra (8 righe su 134) e"
+            " ordinamento che funziona.",
+        ],
+    },
+    {
+        "version": "1.9.0",
+        "date": "2026-09-14",
+        "abstract": "Ciclo di vita dei sistemi operativi: una tabella con la fine"
+                    " supporto di cio' che c'e' in rete, e da dove viene ogni"
+                    " verdetto. E la sospensione di un intero blocco di subnet"
+                    " scrivendo un solo CIDR.",
+        "changes": [
+            "RETE > SISTEMI OPERATIVI, pagina nuova: i sistemi trovati con data di"
+            " rilascio, fine supporto, giorni residui e quanti dispositivi li usano."
+            " Sull'inventario reale di questa rete ha trovato subito 650 dispositivi"
+            " fuori supporto e 39 in scadenza.",
+            "UN'IMPRONTA NON E' UNA RELEASE, ed e' il punto difficile di tutta la"
+            " funzione. nmap riconosce intervalli: \"Windows 10 1903 - 22H2\" (148 nodi"
+            " reali) copre release con fine supporto a cinque anni di distanza. La"
+            " prima stesura restituiva il primo estremo -- cioe' l'allarme piu' grave"
+            " fra quelli possibili, scelto a caso. Ora un intervallo si dichiara"
+            " ambiguo; quando pero' OGNI release possibile e' fuori supporto il"
+            " verdetto si da' lo stesso, con la data del caso migliore.",
+            "OGNI VERDETTO PORTA LA PROPRIA ORIGINE: \"dichiarato\" se letto dentro la"
+            " macchina (agente, SMB, SNMP), \"stimato\" se dedotto da un'impronta di"
+            " rete. Su questa rete 307 nodi risultano a nmap \"Windows 11 21H2\", che e'"
+            " fuori supporto -- ma nmap nomina la release da cui l'impronta fu"
+            " raccolta, e quelle macchine possono essere 24H2 aggiornate ieri. Aprire"
+            " trecento pratiche di migrazione su quella base brucerebbe la credibilita'"
+            " dello strumento al primo controllo.",
+            "Quando non si sa, si scrive PERCHE' e come si risolve: un kernel nudo"
+            " (\"Linux 4.0 - 4.4\", 729 nodi) non ha una fine supporto perche' il"
+            " supporto lo da' la distribuzione, che dalla rete non si vede; un apparato"
+            " Cisco non ce l'ha perche' il ciclo di vita e' del modello, non della"
+            " versione di IOS. Sono due assenze diverse e si scrivono in modo diverso.",
+            "Catalogo locale di 60 release (Windows client e server, Debian, Ubuntu,"
+            " RHEL, CentOS, SLES, ESXi, FreeBSD) con rilascio, fine supporto e supporto"
+            " esteso in colonna separata -- ESU, LTS, ESM ed ELS non si contano come"
+            " copertura: valgono solo per chi li ha attivati. Funziona senza internet,"
+            " come il catalogo della threat intelligence.",
+            "PERIMETRO: si sospende o si riattiva un BLOCCO INTERO scrivendo un CIDR."
+            " Con 380 subnet, sospendere una sede significava spuntare trenta righe"
+            " sparse su tre pagine di tabella: si sbaglia, e resta una subnet accesa"
+            " che nessuno nota. Ora si scrive 10.58.0.0/16 e il prodotto trova le 29"
+            " subnet contenute. Il confronto e' sugli indirizzi e non sulle cifre,"
+            " quindi funziona anche con maschere non allineate ai punti (10.6.24.0/22"
+            " prende la .24 e la .25, non la .30).",
+            "La sospensione per blocco si vede PRIMA di applicarla: il primo pulsante"
+            " mostra l'elenco esatto delle subnet che cambierebbero senza toccare"
+            " niente. L'insieme si ricalcola al momento dell'applicazione, cosi' non si"
+            " agisce su un'anteprima vecchia, e l'operazione finisce nel registro delle"
+            " azioni con i CIDR toccati.",
+        ],
+    },
+    {
         "version": "1.8.8",
         "date": "2026-09-14",
         "abstract": "La pagina dell'archivio contava le righe con una statistica che"

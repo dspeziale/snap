@@ -1,0 +1,80 @@
+{#
+  snap server - Console remota di una sonda: comandi.
+
+  I comandi NON vengono spinti verso la sonda: il server non apre mai una connessione
+  verso di lei. Restano in coda e la sonda li ritira al primo contatto che apre lei,
+  entro un minuto. E' un ritardo dichiarato, ed e' il prezzo di non tenere aperto un
+  canale dall'interno della rete del cliente verso l'esterno.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+<div class="row g-3">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-lightning-charge me-1"></i> Accoda un comando</h2>
+      </div>
+      <div class="card-body">
+        {% if probe.status == 'pending' %}
+        <p class="small text-body-secondary mb-0">
+          La sonda non e' ancora registrata: finche' non lo e', non c'e' nessuno che
+          venga a ritirare la coda.
+        </p>
+        {% elif not has_role('analyst') %}
+        <p class="small text-body-secondary mb-0">
+          Accodare comandi richiede il ruolo di analista: da qui la sonda si guarda,
+          non si tocca.
+        </p>
+        {% else %}
+        <form method="post"
+              action="{{ url_for('probes.send_command', probe_id=probe.id) }}"
+              class="d-flex flex-wrap gap-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {# Il ritorno e' un NOME simbolico, non un indirizzo: cosi' chi invia non
+             puo' scegliere dove far rimbalzare il browser. #}
+          <input type="hidden" name="ritorno" value="console">
+          <input type="hidden" name="vista" value="comandi">
+          <div class="flex-grow-1" style="min-width:16rem">
+            <label class="form-label small mb-1" for="command">Comando</label>
+            <select class="form-select form-select-sm" id="command" name="command">
+              {% for chiave, etichetta in comandi.items() %}
+              <option value="{{ chiave }}">{{ etichetta }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-sm btn-primary text-nowrap"
+                  data-confirm="Accodare questo comando per la sonda {{ probe.code }}?
+                                Verra' consegnato al prossimo contatto che apre lei,
+                                entro un minuto.">
+            <i class="bi bi-send me-1"></i> Accoda
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      <div class="card-footer small text-body-secondary">
+        Il comando resta in coda finche' la sonda non lo ritira. Se e' silente, non va
+        perso: viene consegnato quando torna.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-arrow-left-right me-1"></i> In che direzione va</h2>
+      </div>
+      <div class="card-body small">
+        <p>
+          La sonda sta nella rete del cliente, dietro un NAT e un firewall che non
+          lascia entrare niente: il server <strong>non puo' raggiungerla</strong>, e
+          non ci prova. Tutto passa da contatti che apre lei.
+        </p>
+        <p class="mb-0 font-monospace" style="font-size:.78rem">
+          agente&nbsp;&rarr;&nbsp;sonda&nbsp;&rarr;&nbsp;server
+        </p>
+      </div>
+    </div>
+  </div>
+</div>

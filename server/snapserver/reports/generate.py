@@ -20,6 +20,7 @@ from . import (
     KIND_CERTIFICATES,
     KIND_COMPLIANCE,
     KIND_EXECUTIVE,
+    KIND_FINE_SUPPORTO,
     KIND_FLOTTA,
     KIND_EU_COMPLIANCE,
     KIND_INCIDENT,
@@ -54,6 +55,8 @@ def _dati_noc(tenant, zona, giorno, giorni):
 GENERATORI = {
     KIND_CERTIFICATES: (dataset_wide.certificates,
                         render_wide.certificates_report),
+    KIND_FINE_SUPPORTO: (dataset_wide.fine_supporto,
+                         render_wide.fine_supporto_report),
     KIND_VETUSTA: (dataset_wide.vetusta, render_wide.vetusta_report),
     KIND_PRESENZE: (dataset_wide.presenze, render_wide.presenze_report),
     KIND_FLOTTA: (dataset_wide.flotta, render_wide.flotta_report),

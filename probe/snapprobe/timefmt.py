@@ -56,12 +56,35 @@ def to_zone(value, timezone_name: str | None) -> datetime | None:
 def register_template_filters(app, store) -> None:
     """Registra i filtri di presentazione legati al fuso del tenant.
 
-    Il fuso e' letto dall'archivio a ogni chiamata: cambia quando il server
+    Il fuso si rilegge dall'archivio a ogni RICHIESTA: cambia quando il server
     aggiorna la configurazione della sonda, senza necessita' di riavvio.
     """
 
     def tenant_timezone() -> str:
-        return store.get_setting("tenant_timezone") or "UTC"
+        """Il fuso del tenant, letto una volta per richiesta.
+
+        PERCHE' NON A OGNI CHIAMATA, che era la forma precedente: i filtri delle date
+        la chiamano una volta per CELLA, e su una pagina con cinquemila date erano
+        cinquemila interrogazioni all'archivio -- misurate: 25 secondi di attesa sul
+        socket, su 35 di pagina.
+
+        Una volta per richiesta conserva tutto cio' che serve. Il fuso non puo'
+        cambiare a meta' di una pagina: se cambiasse, meta' tabella uscirebbe in un
+        fuso e meta' nell'altro, che e' peggio di leggerlo una volta sola. E la
+        richiesta successiva lo rilegge, quindi l'aggiornamento senza riavvio resta.
+        """
+        from flask import g, has_request_context
+
+        # Fuori da una richiesta -- il diario, le prove -- si legge come prima: non
+        # c'e' nessun `g` in cui ricordare, e nessuna cella ripetuta da cui
+        # difendersi.
+        if not has_request_context():
+            return store.get_setting("tenant_timezone") or "UTC"
+        fuso = getattr(g, "_snap_fuso", None)
+        if fuso is None:
+            fuso = store.get_setting("tenant_timezone") or "UTC"
+            g._snap_fuso = fuso
+        return fuso
 
     def filter_datetime(value, fmt: str = "%d/%m/%Y %H:%M") -> str:
         moment = to_zone(value, tenant_timezone())

@@ -36,6 +36,12 @@ bp = Blueprint("probe", __name__)
 CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{2,31}$")
 
 
+# Entro quanto l'agente si accorge di un cambio sull'osservazione del traffico: e' il
+# suo giro di ciclo. Si dichiara all'operatore invece di lasciarlo nell'incertezza --
+# un interruttore che non fa niente per quindici secondi sembra rotto.
+_ATTESA_CATTURA_SEC = 15
+
+
 def _store():
     return current_app.extensions["snap_store"]
 
@@ -370,8 +376,26 @@ def _stato_traffico() -> dict:
         except modulo_cattura.ErroreCattura as errore:
             assenza = str(errore)
 
-    agente = current_app.extensions.get("snap_agent")
-    presa = getattr(agente, "_cattura", None) if agente is not None else None
+    # NON si guarda l'oggetto `Cattura` di questo processo: la cattura vive in quello
+    # dell'agente (e' l'unico che possa travasare i pacchetti nell'archivio), quindi
+    # qui non c'e' mai. Cercarlo qui faceva dichiarare "la cattura non e' partita"
+    # mentre la pagina Pacchetti mostrava il traffico appena arrivato.
+    in_ascolto = modulo_ids.cattura_in_ascolto(store)
+    # I CONTATORI li pubblica l'agente a ogni giro: interfaccia, letti, scartati. Non
+    # esistono fuori dal processo che cattura, e la pagina ne mostra tre -- cercarli
+    # qui in memoria la faceva sollevare.
+    contatori = dict(modulo_ids.contatori_cattura(store))
+    contatori["viva"] = in_ascolto
+    # OGNI CHIAVE CHE LA PAGINA LEGGE DEVE ESISTERE, anche quando i contatori non
+    # sono ancora arrivati: fra l'accensione e il primo giro dell'agente passano fino
+    # a quindici secondi, e in quella finestra la cattura risulta viva ma senza
+    # numeri. E' la finestra in cui la pagina Configurazione sollevava.
+    contatori.setdefault("interfaccia",
+                         store.get_setting(modulo_ids.CHIAVE_TRAFFICO_INTERFACCIA, ""))
+    contatori.setdefault("scartati", 0)
+    # Quanti ne sono arrivati in ARCHIVIO: numero diverso da quelli letti, e l'unico
+    # che sopravviva a un riavvio del processo che cattura.
+    contatori.setdefault("pacchetti", store.traffico_riepilogo()["pacchetti"])
     return {
         "possibile": not assenza,
         "motivo": assenza,
@@ -381,7 +405,7 @@ def _stato_traffico() -> dict:
         "filtro": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_FILTRO, ""),
         "filtro_predefinito": modulo_cattura.FILTRO_PREDEFINITO,
         "errore": store.get_setting(modulo_ids.CHIAVE_TRAFFICO_ERRORE, ""),
-        "stato": presa.stato() if presa is not None else None,
+        "stato": contatori,
     }
 
 
@@ -412,25 +436,23 @@ def save_traffico():
         modulo_ids.CHIAVE_TRAFFICO_FILTRO: filtro,
     })
 
-    # Si applica SUBITO, non al riavvio: chi spegne un'osservazione sul traffico si
-    # aspetta che smetta adesso, non fra un'ora.
-    agente = current_app.extensions.get("snap_agent")
-    esito = {}
-    if agente is not None:
-        agente.ferma_cattura()
-        if attiva:
-            esito = agente.avvia_cattura()
-
-    store.log("info", "Osservazione del traffico %s%s"
-              % ("attivata su %s" % interfaccia if attiva else "disattivata",
-                 "" if esito.get("attiva", not attiva) else " (non avviata)"))
-    if attiva and not esito.get("attiva"):
-        flash("Osservazione salvata ma non avviata: %s"
-              % esito.get("motivo", "motivo non dichiarato"), "warning")
-    elif attiva:
-        flash("Osservazione del traffico attiva su %s." % interfaccia, "success")
+    # QUI SI SCRIVE SOLTANTO. La cattura la avvia l'agente di raccolta, che e' un
+    # ALTRO PROCESSO: e' l'unico che poi travasa i pacchetti nell'archivio, e quindi
+    # l'unico che possa farli comparire nella pagina Pacchetti.
+    #
+    # Prima la avviava questo processo, e sembrava funzionare: il diario diceva
+    # "avviata", il sensore risultava attivo, e non compariva un pacchetto -- perche'
+    # finivano in un anello che nessuno svuotava. Misurato: zero righe per cinque
+    # minuti con l'osservazione accesa dalla pagina, 744 in quarantacinque secondi
+    # dopo un riavvio.
+    store.log("info", "Osservazione del traffico %s"
+              % ("attivata su %s" % interfaccia if attiva else "disattivata"))
+    if attiva:
+        flash("Osservazione del traffico su %s: si avvia entro %d secondi."
+              % (interfaccia, _ATTESA_CATTURA_SEC), "success")
     else:
-        flash("Osservazione del traffico disattivata.", "success")
+        flash("Osservazione del traffico disattivata: si ferma entro %d secondi."
+              % _ATTESA_CATTURA_SEC, "success")
     return redirect(url_for("probe.configuration"))
 
 

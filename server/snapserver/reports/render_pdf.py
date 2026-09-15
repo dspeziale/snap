@@ -107,6 +107,13 @@ TEMI = {
         "banda": HexColor("#23313d"), "accento": HexColor("#31708f"),
         "chiaro": HexColor("#eaf1f6"), "etichetta": "DOCUMENTAZIONE",
     },
+    # Fine supporto: lo stesso registro della vetusta' -- si parla di abbandono, non
+    # di un attacco -- ma con una fascia propria, perche' e' un documento diverso e
+    # chi lo riceve non deve confonderlo con R13.
+    "fine_supporto": {
+        "banda": HexColor("#3a2438"), "accento": HexColor("#8a4f7d"),
+        "chiaro": HexColor("#f6ecf4"), "etichetta": "FINE SUPPORTO",
+    },
     # Vetusta': il colore della ruggine. Chi riceve questo documento deve capire
     # dalla copertina che non parla di un attacco, ma di abbandono.
     "vetusta": {
@@ -274,7 +281,7 @@ class Foglio:
 
     def __init__(self, percorso, kind, titolo, tenant, intervallo, generato,
                  sottotitolo="", scopo=(), sezioni=(), riferimenti=(), nota="",
-                 orizzontale=False, autore="", fuso=None):
+                 orizzontale=False, autore="", fuso=None, avvertenza=""):
         self.font = font_status()
         self.tema = tema_di(kind)
         self.kind = kind
@@ -303,6 +310,8 @@ class Foglio:
         self.generato = (momento.strftime("%d/%m/%Y %H:%M") if momento
                          else str(generato or ""))
         self.autore = autore
+        # Avvertenza del pie' di pagina, quando nessuna delle due predefinite e' vera.
+        self.avvertenza = avvertenza
         self.sezioni_dichiarate = list(sezioni)
         self.numero_sezione = 0
         self.pagina = 0
@@ -594,10 +603,16 @@ class Foglio:
         # L'avvertenza deve essere VERA: una guida di installazione non contiene la
         # rete di nessuno, e stamparci sopra "riservato" insegna a ignorare l'avviso
         # proprio sui documenti dove conta.
+        # L'avvertenza deve essere VERA per QUESTO documento. Le due predefinite
+        # coprono i due casi soliti -- il report di una rete e la documentazione di
+        # prodotto -- ma esiste un terzo caso: un documento di prodotto che porta
+        # misure reali con gli identificativi sostituiti. Li' nessuna delle due va
+        # bene, e scriverne una falsa su ogni pagina insegna a non leggerle.
         c.drawString(MARGINE, MARGINE - 1,
-                     "Documento riservato: contiene informazioni sulla rete del tenant."
-                     if self.tenant else
-                     "Documentazione di prodotto: non contiene dati di rete.")
+                     self.avvertenza or
+                     ("Documento riservato: contiene informazioni sulla rete del tenant."
+                      if self.tenant else
+                      "Documentazione di prodotto: non contiene dati di rete."))
         nota = "%s%s" % (PRODOTTO, "" if self.font["completo"]
                          else " · PT Sans Narrow non disponibile, reso in Helvetica")
         c.drawRightString(self.larghezza - MARGINE, MARGINE + 8, nota)
@@ -804,8 +819,16 @@ class Foglio:
     MAX_RIGHE_CELLA = 5
 
     def _font_cella(self, indice: int) -> str:
-        """Indirizzi e porte in monospazio (prima colonna), il resto nel corpo."""
-        return self.font["mono"] if indice == 0 else self.font["corpo"]
+        """Indirizzi e porte in monospazio (prima colonna), il resto nel corpo.
+
+        Il monospazio serve a incolonnare indirizzi IP e numeri di porta, che sono
+        quasi sempre la prima colonna dei report. In una tabella di PROSA -- una
+        scheda di prodotto, un elenco di aree funzionali -- fa l'effetto opposto:
+        `tabella(mono_prima=False)` lo disattiva per quella tabella.
+        """
+        if indice == 0 and getattr(self, "_mono_prima", True):
+            return self.font["mono"]
+        return self.font["corpo"]
 
     @staticmethod
     def _cella(valore):
@@ -1118,7 +1141,8 @@ class Foglio:
         return disegnate, y, abbreviata
 
     def tabella(self, intestazioni, righe, larghezze=None, allineamento=None,
-                nota_vuota="Nessun dato per questo intervallo.", colonne=1):
+                nota_vuota="Nessun dato per questo intervallo.", colonne=1,
+                mono_prima=True):
         """Tabella con testatina colorata, righe alternate e intestazione ripetuta.
 
         `colonne=2` affianca due blocchi della stessa tabella, come le pagine di un
@@ -1130,6 +1154,9 @@ class Foglio:
         if not righe:
             self.paragrafo(nota_vuota, INCHIOSTRO_3)
             return
+        # Vale per QUESTA tabella soltanto: si ripristina in fondo, altrimenti la
+        # scelta di una tabella cambierebbe l'aspetto di tutte quelle dopo.
+        self._mono_prima = bool(mono_prima)
         pesi = list(larghezze) if larghezze else [1.0] * len(intestazioni)
         allineamento = allineamento or ["l"] * len(intestazioni)
 
@@ -1182,6 +1209,9 @@ class Foglio:
         self.c.setLineWidth(.5)
         self.c.line(MARGINE, self.y + 8, self.larghezza - MARGINE, self.y + 8)
         self.y -= 10
+        # Si ripristina il valore predefinito: la scelta vale per la tabella appena
+        # disegnata, non per quelle che seguono.
+        self._mono_prima = True
         if abbreviata:
             self._nota_abbreviazione()
 

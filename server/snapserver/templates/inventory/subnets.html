@@ -112,6 +112,123 @@
 
 <div class="tab-pane fade show active" id="pane-subnet" role="tabpanel"
      aria-labelledby="tab-subnet">
+
+{# --------------------------------------------------------------------------- #}
+{# Sospensione per BLOCCO di indirizzi.                                         #}
+{#                                                                              #}
+{# Su un perimetro di trecento subnet, sospendere una sede significa spuntare    #}
+{# trenta righe sparse su tre pagine della tabella: si sbaglia, e non si sbaglia #}
+{# in modo evidente -- resta una subnet accesa e nessuno se ne accorge.          #}
+{# --------------------------------------------------------------------------- #}
+{% if has_role('tenant_admin') %}
+<div class="card mb-3">
+  <div class="card-header">
+    <h3 class="card-title mb-0">
+      <i class="bi bi-pause-circle me-1"></i> Sospendere o riattivare un blocco intero
+    </h3>
+  </div>
+  <div class="card-body">
+    <p class="small text-body-secondary mb-3" style="max-width:75ch">
+      Si scrive un blocco di indirizzi &mdash; per esempio <code>10.58.0.0/16</code>
+      &mdash; e il prodotto trova da solo <strong>tutte le subnet del perimetro
+      contenute in quel blocco</strong>, qualunque sia la loro maschera. Prima di
+      cambiare qualcosa mostra l'elenco esatto di cio' che cambierebbe.
+    </p>
+    <form method="post" action="{{ url_for('inventory.subnets_blocco') }}"
+          class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="azione" value="anteprima">
+      <div class="col-12 col-md-5">
+        <label class="form-label small mb-1" for="blocco-cidr">Blocco di indirizzi</label>
+        <input type="text" class="form-control form-control-sm" id="blocco-cidr"
+               name="cidr" required placeholder="10.58.0.0/16"
+               value="{{ anteprima.cidr if anteprima else '' }}"
+               pattern="[0-9a-fA-F:.]+/[0-9]+"
+               aria-describedby="blocco-aiuto">
+        <div class="form-text" id="blocco-aiuto">
+          Va bene anche un indirizzo dentro il blocco: <code>10.58.3.7/16</code>.
+        </div>
+      </div>
+      <div class="col-12 col-md-4">
+        <label class="form-label small mb-1" for="blocco-stato">Che cosa fare</label>
+        <select class="form-select form-select-sm" id="blocco-stato" name="state">
+          <option value="off" {{ 'selected' if anteprima and not anteprima.attiva }}>
+            Sospendere (le sonde smettono di scansionarle)
+          </option>
+          <option value="on" {{ 'selected' if anteprima and anteprima.attiva }}>
+            Riattivare
+          </option>
+        </select>
+      </div>
+      <div class="col-12 col-md-3">
+        <button type="submit" class="btn btn-sm btn-outline-primary w-100">
+          <i class="bi bi-search me-1"></i> Vedi che cosa cambierebbe
+        </button>
+      </div>
+    </form>
+
+    {% if anteprima %}
+    {# L'anteprima non ha cambiato niente: e' il momento in cui si decide. #}
+    <hr class="my-3">
+    {% if not anteprima.da_cambiare %}
+    <div class="alert alert-info mb-0">
+      <i class="bi bi-info-circle me-1"></i>
+      Le <strong>{{ anteprima.contenute|length }}</strong> subnet contenute in
+      <code>{{ anteprima.cidr }}</code> sono gia' tutte
+      {{ 'attive' if anteprima.attiva else 'sospese' }}: non c'e' niente da cambiare.
+    </div>
+    {% else %}
+    <div class="alert {{ 'alert-warning' if not anteprima.attiva else 'alert-success' }}">
+      <h4 class="h6 mb-2">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        {{ anteprima.da_cambiare|length }}
+        subnet su {{ anteprima.contenute|length }} trovate in
+        <code>{{ anteprima.cidr }}</code> verrebbero
+        {{ 'riattivate' if anteprima.attiva else 'sospese' }}
+      </h4>
+      <p class="small mb-2">
+        {% if anteprima.attiva %}
+        Le sonde riprenderanno a scansionare questi indirizzi alla passata successiva.
+        {% else %}
+        Le sonde smetteranno di scansionare questi indirizzi. I dispositivi gia'
+        trovati <strong>restano in inventario</strong>: si smette di guardarli, non si
+        cancella niente.
+        {% endif %}
+      </p>
+      <div class="d-flex flex-wrap gap-1 mb-3" style="max-height:12rem; overflow:auto">
+        {% for v in anteprima.da_cambiare %}
+        <span class="badge text-bg-light border font-monospace" style="font-size:.72rem">
+          {{ v.cidr }}{% if v.label %} · {{ v.label }}{% endif %}
+        </span>
+        {% endfor %}
+      </div>
+      <form method="post" action="{{ url_for('inventory.subnets_blocco') }}"
+            class="d-inline">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="azione" value="applica">
+        <input type="hidden" name="cidr" value="{{ anteprima.cidr }}">
+        <input type="hidden" name="state" value="{{ 'on' if anteprima.attiva else 'off' }}">
+        <button type="submit"
+                class="btn btn-sm {{ 'btn-success' if anteprima.attiva else 'btn-warning' }}"
+                {% if not anteprima.attiva %}data-confirm-destructive{% endif %}
+                data-confirm="{{ 'Riattivare' if anteprima.attiva else 'Sospendere' }}
+                              {{ anteprima.da_cambiare|length }} subnet contenute in
+                              {{ anteprima.cidr }}?">
+          <i class="bi bi-check2 me-1"></i>
+          {{ 'Riattiva' if anteprima.attiva else 'Sospendi' }}
+          queste {{ anteprima.da_cambiare|length }}
+        </button>
+      </form>
+      <a href="{{ url_for('inventory.subnets') }}" class="btn btn-sm btn-outline-secondary">
+        Annulla
+      </a>
+    </div>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h3 class="card-title mb-0"><i class="bi bi-diagram-3 me-1"></i> Subnet dichiarate ({{ subnets|length }})</h3>

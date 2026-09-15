@@ -10,6 +10,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}SIEM{% endblock %}
 {% block page_icon %}bi-file-earmark-ruled{% endblock %}
@@ -78,7 +79,7 @@
               <td><span class="badge text-bg-{{ {'critical':'danger','high':'danger','medium':'warning','low':'info','info':'secondary'}[a.severity] }}">
                 {{ severity_labels[a.severity] }}</span></td>
               <td class="small">{{ a.title }}</td>
-              <td class="small">{{ a.node_ip or a.host or a.src_ip or '-' }}</td>
+              <td class="small">{{ snap_indirizzo(a.node_ip or a.host or a.src_ip) }}</td>
               <td class="small">
                 {% if a.ti_refs_json and a.ti_refs_json != 'null' and a.ti_refs_json != '[]' %}
                 <span class="badge text-bg-danger" title="riscontri correlati">
@@ -286,7 +287,7 @@
             {{ e.severity }}</span></td>
           <td class="small">{{ event_kinds.get(e.event_kind, e.event_kind) }}</td>
           <td class="small font-monospace">{{ e.host or '-' }}</td>
-          <td class="small font-monospace">{{ e.src_ip or '-' }}</td>
+          <td class="small">{{ snap_indirizzo(e.src_ip) }}</td>
           <td class="small">{{ e.username or '-' }}</td>
           <td class="small" style="min-width:22rem;white-space:normal;word-break:break-word">
             {{ e.message }}</td>
@@ -335,7 +336,7 @@
           <td><span class="badge text-bg-{{ {'open':'danger','ack':'warning','closed':'secondary','false_positive':'secondary'}[a.status] }}">
             {{ alert_statuses[a.status] }}</span></td>
           <td class="small">{{ a.title }}</td>
-          <td class="small font-monospace">{{ a.node_ip or a.host or a.src_ip or '-' }}</td>
+          <td class="small">{{ snap_indirizzo(a.node_ip or a.host or a.src_ip) }}</td>
           <td class="small">
             {% if a.ti_refs_json and a.ti_refs_json not in ('null', '[]') %}
             <span class="badge text-bg-danger"><i class="bi bi-link-45deg"></i> nodo esposto</span>

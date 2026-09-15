@@ -1,0 +1,65 @@
+{#
+  snap server - Console remota di una sonda: macchine con agente
+
+  Le schede vengono dall'unica pagina lunga che c'era prima: sono state SPOSTATE, non
+  riscritte. Ciascuna porta con se' la decisione che l'ha prodotta -- che cosa non
+  viaggia col battito, che cosa e' un'assenza dichiarata e non uno zero.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<div class="row g-3">
+  {# ------------------------------------------------------------------------ #}
+  {# AGENTI DI MACCHINA che riferiscono a questa sonda.                        #}
+  {# ------------------------------------------------------------------------ #}
+  {% if consolle and consolle.get('agenti_macchina') %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h2 class="h6 mb-0"><i class="bi bi-pc me-1"></i> Macchine con agente</h2>
+        <span class="badge text-bg-light border">
+          {{ consolle.agenti_macchina|length }}
+        </span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>MACCHINA</th><th>SISTEMA</th><th>STATO</th><th>ULTIMO INVIO</th></tr></thead>
+            <tbody>
+              {% for v in consolle.agenti_macchina %}
+              <tr>
+                <td class="small">{{ v.hostname or v.uid }}</td>
+                <td class="small">{{ v.sistema or '—' }}</td>
+                <td><span class="badge text-bg-{{ 'success' if v.stato == 'attivo' else 'secondary' }}">
+                  {{ v.stato }}</span></td>
+                <td class="small">{{ v.ultimo_invio|ago if v.ultimo_invio else 'mai' }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer small text-body-secondary">
+        L'emissione di un token per una macchina nuova resta sulla console locale della
+        sonda: produce una credenziale che si vede una volta sola, e farla tornare qui
+        significherebbe conservarla sul server.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not (consolle and consolle.get('agenti_macchina')) %}
+  <div class="col-12">
+    <div class="alert alert-info mb-0">
+      <p class="mb-1"><strong>Nessuna macchina con agente riferisce a questa sonda.</strong></p>
+      <p class="mb-0 small">
+        L'agente si installa sulla macchina e si registra presso la sonda con un token
+        emesso in sede: e' una delle tre cose che da qui non si possono fare, perche'
+        quel token si vede una volta sola.
+      </p>
+    </div>
+  </div>
+  {% endif %}
+</div>

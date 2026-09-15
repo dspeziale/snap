@@ -91,7 +91,7 @@ import urllib.request
 from collections import deque
 from datetime import datetime, timezone
 
-VERSIONE = "1.2.2"
+VERSIONE = "1.2.6"
 PROTOCOLLO = "SNAP-AGENT/1"
 UTC_FORMAT = "%Y-%m-%d %H:%M:%S"
 
@@ -412,6 +412,10 @@ class Raccolta:
             "sistema": platform.system(),
             "versione_sistema": platform.version(),
             "rilascio": platform.release(),
+            # La DISTRIBUZIONE, che non e' il kernel. Serve a sapere fino a quando
+            # quel sistema riceve correzioni: il kernel non lo dice (vedi
+            # `_distribuzione`).
+            "distribuzione": self._distribuzione(),
             "architettura": platform.machine(),
             "python": platform.python_version(),
             "agente": VERSIONE,
@@ -421,6 +425,80 @@ class Raccolta:
             "indirizzi": self._indirizzi(),
         }
         return base
+
+    def _distribuzione(self) -> dict:
+        """Quale distribuzione, e quale release. Vuoto dichiarato se non si sa.
+
+        PERCHE' NON BASTA IL KERNEL. `platform.release()` da' "6.1.0-18-amd64": e' un
+        kernel, e il supporto lo da' la DISTRIBUZIONE. Debian 12 e Ubuntu 22.04
+        possono avere lo stesso kernel e fine supporto lontane anni; da un kernel non
+        si ricava nessuna data, ed e' proprio la data che serve per pianificare gli
+        aggiornamenti.
+
+        Su Linux si legge `/etc/os-release`, che e' uno standard: dieci righe di
+        `CHIAVE=valore`, sempre nello stesso posto, anche sulle distribuzioni che non
+        usano systemd. Nel container si legge quello della MACCHINA (`_ospite`), non
+        quello dell'immagine: altrimenti si riferirebbe la distribuzione del
+        container, che non e' il sistema da aggiornare.
+
+        Su Windows la versione e l'edizione stanno gia' in `_ferro_windows`
+        (`edizione`, `build`): qui si riporta la stessa cosa in forma unificata, cosi'
+        chi legge trova un solo campo per entrambi i sistemi.
+        """
+        sistema = platform.system()
+        if sistema == "Windows":
+            # LA BUILD, non il nome. "Windows 11" non ha una fine supporto: ce l'ha
+            # la singola versione (21H2, 24H2...), e dal nome non si ricava. La build
+            # si': 26100 e' la 24H2, 22631 e' la 23H2. L'agente riporta il NUMERO e
+            # basta -- la corrispondenza con la versione la tiene il server, dove sta
+            # gia' il catalogo del ciclo di vita.
+            edizione, build = "", ""
+            try:
+                nome_esteso, build = platform.win32_ver()[:2]
+                edizione = nome_esteso
+            except (AttributeError, OSError):
+                pass
+            return {"tipo": "windows", "nome": platform.system(),
+                    "versione": platform.release(),
+                    "build": (build or "").rsplit(".", 1)[-1] or None,
+                    "completo": ("Windows %s build %s" % (edizione, build.rsplit(".", 1)[-1])
+                                 if edizione and build else None),
+                    "motivo": "" if build else
+                              "la build non e' leggibile: resta il solo nome, da cui"
+                              " non si ricava una fine supporto"}
+        if sistema != "Linux":
+            return {"tipo": None, "nome": None, "versione": None, "completo": None,
+                    "motivo": "distribuzione non applicabile su %s" % (sistema or "?")}
+
+        percorsi = ("/etc/os-release", "/usr/lib/os-release")
+        for percorso in percorsi:
+            try:
+                with open(_ospite(percorso), "r", encoding="utf-8",
+                          errors="ignore") as file:
+                    testo = file.read()
+            except OSError:
+                continue
+            valori = {}
+            for riga in testo.splitlines():
+                if "=" not in riga or riga.lstrip().startswith("#"):
+                    continue
+                chiave, _, valore = riga.partition("=")
+                valori[chiave.strip()] = valore.strip().strip('"').strip("'")
+            if not valori:
+                continue
+            return {
+                "tipo": (valori.get("ID") or "").lower() or None,
+                "nome": valori.get("NAME") or valori.get("ID") or None,
+                "versione": valori.get("VERSION_ID") or None,
+                # PRETTY_NAME e' quello che il riconoscimento del ciclo di vita legge
+                # meglio: "Debian GNU/Linux 12 (bookworm)", "Ubuntu 22.04.5 LTS".
+                "completo": valori.get("PRETTY_NAME") or None,
+                "motivo": "",
+            }
+
+        return {"tipo": None, "nome": None, "versione": None, "completo": None,
+                "motivo": "nessuno fra %s leggibile: la distribuzione non e'"
+                          " dichiarata da questa macchina" % ", ".join(percorsi)}
 
     def _hostname(self) -> str:
         """Il nome della MACCHINA, non quello del container.
@@ -1037,9 +1115,17 @@ class Raccolta:
         """
         sistema = platform.system()
         if sistema == "Windows":
+            # `$_.LastLogon` stampato cosi' com'e' esce nel formato e nel fuso
+            # DI QUESTA MACCHINA: e' l'unica data del prodotto che non nasca in
+            # UTC, e in tabella non sarebbe confrontabile con le altre. Si
+            # converte qui, che e' l'unico posto a conoscere il fuso locale --
+            # farlo dopo significherebbe indovinarlo.
             testo = _powershell(
                 "Get-LocalUser | ForEach-Object { [string]::Join('|', @($_.Name,"
-                " $_.Enabled, $_.PasswordNeverExpires, $_.LastLogon)) }")
+                " $_.Enabled, $_.PasswordNeverExpires,"
+                " $(if ($_.LastLogon) {"
+                " $_.LastLogon.ToUniversalTime().ToString("
+                "'yyyy-MM-dd HH:mm:ss') }))) }")
             utenze = []
             for riga in _righe(testo):
                 pezzi = (riga.split("|") + [""] * 4)[:4]

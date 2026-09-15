@@ -147,6 +147,94 @@ def fmt_datetime_tz(value) -> str:
     return "%s (%s)" % (moment.strftime("%d/%m/%Y %H:%M"), moment.tzname() or "UTC")
 
 
+def nome_della_rete(indirizzo) -> str:
+    """Il nome della rete di un indirizzo pubblico, per un suggerimento a comparsa.
+
+    Stringa vuota quando non si sa: chi la usa mostra allora l'indirizzo e basta,
+    come prima. Non interroga mai internet -- legge solo la cache, che un thread di
+    fondo riempie da se' -- e quindi non puo' rallentare una pagina ne' impedirne
+    l'apertura in una rete senza uscita.
+    """
+    from flask import g
+
+    if not indirizzo:
+        return ""
+    testo = str(indirizzo).strip()
+    # Memoria per RICHIESTA: in una tabella lo stesso indirizzo compare piu' volte, e
+    # cinquanta righe farebbero cinquanta letture per un dato che si ripete. Non oltre
+    # la richiesta: la cache la aggiorna un thread, e un ricordo piu' lungo mostrerebbe
+    # "non si sa" di una rete gia' risolta.
+    memoria = getattr(g, "_snap_reti", None)
+    if memoria is None:
+        memoria = {}
+        g._snap_reti = memoria
+    if testo in memoria:
+        return memoria[testo]
+
+    try:
+        from .rete_pubblica import etichetta
+
+        valore = etichetta(testo)
+    except Exception:  # noqa: BLE001 - un suggerimento non fa mai fallire una pagina
+        # Non si registra a livello di avviso: capita a ogni riga di una tabella, e
+        # riempirebbe il diario con la stessa riga mille volte. Il servizio ha il
+        # proprio stato, ed e' li' che si guarda se non funziona.
+        valore = ""
+    memoria[testo] = valore
+    return valore
+
+
+def costruttore_della_scheda(mac) -> str:
+    """Chi ha fatto questa scheda di rete, per un suggerimento a comparsa.
+
+    Stringa vuota quando non si sa -- catalogo non ancora caricato, prefisso non
+    assegnato -- e chi la usa mostra allora il MAC e basta, come prima. Non interroga
+    nessuno: e' una ricerca su un prefisso di sei caratteri.
+    """
+    from flask import g
+
+    if not mac:
+        return ""
+    testo = str(mac).strip()
+    # Memoria per RICHIESTA, come per i nomi delle reti: in una tabella lo stesso MAC
+    # compare piu' volte, e le schede dello stesso modello condividono il prefisso.
+    memoria = getattr(g, "_snap_costruttori", None)
+    if memoria is None:
+        memoria = {}
+        g._snap_costruttori = memoria
+    if testo in memoria:
+        return memoria[testo]
+    try:
+        from .mac_costruttori import costruttore
+
+        valore = costruttore(testo)
+    except Exception:  # noqa: BLE001 - un suggerimento non fa mai fallire una pagina
+        valore = ""
+    memoria[testo] = valore
+    return valore
+
+
+def fmt_datetime_macchina(value) -> str:
+    """Una data che ARRIVA da una macchina, non dall'archivio.
+
+    Quasi tutte le date di questo prodotto nascono in UTC e si convertono qui. Fanno
+    eccezione quelle raccolte da un agente sul sistema operativo ospite: gli agenti
+    aggiornati le normalizzano alla fonte, quelli vecchi mandano ancora la forma
+    stampata da quella macchina -- nel formato e nel fuso suoi.
+
+    Cio' che non si converte si MOSTRA DICENDOLO. Nasconderla perderebbe l'unica
+    informazione disponibile; mostrarla senza dire niente la farebbe leggere come se
+    fosse nel fuso di chi guarda, che e' il difetto da cui si e' partiti.
+    """
+    from .db import parse_utc
+
+    if not value:
+        return "-"
+    if parse_utc(value) is not None:
+        return fmt_datetime(value)
+    return "%s (ora della macchina)" % value
+
+
 def fmt_relative(value) -> str:
     """Distanza dall'istante corrente in forma leggibile (es. '3 min fa')."""
     from .db import parse_utc, utc_now
@@ -251,6 +339,9 @@ def register_template_filters(app) -> None:
     app.jinja_env.filters["dts"] = fmt_datetime_sec
     app.jinja_env.filters["d"] = fmt_date
     app.jinja_env.filters["dtz"] = fmt_datetime_tz
+    app.jinja_env.filters["dtm"] = fmt_datetime_macchina
+    app.jinja_env.filters["rete"] = nome_della_rete
+    app.jinja_env.filters["costruttore"] = costruttore_della_scheda
     app.jinja_env.filters["ago"] = fmt_relative
     # Data di calendario: si formatta, non si converte (vedi fmt_giorno_semplice).
     app.jinja_env.filters["giorno"] = fmt_giorno_semplice

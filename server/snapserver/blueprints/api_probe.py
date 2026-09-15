@@ -49,7 +49,27 @@ HEADER_PROBE = "X-Snap-Probe"
 # costosi e vanno ripetuti raramente.
 # Profili di sforzo ammessi. Il significato operativo e' definito sulla sonda
 # (snapprobe.scanner.EFFORT_PROFILES): qui si valida soltanto il valore.
-SCAN_EFFORTS = ("min", "med", "max")
+# I profili di sforzo ammessi, NELL'ORDINE in cui crescono. Devono coincidere con
+# `EFFORT_PROFILES` della sonda: e' lei a eseguirli, e un valore che il server accetta
+# e la sonda non conosce diventa una scelta che non fa niente. Una prova
+# (test_sforzi_scansione.py) pretende che le due meta' restino allineate -- perche'
+# erano divergenti e nessuno se ne era accorto.
+SCAN_EFFORTS = ("min", "four", "eight", "med", "max")
+
+# Quanti host in parallelo corrisponde a ciascun profilo, per scriverlo nei menu. Il
+# menu diceva "medio (2 thread)" e "massimo (4 thread)" quando erano 16 e 32: chi
+# sceglieva credeva di raddoppiare il carico e lo moltiplicava per otto.
+SCAN_EFFORT_WORKERS = {"min": 1, "four": 4, "eight": 8, "med": 16, "max": 32}
+
+# L'etichetta porta SEMPRE la cifra: e' l'unica cosa che chi sceglie legge, e senza
+# il numero la scelta si fa alla cieca.
+SCAN_EFFORT_LABELS = {
+    "min": "minimo — 1 host per volta",
+    "four": "4 host in parallelo — reti piccole o delicate",
+    "eight": "8 host in parallelo — compromesso",
+    "med": "medio — 16 host in parallelo",
+    "max": "massimo — 32 host in parallelo",
+}
 
 # Tempi massimi per host proposti nella console. L'elenco e' il medesimo che la
 # sonda propone nella propria interfaccia (snapprobe.scanner.HOST_TIMEOUT_CHOICES):
@@ -75,6 +95,12 @@ DEFAULT_SCAN_CADENCES = {
     # Ricognizione delle presenze sulle reti senza fili: riguarda solo le subnet
     # dichiarate `is_wifi`, e sulla sonda gira in un thread proprio (presence.py).
     "presence": 120,         # 2 minuti
+    # SCOPERTA DELLE RETI SENZA FILI, a parte e piu' frequente. Le presenze qui sopra
+    # rispondono a "chi c'e' adesso"; questa risponde a "che cosa c'e' su questa
+    # rete", con le porte e il riconoscimento. Tre giorni -- la cadenza del perimetro
+    # cablato -- su una rete in cui il DHCP riassegna di continuo fotografano un
+    # momento e lo spacciano per lo stato.
+    "discovery_wifi": 21600,  # 6 ore
 }
 
 

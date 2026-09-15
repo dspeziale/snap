@@ -7,6 +7,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import scheda as snap_scheda %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Nodo {{ node.ip }}{% endblock %}
 {% block page_icon %}bi-hdd{% endblock %}
@@ -146,7 +147,7 @@
           <dt class="col-5">Indirizzo MAC</dt>
           <dd class="col-7">
             {% if node.mac %}
-            {{ node.mac }}
+            {{ snap_scheda(node.mac) }}
             {# La PROVENIENZA del MAC non e' un dettaglio: "arp" significa che la sonda
                lo ha VISTO sul proprio segmento, "snmp:<apparato>" che gliel'ha
                RIFERITO un apparato di rete -- l'unico modo di averlo per una subnet

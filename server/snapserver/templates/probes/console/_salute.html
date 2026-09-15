@@ -1,0 +1,127 @@
+{#
+  snap server - Console remota di una sonda: salute e scadenze
+
+  Le schede vengono dall'unica pagina lunga che c'era prima: sono state SPOSTATE, non
+  riscritte. Ciascuna porta con se' la decisione che l'ha prodotta -- che cosa non
+  viaggia col battito, che cosa e' un'assenza dichiarata e non uno zero.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+<div class="row g-3">
+  {# ------------------------------------------------------------------------ #}
+  {# SCADENZE DELLE FASI: la stessa tabella della pagina Salute della sonda.    #}
+  {# ------------------------------------------------------------------------ #}
+  {% if consolle and consolle.get('scadenze') %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-alarm me-1"></i> Quanto manca a ciascuna fase</h2>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <thead><tr><th>FASE</th><th>BERSAGLI</th><th>ULTIMA</th><th>SCADE</th></tr></thead>
+            <tbody>
+              {% for v in consolle.scadenze %}
+              <tr>
+                <td><span class="badge text-bg-secondary">{{ v.fase }}</span></td>
+                <td class="text-end small">{{ v.bersagli }}</td>
+                <td class="small">{{ v.ultima|dt if v.ultima else 'mai' }}</td>
+                <td class="small {{ 'text-warning' if v.manca_sec is not none and v.manca_sec < 0 }}">
+                  {% if v.manca_sec is none %}appena possibile
+                  {% elif v.manca_sec < 0 %}scaduta da {{ ((-v.manca_sec)/3600)|round(1) }} h
+                  {% else %}fra {{ (v.manca_sec/3600)|round(1) }} h{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card-footer small text-body-secondary">
+        La scoperta si conta per subnet: con molte subnet le scadenze sono altrettante
+        e il perimetro si ricensisce a scaglioni. Una fase scaduta e' in coda, non ferma.
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# QUANTO OCCUPA LA SONDA. Arriva col battito, come tutto il resto: la sonda sta in
+     casa del cliente e nessuno andra' a guardarle il disco prima che si riempia. Le
+     sonde registrate prima di questa versione non lo mandano ancora, e il riquadro
+     non compare: e' un'assenza dichiarata, non uno zero. #}
+  {% set archivio = (consolle.archivio or {}) if consolle else {} %}
+  {% if archivio.get('byte') %}
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-header">
+        <h2 class="h6 mb-0"><i class="bi bi-database me-1"></i> Archivio della sonda</h2>
+      </div>
+      <div class="card-body">
+        <dl class="row mb-0 small">
+          <dt class="col-6 fw-normal text-body-secondary">Occupazione</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.byte|bytes }}
+            <span class="text-body-secondary">({{ archivio.tabelle }} tabelle)</span>
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Righe</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.righe|intero }}
+            {%- if not archivio.get('righe_esatte') %}
+            <span class="text-body-secondary">(stimate)</span>
+            {%- endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Disco libero sulla sonda</dt>
+          <dd class="col-6 mb-1">
+            {{ archivio.disco_libero|bytes if archivio.get('disco_libero')
+               else 'non misurabile' }}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Crescita al giorno</dt>
+          <dd class="col-6 mb-1">
+            {% if archivio.get('crescita_giorno') is not none %}
+            {{ archivio.crescita_giorno|bytes }}
+            {% else %}
+            <span class="text-body-secondary" title="una crescita e' una differenza fra
+              due misure: la sonda ne ha {{ archivio.get('campioni', 0) }}">non ancora nota</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Si riempie fra</dt>
+          <dd class="col-6 mb-1">
+            {% set giorni = archivio.get('giorni_al_riempimento') %}
+            {% if giorni %}
+            <span class="{{ 'text-danger' if giorni < 60
+                            else ('text-warning' if giorni < 180 else '') }}">
+              {{ giorni|round(0)|int }} giorni</span>
+            {% else %}
+            <span class="text-body-secondary">non previsto</span>
+            {% endif %}
+          </dd>
+          <dt class="col-6 fw-normal text-body-secondary">Occupano di piu'</dt>
+          <dd class="col-6 mb-0">
+            {% for t in archivio.get('maggiori') or [] %}
+            <span class="d-block font-monospace" style="font-size:.72rem">
+              {{ t.tabella }} &middot; {{ t.byte|bytes }}
+            </span>
+            {% else %}
+            <span class="text-body-secondary">&mdash;</span>
+            {% endfor %}
+          </dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if not (consolle and consolle.get('scadenze')) and not (consolle.archivio or {}).get('byte') %}
+  <div class="col-12">
+    <div class="alert alert-info mb-0">
+      Questa sonda non manda ancora scadenze ne' occupazione dell'archivio: e' una
+      versione precedente alla {{ versione_minima }}. E' un'assenza dichiarata, non
+      uno zero.
+    </div>
+  </div>
+  {% endif %}
+</div>

@@ -688,11 +688,80 @@ def seed_db_command() -> None:
         click.echo(line)
 
 
+@click.command("carica-oui")
+@click.option("--file", "percorso", default=None,
+              help="File del registro IEEE gia' scaricato (oui.txt, mam.txt, oui36.txt).")
+@click.option("--blocco", default="MA-L", show_default=True,
+              help="Quale blocco contiene il file: MA-L, MA-M o MA-S.")
+def carica_oui_command(percorso: str | None, blocco: str) -> None:
+    """Carica il catalogo dei costruttori delle schede di rete.
+
+    Senza `--file` lo scarica dal registro IEEE. CON `--file` lo legge da disco, ed
+    e' il modo di popolarlo dove il server non ha uscita verso internet: si porta il
+    file a mano. Un prodotto che funziona solo con internet non e' utilizzabile in
+    mezza PA.
+    """
+    from .mac_costruttori import importa_testo, scarica, stato
+
+    if percorso:
+        with open(percorso, "r", encoding="utf-8", errors="replace") as file:
+            quante = importa_testo(file.read(), blocco)
+        click.echo("Caricate %d voci dal blocco %s" % (quante, blocco))
+    else:
+        esito = scarica()
+        for tipo, quante in esito["blocchi"].items():
+            click.echo("  %-5s %d voci" % (tipo, quante))
+        for tipo, errore in esito["errori"].items():
+            click.echo("  %-5s NON scaricato: %s" % (tipo, errore))
+        click.echo("Totale caricate: %d" % esito["caricate"])
+    click.echo("Catalogo: %d prefissi" % stato()["prefissi"])
+
+
+@click.command("raccogli-reti")
+@click.option("--risolvi", default=0, show_default=True,
+              help="Quanti indirizzi risolvere subito. 0 = solo la raccolta, al resto"
+                   " pensa il servizio di fondo.")
+def raccogli_reti_command(risolvi: int) -> None:
+    """Raccolta STRAORDINARIA dei nomi delle reti pubbliche.
+
+    Guarda tutto l'archivio invece dei soli ultimi due giorni e mette in coda ogni
+    indirizzo pubblico che vi compare. Si fa una volta per installazione: a regime ci
+    pensa il servizio di fondo, che guarda indietro di due giorni a ogni giro.
+
+    Con `--risolvi N` ne risolve anche N subito, rispettando la pausa fra le
+    richieste: i registri regionali limitano il ritmo, e superarlo fa bloccare
+    l'indirizzo del server, non la singola richiesta.
+    """
+    from .rete_pubblica import giro, raccogli_tutto, stato
+
+    nuovi = raccogli_tutto()
+    conti = stato()
+    click.echo("Messi in coda %d indirizzi nuovi." % nuovi)
+    click.echo("In coda adesso: %d (gia' risolti: %d)."
+               % (conti["in_coda"], conti["risolti"]))
+
+    fatti = 0
+    while risolvi and fatti < risolvi:
+        esito = giro(limite=min(20, risolvi - fatti))
+        if not (esito["risolti"] + esito["falliti"]):
+            break                      # la coda e' vuota o nessuno e' ancora dovuto
+        fatti += esito["risolti"] + esito["falliti"]
+        click.echo("  risolti %d, non riusciti %d (%d/%d)"
+                   % (esito["risolti"], esito["falliti"], fatti, risolvi))
+
+    finale = stato()
+    click.echo("Reti conosciute: %d. Indirizzi risolti: %d su %d."
+               % (finale["intervalli"], finale["risolti"],
+                  finale["indirizzi_visti"]))
+
+
 def init_app(app) -> None:
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(seed_db_command)
     app.cli.add_command(backfill_check_metrics_command)
+    app.cli.add_command(carica_oui_command)
+    app.cli.add_command(raccogli_reti_command)
 
 
 def paginate(base_sql: str, count_sql: str, params: tuple | list, page: int, per_page: int = 25) -> dict:

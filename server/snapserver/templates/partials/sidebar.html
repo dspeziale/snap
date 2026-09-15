@@ -21,6 +21,7 @@
 {% set in_rete = endpoint in ('inventory.nodes', 'inventory.node', 'inventory.network_map',
                               'inventory.network_map_graphic', 'inventory.network_map_zones',
                               'monitor.status', 'inventory.certificates',
+                              'inventory.sistemi',
                               'monitor.changes', 'inventory.subnets',
                               'inventory.presence', 'inventory.presence_trend',
                               'inventory.zone_index',
@@ -210,6 +211,12 @@
               </a>
             </li>
             <li class="nav-item">
+              <a href="{{ url_for('inventory.sistemi') }}"
+                 class="nav-link {% if endpoint == 'inventory.sistemi' %}active{% endif %}">
+                <i class="nav-icon bi bi-pc-display"></i><p>Sistemi operativi</p>
+              </a>
+            </li>
+            <li class="nav-item">
               <a href="{{ url_for('inventory.certificates') }}"
                  class="nav-link {% if endpoint == 'inventory.certificates' %}active{% endif %}">
                 <i class="nav-icon bi bi-shield-lock"></i><p>Certificati TLS</p>
@@ -241,6 +248,15 @@
               <a href="{{ url_for('inventory.deliveries') }}"
                  class="nav-link {% if endpoint in ('inventory.deliveries', 'inventory.delivery') %}active{% endif %}">
                 <i class="nav-icon bi bi-cloud-arrow-down"></i><p>Dati dalle sonde</p>
+              </a>
+            </li>
+            {# Di chi sono gli indirizzi di INTERNET che compaiono nei dati. Sta fra
+               le voci della rete perche' parla di reti, anche se non sono quelle del
+               cliente: e' il rovescio del perimetro. #}
+            <li class="nav-item">
+              <a href="{{ url_for('inventory.reti_pubbliche') }}"
+                 class="nav-link {% if endpoint == 'inventory.reti_pubbliche' %}active{% endif %}">
+                <i class="nav-icon bi bi-globe2"></i><p>Reti pubbliche</p>
               </a>
             </li>
           </ul>

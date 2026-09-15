@@ -1076,6 +1076,32 @@ class ProbeStore:
             ).fetchall()
         return [dict(r) for r in righe]
 
+    def recent_scan_states(self, limite: int = 200) -> list[dict]:
+        """Le esecuzioni piu' recenti, per la tabella della pagina di stato.
+
+        Esiste accanto a `all_scan_states` e non al suo posto: le scadenze hanno
+        bisogno di TUTTE le righe per sapere quando tocca a ciascun bersaglio, mentre
+        una tabella che ne mostra dieci alla volta non ha nessun motivo di riceverne
+        cinquemila.
+        """
+        with self._connect() as connection:
+            righe = connection.execute(
+                "SELECT * FROM scan_state ORDER BY last_run_at DESC LIMIT %d"
+                % int(limite)
+            ).fetchall()
+        return [dict(r) for r in righe]
+
+    def scan_states_count(self) -> int:
+        """Quante esecuzioni sono registrate in tutto.
+
+        Serve a scrivere "200 su 5.320" invece di "200": un elenco troncato che non
+        dichiara di esserlo fa credere che quello sia tutto.
+        """
+        with self._connect() as connection:
+            riga = connection.execute(
+                "SELECT count(*) AS n FROM scan_state").fetchone()
+        return int((riga or {"n": 0})["n"] or 0)
+
     def record_scan(self, target: str, stage: str, status: str, detail: str = "") -> None:
         """Annota l'esecuzione di una fase. Chiamata prima del conferimento, cosi'
         che un arresto della sonda non faccia ripetere il lavoro gia' svolto."""
@@ -1874,6 +1900,50 @@ class ProbeStore:
             "al": (totale or {})["al"],
             "per_protocollo": [dict(r) for r in protocolli],
         }
+
+    def traffico_coppie_ip_mac(self, minimo: int = 2) -> list:
+        """Le coppie indirizzo/scheda osservate nel traffico conservato.
+
+        L'aggregazione si fa in SQL e non in Python: le righe sono decine di migliaia
+        e portarle tutte in memoria per contarle sarebbe lo stesso errore della
+        pagina di stato, che leggeva cinquemila righe per mostrarne dieci.
+
+        `minimo` scarta le coppie viste una volta sola: un singolo pacchetto puo'
+        essere un residuo o una lettura storta, e non e' abbastanza per dire che una
+        scheda appartiene a un indirizzo.
+        """
+        with self._connect() as connection:
+            righe = connection.execute(
+                "SELECT sorgente AS ip, mac_sorgente AS mac, COUNT(*) AS quanti,"
+                " MAX(visto_at) AS ultimo"
+                " FROM local_traffico"
+                " WHERE sorgente IS NOT NULL AND sorgente <> ''"
+                "   AND mac_sorgente IS NOT NULL AND mac_sorgente <> ''"
+                " GROUP BY sorgente, mac_sorgente"
+                " HAVING COUNT(*) >= ?"
+                " ORDER BY COUNT(*) DESC", (int(minimo),)).fetchall()
+        return [dict(r) for r in righe]
+
+    def nodo_senza_mac(self, ip: str) -> bool:
+        """Vero se il nodo esiste in inventario e non ha ancora una scheda nota."""
+        with self._connect() as connection:
+            riga = connection.execute(
+                "SELECT mac FROM local_nodes WHERE ip = ?", (ip,)).fetchone()
+        return bool(riga) and not (riga["mac"] or "").strip()
+
+    def assegna_mac_osservato(self, ip: str, mac: str) -> bool:
+        """Scrive nel nodo la scheda osservata nel traffico, se non ne aveva una.
+
+        NON sovrascrive un MAC gia' noto: quello viene da ARP durante una scansione,
+        che e' una prova diretta sul segmento, mentre questo e' dedotto dal traffico.
+        Se i due discordano non e' un aggiornamento, e' una RILEVAZIONE -- e la fa il
+        sensore, non questa funzione.
+        """
+        with self._connect() as connection:
+            esito = connection.execute(
+                "UPDATE local_nodes SET mac = ? WHERE ip = ?"
+                " AND (mac IS NULL OR mac = '')", (mac, ip))
+        return bool(getattr(esito, "rowcount", 0))
 
     def traffico_conversazioni(self, limite: int = 100) -> list:
         """Chi parla con chi: e' il modo in cui si naviga una rete.

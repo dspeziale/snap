@@ -1103,6 +1103,60 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
   margin-top: .25rem;
 }
 
+/* --- Il menu della sonda dentro la console remota ------------------------ *
+ *
+ * E' il menu della SONDA, non una seconda barra del server: la barra del server si
+ * ritira mentre si sta qui (snap-sonda-console.js), e questo prende il suo posto.
+ * Riusa le classi di AdminLTE (`sidebar-menu`, `nav-treeview`) perche' deve
+ * comportarsi allo stesso modo -- i gruppi si aprono e si chiudono con il codice
+ * gia' caricato, senza righe in piu'.
+ *
+ * Il fondo e' bianco dentro la cornice arancione: un menu trasparente su quel velo
+ * arancione perdeva il confine con il contenuto, e a colpo d'occhio non si capiva
+ * dove finisse il menu e cominciasse la pagina. */
+.snap-sonda-menu {
+  background-color: var(--bs-body-bg);
+  border: 1px solid rgba(253, 126, 20, .35);
+  border-radius: .5rem;
+  padding: .35rem .25rem;
+  /* Appiccicato: le pagine della sonda sono lunghe, e un menu che scorre via
+   * costringe a risalire ogni volta che si cambia vista. L'offset tiene conto
+   * dell'intestazione fissa del server. */
+  position: sticky;
+  top: 4.5rem;
+}
+
+.snap-sonda-menu .nav-header {
+  color: #b45309;
+  font-size: .68rem;
+  letter-spacing: .04em;
+  padding: .35rem .75rem .2rem;
+  word-break: break-all;
+}
+
+.snap-sonda-menu .nav-link {
+  font-size: .82rem;
+  padding: .32rem .6rem;
+}
+
+.snap-sonda-menu .nav-link.active {
+  background-color: rgba(253, 126, 20, .18);
+  color: #7c2d12;
+  font-weight: 600;
+}
+
+.snap-sonda-menu .nav-treeview .nav-link {
+  padding-left: 1.5rem;
+}
+
+/* Sotto il breakpoint lg il menu sta sopra la pagina e non di fianco: appiccicarlo
+ * li' significherebbe coprire il contenuto che si sta leggendo. */
+@media (max-width: 991.98px) {
+  .snap-sonda-menu {
+    position: static;
+  }
+}
+
 /* L'accesso alla console dalle pagine delle sonde: bottone arancione pieno, non
  * un collegamento discreto. E' il punto in cui si cambia macchina. */
 .btn-snap-sonda {
@@ -1230,4 +1284,15 @@ table.dataTable > tbody > tr.selected > * { box-shadow: none; }
   margin-top: .2rem;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
+}
+
+/* --- Indirizzi esterni con il nome della rete --------------------------- *
+ *
+ * Il tratteggio sotto e' l'invito a fermarsi sopra: senza un segno, un suggerimento
+ * esiste solo per chi ci passa per caso. Discreto, perche' la maggior parte degli
+ * indirizzi di una tabella sono interni e non ne hanno uno -- e una tabella in cui
+ * poche righe gridano si legge peggio di una in cui nessuna lo fa. */
+.snap-ip-esterno {
+  border-bottom: 1px dotted var(--bs-secondary-color);
+  cursor: help;
 }

@@ -123,6 +123,13 @@ def candidati(scanner) -> list[dict]:
             ipaddress.ip_address(indirizzo)
         except ValueError:
             return
+        # IL PERIMETRO VINCOLA ANCHE QUESTA PROVA. Le fonti 2 e 3 pescano dai nodi
+        # gia' in archivio, che restano anche quando la loro subnet viene sospesa --
+        # e devono restare, perche' sospendere non cancella. Senza questo controllo
+        # una subnet sospesa avrebbe continuato a ricevere una GET di sysDescr: la
+        # prova non passa da nmap, quindi non incontra il guardiano di `_run_task`.
+        if not snmp_raccolta.dentro_al_perimetro(store, indirizzo):
+            return
         visti.setdefault(indirizzo, [])
         if motivo not in visti[indirizzo]:
             visti[indirizzo].append(motivo)

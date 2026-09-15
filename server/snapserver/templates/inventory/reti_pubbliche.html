@@ -1,0 +1,221 @@
+{#
+  snap server - Di chi sono gli indirizzi di internet che compaiono nei dati.
+
+  PERCHE' QUESTA PAGINA ESISTE. Il nome della rete compare in un suggerimento sugli
+  indirizzi esterni, e un suggerimento VUOTO non dice perche' lo sia: servizio spento,
+  server senza uscita verso internet, oppure indirizzo semplicemente non ancora
+  risolto. Sono tre cose diverse con tre rimedi diversi, e senza un posto in cui
+  guardarle si conclude che "non funziona" e si smette di fidarsi anche dei nomi che
+  ci sono.
+
+  remarks: Autore: Daniele Speziale - Data: 2026-09-15
+  copyright: (c) 2024-26 DS Consulting
+  license: MIT
+#}
+
+{% extends 'base.html' %}
+{% block title %}Reti pubbliche{% endblock %}
+{% block page_icon %}bi-globe2{% endblock %}
+{% block page_title %}Reti pubbliche{% endblock %}
+{% block page_subtitle %}
+  Di chi sono gli indirizzi di internet che compaiono negli eventi, negli allarmi e
+  nel registro delle azioni.
+{% endblock %}
+
+{% block content %}
+
+{% if not attivo %}
+<div class="alert alert-secondary">
+  <i class="bi bi-plug me-1"></i>
+  <strong>Risoluzione disattivata</strong> da configurazione
+  (<span class="font-monospace">SNAP_SERVER_RETE_PUBBLICA=0</span>). Gli indirizzi
+  esterni si mostrano come si sono sempre mostrati, senza suggerimento: il prodotto
+  funziona per intero anche cosi'.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">RETI CONOSCIUTE</p>
+      <p class="snap-stat-value mb-0">{{ conti.intervalli|intero }}</p>
+      <p class="snap-stat-foot mb-0">intervalli, non indirizzi</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">INDIRIZZI RISOLTI</p>
+      <p class="snap-stat-value mb-0">{{ conti.risolti|intero }}</p>
+      <p class="snap-stat-foot mb-0">su {{ conti.indirizzi_visti|intero }} incontrati</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">IN CODA</p>
+      <p class="snap-stat-value mb-0">{{ conti.in_coda|intero }}</p>
+      <p class="snap-stat-foot mb-0">un giro ogni {{ cadenza_minuti }} minuti</p>
+    </div></div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card snap-stat h-100"><div class="card-body py-2">
+      <p class="snap-stat-label mb-1">SENZA NOME</p>
+      <p class="snap-stat-value mb-0">{{ conti.rinunciati|intero }}</p>
+      <p class="snap-stat-foot mb-0">provati e non trovati</p>
+    </div></div>
+  </div>
+</div>
+
+{# UN INTERVALLO COPRE MIGLIAIA DI INDIRIZZI: e' la ragione per cui "reti conosciute"
+   e' molto minore di "indirizzi risolti", e senza dirlo il confronto fra i due numeri
+   sembrerebbe un errore. #}
+<div class="card mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0"><i class="bi bi-diagram-2 me-1"></i> Reti riconosciute</h2>
+    <span class="small text-body-secondary">
+      le {{ reti|length }} aggiornate piu' di recente
+    </span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="25">
+        <thead><tr><th>RETE</th><th>TITOLARE</th><th>NOME</th><th>PAESE</th>
+                   <th>ASN</th><th>AGGIORNATA</th></tr></thead>
+        <tbody>
+          {% for r in reti %}
+          <tr>
+            <td class="small font-monospace">{{ r.cidr or '—' }}</td>
+            <td class="small">{{ r.holder or '—' }}</td>
+            <td class="small text-body-secondary">{{ r.name or '—' }}</td>
+            <td class="small">{{ r.country or '—' }}</td>
+            <td class="small">{{ r.asn or '—' }}</td>
+            <td class="small text-nowrap">{{ r.fetched_at|ago }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-body-secondary py-4">
+            Nessuna rete ancora riconosciuta. Si riempie da sola: a ogni giro il
+            servizio raccoglie gli indirizzi pubblici comparsi di recente negli
+            eventi, negli allarmi e nel registro delle azioni, e li risolve.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    Si conserva l'<strong>intervallo</strong> e non il singolo indirizzo: il registro
+    risponde &laquo;da A a B e' di X&raquo;, quindi una sola interrogazione copre tutti
+    gli indirizzi di quella rete &mdash; spesso migliaia. Una risposta vale
+    {{ giorni_di_validita }} giorni: le assegnazioni cambiano di rado.
+  </div>
+</div>
+
+{# CIO' CHE NON SI E' RISOLTO, col motivo. E' la meta' che spiega un suggerimento
+   vuoto: senza, la pagina mostrerebbe solo cio' che e' andato bene. #}
+<div class="card">
+  <div class="card-header">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-question-circle me-1"></i> Indirizzi ancora senza nome
+    </h2>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0" data-snap-table data-page-size="15">
+        <thead><tr><th>INDIRIZZO</th><th>TENTATIVI</th><th>MOTIVO</th>
+                   <th>VISTO L'ULTIMA VOLTA</th><th>PROSSIMO TENTATIVO</th></tr></thead>
+        <tbody>
+          {% for r in irrisolti %}
+          <tr>
+            <td class="small font-monospace">{{ r.ip }}</td>
+            <td class="small text-end">{{ r.attempts }}</td>
+            <td class="small text-body-secondary">{{ r.error or 'non ancora provato' }}</td>
+            <td class="small text-nowrap">{{ r.last_seen_at|ago }}</td>
+            <td class="small text-nowrap">
+              {% if r.next_try_at %}{{ r.next_try_at|dt }}
+              {% else %}<span class="text-body-secondary">nessuno: si e' rinunciato</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5" class="text-center text-body-secondary py-4">
+            Nessun indirizzo in attesa.
+          </td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    I tentativi si <strong>diradano</strong> invece di ripetersi: un registro che
+    risponde &laquo;non trovato&raquo; continuera' a rispondere cosi', e riprovare ogni
+    pochi minuti e' il modo di farsi bloccare l'indirizzo del server. Dopo quattro
+    tentativi si smette, ma la riga resta &mdash; &laquo;provato e non trovato&raquo; e'
+    un'informazione diversa da &laquo;non ci ha mai pensato nessuno&raquo;.
+  </div>
+</div>
+
+{# IL CATALOGO DELLE SCHEDE DI RETE sta su questa pagina e non su una propria:
+   risponde alla stessa domanda -- "di chi e' questo?" -- una volta per gli indirizzi
+   e una per le schede. Due pagine quasi identiche si confondono. #}
+<div class="card mt-3">
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="h6 mb-0">
+      <i class="bi bi-cpu me-1"></i> Costruttori delle schede di rete
+    </h2>
+    <span class="badge text-bg-{{ 'success' if schede.prefissi else 'secondary' }}">
+      {{ schede.prefissi|intero }} prefissi
+    </span>
+  </div>
+  <div class="card-body">
+    {% if schede.prefissi %}
+    <dl class="row mb-0 small">
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">Aggiornato</dt>
+      <dd class="col-7 col-md-9">{{ schede.aggiornato_at|dt }}</dd>
+      <dt class="col-5 col-md-3 fw-normal text-body-secondary">Per blocco</dt>
+      <dd class="col-7 col-md-9">
+        {% for voce in schede.per_blocco %}
+        <span class="badge text-bg-light border me-1">{{ voce.block }}: {{ voce.n|intero }}</span>
+        {% endfor %}
+      </dd>
+    </dl>
+    {% else %}
+    <p class="small text-body-secondary mb-2">
+      <strong>Catalogo non ancora caricato.</strong> I MAC si mostrano senza il nome
+      di chi ha fatto la scheda, come si sono sempre mostrati.
+    </p>
+    {% endif %}
+    <p class="small text-body-secondary mb-0">
+      Si carica dalla riga di comando del server:
+      <span class="font-monospace">flask carica-oui</span> lo scarica dal registro
+      IEEE, oppure
+      <span class="font-monospace">flask carica-oui --file oui.txt</span> lo legge da
+      un file gia' scaricato &mdash; ed e' il modo che conta, perche' dove il server
+      non ha uscita verso internet il file si porta a mano.
+    </p>
+  </div>
+  <div class="card-footer small text-body-secondary">
+    I prefissi non sono tutti lunghi uguale: lo IEEE assegna blocchi grandi (MA-L),
+    medi (MA-M) e piccoli (MA-S). Un blocco piccolo e' condiviso fra molte aziende,
+    quindi si cerca dal prefisso <strong>piu' lungo</strong> al piu' corto: fermarsi ai
+    primi tre byte darebbe il nome di chi ha rivenduto il blocco invece di quello
+    dell'azienda.
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-header">
+    <h2 class="h6 mb-0"><i class="bi bi-shield-check me-1"></i> Che cosa esce da qui</h2>
+  </div>
+  <div class="card-body small">
+    <p>
+      Al registro pubblico arriva <strong>l'indirizzo e nient'altro</strong>: mai chi
+      ha parlato con quell'indirizzo, ne' quando, ne' da quale rete del cliente.
+    </p>
+    <p class="mb-0">
+      Gli indirizzi <strong>privati non escono mai</strong>. Sono quelli della rete del
+      cliente, e sono anche gli unici che potrebbero identificare una postazione: il
+      servizio si rifiuta di chiederli, ed e' anche cio' che garantisce che questa
+      uscita verso internet non possa mai puntare a una sonda.
+    </p>
+  </div>
+</div>
+{% endblock %}

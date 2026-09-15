@@ -212,7 +212,7 @@
                 <td class="small text-body-secondary">
                   {% if utente.password_non_scade %}password che non scade{% endif %}
                   {% if utente.ultimo_accesso %}
-                  ultimo accesso {{ utente.ultimo_accesso }}
+                  ultimo accesso {{ utente.ultimo_accesso|dtm }}
                   {% endif %}
                   {% if utente.shell %}<span class="font-monospace">{{ utente.shell }}</span>{% endif %}
                 </td>

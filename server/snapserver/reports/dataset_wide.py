@@ -1678,6 +1678,131 @@ RE_FIRMA_DISABILITATA = re.compile(r"(?i)signing (?:disabled|not (?:enabled|supp
 RE_SMB1 = re.compile(r"(?i)\bSMBv?1(?:\.0)?\b|\bNT LM 0\.12\b")
 
 
+def fine_supporto(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
+    """I sistemi operativi del parco, con la data oltre la quale nessuno li corregge.
+
+    NON E' IL REPORT DELLE VULNERABILITA' e non e' quello della vetusta' delle
+    interfacce web: e' la causa a monte di entrambi. Un sistema fuori supporto non
+    riceve piu' correzioni, quindi ogni vulnerabilita' che esce da quel giorno resta
+    aperta per sempre e nessuna patch la chiudera'. Si consegna a chi pianifica le
+    migrazioni, non a chi applica le patch.
+
+    OGNI RIGA PORTA L'ORIGINE DEL PROPRIO VERDETTO. Un sistema letto dentro la
+    macchina (agente, SMB, SNMP) e uno dedotto da un'impronta di rete non valgono
+    uguale: nmap nomina la release da cui l'impronta fu raccolta, non quella
+    installata, e su una rete reale questo fa la differenza fra trecento migrazioni
+    fondate e trecento aperte per sbaglio. Il documento li tiene separati, e il
+    riepilogo conta le due cose distintamente.
+    """
+    from ..os_lifecycle import (GIORNI_DI_PREAVVISO, VERIFICATO_AL, riconosci,
+                                sistemi_dichiarati)
+
+    tenant_id = int(tenant["id"])
+    dati = _comune(tenant, zona, giorno_fine, giorni)
+
+    righe = query(
+        "SELECT n.id AS node_id, n.ip, n.hostname, n.device_label, n.device_type,"
+        " n.os_name, n.os_family, n.os_accuracy, n.last_seen_at,"
+        " COALESCE(s.cidr, '') AS cidr, COALESCE(s.zone, '') AS zona"
+        " FROM nodes n LEFT JOIN subnets s ON s.id = n.subnet_id"
+        " WHERE n.tenant_id = ? AND n.os_name IS NOT NULL AND n.os_name <> ''"
+        " ORDER BY inet(n.ip)", (tenant_id,))
+
+    # Le macchine che DICHIARANO il proprio sistema. L'abbinamento e' per NODO (vedi
+    # `sistemi_dichiarati`): confrontare l'impronta di nmap con cio' che la macchina
+    # dice di se' sono due stringhe che non combaciano mai, e produceva uno zero che
+    # sembrava una misura.
+    dichiarati = sistemi_dichiarati(tenant_id)
+
+    nodi = []
+    for r in righe:
+        # Per un nodo che dichiara si giudica la stringa DICHIARATA, non l'impronta:
+        # scrivere "dichiarato" accanto a un verdetto dedotto sarebbe peggio che
+        # scrivere "stimato".
+        dichiarato = dichiarati.get(int(r["node_id"]))
+        sorgente = "agente" if dichiarato else "nmap"
+        esito = riconosci(dichiarato or r["os_name"], r["os_family"] or "", sorgente)
+        voce = dict(r)
+        voce["dichiarato"] = dichiarato
+        voce.update({k: esito[k] for k in
+                     ("prodotto", "release", "nome", "rilascio", "fine_supporto",
+                      "fine_supporto_esteso", "stato", "giorni", "perche",
+                      "fiducia", "nota")})
+        nodi.append(voce)
+
+    fuori = [v for v in nodi if v["stato"] == "fuori_supporto"]
+    scadenza = [v for v in nodi if v["stato"] == "in_scadenza"]
+    ignoti = [v for v in nodi if v["stato"] == "non_determinabile"]
+
+    # I piu' vecchi per primi: e' l'ordine in cui si interviene.
+    fuori.sort(key=lambda v: (v["fine_supporto"] or "", v["ip"]))
+    scadenza.sort(key=lambda v: (v["fine_supporto"] or "", v["ip"]))
+
+    # Raggruppati per RELEASE, non per nodo: una migrazione si pianifica per
+    # release -- "trenta macchine da Windows 10 22H2" e' un progetto, trenta righe
+    # con lo stesso contenuto sono un elenco da ricomporre a mano.
+    per_release = {}
+    for v in nodi:
+        chiave = (v["prodotto"] or "-", v["release"] or v["os_name"])
+        gruppo = per_release.setdefault(chiave, {
+            "prodotto": v["prodotto"], "release": v["release"],
+            "nome": v["nome"] or v["os_name"], "osservato": v["os_name"],
+            "rilascio": v["rilascio"], "fine_supporto": v["fine_supporto"],
+            "fine_supporto_esteso": v["fine_supporto_esteso"],
+            "stato": v["stato"], "giorni": v["giorni"], "fiducia": v["fiducia"],
+            "perche": v["perche"], "nodi": 0, "dichiarati": 0, "zone": set()})
+        gruppo["nodi"] += 1
+        if v["fiducia"] == "dichiarato":
+            gruppo["dichiarati"] += 1
+        if v["zona"]:
+            gruppo["zone"].add(v["zona"])
+
+    ordine = {"fuori_supporto": 0, "in_scadenza": 1, "ambiguo": 2,
+              "supportato": 3, "non_determinabile": 4}
+    gruppi = sorted(per_release.values(),
+                    key=lambda g: (ordine.get(g["stato"], 9), -g["nodi"]))
+    for gruppo in gruppi:
+        gruppo["zone"] = sorted(gruppo["zone"])
+
+    # Le ragioni per cui un sistema non si determina sono POCHE e si ripetono su
+    # decine di righe: raggrupparle le rende leggibili e dice quanto pesa ciascuna.
+    # Riga per riga si ripetevano identiche, troncate a meta' frase.
+    per_motivo = {}
+    for v in nodi:
+        if v["stato"] != "non_determinabile" or not v["perche"]:
+            continue
+        gruppo = per_motivo.setdefault(v["perche"], {
+            "perche": v["perche"], "nodi": 0, "sistemi": set()})
+        gruppo["nodi"] += 1
+        gruppo["sistemi"].add(v["os_name"])
+    motivi = sorted(per_motivo.values(), key=lambda g: -g["nodi"])
+    for gruppo in motivi:
+        gruppo["sistemi"] = sorted(gruppo["sistemi"])
+
+    dati.update({
+        "motivi": motivi,
+        "nodi": nodi,
+        "gruppi": gruppi,
+        "fuori": fuori,
+        "in_scadenza": scadenza,
+        "non_determinabili": ignoti,
+        "verificato_al": VERIFICATO_AL,
+        "preavviso": GIORNI_DI_PREAVVISO,
+        "conteggi": {
+            "esaminati": len(nodi),
+            "fuori": len(fuori),
+            "in_scadenza": len(scadenza),
+            "supportati": sum(1 for v in nodi if v["stato"] == "supportato"),
+            "non_determinabili": len(ignoti),
+            # Quanti verdetti poggiano su una dichiarazione della macchina e non su
+            # una deduzione: e' la misura di quanto ci si puo' fidare del documento.
+            "dichiarati": sum(1 for v in nodi if v["fiducia"] == "dichiarato"),
+            "release_fuori": sum(1 for g in gruppi if g["stato"] == "fuori_supporto"),
+        },
+    })
+    return dati
+
+
 def smb(tenant: dict, zona, giorno_fine, giorni: int = 30) -> dict:
     """Che cosa dichiara di se' il parco Windows: firma, versioni, condivisioni."""
     tenant_id = int(tenant["id"])

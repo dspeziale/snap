@@ -10,6 +10,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Quadro SOC{% endblock %}
 {% block page_icon %}bi-shield-shaded{% endblock %}
@@ -758,7 +759,7 @@
           <tr>
             <td class="small text-nowrap">{{ a.created_at|dt }}</td>
             <td class="small">{{ a.actor or '-' }}</td>
-            <td class="small font-monospace">{{ a.source_ip or '-' }}</td>
+            <td class="small">{{ snap_indirizzo(a.source_ip) }}</td>
             <td class="small text-body-secondary">{{ (a.description or '')[:70] }}</td>
           </tr>
           {% endfor %}
