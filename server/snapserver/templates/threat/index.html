@@ -10,6 +10,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Threat Intelligence{% endblock %}
 {% block page_icon %}bi-shield-exclamation{% endblock %}
@@ -206,7 +207,7 @@
               <div class="small text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
               <a href="{{ url_for('inventory.node', node_id=n.node_id) }}"
-                 class="font-monospace">{{ n.ip }}</a>
+                 class="font-monospace">{{ snap_indirizzo(n.ip) }}</a>
               {% if n.kev %}
               <span class="badge text-bg-danger ms-1" title="vulnerabilita' sfruttate
                     attivamente su questo dispositivo">KEV {{ n.kev }}</span>

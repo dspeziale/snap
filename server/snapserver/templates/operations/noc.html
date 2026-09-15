@@ -11,6 +11,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Quadro NOC{% endblock %}
 {% block page_icon %}bi-display{% endblock %}
@@ -130,7 +131,7 @@
               </span>
             </td>
             <td class="small fw-semibold">{{ r.check_name }}</td>
-            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(r.address) }}</td>
             <td class="small">{{ r.status }}</td>
             <td class="small text-body-secondary">{{ (r.detail or '')[:70] }}</td>
             <td class="small text-nowrap">
@@ -196,7 +197,7 @@
           {% for r in board.instabili %}
           <tr>
             <td class="small fw-semibold">{{ r.check_name }}</td>
-            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(r.address) }}</td>
             <td class="text-end">
               <span class="badge text-bg-warning">{{ r.cambi }}</span>
             </td>
@@ -249,7 +250,7 @@
               <div class="small text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
               <a href="{{ url_for('inventory.node', node_id=n.id) }}"
-                 class="font-monospace">{{ n.ip }}</a>
+                 class="font-monospace">{{ snap_indirizzo(n.ip) }}</a>
             </td>
             <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td class="small font-monospace">{{ n.subnet_cidr or '-' }}</td>
@@ -322,7 +323,7 @@
               <div class="small text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
               <a href="{{ url_for('inventory.node', node_id=n.id) }}"
-                 class="font-monospace">{{ n.ip }}</a>
+                 class="font-monospace">{{ snap_indirizzo(n.ip) }}</a>
             </td>
             <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td class="small font-monospace">{{ n.subnet_cidr or '-' }}</td>
@@ -364,7 +365,7 @@
           {% for r in board.lenti %}
           <tr>
             <td class="small fw-semibold">{{ r.check_name }}</td>
-            <td class="small font-monospace">{{ r.address }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(r.address) }}</td>
             <td class="text-end small">{{ r.esiti }}</td>
             <td class="text-end">{{ r.media }} ms</td>
             <td class="text-end small text-body-secondary">{{ r.massimo }} ms</td>

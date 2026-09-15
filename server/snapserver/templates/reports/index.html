@@ -11,6 +11,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Report e resoconti{% endblock %}
 {% block page_icon %}bi-file-earmark-pdf{% endblock %}
@@ -348,7 +349,7 @@
               </span>
             </td>
             <td class="small">{{ i.status }}</td>
-            <td class="font-monospace small">{{ i.address }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(i.address) }}</td>
             <td class="small">{{ i.controllo }}</td>
             <td class="small text-nowrap">{{ i.opened_at|dt }}</td>
             <td>

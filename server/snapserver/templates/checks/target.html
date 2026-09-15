@@ -10,12 +10,13 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}{{ target.name }}{% endblock %}
 {% block page_icon %}bi-bullseye{% endblock %}
 {% block page_title %}{{ target.name }}{% endblock %}
 {% block page_subtitle %}
-  <span class="font-monospace">{{ target.address }}</span>
+  <span class="font-monospace">{{ snap_indirizzo(target.address) }}</span>
   {% if target.description %} — {{ target.description }}{% endif %}
 {% endblock %}
 

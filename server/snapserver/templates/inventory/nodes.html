@@ -7,6 +7,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Nodi{% endblock %}
 {% block page_icon %}bi-hdd-network{% endblock %}
@@ -352,7 +353,7 @@
               {% if n.hostname %}
               <div class="small fw-normal text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
-              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ n.ip }}</a>
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ snap_indirizzo(n.ip) }}</a>
               {% if n.is_managed %}<i class="bi bi-shield-check text-success ms-1" title="gestito"></i>{% endif %}
             </td>
             <td class="small">

@@ -6,6 +6,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}Certificati TLS{% endblock %}
 {% block page_icon %}bi-shield-lock{% endblock %}
 {% block page_title %}Certificati TLS{% endblock %}
@@ -106,7 +107,7 @@
         <tr>
           <td class="small">
             <a href="{{ url_for('inventory.node', node_id=c.node_id) }}">
-              <span class="font-monospace">{{ c.ip }}</span></a>
+              <span class="font-monospace">{{ snap_indirizzo(c.ip) }}</span></a>
             {% if c.hostname %}<div class="text-body-secondary">{{ c.hostname }}</div>{% endif %}
           </td>
           <td class="small font-monospace">{{ c.port }}</td>

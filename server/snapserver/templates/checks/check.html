@@ -7,6 +7,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}{{ check.name }}{% endblock %}
 
@@ -14,7 +15,7 @@
 {% block page_title %}{{ check.name }}{% endblock %}
 {% block page_subtitle %}
   {{ kinds[check.kind] if check.kind in kinds else check.kind }} su
-  <span class="font-monospace">{{ check.address }}</span> — {{ check.description }}
+  <span class="font-monospace">{{ snap_indirizzo(check.address) }}</span> — {{ check.description }}
 {% endblock %}
 
 {% block content %}
@@ -302,7 +303,7 @@
           <dt class="col-5">Genere</dt>
           <dd class="col-7">{{ kinds[check.kind] if check.kind in kinds else check.kind }}</dd>
           <dt class="col-5">Bersaglio</dt>
-          <dd class="col-7 font-monospace">{{ check.address }}</dd>
+          <dd class="col-7 font-monospace">{{ snap_indirizzo(check.address) }}</dd>
           <dt class="col-5">Cadenza</dt>
           <dd class="col-7">{{ check.interval_seconds }} s</dd>
           <dt class="col-5">Tempo massimo</dt>

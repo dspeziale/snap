@@ -13,6 +13,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Ricerca{% endblock %}
 {% block page_icon %}bi-search{% endblock %}
@@ -91,7 +92,7 @@
                 <div class="small text-body-secondary">{{ r.hostname }}</div>
                 {% endif %}
                 <a href="{{ url_for('inventory.node', node_id=r.id) }}"
-                   class="font-monospace">{{ r.ip }}</a>
+                   class="font-monospace">{{ snap_indirizzo(r.ip) }}</a>
               </td>
               <td class="small font-monospace">{{ r.mac or '-' }}</td>
               <td class="small">
@@ -121,7 +122,7 @@
             {% for r in genere.righe %}
             <tr>
               <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
-                     class="font-monospace">{{ r.ip }}</a></td>
+                     class="font-monospace">{{ snap_indirizzo(r.ip) }}</a></td>
               <td class="small font-monospace">{{ r.protocol }}/{{ r.port }}</td>
               <td class="small">{{ r.service_name or '-' }}</td>
               <td class="small">{{ r.product or '-' }}</td>
@@ -138,7 +139,7 @@
             {% for r in genere.righe %}
             <tr>
               <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
-                     class="font-monospace">{{ r.ip }}</a></td>
+                     class="font-monospace">{{ snap_indirizzo(r.ip) }}</a></td>
               <td class="small">{{ r.kind }}</td>
               <td><span class="badge text-bg-{{ 'danger' if r.severity in ('critical','high')
                                                 else 'secondary' }}">{{ r.severity }}</span></td>
@@ -161,7 +162,7 @@
             {% for r in genere.righe %}
             <tr>
               <td><a href="{{ url_for('inventory.node', node_id=r.node_id) }}"
-                     class="font-monospace">{{ r.ip }}</a></td>
+                     class="font-monospace">{{ snap_indirizzo(r.ip) }}</a></td>
               <td class="small">{{ r.device_label or '-' }}</td>
               <td class="small font-monospace">{{ r.script_id }}</td>
               <td class="small text-body-secondary">{{ r.estratto|replace('\n', ' ') }}</td>
@@ -179,7 +180,7 @@
                 <a href="{{ url_for('checks.check', check_id=r.id) }}">{{ r.name }}</a>
               </td>
               <td class="small">{{ r.kind }}</td>
-              <td class="small font-monospace">{{ r.address }}</td>
+              <td class="small font-monospace">{{ snap_indirizzo(r.address) }}</td>
               <td class="small">
                 <span class="badge text-bg-{{ 'success' if r.is_enabled else 'secondary' }}">
                   {{ 'attivo' if r.is_enabled else 'sospeso' }}

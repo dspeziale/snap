@@ -10,6 +10,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}PSN &mdash; conferimenti{% endblock %}
 {% block page_icon %}bi-clock-history{% endblock %}
 {% block page_title %}Versioni del piano{% endblock %}
@@ -93,7 +94,7 @@
                 {{ c.tipo }}</span>
             </td>
             <td class="small">{{ c.subnet }}</td>
-            <td class="font-monospace small">{{ c.ip }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(c.ip) }}</td>
             <td class="small text-body-secondary">{{ c.prima or '—' }}</td>
             <td class="small">{{ c.dopo or '—' }}</td>
           </tr>

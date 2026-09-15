@@ -6,6 +6,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}PSN &mdash; tenant{% endblock %}
 {% block page_icon %}bi-buildings{% endblock %}
 {% block page_title %}Tenant PSN{% endblock %}
@@ -41,7 +42,7 @@
               {% endif %}
             </td>
             <td class="small">{{ t['state'] }}</td>
-            <td class="font-monospace small">{{ t['ip'] }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(t['ip']) }}</td>
             <td class="text-end">
               {% if t['database_count'] %}
                 <a href="{{ url_for('psn.databases', piano=piano['id']) }}">{{ t['database_count'] }}</a>

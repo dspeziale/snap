@@ -12,6 +12,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}Presenze{% endblock %}
 {% block page_icon %}bi-wifi{% endblock %}
 {% block page_title %}Presenze sulle Reti Senza Fili{% endblock %}
@@ -131,7 +132,7 @@
                 {{ p.identity_label }}
               </span>
             </td>
-            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(p.ip) }}</td>
             <td class="small">{{ p.last_seen_at|ago }}</td>
             <td class="small">{{ p.first_seen_at|dt }}</td>
             {# Lo storico sulla stessa riga: senza, non si distingue l'apparato che #}
@@ -287,7 +288,7 @@
                 {{ p.identity_label }}
               </span>
             </td>
-            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(p.ip) }}</td>
             <td class="small">{{ p.first_seen_at|dt }}</td>
             <td class="small">
               {{ p.last_seen_at|dt }}

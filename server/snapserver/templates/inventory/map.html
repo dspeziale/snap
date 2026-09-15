@@ -15,6 +15,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}Mappa della rete{% endblock %}
 {% block page_icon %}bi-diagram-3{% endblock %}
 {% block page_title %}Mappa della rete{% endblock %}
@@ -173,7 +174,7 @@
                   <li class="snap-albero-foglia">
                     <span class="snap-dot snap-dot-{{ 'online' if nodo.status == 'up' else 'offline' }}"></span>
                     <a href="{{ url_for('inventory.node', node_id=nodo.id) }}"
-                       class="font-monospace">{{ nodo.ip }}</a>
+                       class="font-monospace">{{ snap_indirizzo(nodo.ip) }}</a>
                     {% if nodo.hostname %}
                     <span class="small">{{ nodo.hostname }}</span>
                     {% endif %}

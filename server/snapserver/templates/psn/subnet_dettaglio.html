@@ -10,6 +10,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}PSN &mdash; {{ subnet['code'] }}{% endblock %}
 {% block page_icon %}bi-diagram-2{% endblock %}
 {% block page_title %}{{ subnet['code'] }} &mdash; {{ subnet['name'] }}{% endblock %}
@@ -78,7 +79,7 @@
         <tbody>
           {% for a in indirizzi %}
           <tr>
-            <td class="font-monospace">{{ a['ip'] }}</td>
+            <td class="font-monospace">{{ snap_indirizzo(a['ip']) }}</td>
             <td>
               {% if a['state'] == 'assegnato' %}
                 <span class="badge text-bg-primary">assegnato</span>
@@ -151,7 +152,7 @@
           {% for r in entranti %}
           <li class="list-group-item">
             {% if r['from_ip'] %}
-              <span class="font-monospace">{{ r['from_ip'] }}</span>
+              <span class="font-monospace">{{ snap_indirizzo(r['from_ip']) }}</span>
               {% if r['from_host'] %}<strong>{{ r['from_host'] }}</strong>{% endif %}
               {% if r['from_subnet'] %}
                 <span class="badge text-bg-light text-dark border">subnet {{ r['from_subnet'] }}</span>

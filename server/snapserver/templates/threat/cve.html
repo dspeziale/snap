@@ -10,6 +10,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}{{ cve.cve_id }}{% endblock %}
 {% block page_icon %}bi-shield-exclamation{% endblock %}
 {% block page_title %}{{ cve.cve_id }}{% endblock %}
@@ -129,7 +130,7 @@
           <tr>
             <td>
               <a href="{{ url_for('inventory.node', node_id=a.node_id) }}"
-                 class="font-monospace">{{ a.ip }}</a>
+                 class="font-monospace">{{ snap_indirizzo(a.ip) }}</a>
               {% if a.hostname %}
               <div class="small text-body-secondary">{{ a.hostname }}</div>{% endif %}
             </td>

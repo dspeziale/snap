@@ -113,7 +113,14 @@ def test_l_elenco_delle_fasi_provate_e_completo():
                "snmp", "smb", "vuln", "web"}
     # `raffica` non e' una fase a bersaglio proprio (copre ports+services+os in un
     # processo solo) e `presence` ha un cammino suo, provato piu' sotto.
-    dichiarate = set(DEFAULT_CADENCES) - {"raffica", "presence"}
+    #
+    # `discovery_wifi` non e' una fase: e' la CADENZA con cui si ricensiscono le
+    # subnet senza fili, e la fase che le scansiona resta `discovery` -- gia'
+    # nell'elenco. Escluderla non lascia scoperto niente, ed e' provato qui sotto
+    # (`test_una_subnet_sospesa_resta_ferma_anche_se_senza_fili`): la cadenza piu'
+    # corta rende una rete senza fili PIU' probabile da pescare, quindi e' proprio
+    # li' che un buco si vedrebbe.
+    dichiarate = set(DEFAULT_CADENCES) - {"raffica", "presence", "discovery_wifi"}
 
     assert dichiarate <= provate, (
         "fasi non coperte dalla prova sulle subnet sospese: %s"
@@ -327,3 +334,42 @@ def test_in_un_ciclo_intero_nessun_pacchetto_esce_verso_la_subnet_sospesa(
     # perche' la sonda non stava facendo niente.
     assert [b for b in usciti if b.startswith("10.20.10.")], (
         "nessun bersaglio lecito pianificato: la prova non ha provato nulla")
+
+def test_una_subnet_sospesa_resta_ferma_anche_se_senza_fili(probe_store):
+    """Le reti senza fili si ricensiscono ogni sei ore invece che ogni tre giorni: la
+    cadenza piu' corta le rende PIU' probabili da pescare, ed e' il punto in cui un
+    buco si vedrebbe per primo.
+
+    La prova costruisce il caso peggiore nell'ORDINE in cui accade davvero: prima la
+    subnet e' nel perimetro ed e' dichiarata senza fili -- quindi ha gia' la cadenza
+    corta -- e solo dopo il server la sospende. Marcarla senza fili DOPO la
+    sospensione non proverebbe niente: a quel punto non e' piu' nel perimetro, e
+    nessuna cadenza potrebbe raggiungerla comunque.
+    """
+    from snapprobe.scanner import NetworkScanner
+
+    probe_store.set_json("scan_subnets", [{"cidr": ATTIVA, "hosts": 254},
+                                          {"cidr": SOSPESA, "hosts": 254,
+                                           "wifi": True}])
+    for ip in ("10.58.7.5", "10.58.7.6"):
+        _nodo(probe_store, ip, porte=(80,))
+    scanner = NetworkScanner(probe_store, None, "prova")
+
+    # Prima della sospensione: e' senza fili e ha davvero la cadenza corta. Se questo
+    # non valesse, il resto della prova non starebbe provando quello che dice.
+    assert SOSPESA in scanner.reti_senza_fili()
+    assert scanner.cadenza_scoperta(SOSPESA) < scanner.cadenza_scoperta(ATTIVA)
+
+    # La sospensione, come la fa il server: la subnet esce dal perimetro consegnato.
+    probe_store.set_json("scan_subnets", [{"cidr": ATTIVA, "hosts": 254}])
+    scanner.invalidate_perimeter()
+
+    # Esce anche dall'elenco delle senza fili: la cadenza corta non ha piu' niente a
+    # cui applicarsi. I NODI pero' restano in archivio -- sospendere non cancella --
+    # quindi ogni cammino che pesca da li' deve filtrare da se'.
+    assert SOSPESA not in scanner.reti_senza_fili()
+    assert not _sospesi(scanner._targets_for("discovery") or [])
+
+    prossima = scanner.next_due()
+    assert not (prossima and prossima[1] == SOSPESA), (
+        "la scoperta successiva punta a una subnet sospesa: %s" % (prossima,))

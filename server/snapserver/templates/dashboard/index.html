@@ -24,6 +24,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}Dashboard{% endblock %}
 {% block page_icon %}bi-speedometer2{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
@@ -76,7 +77,7 @@
               <a href="{{ url_for('checks.incident', incident_id=i.id) }}"
                  class="text-decoration-none">{{ i.check_name }}</a>
             </td>
-            <td class="small font-monospace">{{ i.address }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(i.address) }}</td>
             <td class="small">
               <span class="badge text-bg-{{ 'danger' if i.status == 'open' else 'warning' }}">
                 {{ 'aperto' if i.status == 'open' else 'in carico' }}
@@ -395,7 +396,7 @@
                     {{ nodo.hostname or nodo.device_label or 'non identificato' }}
                   </a>
                 </td>
-                <td class="small font-monospace">{{ nodo.ip }}</td>
+                <td class="small font-monospace">{{ snap_indirizzo(nodo.ip) }}</td>
                 <td class="small text-end">
                   <span class="badge text-bg-{{ 'danger' if nodo.gravi else 'secondary' }}">{{ nodo.gravi }}</span>
                 </td>

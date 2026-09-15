@@ -11,6 +11,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}PSN &mdash; ricerca{% endblock %}
 {% block page_icon %}bi-search{% endblock %}
 {% block page_title %}Cerca nel piano{% endblock %}
@@ -85,7 +86,7 @@
         <tbody>
           {% for a in esiti.indirizzi %}
           <tr>
-            <td class="font-monospace">{{ a['ip'] }}</td>
+            <td class="font-monospace">{{ snap_indirizzo(a['ip']) }}</td>
             <td><span class="badge text-bg-{{ 'primary' if a['state'] == 'assegnato'
                         else ('success' if a['state'] == 'libero' else 'secondary') }}">
               {{ a['state'] }}</span></td>
@@ -169,7 +170,7 @@
           <tr>
             <td class="small fw-semibold">{{ s['label'] }}</td>
             <td class="small text-break">{{ s['url'] }}</td>
-            <td class="font-monospace small">{{ s['vip'] }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(s['vip']) }}</td>
             <td class="font-monospace small">{{ s['backends'] }}</td>
           </tr>
           {% endfor %}

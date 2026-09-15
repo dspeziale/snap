@@ -7,6 +7,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}Stato della rete{% endblock %}
 {% block page_icon %}bi-activity{% endblock %}
 {% block page_title %}Stato della Rete{% endblock %}
@@ -62,7 +63,7 @@
               {% if n.hostname %}
               <div class="fw-normal text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
-              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ n.ip }}</a>
+              <a href="{{ url_for('inventory.node', node_id=n.id) }}" class="text-decoration-none">{{ snap_indirizzo(n.ip) }}</a>
             </td>
             <td class="small">{{ n.device_label }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td class="small">{{ n.subnet_cidr or '-' }}</td>

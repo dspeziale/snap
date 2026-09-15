@@ -204,7 +204,7 @@
           <tr>
             <td class="small text-nowrap">{{ p.first_seen_at|ago }}</td>
             <td><a href="{{ url_for('inventory.node', node_id=p.node_id) }}"
-                   class="font-monospace">{{ p.ip }}</a></td>
+                   class="font-monospace">{{ snap_indirizzo(p.ip) }}</a></td>
             <td class="small">{{ p.device_label or 'non identificato' }}{% if (p.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td class="small font-monospace">{{ p.protocol }}/{{ p.port }}</td>
             <td class="small">{{ p.service_name or '-' }}</td>
@@ -245,7 +245,7 @@
               <tr>
                 <td class="small text-nowrap">{{ n.first_seen_at|ago }}</td>
                 <td><a href="{{ url_for('inventory.node', node_id=n.id) }}"
-                       class="font-monospace">{{ n.ip }}</a></td>
+                       class="font-monospace">{{ snap_indirizzo(n.ip) }}</a></td>
                 <td class="small">
                   {{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}
                   {%- if n.device_confidence %} ({{ n.device_confidence }}%){% endif %}
@@ -289,7 +289,7 @@
               <tr>
                 <td class="small text-nowrap">{{ c.created_at|ago }}</td>
                 <td><a href="{{ url_for('inventory.node', node_id=c.node_id) }}"
-                       class="font-monospace">{{ c.ip }}</a></td>
+                       class="font-monospace">{{ snap_indirizzo(c.ip) }}</a></td>
                 <td class="small">{{ c.kind }}</td>
                 <td class="small text-body-secondary">{{ (c.before_value or '-')[:26] }}</td>
                 <td class="small">{{ (c.after_value or '-')[:26] }}</td>
@@ -332,7 +332,7 @@
           {% for n in board.nodi_a_rischio %}
           <tr>
             <td><a href="{{ url_for('inventory.node', node_id=n.node_id) }}"
-                   class="font-monospace">{{ n.ip }}</a></td>
+                   class="font-monospace">{{ snap_indirizzo(n.ip) }}</a></td>
             <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td>
               <span class="badge text-bg-{{ 'danger' if n.peggiore in ('critical','high')
@@ -600,7 +600,7 @@
               {% if n.hostname %}
               <div class="text-body-secondary">{{ n.hostname }}</div>
               {% endif %}
-              {{ n.ip }}
+              {{ snap_indirizzo(n.ip) }}
             </td>
             <td class="small">{{ n.device_label or 'non identificato' }}{% if (n.device_type_source or 'auto') == 'manual' %}<i class="bi bi-person-check text-info ms-1" title="Tipo dichiarato dall'operatore"></i>{% endif %}</td>
             <td class="small font-monospace">{{ n.cidr or 'nessuna' }}</td>
@@ -637,7 +637,7 @@
         <tbody>
           {% for p in board.porte_sospette %}
           <tr>
-            <td class="font-monospace small">{{ p.ip }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(p.ip) }}</td>
             <td class="small font-monospace">{{ p.protocol }}/{{ p.port }}</td>
             <td class="small">{{ p.service_name or '-' }}</td>
             <td class="small text-body-secondary">{{ (p.suspect_reason or '')[:70] }}</td>

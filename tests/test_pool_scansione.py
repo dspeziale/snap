@@ -113,7 +113,11 @@ def test_i_tre_profili_esistono_e_sono_ordinati():
     """I numeri sono cambiati con la misura del ritmo di nmap (vedi EFFORT_PROFILES):
     cio' che il controllo pretende e' l'ORDINE crescente e la struttura -- un host
     per compito, perche' il budget di pacchetti di nmap e' per processo."""
-    assert set(EFFORT_PROFILES) == {"min", "med", "max"}
+    # Cinque da quando fra "una per volta" e "sedici in parallelo" si sono aggiunti
+    # 4 e 8: il salto era troppo grande per una rete piccola o delicata. L'elenco
+    # esatto e la corrispondenza con cio' che il server offre stanno in
+    # test_sforzi_scansione.py; qui conta che ci siano e che siano ordinati.
+    assert set(EFFORT_PROFILES) == {"min", "four", "eight", "med", "max"}
     lavoratori = [EFFORT_PROFILES[n]["workers"] for n in ("min", "med", "max")]
     assert lavoratori == sorted(lavoratori), "i profili devono crescere di sforzo"
     assert len(set(lavoratori)) == 3, "tre profili identici non sono tre profili"

@@ -7,6 +7,7 @@
 #}
 
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% from 'partials/_indirizzo.html' import scheda as snap_scheda %}
 {% import 'partials/tabs.html' as schede %}
 {% block title %}Nodo {{ node.ip }}{% endblock %}
@@ -640,7 +641,7 @@
             <a class="badge text-bg-light text-dark border text-decoration-none"
                href="{{ url_for('inventory.node', node_id=simile.id) }}"
                title="{{ simile.device_label }}{% if simile.hostname %} - {{ simile.hostname }}{% endif %}">
-              <span class="font-monospace">{{ simile.ip }}</span>
+              <span class="font-monospace">{{ snap_indirizzo(simile.ip) }}</span>
               <span class="text-body-secondary">{{ simile.device_label }}</span>
             </a>
             {% endfor %}
@@ -1226,7 +1227,7 @@
             <td class="small">{{ p.last_seen_at|dt }}
               <div class="text-body-secondary">{{ p.last_seen_at|ago }}</div>
             </td>
-            <td class="small font-monospace">{{ p.ip }}</td>
+            <td class="small font-monospace">{{ snap_indirizzo(p.ip) }}</td>
             <td class="small">
               <span class="badge text-bg-{{ 'success' if p.identity_certainty == 'certa'
                                             else 'warning' if p.identity_certainty == 'probabile'

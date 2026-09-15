@@ -10,6 +10,7 @@
   license: MIT
 #}
 {% extends 'base.html' %}
+{% from 'partials/_indirizzo.html' import indirizzo as snap_indirizzo %}
 {% block title %}PSN &mdash; servizi{% endblock %}
 {% block page_icon %}bi-globe2{% endblock %}
 {% block page_title %}Servizi pubblicati{% endblock %}
@@ -35,12 +36,12 @@
             </td>
             <td class="small fw-semibold">{{ s['label'] }}</td>
             <td class="small text-break">{{ s['url'] }}</td>
-            <td class="font-monospace small">{{ s['vip'] }}</td>
+            <td class="font-monospace small">{{ snap_indirizzo(s['vip']) }}</td>
             <td class="small">
               {% for b in catena.get(s['id'], []) %}
               <div>
                 <a href="{{ url_for('psn.subnet', subnet_id=b['id']) }}"
-                   class="font-monospace">{{ b['ip'] }}</a>
+                   class="font-monospace">{{ snap_indirizzo(b['ip']) }}</a>
                 {% if b['hostname'] %}<strong>{{ b['hostname'] }}</strong>{% endif %}
                 <span class="text-body-secondary">subnet {{ b['code'] }}</span>
               </div>
